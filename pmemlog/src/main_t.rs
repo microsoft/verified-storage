@@ -84,6 +84,11 @@ verus! {
             recovery_view()(self.wrpm@)
         }
 
+        pub closed spec fn pm_impervious_to_corruption(self) -> bool
+        {
+            self.wrpm.impervious_to_corruption()
+        }
+
         pub closed spec fn valid(self) -> bool {
             &&& self.untrusted_log_impl.consistent_with_pm2(self.wrpm@)
             &&& recovery_view()(self.wrpm@).is_Some()
@@ -116,6 +121,7 @@ verus! {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl@ == recovery_view()(pm@)
+                        &&& trusted_log_impl.pm_impervious_to_corruption() == pm.impervious_to_corruption()
                     },
                     Err(InfiniteLogErr::CRCMismatch) => !pm.impervious_to_corruption(),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space }) => pm@.len() < required_space,
@@ -139,6 +145,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
+                self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
                 match result {
                     Ok(offset) =>
                         match (old(self)@, self@) {
@@ -178,6 +185,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
+                self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
                 match result {
                     Ok(offset) => {
                         match (old(self)@, self@) {
@@ -215,20 +223,20 @@ verus! {
 
         /// This function reads `len` bytes from byte position `pos`
         /// in the log. It returns a vector of those bytes.
-        pub exec fn read(&mut self, pos: u64, len: u64) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), InfiniteLogErr>)
+        pub exec fn read(&self, pos: u64, len: u64) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), InfiniteLogErr>)
             requires
-                old(self).valid(),
+                self.valid(),
                 pos + len <= u64::MAX
             ensures
-                self.valid(),
-                self@ == old(self)@,
-                match (old(self)@.unwrap()) {
+                match (self@.unwrap()) {
                     AbstractInfiniteLogState{ head: head, log: log, .. } =>
                         match result {
                             Ok((bytes, addrs)) => {
                                 &&& pos >= head
                                 &&& pos + len <= head + log.len()
                                 &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
+                                &&& self.pm_impervious_to_corruption() ==>
+                                       bytes@ == log.subrange(pos - head, pos + len - head)
                             },
                             Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
                                 &&& pos < head
@@ -253,20 +261,18 @@ verus! {
 
         /// This function returns a tuple consisting of the head and
         /// tail positions of the log.
-        pub exec fn get_head_and_tail(&mut self) -> (result: Result<(u64, u64, u64), ()>)
+        pub exec fn get_head_and_tail(&self) -> (result: Result<(u64, u64, u64), InfiniteLogErr>)
             requires
-                old(self).valid()
+                self.valid()
             ensures
-                self.valid(),
-                self@ == old(self)@,
                 match result {
                     Ok((result_head, result_tail, result_capacity)) => {
-                        let inf_log = old(self)@.unwrap();
+                        let inf_log = self@.unwrap();
                         &&& result_head == inf_log.head
                         &&& result_tail == inf_log.head + inf_log.log.len()
                         &&& result_capacity == inf_log.capacity
                     },
-                    Err(_) => true
+                    Err(_) => false
                 }
         {
             // We don't need to provide permission to write to the
