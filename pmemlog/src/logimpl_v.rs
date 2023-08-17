@@ -123,6 +123,20 @@ verus! {
         }
     }
 
+    pub open spec fn permissions_depend_only_on_recovery_view<P: CheckPermission<Seq<u8>>>(perm: &P) -> bool
+    {
+        forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.check_permission(s1) == perm.check_permission(s2)
+    }
+
+    pub proof fn lemma_same_permissions<P: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &P)
+        requires 
+            recovery_view()(pm1) =~= recovery_view()(pm2),
+            perm.check_permission(pm1),
+            permissions_depend_only_on_recovery_view(perm)
+        ensures 
+            perm.check_permission(pm2)
+    {}     
+
     pub proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader) 
         requires 
             pm.len() > contents_offset,
@@ -1445,16 +1459,12 @@ verus! {
                 match result {
                     Ok(log_impl) => log_impl.consistent_with_pm2(wrpm@),
                     Err(InfiniteLogErr::CRCMismatch) => !old(wrpm).impervious_to_corruption(),
-                    Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space }) => wrpm@.len() < required_space,
                     _ => false
                 }
         {
             let pm = wrpm.get_pm_ref();
             let device_size = pm.get_capacity();
-            if device_size < contents_offset {
-                // TODO: start-specific error?
-                return Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space: device_size + 1 });
-            }
+            assert (device_size >= contents_offset);
 
             let ib = match Self::read_incorruptible_boolean(pm) {
                 Ok(ib) => ib,

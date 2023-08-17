@@ -33,20 +33,6 @@ verus! {
         }
     }
 
-    pub open spec fn permissions_depend_only_on_recovery_view<P: CheckPermission<Seq<u8>>>(perm: &P) -> bool
-    {
-        forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.check_permission(s1) == perm.check_permission(s2)
-    }
-
-    pub proof fn lemma_same_permissions<P: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &P)
-        requires 
-            recovery_view()(pm1) =~= recovery_view()(pm2),
-            perm.check_permission(pm1),
-            permissions_depend_only_on_recovery_view(perm)
-        ensures 
-            perm.check_permission(pm2)
-    {}     
-
     impl TrustedPermission {
         proof fn new(cur: Seq<u8>, next: FnSpec(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
                      -> (tracked perm: Self)
@@ -124,7 +110,6 @@ verus! {
                         &&& trusted_log_impl.pm_impervious_to_corruption() == pm.impervious_to_corruption()
                     },
                     Err(InfiniteLogErr::CRCMismatch) => !pm.impervious_to_corruption(),
-                    Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space }) => pm@.len() < required_space,
                     _ => false
                 }
         {
