@@ -7,6 +7,8 @@ use vstd::slice::*;
 pub mod infinitelog_t;
 pub mod logimpl_v;
 pub mod main_t;
+pub mod multilog_t;
+pub mod multilog_v;
 pub mod math;
 pub mod pmemspec_t;
 pub mod sccf;

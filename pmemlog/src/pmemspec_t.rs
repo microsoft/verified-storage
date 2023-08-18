@@ -7,6 +7,8 @@
 
 */
 
+use crate::main_t::can_only_crash_as_state;
+use crate::multilog_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -18,11 +20,8 @@ use crate::sccf::CheckPermission;
 verus! {
 
     pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
-        if bytes.len() != true_bytes.len() || bytes.len() != addrs.len() {
-            false
-        } else {
-            forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
-        }
+        &&& bytes.len() == true_bytes.len() == addrs.len()
+        &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
     pub open spec fn maybe_corrupted_u64(val: u64, true_val: u64, addrs: Seq<int>) -> bool 
@@ -56,7 +55,7 @@ verus! {
         pub exec fn create(capacity: u64) -> (result: Result<Self, ()>)
             ensures
                 match result {
-                    Ok(pm) => pm@.len() == capacity,
+                    Ok(pm) => pm@.state.len() == capacity && pm@.no_outstanding_writes(),
                     Err(_) => true
                 }
         {
@@ -76,72 +75,123 @@ verus! {
     /// `addr / persistence_chunk_size == id`.
     pub spec const persistence_chunk_size: int = 8;
 
+    /// We model the state of each byte of persistent memory as
+    /// follows.  `state_at_last_flush` contains the contents
+    /// immediately after the most recent flush. `outstanding_write`
+    /// contains `None` if there's no outstanding write, or `Some(b)`
+    /// if there's an outstanding write of `b`. We don't model the
+    /// possibility of there being multiple outstanding writes because
+    /// we restrict reads and writes to not be allowed at locations
+    /// with currently outstanding writes.
+
+    #[verifier::ext_equal]
+    pub struct PersistentMemoryByte {
+        pub state_at_last_flush: u8,
+        pub outstanding_write: Option<u8>,
+    }
+
+    impl PersistentMemoryByte {
+        pub open spec fn write(self, byte: u8) -> Self
+        {
+            // Self { outstanding_write: Some(byte), ..self }
+            Self {
+                state_at_last_flush: self.state_at_last_flush,
+                outstanding_write: Some(byte)
+            }
+        }
+
+        pub open spec fn flush_byte(self) -> u8
+        {
+            match self.outstanding_write {
+                None => self.state_at_last_flush,
+                Some(b) => b
+            }
+        }
+
+        pub open spec fn flush(self) -> Self
+        {
+            Self { state_at_last_flush: self.flush_byte(), outstanding_write: None }
+        }
+    }
+
+    #[verifier::ext_equal]
+    pub struct PersistentMemoryView
+    {
+        pub state: Seq<PersistentMemoryByte>
+    }
+
+    impl PersistentMemoryView
+    {
+        pub open spec fn len(self) -> nat
+        {
+            self.state.len()
+        }
+
+        pub open spec fn write(self, addr: int, bytes: Seq<u8>) -> Self
+        {
+            Self { state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte|
+                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr]) }
+                                         else { pre_byte }) }
+        }
+
+        pub open spec fn flush(self) -> Self
+        {
+            Self { state: self.state.map(|_addr, b: PersistentMemoryByte| b.flush()) }
+        }
+
+        pub open spec fn no_outstanding_writes_in_range(self, i: int, j: int) -> bool
+        {
+            forall |k| #![trigger(self.state[k].outstanding_write)] i <= k < j ==> self.state[k].outstanding_write.is_none()
+        }
+
+        pub open spec fn no_outstanding_writes(self) -> bool
+        {
+            Self::no_outstanding_writes_in_range(self, 0, self.state.len() as int)
+        }
+
+        pub open spec fn committed(self) -> Seq<u8>
+        {
+            self.state.map(|_addr, b: PersistentMemoryByte| b.state_at_last_flush)
+        }
+
+        pub open spec fn flush_committed(self) -> Seq<u8>
+        {
+            self.flush().committed()
+        }
+
+        pub open spec fn in_flight(self) -> Seq<Option<u8>>
+        {
+            self.state.map(|_addr, b: PersistentMemoryByte| b.outstanding_write)
+        }
+
+        pub open spec fn chunk_corresponds_at_last_flush(self, chunk: int, bytes: Seq<u8>) -> bool
+        {
+            forall |addr: int| {
+                &&& 0 <= addr < self.len()
+                &&& addr / persistence_chunk_size == chunk
+            } ==> #[trigger] bytes[addr] == self.state[addr].state_at_last_flush
+        }
+
+        pub open spec fn chunk_corresponds_after_flush(self, chunk: int, bytes: Seq<u8>) -> bool
+        {
+            forall |addr: int| {
+                &&& 0 <= addr < self.len()
+                &&& addr / persistence_chunk_size == chunk
+            } ==> #[trigger] bytes[addr] == self.state[addr].flush_byte()
+        }
+
+        pub open spec fn can_crash_as(self, bytes: Seq<u8>) -> bool
+        {
+            &&& bytes.len() == self.len()
+            &&& forall |chunk| {
+                  ||| self.chunk_corresponds_at_last_flush(chunk, bytes)
+                  ||| self.chunk_corresponds_after_flush(chunk, bytes)
+              }
+        }
+    }
+
     impl PersistentMemory {
-        pub open spec fn view(self) -> Seq<u8>;
-
-        /// Return the byte at address `addr` after writing
-        /// `write_bytes` to address `write_addr`, if the byte at
-        /// `addr` before the write was `prewrite_byte`.
-        pub open spec fn update_byte_to_reflect_write(addr: int, prewrite_byte: u8, write_addr: int,
-                                                      write_bytes: Seq<u8>) -> u8
-        {
-            if write_addr <= addr && addr < write_addr + write_bytes.len() {
-                write_bytes[addr - write_addr]
-            }
-            else {
-                prewrite_byte
-            }
-        }
-
-        /// Return the contents of persistent memory after writing
-        /// `write_bytes` to address `write_addr`, if the contents
-        /// before the write was `prewrite_contents`.
-        pub open spec(checked) fn update_contents_to_reflect_write(prewrite_contents: Seq<u8>, write_addr: int,
-                                                                   write_bytes: Seq<u8>) -> Seq<u8>
-            recommends
-                0 <= write_addr,
-                write_addr + write_bytes.len() <= prewrite_contents.len(),
-        {
-            Seq::<u8>::new(prewrite_contents.len(),
-                           |addr| Self::update_byte_to_reflect_write(addr, prewrite_contents[addr],
-                                                                     write_addr, write_bytes))
-        }
-
-        /// Return the byte at address `addr` after initiating (but
-        /// not necessarily completing) a write of `write_bytes` to
-        /// address `write_addr`, given that the byte at `addr` before
-        /// the write was `prewrite_byte` and given that the set of
-        /// chunk IDs that have been flushed since the initiation of
-        /// the write is `chunks_flushed`.
-        pub open spec fn update_byte_to_reflect_partially_flushed_write(addr: int, prewrite_byte: u8, write_addr: int,
-                                                                        write_bytes: Seq<u8>,
-                                                                        chunks_flushed: Set<int>) -> u8
-        {
-            if chunks_flushed.contains(addr / persistence_chunk_size) {
-                Self::update_byte_to_reflect_write(addr, prewrite_byte, write_addr, write_bytes)
-            }
-            else {
-                prewrite_byte
-            }
-        }
-
-        /// Return the contents of persistent memory after initiating
-        /// (but not necessarily completing) a write of `write_bytes`
-        /// to address `write_addr`, given that the contents before
-        /// the write were `prewrite_contents` and given that the set of
-        /// chunk IDs that have been flushed since the initiation of
-        /// the write is `chunks_flushed`.
-        pub open spec(checked) fn update_contents_to_reflect_partially_flushed_write(contents: Seq<u8>, write_addr: int,
-                                                                                     write_bytes: Seq<u8>,
-                                                                                     chunks_flushed: Set<int>) -> Seq<u8>
-            recommends
-                0 <= write_addr,
-                write_addr + write_bytes.len() <= contents.len(),
-        {
-            Seq::<u8>::new(contents.len(),
-                           |addr| Self::update_byte_to_reflect_partially_flushed_write(addr, contents[addr], write_addr,
-                                                                                       write_bytes, chunks_flushed))
-        }
+        pub open spec fn view(self) -> PersistentMemoryView;
 
         /// This is the model of some external routine that queries
         /// how many bytes are in the persistent memory region.
@@ -157,14 +207,16 @@ verus! {
         #[verifier(external_body)]
         pub exec fn read(&self, addr: u64, num_bytes: u64) -> (out: (Vec<u8>, Ghost<Seq<int>>))
             requires
-                addr + num_bytes <= self@.len(),
+                addr + num_bytes <= self@.state.len(),
+                self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes)
             ensures
                 ({ 
                     let (bytes, addrs) = out;
+                    let pm_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
                     &&& addrs =~= Ghost(Seq::<int>::new(num_bytes as nat, |i: int| i + addr))
-                    &&& maybe_corrupted(bytes@, self@.subrange(addr as int, addr + num_bytes), addrs@)
+                    &&& maybe_corrupted(bytes@, pm_bytes, addrs@)
                     &&& all_elements_unique(addrs@)
-                    &&& self.impervious_to_corruption() ==> bytes@ == self@.subrange(addr as int, addr + num_bytes)
+                    &&& self.impervious_to_corruption() ==> bytes@ == pm_bytes
                 })
         {
             unimplemented!()
@@ -175,9 +227,21 @@ verus! {
         #[verifier(external_body)]
         pub exec fn write(&mut self, addr: u64, bytes: &[u8])
             requires
-                addr + bytes@.len() <= (old(self))@.len()
+                addr + bytes@.len() <= (old(self))@.len(),
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len())
             ensures
-                self@ == Self::update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
+                self@ == old(self)@.write(addr as int, bytes@),
+                self.impervious_to_corruption() == old(self).impervious_to_corruption()
+        {
+            unimplemented!()
+        }
+
+        /// This is the model of a flush routine that writes all outstanding
+        /// bytes durably.
+        #[verifier(external_body)]
+        pub exec fn flush(&mut self)
+            ensures
+                self@ == old(self)@.flush(),
                 self.impervious_to_corruption() == old(self).impervious_to_corruption()
         {
             unimplemented!()
@@ -203,7 +267,7 @@ verus! {
         where
             P: CheckPermission<Seq<u8>>
     {
-        pub closed spec fn view(self) -> Seq<u8> {
+        pub closed spec fn view(self) -> PersistentMemoryView {
             self.pm@
         }
 
@@ -235,19 +299,229 @@ verus! {
         pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&P>)
             requires
                 addr + bytes@.len() <= old(self)@.len(),
-                forall |chunks_flushed| {
-                    let new_contents: Seq<u8> =
-                        #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
-                            old(self)@, addr as int, bytes@, chunks_flushed
-                        );
-                    perm@.check_permission(new_contents)
-                },
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
+                forall |s| old(self)@.write(addr as int, bytes@).can_crash_as(s) ==> #[trigger] perm@.check_permission(s)
             ensures
-                self@ == PersistentMemory::update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
+                self@ == old(self)@.write(addr as int, bytes@),
                 self.impervious_to_corruption() == old(self).impervious_to_corruption()
         {
             self.pm.write(addr, bytes)
         }
+
+        /// The `flush` function can always be called if you have a mutable
+        /// reference to `self`. After all, on every write we check that any
+        /// crash state, including the one resulting from a full flush, is
+        /// allowed.
+        pub exec fn flush(&mut self)
+            ensures
+                self@ == old(self)@.flush(),
+                self.impervious_to_corruption() == old(self).impervious_to_corruption()
+        {
+            self.pm.flush()
+        }
     }
 
+    /// A `MultiLogPersistentMemory` represents an ordered list of one 
+    /// or more persistent memory regions grouped into a multilog.
+    /// The main log is required and stores the IB
+    pub struct MultiLogPersistentMemory {
+        pub regions: Vec<PersistentMemory>
+    }
+
+    impl MultiLogPersistentMemory {
+        pub closed spec fn view(self) -> MultiLogPersistentMemoryView
+        {
+            MultiLogPersistentMemoryView {
+                regions: Seq::<PersistentMemoryView>::new(self.regions@.len(), |i| self.regions[i]@)
+            }
+        }
+
+        pub open spec fn no_outstanding_writes(self) -> bool 
+        {
+            forall |i: int| #[trigger] self.regions[i]@.no_outstanding_writes()
+        }
+
+        pub open spec fn no_outstanding_writes_in_range(self, index: int, i: int, j: int) -> bool 
+        {
+            forall |k| #![trigger(self.regions[index]@.state[k].outstanding_write)] i <= k < j ==> 
+                self.regions[index]@.state[k].outstanding_write.is_none()
+        }
+
+        pub closed spec fn impervious_to_corruption(self) -> bool;
+
+        #[verifier::external_body]
+        pub exec fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (out: (Vec<u8>, Ghost<Seq<int>>))
+            requires 
+                1 <= index < self@.len(),
+                addr + num_bytes <= self@[index as int].len()
+            ensures 
+                ({
+                    let (bytes, addrs) = out;
+                    &&& addrs =~= Ghost(Seq::<int>::new(num_bytes as nat, |i: int| i + addr))
+                    &&& maybe_corrupted(bytes@, self@[index as int].committed().subrange(addr as int, addr + num_bytes), addrs@)
+                    &&& all_elements_unique(addrs@)
+                    &&& self.impervious_to_corruption() ==> bytes@ == self@[index as int].committed().subrange(addr as int, addr + num_bytes)
+                })
+        {
+            self.regions[index].read(addr, num_bytes)
+        }
+
+    }
+
+    pub struct MultiLogWriteRestrictedPersistentMemory<P> 
+        where 
+            P: CheckPermission<Seq<Seq<u8>>>
+    {
+        pms: MultiLogPersistentMemory,
+        ghost perm: Option<P>,
+    }
+
+    impl<P> MultiLogWriteRestrictedPersistentMemory<P> 
+        where 
+            P: CheckPermission<Seq<Seq<u8>>>
+    {
+        pub closed spec fn view(self) -> MultiLogPersistentMemoryView
+        {
+            MultiLogPersistentMemoryView {
+                regions: Seq::<PersistentMemoryView>::new(self.pms@.len(), |i| self.pms.regions[i]@)
+            }
+        }
+
+        pub closed spec fn impervious_to_corruption(self) -> bool {
+            self.pms.impervious_to_corruption()
+        }
+
+        pub closed spec fn no_outstanding_writes(self) -> bool 
+        {
+            self.pms.no_outstanding_writes()
+        }
+
+        pub exec fn new(regions: MultiLogPersistentMemory) -> (wrpms: Self)
+            ensures 
+                wrpms@ == regions@,
+                ({
+                    let (r_ib, r_headers) = multilog_to_views(regions@.committed()[0]);
+                    let (w_ib, w_headers) = multilog_to_views(wrpms@.committed()[0]);
+                    &&& r_ib == w_ib 
+                    &&& r_headers =~= w_headers
+                    &&& r_headers.log_num_bytes =~= w_headers.log_num_bytes
+                }),
+                wrpms.impervious_to_corruption() == regions.impervious_to_corruption(),
+                wrpms.no_outstanding_writes() == regions.no_outstanding_writes(),
+        {
+            Self {
+                pms: regions,
+                perm: None
+            }
+        }
+
+        pub closed spec fn spec_get_pms(&self) -> MultiLogPersistentMemory
+        {
+            self.pms
+        }
+
+        pub exec fn get_pms_ref(&self) -> (pms: &MultiLogPersistentMemory)
+            ensures 
+                pms@ == self@,
+                pms.impervious_to_corruption() == self.impervious_to_corruption(),
+                pms == self.spec_get_pms()
+        {
+            &self.pms
+        }
+
+        // TODO: implement based on WriteRestrictedPersistentMemory or make unimplemented with external_body
+        pub exec fn write(&mut self, index: usize, addr: u64, bytes: &[u8], perm: Tracked<&P>) 
+            requires 
+                addr + bytes@.len() <= old(self)@[index as int].len(),
+                forall |s| old(self)@.write(index as int, addr as int, bytes@).can_crash_as(s) ==> #[trigger] perm@.check_permission(s),
+                old(self)@[index as int].no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
+            ensures 
+                self@ == old(self)@.write(index as int, addr as int, bytes@),
+                self.impervious_to_corruption() == old(self).impervious_to_corruption(),
+        {
+            assume(false);
+        }
+
+        #[verifier::external_body]
+        pub exec fn flush(&mut self)
+            ensures 
+                self@.len() == old(self)@.len(),
+                self@ == old(self)@.flush(),
+                self.impervious_to_corruption() == old(self).impervious_to_corruption(),
+        {
+            unimplemented!()
+        }
+    }
+
+    #[verifier::ext_equal]
+    pub struct MultiLogPersistentMemoryView {
+        pub regions: Seq<PersistentMemoryView>
+    }
+
+    impl MultiLogPersistentMemoryView {
+        pub open spec fn committed(self) -> Seq<Seq<u8>>
+        {
+            Seq::<Seq<u8>>::new(self.len(), |i: int| self[i].committed())
+        }
+
+        pub open spec fn flush_committed(self) -> Seq<Seq<u8>>
+        {
+            Seq::<Seq<u8>>::new(self.len(), |i: int| self[i].flush_committed())
+        }
+
+        pub open spec fn in_flight(self) -> Seq<Seq<Option<u8>>>
+        {
+            Seq::<Seq<Option<u8>>>::new(self.len(), |i: int| self[i].in_flight())
+        }
+
+        pub open spec fn len(self) -> nat 
+        {
+            self.regions.len()
+        }
+
+        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self 
+        {
+            Self {
+                regions: self.regions.map(|pos: int, pre_view: PersistentMemoryView| 
+                    if pos == index {
+                        pre_view.write(addr, bytes)
+                    } else {
+                        pre_view
+                    }
+                )
+            }
+        }
+
+        pub open spec fn flush(self) -> Self 
+        {
+            Self { regions: self.regions.map(|pos, pm: PersistentMemoryView| pm.flush()) }
+        }
+
+        pub open spec fn spec_index(self, i: int) -> PersistentMemoryView 
+        {
+            self.regions[i]
+        }
+
+        pub open spec fn can_crash_as(self, crash_bytes: Seq<Seq<u8>>) -> bool 
+        {
+            &&& crash_bytes.len() == self.len()
+            &&& forall |i: int| #![auto] 0 <= i < self.len() ==> {
+                    &&& crash_bytes[i].len() == self[i].len()
+                    &&& forall |chunk| #![auto] {
+                        ||| self[i].chunk_corresponds_at_last_flush(chunk, crash_bytes[i])
+                        ||| self[i].chunk_corresponds_after_flush(chunk, crash_bytes[i])
+                    }
+                }
+        }
+
+        pub open spec fn no_outstanding_writes(self) -> bool {
+            forall |i: int| #![auto] 0 <= i < self.len() ==> self[i].no_outstanding_writes()
+        }
+
+        // takes a view of the to_write argument to write so that we can use this spec function directly
+        pub open spec fn no_outstanding_writes_in_range(self, index: int, start: int, end: int) -> bool
+        {
+            self[index].no_outstanding_writes_in_range(start, end)
+        }
+    }
 }

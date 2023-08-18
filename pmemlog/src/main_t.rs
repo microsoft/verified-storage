@@ -17,13 +17,18 @@ verus! {
         |c| UntrustedLogImpl::convert_from_pm_contents_to_log_state2(c)
     }
 
+    pub open spec fn can_only_crash_as_state(pm: PersistentMemoryView, state: AbstractInfiniteLogState) -> bool
+    {
+        forall |s| #[trigger] pm.can_crash_as(s) ==> recovery_view()(s) == Some(state)
+    }
+
     /// A `TrustedPermission` indicates what states of persistent
     /// memory are permitted. The struct isn't public, so it can't be
     /// created outside of this file. As a further defense against one
     /// being created outside this file, its fields aren't public, and
     /// the constructor `TrustedPermission::new` isn't public.
     
-    struct TrustedPermission {
+    pub struct TrustedPermission {
         ghost is_state_allowable: FnSpec(Seq<u8>) -> bool
     }
 
@@ -34,7 +39,8 @@ verus! {
     }
 
     impl TrustedPermission {
-        proof fn new(cur: Seq<u8>, next: FnSpec(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
+        proof fn new(cur: AbstractInfiniteLogState,
+                     next: FnSpec(AbstractInfiniteLogState, AbstractInfiniteLogState) -> bool)
                      -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
@@ -51,6 +57,7 @@ verus! {
     pub struct InfiniteLogImpl {
         untrusted_log_impl: UntrustedLogImpl,
         wrpm: WriteRestrictedPersistentMemory<TrustedPermission>,
+        state: Ghost<AbstractInfiniteLogState>
     }
 
     pub enum InfiniteLogErr {
@@ -65,9 +72,9 @@ verus! {
     }
 
     impl InfiniteLogImpl {
-        pub closed spec fn view(self) -> Option<AbstractInfiniteLogState>
+        pub closed spec fn view(self) -> AbstractInfiniteLogState
         {
-            recovery_view()(self.wrpm@)
+            self.state@
         }
 
         pub closed spec fn pm_impervious_to_corruption(self) -> bool
@@ -75,9 +82,10 @@ verus! {
             self.wrpm.impervious_to_corruption()
         }
 
-        pub closed spec fn valid(self) -> bool {
+        pub closed spec fn valid(self) -> bool
+        {
             &&& self.untrusted_log_impl.consistent_with_pm2(self.wrpm@)
-            &&& recovery_view()(self.wrpm@).is_Some()
+            &&& can_only_crash_as_state(self.wrpm@, self.state@)
         }
 
         /// This static function takes a `PersistentMemory` and writes
@@ -87,8 +95,9 @@ verus! {
         pub exec fn setup(pm: &mut PersistentMemory) -> (result: Result<u64, InfiniteLogErr>)
             ensures
                 match result {
-                    Ok(capacity) => recovery_view()(pm@) == Some(AbstractInfiniteLogState::initialize(capacity as int)),
-                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
+                    Ok(capacity) => can_only_crash_as_state(pm@, AbstractInfiniteLogState::initialize(capacity as int)),
+                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) =>
+                        pm@.state.len() < required_space,
                     _ => false
                 }
         {
@@ -101,12 +110,12 @@ verus! {
         /// restarting.
         pub exec fn start(pm: PersistentMemory) -> (result: Result<InfiniteLogImpl, InfiniteLogErr>)
             requires
-                recovery_view()(pm@).is_Some()
+                exists |state| can_only_crash_as_state(pm@, state)
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
-                        &&& trusted_log_impl@ == recovery_view()(pm@)
+                        &&& forall |state| can_only_crash_as_state(pm@, state) ==> trusted_log_impl@ == state
                         &&& trusted_log_impl.pm_impervious_to_corruption() == pm.impervious_to_corruption()
                     },
                     Err(InfiniteLogErr::CRCMismatch) => !pm.impervious_to_corruption(),
@@ -116,9 +125,10 @@ verus! {
             // The untrusted `start` routine may write to persistent memory, as long
             // as it keeps its abstraction as a log unchanged.
             let mut wrpm = WriteRestrictedPersistentMemory::new(pm);
-            let tracked perm = TrustedPermission::new(pm@, |s1, s2| false);
-            match UntrustedLogImpl::untrusted_start(&mut wrpm, Tracked(&perm)) {
-                Ok(untrusted_log_impl) => Ok(InfiniteLogImpl { untrusted_log_impl, wrpm }),
+            let ghost state = choose |state| can_only_crash_as_state(pm@, state);
+            let tracked perm = TrustedPermission::new(state, |s1, s2| false);
+            match UntrustedLogImpl::untrusted_start(&mut wrpm, Tracked(&perm), Ghost(state)) {
+                Ok(untrusted_log_impl) => Ok(InfiniteLogImpl { untrusted_log_impl, wrpm, state: Ghost(state) }),
                 Err(e) => Err(e)
             }
         }
@@ -132,21 +142,17 @@ verus! {
                 self.valid(),
                 self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
                 match result {
-                    Ok(offset) =>
-                        match (old(self)@, self@) {
-                            (Some(old_log), Some(new_log)) => {
-                                &&& offset as nat == old_log.log.len() + old_log.head
-                                &&& new_log == old_log.append(bytes_to_append@)
-                            },
-                            _ => false
-                        },
+                    Ok(offset) => {
+                        let old_log = old(self)@;
+                        &&& offset as nat == old_log.log.len() + old_log.head
+                        &&& self@ == old_log.append(bytes_to_append@)
+                    },
                     Err(InfiniteLogErr::InsufficientSpaceForAppend{ available_space }) => {
                         &&& self@ == old(self)@
                         &&& available_space < bytes_to_append.len()
                         &&& {
-                               let log = old(self)@.unwrap();
-                               ||| available_space == log.capacity - log.log.len()
-                               ||| available_space == u64::MAX - log.head - log.log.len()
+                               ||| available_space == self@.capacity - self@.log.len()
+                               ||| available_space == u64::MAX - self@.head - self@.log.len()
                            }
                     },
                     _ => false
@@ -159,9 +165,12 @@ verus! {
             // state or the current state with `bytes_to_append`
             // appended.
 
-            let tracked perm = TrustedPermission::new(self.wrpm@,
+            let tracked perm = TrustedPermission::new(self.state@,
                 |s1: AbstractInfiniteLogState, s2| s2 == s1.append(bytes_to_append@));
-            self.untrusted_log_impl.untrusted_append(&mut self.wrpm, bytes_to_append, Tracked(&perm))
+            let result = self.untrusted_log_impl.untrusted_append(&mut self.wrpm, bytes_to_append, Tracked(&perm),
+                                                                  self.state);
+            self.state = if result.is_ok() { Ghost(self.state@.append(bytes_to_append@)) } else { self.state };
+            result
         }
 
         /// This function advances the head index of the log.
@@ -173,22 +182,18 @@ verus! {
                 self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
                 match result {
                     Ok(offset) => {
-                        match (old(self)@, self@) {
-                            (Some(old_log), Some(new_log)) => {
-                                &&& old_log.head <= new_head <= old_log.head + old_log.log.len()
-                                &&& new_log == old_log.advance_head(new_head as int)
-                            },
-                            _ => false
-                        }
-                    }
+                        let old_log = old(self)@;
+                        &&& old_log.head <= new_head <= old_log.head + old_log.log.len()
+                        &&& self@ == old_log.advance_head(new_head as int)
+                    },
                     Err(InfiniteLogErr::CantAdvanceHeadPositionBeforeHead{ head }) => {
                         &&& self@ == old(self)@
-                        &&& head == self@.unwrap().head
+                        &&& head == self@.head
                         &&& new_head < head
                     },
                     Err(InfiniteLogErr::CantAdvanceHeadPositionBeyondTail{ tail }) => {
                         &&& self@ == old(self)@
-                        &&& tail == self@.unwrap().head + self@.unwrap().log.len()
+                        &&& tail == self@.head + self@.log.len()
                         &&& new_head > tail
                     },
                     _ => false
@@ -201,9 +206,12 @@ verus! {
             // state or the current state with the head advanced to
             // `new_head`.
 
-            let tracked perm = TrustedPermission::new(self.wrpm@,
+            let tracked perm = TrustedPermission::new(self.state@,
                 |s1: AbstractInfiniteLogState, s2| s2 == s1.advance_head(new_head as int));
-            self.untrusted_log_impl.untrusted_advance_head(&mut self.wrpm, new_head, Tracked(&perm))
+            let result = self.untrusted_log_impl.untrusted_advance_head(&mut self.wrpm, new_head, Tracked(&perm),
+                                                                        self.state);
+            self.state = if result.is_ok() { Ghost(self.state@.advance_head(new_head as int)) } else { self.state };
+            result
         }
 
         /// This function reads `len` bytes from byte position `pos`
@@ -213,27 +221,28 @@ verus! {
                 self.valid(),
                 pos + len <= u64::MAX
             ensures
-                match (self@.unwrap()) {
-                    AbstractInfiniteLogState{ head: head, log: log, .. } =>
-                        match result {
-                            Ok((bytes, addrs)) => {
-                                &&& pos >= head
-                                &&& pos + len <= head + log.len()
-                                &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
-                                &&& self.pm_impervious_to_corruption() ==>
-                                       bytes@ == log.subrange(pos - head, pos + len - head)
-                            },
-                            Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
-                                &&& pos < head
-                                &&& head_pos == head
-                            },
-                            Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
-                                &&& pos + len > head + log.len()
-                                &&& tail == head + log.len()
-                            },
-                            _ => false
-                        }
-                }
+                ({
+                    let head = self@.head;
+                    let log = self@.log;
+                    match result {
+                        Ok((bytes, addrs)) => {
+                            &&& pos >= head
+                            &&& pos + len <= head + log.len()
+                            &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
+                            &&& self.pm_impervious_to_corruption() ==>
+                                   bytes@ == log.subrange(pos - head, pos + len - head)
+                        },
+                        Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
+                            &&& pos < head
+                            &&& head_pos == head
+                        },
+                        Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
+                            &&& pos + len > head + log.len()
+                            &&& tail == head + log.len()
+                        },
+                        _ => false
+                    }
+                })
         {
             // We don't need to provide permission to write to the
             // persistent memory because the untrusted code is only
@@ -241,7 +250,7 @@ verus! {
             // write it. Note that the `UntrustedLogImpl` itself *is*
             // mutable, so it can freely update its in-memory state
             // (e.g., its cache) if it chooses.
-            self.untrusted_log_impl.untrusted_read(self.wrpm.get_pm_ref(), pos, len)
+            self.untrusted_log_impl.untrusted_read(self.wrpm.get_pm_ref(), pos, len, self.state)
         }
 
         /// This function returns a tuple consisting of the head and
@@ -252,10 +261,9 @@ verus! {
             ensures
                 match result {
                     Ok((result_head, result_tail, result_capacity)) => {
-                        let inf_log = self@.unwrap();
-                        &&& result_head == inf_log.head
-                        &&& result_tail == inf_log.head + inf_log.log.len()
-                        &&& result_capacity == inf_log.capacity
+                        &&& result_head == self@.head
+                        &&& result_tail == self@.head + self@.log.len()
+                        &&& result_capacity == self@.capacity
                     },
                     Err(_) => false
                 }
@@ -266,7 +274,8 @@ verus! {
             // write it. Note that the `UntrustedLogImpl` itself *is*
             // mutable, so it can freely update its in-memory state
             // (e.g., its local copy of head and tail) if it chooses.
-            self.untrusted_log_impl.untrusted_get_head_and_tail(self.wrpm.get_pm_ref())
+            self.untrusted_log_impl.untrusted_get_head_and_tail(self.wrpm.get_pm_ref(), self.state)
         }
     }
+
 }
