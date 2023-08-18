@@ -177,6 +177,19 @@ verus! {
             spec_convert_to_header(header_bytes1, log_num) =~= spec_convert_to_header(header_bytes2, log_num),
     {}
 
+    pub proof fn lemma_single_write_crash(multilog: MultiLogPersistentMemoryView, index: int, write_addr: int, bytes_to_write: Seq<u8>)
+        requires 
+            multilog.no_outstanding_writes(),
+            bytes_to_write.len() == persistence_chunk_size,
+            write_addr % persistence_chunk_size == 0,
+            0 <= write_addr < write_addr + bytes_to_write.len() < multilog[index].len(),
+        ensures 
+            forall |s| multilog.write(index, write_addr, bytes_to_write).can_crash_as(s) ==>
+                s == multilog.flush_committed() || s == multilog.write(index, write_addr, bytes_to_write).flush_committed()
+    {
+        assume(false);
+    }
+
     pub open spec fn spec_convert_to_header(bytes: Seq<u8>, log_num: int) -> MultiLogPersistentHeader
         recommends 
             bytes.len() == spec_header_version_size(log_num as int),
@@ -878,6 +891,7 @@ verus! {
                 old(multilog)@.no_outstanding_writes(),
                 perm.check_permission(old(multilog)@.flush_committed()),
             ensures 
+                // TODO: most of this is shared with lemma_header_updated - move into spec fn
                 self.consistent_with_multilog(multilog@),
                 multilog.impervious_to_corruption() == old(multilog).impervious_to_corruption(),
                 match (UntrustedMultiLogImpl::convert_multilog_to_log_state(multilog@.flush_committed()),
@@ -1070,7 +1084,10 @@ verus! {
                     let old_log_states = UntrustedMultiLogImpl::convert_multilog_to_log_state(old(wrpms)@.flush_committed());
                     let new_log_states = UntrustedMultiLogImpl::convert_multilog_to_log_state(wrpms@.flush_committed());
                     match (result, old_log_states, new_log_states) {
-                        (Ok(_), Some(old_log_states), Some(new_log_states)) => {true}
+                        (Ok(_), Some(old_log_states), Some(new_log_states)) => {
+                            &&& forall |i: int| 0 <= i < old_log_states.len() && i != index ==> old_log_states[i] == new_log_states[i]
+                            &&& new_log_states == old_log_states.advance_head(index as int, new_head as int)
+                        }
                         (Err(InfiniteMultiLogErr::CantAdvanceHeadPositionBeforeHead{ pm_index, head }), Some(old_log_states), Some(new_log_states)) => {
                             &&& old_log_states =~= new_log_states 
                             &&& head == old_log_states[pm_index as int].head
@@ -1102,6 +1119,9 @@ verus! {
 
             let mut new_metadata_vec: Vec<u8> = Vec::with_capacity(self.log_metadata.len());
 
+            let ghost old_live_header = spec_get_live_header(wrpms@.flush_committed());
+            let ghost new_metadata_seq: Seq<logimpl_v::PersistentHeaderMetadata> = Seq::empty();
+
             let mut i = 0;
             while i < self.log_metadata.len()
                 invariant 
@@ -1112,6 +1132,7 @@ verus! {
                         UntrustedMultiLogImpl::convert_multilog_to_log_state(wrpms@.flush_committed()),
                     new_metadata_vec@.len() == i * multilog_header_size,
                     i <= self.log_metadata.len(),
+                    new_metadata_seq.len() <= i,
             {
                 if i == index {
                     let log_size = self.log_metadata[i].log_size;
@@ -1132,17 +1153,27 @@ verus! {
                         tail,
                         log_size,
                     };
+                    proof {new_metadata_seq.push(new_header);}
 
                     let mut bytes = metadata_to_bytes(&new_header);
                     new_metadata_vec.append(&mut bytes);
                 } else {
+                    proof {new_metadata_seq.push(self.log_metadata[i as int]);}
                     let mut bytes = metadata_to_bytes(&self.log_metadata[i]);
                     new_metadata_vec.append(&mut bytes);
                 }
-         
                 i += 1;
             }
             assert(new_metadata_vec@.len() == self.log_metadata@.len() * multilog_header_size);
+            proof {
+                let header_vec = Seq::<logimpl_v::PersistentHeaderMetadata>::new(
+                    self.log_num as nat, 
+                    |i: int| spec_bytes_to_metadata(
+                        new_metadata_vec@.subrange(i * multilog_header_size, i * multilog_header_size + multilog_header_size)
+                    )
+                );
+                assert(new_metadata_seq =~= header_vec);
+            }
 
             // now that we have fully updated header bytes, calculate CRC
             // NOTE: it would be more efficient to write them to PM as we go and calculate the CRC directly
@@ -1155,6 +1186,15 @@ verus! {
             let mut header_bytes = crc_bytes;
             header_bytes.append(&mut new_metadata_vec);
 
+            proof {
+                lemma_auto_spec_u64_to_from_le_bytes();
+                logimpl_v::lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
+                let (_, headers) = multilog_to_views(wrpms@.flush_committed()[0]);
+                let log_num = spec_u64_from_le_bytes(headers.log_num_bytes);
+                let new_header = spec_convert_to_header(header_bytes@, log_num as int);
+                assert(new_header.metadata =~= new_metadata_seq);
+            }
+
             proof { 
                 let (_, headers) = multilog_to_views(wrpms@.flush_committed()[0]);
                 let log_num = spec_u64_from_le_bytes(headers.log_num_bytes);
@@ -1164,8 +1204,54 @@ verus! {
             }
             
             self.update_header(wrpms, Tracked(perm), &header_bytes);
-            assume(false);
-            Err(InfiniteMultiLogErr::None)
+
+            let ib_bytes = if self.incorruptible_bool == header1_val {
+                proof {
+                    let (ib, headers) = multilog_to_views(wrpms@.flush_committed()[0]);
+                    assert(ib == header1_val);
+                }
+                u64_to_le_bytes(header2_val)  
+            } else {
+                assert(self.incorruptible_bool == header2_val);
+                proof {
+                    let (ib, headers) = multilog_to_views(wrpms@.flush_committed()[0]);
+                    assert(ib == header2_val);
+                }
+                u64_to_le_bytes(header1_val)
+            };
+
+            proof {
+                lemma_auto_spec_u64_to_from_le_bytes();
+                let (ib, headers) = multilog_to_views(wrpms@.flush_committed()[0]);
+                let log_num = spec_u64_from_le_bytes(headers.log_num_bytes);
+                assert(ib == self.incorruptible_bool);
+
+                if ib == header1_val {
+                    assert(headers.header2 == spec_convert_to_header(header_bytes@, log_num as int));
+                } else {
+                    assert(headers.header1 == spec_convert_to_header(header_bytes@, log_num as int));
+                }
+
+                lemma_single_write_crash(wrpms@, 0, incorruptible_bool_pos as int, ib_bytes@);
+                // need to prove the effect of writing to the IB
+                let new_multilog = wrpms@.write(0, incorruptible_bool_pos as int, ib_bytes@).flush_committed();
+                let (new_ib, new_headers) = multilog_to_views(new_multilog[0]);
+                logimpl_v::lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
+
+                assert(new_multilog[0].subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= ib_bytes@);
+                assert(wrpms@.flush_committed()[0].subrange(incorruptible_bool_pos + 8, wrpms@[0].len() as int) =~= new_multilog[0].subrange(incorruptible_bool_pos + 8, wrpms@[0].len() as int));
+                assert(new_multilog.len() == wrpms@.flush_committed().len());
+
+                let new_live_header = spec_get_live_header(new_multilog);
+                assert(new_live_header.metadata =~= new_metadata_seq); // if you can prove this, the whole thing goes through
+                
+                assert(perm.check_permission(wrpms@.flush_committed()));
+                assert(perm.check_permission(wrpms@.write(0, incorruptible_bool_pos as int, ib_bytes@).flush_committed()));
+            }
+
+            wrpms.write(0, incorruptible_bool_pos, ib_bytes.as_slice(), Tracked(perm));
+            wrpms.flush();
+            Ok(())
         }
 
         pub exec fn untrusted_read(
