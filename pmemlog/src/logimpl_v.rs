@@ -16,12 +16,12 @@ use crate::sccf::CheckPermission;
 
 verus! {
 
-    // new structure:
+    // entire header structure:
     // bytes 0-7: incorruptible boolean
     // bytes 8-39: header 1
     // bytes 40-71: header 2
 
-    // header structure:
+    // header version structure:
     // 0-7: header CRC
     // 8-15: logical head
     // 16-23: logical tail
@@ -45,8 +45,6 @@ verus! {
 
     pub const crc_size: u64 = 8; 
 
-    // TODO: axiom should check that we are using a header that is expected to be valid?
-    // TODO: use all Seq<u8>s rather than u64s for crcs
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
@@ -73,19 +71,8 @@ verus! {
             ib_c == spec_ib
     {}
 
-    pub open spec fn spec_modulo(x: int, y: int) -> (out: int)
-    {
-        x % y
-    }
-
-    pub exec fn modulo(x: u64, y: u64) -> (out: u64)
-        requires 0 < y
-        ensures out == spec_modulo(x as int, y as int)
-
-    {
-        x % y
-    }
-
+    /// Converts the view of a PM region into its incorruptible Boolean, a view of its header,
+    /// and a data region.
     pub open spec fn pm_to_views(pm: Seq<u8>) -> (u64, HeaderView, Seq<u8>) 
     {
         let incorruptible_bool = spec_u64_from_le_bytes(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
@@ -137,6 +124,9 @@ verus! {
             perm.check_permission(pm2)
     {}     
 
+    /// Proves that a PM region has the given header at the given position. Useful for 
+    /// associating a region with a header structure when the struct will be used later 
+    /// in a proof.
     pub proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader) 
         requires 
             pm.len() > contents_offset,
@@ -162,6 +152,8 @@ verus! {
         );
     }
 
+    /// Proves that a given header structure consists of a CRC given in bytes as `crc_bytes` and a metadata structure 
+    /// given in bytes as `metadata_bytes`.
     pub proof fn lemma_bytes_combine_into_header(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header: PersistentHeader)
         requires 
             crc_bytes.len() == 8,
@@ -183,6 +175,8 @@ verus! {
         assert(combined_header.metadata == metadata);
     }
 
+    /// Converse of lemma_bytes_combine_into_header; proves that the byte representation of a header consists of 
+    /// the byte representations of its CRC and metadata
     pub proof fn lemma_header_split_into_bytes(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header_bytes: Seq<u8>)
         requires 
             crc_bytes.len() == 8,
@@ -234,8 +228,6 @@ verus! {
         pub log_size: u64,
     }
 
-
-    // maybe make the CRC a sequence of bytes in the structure
     pub closed spec fn spec_crc_bytes(header_bytes: Seq<u8>) -> Seq<u8>;
 
     #[verifier::external_body]
@@ -253,8 +245,9 @@ verus! {
         pub header2: PersistentHeader,
     }
 
-    // only go in one direction in ghost code - bytes -> structures
-    // exec code is required to go structures -> bytes sometimes
+    /// Spec code only converts byte representations to structures and does not go the other way
+    /// to simplify reasoning about persistent structures (although the opposite direction is 
+    /// implemented in exec code).
 
     exec fn bytes_to_header(bytes: &[u8]) -> (out: PersistentHeader)
         requires 
@@ -273,7 +266,6 @@ verus! {
 
     exec fn header_to_bytes(header: &PersistentHeader) -> (out: Vec<u8>)
         ensures 
-            // header == spec_words_to_header(spec_bytes_to_words(out@)),
             header == spec_bytes_to_header(out@),
             spec_u64_from_le_bytes(out@.subrange(header_crc_offset as int, header_crc_offset + 8)) == header.crc, 
             spec_bytes_to_metadata(out@.subrange(header_head_offset as int, header_size as int)) == header.metadata,
@@ -376,7 +368,8 @@ verus! {
         }
     }
 
-    // TODO: refactor? seems overly long
+    /// Proves that two sequences of bytes (assumed to be the subrange of a persistent memory device containing 
+    /// the PersistentHeaderMetadata) are equivalent if their PersistentHeaderMetadata representations are equivalent 
     pub proof fn lemma_metadata_bytes_eq(bytes1: Seq<u8>, bytes2: Seq<u8>, metadata: PersistentHeaderMetadata)
         requires 
             bytes1.len() == header_size - 8,
@@ -423,6 +416,7 @@ verus! {
         }
     }
 
+    /// Proves that a write to data that does not touch any metadata is crash safe.
     pub proof fn lemma_data_write_is_safe<P>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &P) 
         where 
             P: CheckPermission<Seq<u8>>,
@@ -501,6 +495,7 @@ verus! {
         }
     }
 
+    /// Proves that a non-crashing data write updates data bytes but no log metadata.
     pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) 
         requires 
             UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
@@ -540,7 +535,7 @@ verus! {
         } 
     }
 
-    // TODO: combine with above
+    /// Proves that a crashing data write updates data bytes but no log metadata. 
     pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>) 
         requires 
             UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
@@ -579,6 +574,7 @@ verus! {
         lemma_subrange_equality_implies_subsubrange_equality(pm, new_pm, 0, write_addr);
     }
 
+    /// Proves that a non-crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
         requires 
             UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
@@ -625,7 +621,7 @@ verus! {
         }
     }
 
-    // TODO: combine with above
+    /// Proves that a crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
         requires 
             UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
@@ -673,6 +669,9 @@ verus! {
         }
     }
 
+    /// Proves that an update to the incorruptible boolean is crash-safe and switches the log's
+    /// active header. This lemma does most of the work to prove that untrusted_append is 
+    /// implemented correctly.
     pub proof fn lemma_append_ib_update<P: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>, 
         new_ib: u64, 
@@ -1039,13 +1038,6 @@ verus! {
         ensures 
             spec_u64_to_le_bytes(val1) =~= spec_u64_to_le_bytes(val2)
     {}
-
-    pub proof fn lemma_subrange_index(bytes: Seq<u8>, start: int, end: int)
-        requires 
-            0 <= start < end < bytes.len()
-        ensures 
-            forall |i: int| 0 <= i < (end - start) ==> bytes.subrange(start, end)[i] == bytes[start + i]
-    {}  
 
     pub proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>)
         requires 
