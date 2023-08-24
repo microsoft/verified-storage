@@ -14,7 +14,7 @@ verus! {
 
     pub open spec fn recovery_view() -> (result: FnSpec(Seq<u8>) -> Option<AbstractInfiniteLogState>)
     {
-        |c| UntrustedLogImpl::convert_from_pm_contents_to_log_state2(c)
+        |c| UntrustedLogImpl::recover(c)
     }
 
     /// A `TrustedPermission` indicates what states of persistent
@@ -48,9 +48,9 @@ verus! {
     /// executable interface that turns a persistent memory region
     /// into an effectively infinite log. It provides a simple
     /// interface to higher-level code.
-    pub struct InfiniteLogImpl {
+    pub struct InfiniteLogImpl<PM: PersistentMemory> {
         untrusted_log_impl: UntrustedLogImpl,
-        wrpm: WriteRestrictedPersistentMemory<TrustedPermission>,
+        wrpm: WriteRestrictedPersistentMemory<TrustedPermission, PM>,
     }
 
     pub enum InfiniteLogErr {
@@ -64,7 +64,7 @@ verus! {
         InvalidHeader { head: u64, tail: u64, log_size: u64 },
     }
 
-    impl InfiniteLogImpl {
+    impl <PM: PersistentMemory> InfiniteLogImpl<PM> {
         pub closed spec fn view(self) -> Option<AbstractInfiniteLogState>
         {
             recovery_view()(self.wrpm@)
@@ -76,7 +76,7 @@ verus! {
         }
 
         pub closed spec fn valid(self) -> bool {
-            &&& self.untrusted_log_impl.consistent_with_pm2(self.wrpm@)
+            &&& self.untrusted_log_impl.inv(&self.wrpm)
             &&& recovery_view()(self.wrpm@).is_Some()
         }
 
@@ -84,8 +84,11 @@ verus! {
         /// to it such that its state represents an empty log starting
         /// at head position 0. This function is meant to be called
         /// exactly once per log, to create and initialize it.
-        pub exec fn setup(pm: &mut PersistentMemory) -> (result: Result<u64, InfiniteLogErr>)
+        pub exec fn setup(pm: &mut PM) -> (result: Result<u64, InfiniteLogErr>)
+            requires
+                old(pm).inv()
             ensures
+                pm.inv(),
                 match result {
                     Ok(capacity) => recovery_view()(pm@) == Some(AbstractInfiniteLogState::initialize(capacity as int)),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
@@ -99,8 +102,9 @@ verus! {
         /// it into an `InfiniteLogImpl`. It's meant to be called after
         /// setting up the persistent memory or after crashing and
         /// restarting.
-        pub exec fn start(pm: PersistentMemory) -> (result: Result<InfiniteLogImpl, InfiniteLogErr>)
+        pub exec fn start(pm: PM) -> (result: Result<InfiniteLogImpl<PM>, InfiniteLogErr>)
             requires
+                pm.inv(),
                 recovery_view()(pm@).is_Some()
             ensures
                 match result {
@@ -241,7 +245,7 @@ verus! {
             // write it. Note that the `UntrustedLogImpl` itself *is*
             // mutable, so it can freely update its in-memory state
             // (e.g., its cache) if it chooses.
-            self.untrusted_log_impl.untrusted_read(self.wrpm.get_pm_ref(), pos, len)
+            self.untrusted_log_impl.untrusted_read(&self.wrpm, pos, len)
         }
 
         /// This function returns a tuple consisting of the head and
@@ -266,7 +270,7 @@ verus! {
             // write it. Note that the `UntrustedLogImpl` itself *is*
             // mutable, so it can freely update its in-memory state
             // (e.g., its local copy of head and tail) if it chooses.
-            self.untrusted_log_impl.untrusted_get_head_and_tail(self.wrpm.get_pm_ref())
+            self.untrusted_log_impl.untrusted_get_head_and_tail(&self.wrpm)
         }
     }
 }

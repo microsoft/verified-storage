@@ -37,39 +37,7 @@ verus! {
     pub const header_tail_offset: u64 = 16;
     pub const header_log_size_offset: u64 = 24;
 
-    // TODO: use something more secure (CRC or SHA hash of 0 and 1) 
-    pub const header1_val: u64 = 0;
-    pub const header2_val: u64 = 1;
-
     pub const header_size: u64 = 32;
-
-    pub const crc_size: u64 = 8; 
-
-    #[verifier(external_body)]
-    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                        y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
-        requires 
-            maybe_corrupted(x_c, x, x_addrs),
-            maybe_corrupted(y_c, y, y_addrs),
-            y =~= spec_crc_bytes(x),
-            y_c =~= spec_crc_bytes(x_c),
-            all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs),
-        ensures
-            x == x_c
-    {}
-
-    #[verifier(external_body)]
-    pub proof fn axiom_incorruptible_bool(spec_ib: u64, ib_c: u64)
-        requires 
-            ({
-                &&& maybe_corrupted_u64(ib_c, spec_ib, Seq::<int>::new(8, |i: int| incorruptible_bool_pos + i))
-                &&& ib_c == header1_val || ib_c == header2_val
-                &&& spec_ib == header1_val || spec_ib == header2_val // maintained by pm_invariant
-            })
-        ensures 
-            ib_c == spec_ib
-    {}
 
     /// Converts the view of a PM region into its incorruptible Boolean, a view of its header,
     /// and a data region.
@@ -103,19 +71,19 @@ verus! {
     pub open spec fn spec_get_live_header(pm: Seq<u8>) -> PersistentHeader 
     {
         let (ib, headers, _) = pm_to_views(pm);
-        if ib == header1_val {
+        if ib == cdb0_val {
             headers.header1
         } else {
             headers.header2
         }
     }
 
-    pub open spec fn permissions_depend_only_on_recovery_view<P: CheckPermission<Seq<u8>>>(perm: &P) -> bool
+    pub open spec fn permissions_depend_only_on_recovery_view<Perm: CheckPermission<Seq<u8>>>(perm: &Perm) -> bool
     {
         forall |s1, s2| recovery_view()(s1) == recovery_view()(s2) ==> perm.check_permission(s1) == perm.check_permission(s2)
     }
 
-    pub proof fn lemma_same_permissions<P: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &P)
+    pub proof fn lemma_same_permissions<Perm: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &Perm)
         requires 
             recovery_view()(pm1) =~= recovery_view()(pm2),
             perm.check_permission(pm1),
@@ -226,17 +194,6 @@ verus! {
         pub head: u64,
         pub tail: u64,
         pub log_size: u64,
-    }
-
-    pub closed spec fn spec_crc_bytes(header_bytes: Seq<u8>) -> Seq<u8>;
-
-    #[verifier::external_body]
-    pub exec fn bytes_crc(header_bytes: &Vec<u8>) -> (out: Vec<u8>)
-        ensures
-            spec_crc_bytes(header_bytes@) =~= out@,
-            out@.len() == 8
-    {
-        unimplemented!();
     }
 
     #[verifier::ext_equal]
@@ -417,11 +374,11 @@ verus! {
     }
 
     /// Proves that a write to data that does not touch any metadata is crash safe.
-    pub proof fn lemma_data_write_is_safe<P>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &P) 
+    pub proof fn lemma_data_write_is_safe<Perm>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &Perm) 
         where 
-            P: CheckPermission<Seq<u8>>,
+            Perm: CheckPermission<Seq<u8>>,
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             perm.check_permission(pm),
@@ -441,28 +398,28 @@ verus! {
                 }
             }),
         ensures 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             forall |chunks_flushed| {
-                let new_pm = #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+                let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                     pm, write_addr, bytes, chunks_flushed);
                 perm.check_permission(new_pm)
             },
             ({
-                let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, write_addr, bytes);
+                let new_pm = update_contents_to_reflect_write(pm, write_addr, bytes);
                 perm.check_permission(new_pm)
             }),
             update_data_view_postcond(pm, bytes, write_addr),
     {
-        let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, write_addr, bytes);
+        let new_pm = update_contents_to_reflect_write(pm, write_addr, bytes);
         lemma_append_data_update_view(pm, bytes, write_addr);
         lemma_same_log_state(pm, new_pm);
 
         assert forall |chunks_flushed| {
-            let new_pm = #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+            let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                 pm, write_addr, bytes, chunks_flushed);
             perm.check_permission(new_pm)
         } by {
-            let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+            let new_pm = update_contents_to_reflect_partially_flushed_write(
                 pm, write_addr, bytes, chunks_flushed);
             lemma_append_data_update_view_crash(pm, bytes, write_addr, chunks_flushed);
             lemma_same_log_state(pm, new_pm);
@@ -472,7 +429,7 @@ verus! {
 
     pub open spec fn update_data_view_postcond(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) -> bool
     {
-        let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, write_addr, new_bytes);
+        let new_pm = update_contents_to_reflect_write(pm, write_addr, new_bytes);
         let (old_ib, old_headers, old_data) = pm_to_views(pm);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
         let live_header = spec_get_live_header(pm);
@@ -485,7 +442,7 @@ verus! {
         &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
         &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~= 
                 old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
-        &&& UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm).is_Some()
+        &&& UntrustedLogImpl::recover(new_pm).is_Some()
 
         &&& physical_head < physical_tail ==>
                 new_data.subrange(physical_head - contents_offset, physical_tail - contents_offset) =~= old_data.subrange(physical_head - contents_offset, physical_tail - contents_offset)
@@ -498,7 +455,7 @@ verus! {
     /// Proves that a non-crashing data write updates data bytes but no log metadata.
     pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) 
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             ({
@@ -516,13 +473,13 @@ verus! {
                 }
             }),
         ensures 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             update_data_view_postcond(pm, new_bytes, write_addr),
     {
         let live_header = spec_get_live_header(pm);
         let physical_head = spec_addr_logical_to_physical(live_header.metadata.head as int, live_header.metadata.log_size as int);
         let physical_tail = spec_addr_logical_to_physical(live_header.metadata.tail as int, live_header.metadata.log_size as int);
-        let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, write_addr, new_bytes);
+        let new_pm = update_contents_to_reflect_write(pm, write_addr, new_bytes);
         lemma_headers_unchanged(pm, new_pm);
         lemma_incorruptible_bool_unchanged(pm, new_pm);
         assert(live_header == spec_get_live_header(new_pm));
@@ -538,7 +495,7 @@ verus! {
     /// Proves that a crashing data write updates data bytes but no log metadata. 
     pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>) 
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
             ({
@@ -550,9 +507,9 @@ verus! {
                 &&& physical_tail < physical_head ==> write_addr + new_bytes.len() < physical_head 
             })
         ensures 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             ({
-                let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
+                let new_pm = update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
                 &&& old_ib == new_ib
@@ -561,12 +518,12 @@ verus! {
                 &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
                 &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~= 
                         old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
-                &&& UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm).is_Some()
             })
     {
         let live_header = spec_get_live_header(pm);
         let physical_tail = spec_addr_logical_to_physical(live_header.metadata.tail as int, live_header.metadata.log_size as int);
-        let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
+        let new_pm = update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
         lemma_headers_unchanged(pm, new_pm);
         lemma_incorruptible_bool_unchanged(pm, new_pm);
         assert(new_pm.subrange(0, write_addr) =~= pm.subrange(0, write_addr));
@@ -577,19 +534,19 @@ verus! {
     /// Proves that a non-crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
-                &&& old_ib == header1_val ==> header_pos == header2_pos 
-                &&& old_ib == header2_val ==> header_pos == header1_pos
+                &&& old_ib == cdb0_val ==> header_pos == header2_pos 
+                &&& old_ib == cdb1_val ==> header_pos == header1_pos
             }),
             new_header_bytes.len() == header_size,
             pm.len() > contents_offset,
         ensures 
             ({
-                let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
+                let new_pm = update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
                 &&& old_ib == new_ib
@@ -598,10 +555,10 @@ verus! {
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
-                &&& UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm).is_Some()
             })
     {
-        let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
+        let new_pm = update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
         assert(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
         if header_pos == header1_pos {
@@ -624,19 +581,19 @@ verus! {
     /// Proves that a crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
-                &&& old_ib == header1_val ==> header_pos == header2_pos 
-                &&& old_ib == header2_val ==> header_pos == header1_pos
+                &&& old_ib == cdb0_val ==> header_pos == header2_pos 
+                &&& old_ib == cdb1_val ==> header_pos == header1_pos
             }),
             new_header_bytes.len() == header_size,
             pm.len() > contents_offset,
         ensures 
             ({
-                let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+                let new_pm = update_contents_to_reflect_partially_flushed_write(
                     pm, header_pos, new_header_bytes, chunks_flushed);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
@@ -646,10 +603,10 @@ verus! {
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
-                &&& UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm).is_Some()
+                &&& UntrustedLogImpl::recover(new_pm).is_Some()
             })
     {
-        let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+        let new_pm = update_contents_to_reflect_partially_flushed_write(
             pm, header_pos, new_header_bytes, chunks_flushed);
         assert(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
         if header_pos == header1_pos {
@@ -672,20 +629,20 @@ verus! {
     /// Proves that an update to the incorruptible boolean is crash-safe and switches the log's
     /// active header. This lemma does most of the work to prove that untrusted_append is 
     /// implemented correctly.
-    pub proof fn lemma_append_ib_update<P: CheckPermission<Seq<u8>>>(
+    pub proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
         pm: Seq<u8>, 
         new_ib: u64, 
         bytes_to_append: Seq<u8>, 
         new_header_bytes: Seq<u8>, 
-        perm: &P
+        perm: &Perm
     )
         requires 
             pm.len() > contents_offset,
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
-            new_ib == header1_val || new_ib == header2_val,
-            new_ib == header1_val ==> 
+            UntrustedLogImpl::recover(pm).is_Some(),
+            new_ib == cdb0_val || new_ib == cdb1_val,
+            new_ib == cdb0_val ==> 
                 pm.subrange(header1_pos as int, header1_pos + header_size) == new_header_bytes,
-            new_ib == header2_val ==>
+            new_ib == cdb1_val ==>
                 pm.subrange(header2_pos as int, header2_pos + header_size) == new_header_bytes,
             new_header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) == 
                 spec_crc_bytes(new_header_bytes.subrange(header_head_offset as int, header_size as int)),
@@ -722,18 +679,18 @@ verus! {
                 }
             }),
             ({
-                let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm);
+                let old_log_state = UntrustedLogImpl::recover(pm);
                 forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
-                    let log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm_state);
+                    let log_state = UntrustedLogImpl::recover(pm_state);
                     log_state == old_log_state || log_state == Some(old_log_state.unwrap().append(bytes_to_append))
                 }
             }),
         ensures
             ({
                 let ib_bytes = spec_u64_to_le_bytes(new_ib);
-                let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
-                let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm);
-                let new_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm);
+                let new_pm = update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
+                let old_log_state = UntrustedLogImpl::recover(pm);
+                let new_log_state = UntrustedLogImpl::recover(new_pm);
                 let new_live_header = spec_get_live_header(new_pm);
                 let (new_pm_ib, _, _) = pm_to_views(new_pm);
                 &&& match (old_log_state, new_log_state) {
@@ -747,7 +704,7 @@ verus! {
                 &&& new_ib == new_pm_ib
             }),
             forall |chunks_flushed| {
-                let new_pm = #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+                let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                     pm, incorruptible_bool_pos as int, spec_u64_to_le_bytes(new_ib), chunks_flushed);
                 &&& perm.check_permission(new_pm)
             }
@@ -762,13 +719,13 @@ verus! {
         lemma_single_write_crash(pm, incorruptible_bool_pos as int, ib_bytes);
         assert(perm.check_permission(pm));
 
-        let new_pm = PersistentMemory::update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
+        let new_pm = update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
         lemma_headers_unchanged(pm, new_pm); 
         assert(new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= ib_bytes);
     
         let new_header = spec_bytes_to_header(new_header_bytes);
         let (ib, headers, data) = pm_to_views(new_pm);
-        let header_pos = if new_ib == header1_val {
+        let header_pos = if new_ib == cdb0_val {
             header1_pos
         } else {
             header2_pos
@@ -778,8 +735,8 @@ verus! {
         lemma_header_correct(new_pm, new_header_bytes, header_pos as int);
         
         // prove that new pm has the append update
-        let new_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm);
-        let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm);
+        let new_log_state = UntrustedLogImpl::recover(new_pm);
+        let old_log_state = UntrustedLogImpl::recover(pm);
 
         match (new_log_state, old_log_state) {
             (Some(new_log_state), Some(old_log_state)) => {
@@ -853,27 +810,27 @@ verus! {
 
     pub proof fn lemma_same_log_state(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old_pm).is_Some(),
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm).is_Some(),
+            UntrustedLogImpl::recover(old_pm).is_Some(),
+            UntrustedLogImpl::recover(new_pm).is_Some(),
             live_data_view_eq(old_pm, new_pm),
             ({
                 let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
-                &&& old_ib == header1_val || old_ib == header2_val
+                &&& old_ib == cdb0_val || old_ib == cdb1_val
                 &&& old_ib == new_ib
-                &&& old_ib == header1_val ==> {
+                &&& old_ib == cdb0_val ==> {
                     &&& old_headers.header1 == new_headers.header1
                 }
-                &&& old_ib == header2_val ==> {
+                &&& old_ib == cdb1_val ==> {
                     &&& old_headers.header2 == new_headers.header2
                 }
             })
         ensures 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old_pm) =~= 
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm)
+            UntrustedLogImpl::recover(old_pm) =~= 
+                UntrustedLogImpl::recover(new_pm)
     {
-        let old_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old_pm);
-        let new_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm);
+        let old_state = UntrustedLogImpl::recover(old_pm);
+        let new_state = UntrustedLogImpl::recover(new_pm);
         let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
 
@@ -881,7 +838,7 @@ verus! {
         assert(new_state.is_Some());
         match (old_state, new_state) {
             (Some(old_state), Some(new_state)) => {
-                let (old_live_header, new_live_header) = if old_ib == header1_val {
+                let (old_live_header, new_live_header) = if old_ib == cdb0_val {
                     (old_headers.header1, new_headers.header1)
                 } else {
                     (old_headers.header2, new_headers.header2)
@@ -1057,9 +1014,9 @@ verus! {
         ensures
             ({
                 forall |chunks_flushed: Set<int>| {
-                    let new_crash_contents = #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
-                                                            pm, write_addr, bytes_to_write, chunks_flushed);
-                    let new_contents = PersistentMemory::update_contents_to_reflect_write(pm, write_addr, bytes_to_write);
+                    let new_crash_contents = #[trigger] update_contents_to_reflect_partially_flushed_write(
+                        pm, write_addr, bytes_to_write, chunks_flushed);
+                    let new_contents = update_contents_to_reflect_write(pm, write_addr, bytes_to_write);
                     new_crash_contents =~= pm || new_crash_contents =~= new_contents
                 }
             })
@@ -1067,14 +1024,14 @@ verus! {
 
     pub proof fn lemma_pm_state_header(pm: Seq<u8>)
         requires 
-            UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm).is_Some(),
+            UntrustedLogImpl::recover(pm).is_Some(),
             ({
                 let header = spec_get_live_header(pm);
                 header.metadata.tail - header.metadata.head < header.metadata.log_size
             })
         ensures 
             ({
-                let pm_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm);
+                let pm_state = UntrustedLogImpl::recover(pm);
                 let header = spec_get_live_header(pm);
                 match pm_state {
                     Some(pm_state) => {
@@ -1085,7 +1042,7 @@ verus! {
                 }
             })
     {
-        let pm_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm);
+        let pm_state = UntrustedLogImpl::recover(pm);
         let header = spec_get_live_header(pm);
         lemma_mod_range(header.metadata.head as int, header.metadata.log_size as int);
         lemma_mod_range(header.metadata.tail as int, header.metadata.log_size as int);
@@ -1141,9 +1098,9 @@ verus! {
             (addr % log_size) + contents_offset
         }
 
-        pub open spec fn log_state_is_valid2(pm: Seq<u8>) -> bool {
+        pub open spec fn log_state_is_valid(pm: Seq<u8>) -> bool {
             let (ib, headers, data) = pm_to_views(pm);
-            let live_header = if ib == header1_val {
+            let live_header = if ib == cdb0_val {
                 headers.header1 
             } else {
                 headers.header2
@@ -1153,30 +1110,29 @@ verus! {
             let tail = live_header.metadata.tail as int;
             let log_size = live_header.metadata.log_size as int;
 
-            &&& ib == header1_val || ib == header2_val
-            &&& crc_size == 8
+            &&& ib == cdb0_val || ib == cdb1_val
             &&& log_size + contents_offset <= u64::MAX
             &&& log_size > 0
             &&& log_size + contents_offset == pm.len()
             &&& tail - head < log_size
-            &&& ib == header1_val ==> {
+            &&& ib == cdb0_val ==> {
                     &&& live_header.crc == spec_u64_from_le_bytes(spec_crc_bytes(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size)))
                     &&& pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~= spec_crc_bytes(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size))
                 }
-            &&& ib == header2_val ==> {
+            &&& ib == cdb1_val ==> {
                 &&& live_header.crc == spec_u64_from_le_bytes(spec_crc_bytes(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size)))
                 &&& pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~= spec_crc_bytes(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size))
             }
             &&& head <= tail
         }
 
-        pub open spec fn convert_from_pm_contents_to_log_state2(pm: Seq<u8>) -> Option<AbstractInfiniteLogState> 
+        pub open spec fn recover(pm: Seq<u8>) -> Option<AbstractInfiniteLogState> 
         {
             let (ib, headers, data) = pm_to_views(pm);
-            if !Self::log_state_is_valid2(pm) {
+            if !Self::log_state_is_valid(pm) {
                 None
             } else {
-                let live_header = if ib == header1_val {
+                let live_header = if ib == cdb0_val {
                     headers.header1 
                 } else {
                     headers.header2
@@ -1203,43 +1159,50 @@ verus! {
             }
         }
 
-        pub open spec fn consistent_with_pm2(self, pm: Seq<u8>) -> bool 
+        // This is the invariant that the untrusted log implementation
+        // maintains between its local state and the contents of
+        // persistent memory.
+        pub open spec fn inv_pm_contents(self, contents: Seq<u8>) -> bool
         {
-            let (ib, headers, data) = pm_to_views(pm);
-            match UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm) {
-                Some(inf_log) => {
-                    let header_pos = if ib == header1_val {
-                        header1_pos
-                    } else {
-                        header2_pos
-                    };
-                    let header = spec_get_live_header(pm);
-                    let head = header.metadata.head;
-                    let tail = header.metadata.tail;
-                    let log_size = header.metadata.log_size;
-
-                    &&& self.incorruptible_bool == header1_val || self.incorruptible_bool == header2_val
-                    &&& ib == header1_val || ib == header2_val 
-                    &&& spec_crc_bytes(pm.subrange(header_pos + header_head_offset, header_pos + header_size)) =~= 
-                                pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8)
-                    &&& log_size + contents_offset <= u64::MAX 
-                    &&& log_size > 0 
-                    &&& tail == head + inf_log.log.len()
-                    &&& tail - head < log_size
-                    &&& log_size + contents_offset == pm.len()
-                    &&& self.header_crc == header.crc
-                    &&& self.head == head 
-                    &&& self.tail == tail 
-                    &&& self.log_size == log_size 
-                    &&& self.incorruptible_bool == ib   
-                }
-                None => false
-            }
+            let (ib, headers, data) = pm_to_views(contents);
+            let header_pos = if ib == cdb0_val { header1_pos } else { header2_pos };
+            let header = spec_get_live_header(contents);
+            let head = header.metadata.head;
+            let tail = header.metadata.tail;
+            let log_size = header.metadata.log_size;
+            &&& ib == cdb0_val || ib == cdb1_val 
+            &&& spec_crc_bytes(contents.subrange(header_pos + header_head_offset, header_pos + header_size)) == 
+                  contents.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8)
+            &&& log_size + contents_offset <= u64::MAX 
+            &&& tail - head < log_size
+            &&& log_size + contents_offset == contents.len()
+            &&& self.header_crc == header.crc
+            &&& self.head == head 
+            &&& self.tail == tail 
+            &&& self.log_size == log_size 
+            &&& self.incorruptible_bool == ib
+            &&& match UntrustedLogImpl::recover(contents) {
+                   Some(inf_log) => tail == head + inf_log.log.len(),
+                   None => false,
+               }
         }
 
-        pub exec fn read_incorruptible_boolean(pm: &PersistentMemory) -> (result: Result<u64, InfiniteLogErr>)
+        // This is the invariant that the untrusted log implementation
+        // maintains between its local state and the write-restricted
+        // persistent memory.
+        pub open spec fn inv<Perm, PM>(self, wrpm: &WriteRestrictedPersistentMemory<Perm, PM>) -> bool
+            where
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
+        {
+            &&& wrpm.inv()
+            &&& self.inv_pm_contents(wrpm@)
+        }
+
+        pub exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
             requires 
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@).is_Some(),
+                UntrustedLogImpl::recover(pm@).is_Some(),
+                pm.inv(),
                 pm@.len() > contents_offset 
             ensures 
                 match result {
@@ -1253,11 +1216,11 @@ verus! {
         {
             let (bytes, addrs) = pm.read(incorruptible_bool_pos, 8);
             let ib = u64_from_le_bytes(bytes.as_slice());
-            if ib == header1_val || ib == header2_val {
+            if ib == cdb0_val || ib == cdb1_val {
                 proof {
                     let (spec_ib, _, _) = pm_to_views(pm@);
                     lemma_auto_spec_u64_to_from_le_bytes();
-                    axiom_incorruptible_bool(spec_ib, ib);
+                    axiom_corruption_detecting_boolean(ib, spec_ib, Seq::<int>::new(8, |i: int| incorruptible_bool_pos + i));
                 }
                 Ok(ib)
             } else {
@@ -1265,29 +1228,33 @@ verus! {
             }
         }
 
-        exec fn update_header<P: CheckPermission<Seq<u8>>> (
+        exec fn update_header<Perm, PM>
+        (
             &mut self,
-            wrpm: &mut WriteRestrictedPersistentMemory<P>,
-            Tracked(perm): Tracked<&P>,
+            wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
+            Tracked(perm): Tracked<&Perm>,
             new_header_bytes: &Vec<u8>
         )
+            where
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires 
                 permissions_depend_only_on_recovery_view(perm),
                 contents_offset < old(wrpm)@.len(),
-                old(self).consistent_with_pm2(old(wrpm)@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                old(self).inv(&*old(wrpm)),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
                 new_header_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8) =~= 
                     spec_crc_bytes(new_header_bytes@.subrange(header_head_offset as int, header_size as int)),
                 new_header_bytes.len() == header_size,
-                match UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@) {
+                match UntrustedLogImpl::recover(old(wrpm)@) {
                     Some(log_state) => perm.check_permission(old(wrpm)@),
                     None => false
                 }
             ensures 
-                self.consistent_with_pm2(wrpm@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@).is_Some(),
+                self.inv(wrpm),
+                UntrustedLogImpl::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@), UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@)) {
+                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1296,14 +1263,14 @@ verus! {
                     let (new_pm_ib, new_metadata, new_data) = pm_to_views(wrpm@);
                     let new_header = spec_bytes_to_header(new_header_bytes@);
                     &&& old_pm_ib == new_pm_ib 
-                    &&& old_pm_ib == header1_val ==> {
+                    &&& old_pm_ib == cdb0_val ==> {
                         &&& new_metadata.header1 == old_metadata.header1
                         &&& new_metadata.header2 == new_header
                         &&& wrpm@.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~= 
                                 spec_crc_bytes(wrpm@.subrange(header2_pos + header_head_offset, header2_pos + header_size))
                         &&& wrpm@.subrange(header2_pos as int, header2_pos + header_size) =~= new_header_bytes@
                     }
-                    &&& old_pm_ib == header2_val ==> {
+                    &&& old_pm_ib == cdb1_val ==> {
                         &&& new_metadata.header1 == new_header
                         &&& new_metadata.header2 == old_metadata.header2
                         &&& wrpm@.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~= 
@@ -1317,7 +1284,7 @@ verus! {
             let ghost original_wrpm = wrpm@;
 
             // write to the header that is NOT pointed to by the IB
-            let header_pos = if self.incorruptible_bool == header1_val {
+            let header_pos = if self.incorruptible_bool == cdb0_val {
                 header2_pos 
             } else {
                 header1_pos 
@@ -1325,18 +1292,18 @@ verus! {
 
             // TODO: we could probably roll all of this into a single lemma that contains all of the proofs
             proof {
-                let new_pm = PersistentMemory::update_contents_to_reflect_write(wrpm@, header_pos as int, new_header_bytes@);
+                let new_pm = update_contents_to_reflect_write(wrpm@, header_pos as int, new_header_bytes@);
                 lemma_inactive_header_update_view(wrpm@, new_header_bytes@, header_pos as int);
                 lemma_same_log_state(wrpm@, new_pm);
-                assert(UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@) =~= UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm));
+                assert(UntrustedLogImpl::recover(wrpm@) =~= UntrustedLogImpl::recover(new_pm));
                 
                 // prove crash consistency
                 assert forall |chunks_flushed| {
-                    let new_pm = #[trigger] PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+                    let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
                         wrpm@, header_pos as int, new_header_bytes@, chunks_flushed);
                     perm.check_permission(new_pm)
                 } by {
-                    let new_pm = PersistentMemory::update_contents_to_reflect_partially_flushed_write(
+                    let new_pm = update_contents_to_reflect_partially_flushed_write(
                         wrpm@, header_pos as int, new_header_bytes@, chunks_flushed);
                     lemma_inactive_header_update_view_crash(wrpm@, new_header_bytes@, header_pos as int, chunks_flushed);
                     lemma_same_log_state(wrpm@, new_pm);
@@ -1347,7 +1314,7 @@ verus! {
             wrpm.write(header_pos, new_header_bytes.as_slice(), Tracked(perm));
             proof {
                 // TODO: clean up once ib update is done. put this all in a lemma
-                assert(UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@).is_Some());
+                assert(UntrustedLogImpl::recover(wrpm@).is_Some());
                 let (_, headers, _) = pm_to_views(wrpm@);
                 assert(wrpm@.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes@);
                 lemma_header_correct(wrpm@, new_header_bytes@, header_pos as int);
@@ -1377,10 +1344,15 @@ verus! {
 
         // Since untrusted_setup doesn't take a WriteRestrictedPersistentMemory, it is not guaranteed
         // to perform crash-safe updates.
-        pub exec fn untrusted_setup(pm: &mut PersistentMemory) -> (result: Result<u64, InfiniteLogErr>)
+        pub exec fn untrusted_setup<PM>(pm: &mut PM) -> (result: Result<u64, InfiniteLogErr>)
+            where
+                PM: PersistentMemory
+            requires
+                old(pm).inv()
             ensures
+                pm.inv(),
                 match result {
-                    Ok(capacity) => UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@) ==
+                    Ok(capacity) => UntrustedLogImpl::recover(pm@) ==
                                 Some(AbstractInfiniteLogState::initialize(capacity as int)),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
                     _ => false
@@ -1406,7 +1378,7 @@ verus! {
             };
             let header_bytes = header_to_bytes(&log_header);
             
-            let initial_ib_bytes = u64_to_le_bytes(header1_val);
+            let initial_ib_bytes = u64_to_le_bytes(cdb0_val);
             pm.write(header1_pos, header_bytes.as_slice());
             pm.write(incorruptible_bool_pos, initial_ib_bytes.as_slice());
 
@@ -1417,7 +1389,7 @@ verus! {
                 lemma_header_split_into_bytes(crc_bytes@, metadata_bytes@, header_bytes@);
                 assert(pm@.subrange(header1_pos + header_head_offset, header1_pos + header_size) =~= metadata_bytes@);
                 lemma_header_match(pm@, header1_pos as int, log_header);
-                let log_state = Self::convert_from_pm_contents_to_log_state2(pm@);
+                let log_state = Self::recover(pm@);
                 match log_state {
                     Some(log_state) => {
                         assert(log_state.head == 0);
@@ -1431,25 +1403,28 @@ verus! {
             Ok(log_size - 1)
         }
 
-        pub exec fn untrusted_start<P>(wrpm: &mut WriteRestrictedPersistentMemory<P>, Tracked(perm): Tracked<&P>)
-                                       -> (result: Result<UntrustedLogImpl, InfiniteLogErr>)
+        pub exec fn untrusted_start<Perm, PM>(wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
+                                              Tracked(perm): Tracked<&Perm>)
+                                              -> (result: Result<UntrustedLogImpl, InfiniteLogErr>)
             where
-                P: CheckPermission<Seq<u8>>,
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                old(wrpm).inv(),
                 header_crc_offset < header_crc_offset + crc_size <= header_head_offset < header_tail_offset < header_log_size_offset,
                 // The restriction on writing persistent memory during initialization is
                 // that it can't change the interpretation of that memory's contents.
                 ({
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==>
-                        UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm_state) ==
-                        UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@)
+                        UntrustedLogImpl::recover(pm_state) ==
+                        UntrustedLogImpl::recover(old(wrpm)@)
                 }),
             ensures
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@) == UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@),
+                UntrustedLogImpl::recover(old(wrpm)@) == UntrustedLogImpl::recover(wrpm@),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 match result {
-                    Ok(log_impl) => log_impl.consistent_with_pm2(wrpm@),
+                    Ok(log_impl) => log_impl.inv(wrpm),
                     Err(InfiniteLogErr::CRCMismatch) => !old(wrpm).impervious_to_corruption(),
                     _ => false
                 }
@@ -1463,14 +1438,14 @@ verus! {
                 Err(e) => return Err(e)
             };
 
-            let header_pos = if ib == header1_val {
+            let header_pos = if ib == cdb0_val {
                 header1_pos
             } else {
-                assert(ib == header2_val);
+                assert(ib == cdb1_val);
                 header2_pos
             };
-            let (mut crc_bytes, crc_addrs) = pm.read(header_pos + header_crc_offset, 8);
-            let (mut header_bytes, header_addrs) = pm.read(header_pos + header_head_offset, header_size - header_head_offset);
+            let (crc_bytes, crc_addrs) = pm.read(header_pos + header_crc_offset, 8);
+            let (header_bytes, header_addrs) = pm.read(header_pos + header_head_offset, header_size - header_head_offset);
             
             let header = if u64_from_le_bytes(bytes_crc(&header_bytes).as_slice()) == u64_from_le_bytes(crc_bytes.as_slice()) { 
                 proof {
@@ -1513,27 +1488,48 @@ verus! {
             Ok(untrusted_log)
         }
 
-        pub exec fn untrusted_append<P>(
+        pub exec fn untrusted_append<Perm, PM>(
             &mut self,
-            wrpm: &mut WriteRestrictedPersistentMemory<P>,
+            wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
             bytes_to_append: &Vec<u8>,
-            Tracked(perm): Tracked<&P>
+            Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<u64, InfiniteLogErr>)
             where
-                P: CheckPermission<Seq<u8>>
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires
-                old(self).consistent_with_pm2(old(wrpm)@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                old(self).inv(&*old(wrpm)),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
                 ({
-                    let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@);
+                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
-                        let log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm_state);
+                        let log_state = UntrustedLogImpl::recover(pm_state);
                         log_state == old_log_state || log_state == Some(old_log_state.unwrap().append(bytes_to_append@))
                     }
                 }),
             ensures
-                self.untrusted_append_postcond(result, old(wrpm)@, wrpm@, bytes_to_append@),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption()
+                self.inv(wrpm),
+                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                ({
+                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
+                    let new_log_state = UntrustedLogImpl::recover(wrpm@);
+                    match (result, old_log_state, new_log_state) {
+                        (Ok(offset), Some(old_log_state), Some(new_log_state)) => {
+                            &&& offset as nat == old_log_state.log.len() + old_log_state.head
+                            &&& new_log_state == old_log_state.append(bytes_to_append@)
+                        },
+                        (Err(InfiniteLogErr::InsufficientSpaceForAppend{ available_space }), _, _) => {
+                            &&& new_log_state == old_log_state
+                            &&& available_space < bytes_to_append@.len()
+                            &&& {
+                                   let log = old_log_state.unwrap();
+                                   ||| available_space == log.capacity - log.log.len()
+                                   ||| available_space == u64::MAX - log.head - log.log.len()
+                               }
+                        },
+                        (_, _, _) => false
+                    }
+                }),
         {
             assert(permissions_depend_only_on_recovery_view(perm));
 
@@ -1588,11 +1584,11 @@ verus! {
 
                 // update incorruptible boolean
                 let old_ib = self.incorruptible_bool;
-                let new_ib = if old_ib == header1_val {
-                    header2_val 
+                let new_ib = if old_ib == cdb0_val {
+                    cdb1_val 
                 } else {
-                    assert(old_ib == header2_val);
-                    header1_val
+                    assert(old_ib == cdb1_val);
+                    cdb0_val
                 };
                 let new_ib_bytes = u64_to_le_bytes(new_ib);
 
@@ -1609,43 +1605,21 @@ verus! {
             }
         }
 
-        pub open spec fn untrusted_append_postcond(&self, result: Result<u64, InfiniteLogErr>, old_pm: Seq<u8>, new_pm: Seq<u8>, bytes_appended: Seq<u8>) -> bool 
-        {
-            let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old_pm);
-            let new_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm);
-            &&& self.consistent_with_pm2(new_pm)    
-            &&& match (result, old_log_state, new_log_state) {
-                (Ok(offset), Some(old_log_state), Some(new_log_state)) => {
-                    &&& offset as nat == old_log_state.log.len() + old_log_state.head
-                    &&& new_log_state == old_log_state.append(bytes_appended)
-                },
-                (Err(InfiniteLogErr::InsufficientSpaceForAppend{ available_space }), _, _) => {
-                    &&& new_log_state == old_log_state
-                    &&& available_space < bytes_appended.len()
-                    &&& {
-                           let log = old_log_state.unwrap();
-                           ||| available_space == log.capacity - log.log.len()
-                           ||| available_space == u64::MAX - log.head - log.log.len()
-                       }
-                },
-                (_, _, _) => false
-            }
-        }
-
-        exec fn append_no_wrap<P>(
+        exec fn append_no_wrap<Perm, PM>(
             &mut self,
-            wrpm: &mut WriteRestrictedPersistentMemory<P>,
+            wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
             bytes_to_append: &Vec<u8>,
             old_header: &PersistentHeaderMetadata,
-            Tracked(perm): Tracked<&P>
+            Tracked(perm): Tracked<&Perm>
         ) 
             where 
-                P: CheckPermission<Seq<u8>>,
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires 
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
-                old(self).consistent_with_pm2(old(wrpm)@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                old(self).inv(&*old(wrpm)),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 // TODO: clean up
                 ({
@@ -1660,10 +1634,10 @@ verus! {
                     &&& physical_tail < physical_head ==> physical_tail <= physical_tail + bytes_to_append@.len() < physical_head 
                 })
             ensures 
-                self.consistent_with_pm2(wrpm@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@).is_Some(),
+                self.inv(wrpm),
+                UntrustedLogImpl::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@), UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@)) {
+                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1688,20 +1662,21 @@ verus! {
             }   
         }
 
-        pub exec fn append_wrap<P>(
+        pub exec fn append_wrap<Perm, PM>(
             &mut self,
-            wrpm: &mut WriteRestrictedPersistentMemory<P>,
+            wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
             bytes_to_append: &Vec<u8>,
             old_header: &PersistentHeaderMetadata,
-            Tracked(perm): Tracked<&P>
+            Tracked(perm): Tracked<&Perm>
         )
             where 
-                P: CheckPermission<Seq<u8>>,
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires 
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
-                old(self).consistent_with_pm2(old(wrpm)@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                old(self).inv(&*old(wrpm)),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 ({
                     let physical_head = spec_addr_logical_to_physical(old_header.head as int, old_header.log_size as int);
@@ -1713,10 +1688,10 @@ verus! {
                     &&& bytes_to_append@.len() <= old_header.log_size - (old_header.tail - old_header.head)
                 }),
             ensures 
-                self.consistent_with_pm2(wrpm@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@).is_Some(),
+                self.inv(wrpm),
+                UntrustedLogImpl::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@), UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@)) {
+                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1758,31 +1733,32 @@ verus! {
             }
         }
 
-        pub exec fn untrusted_advance_head<P>(
+        pub exec fn untrusted_advance_head<Perm, PM>(
             &mut self,
-            wrpm: &mut WriteRestrictedPersistentMemory<P>,
+            wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
             new_head: u64,
-            Tracked(perm): Tracked<&P>
+            Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<(), InfiniteLogErr>)
             where
-                P: CheckPermission<Seq<u8>>,
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires
-                old(self).consistent_with_pm2(old(wrpm)@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@).is_Some(),
+                old(self).inv(&*old(wrpm)),
+                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
                 ({
-                    let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@);
+                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
-                        let log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm_state);
+                        let log_state = UntrustedLogImpl::recover(pm_state);
                         ||| log_state == old_log_state 
                         ||| log_state == Some(old_log_state.unwrap().advance_head(new_head as int))
                     }
                 })
             ensures
-                self.consistent_with_pm2(wrpm@),
+                self.inv(wrpm),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 ({
-                    let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@);
-                    let new_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(wrpm@);
+                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
+                    let new_log_state = UntrustedLogImpl::recover(wrpm@);
                     match (result, old_log_state, new_log_state) {
                         (Ok(_), Some(old_log_state), Some(new_log_state)) => {
                             &&& old_log_state.head <= new_head <= old_log_state.head + old_log_state.log.len()
@@ -1836,11 +1812,11 @@ verus! {
 
             // TODO: put ib update in a lemma
             let old_ib = self.incorruptible_bool;
-            let new_ib = if old_ib == header1_val {
-                header2_val 
+            let new_ib = if old_ib == cdb0_val {
+                cdb1_val 
             } else {
-                assert(old_ib == header2_val);
-                header1_val
+                assert(old_ib == cdb1_val);
+                cdb0_val
             };
             let new_ib_bytes = u64_to_le_bytes(new_ib);
 
@@ -1848,13 +1824,13 @@ verus! {
                 lemma_auto_spec_u64_to_from_le_bytes();
                 lemma_single_write_crash(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
                 assert(perm.check_permission(old(wrpm)@));
-                let new_pm = PersistentMemory::update_contents_to_reflect_write(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
+                let new_pm = update_contents_to_reflect_write(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
                 lemma_headers_unchanged(wrpm@, new_pm); 
                 assert(new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_ib_bytes@);
                 
                 let new_header = spec_bytes_to_header(new_header_bytes@);
                 let (ib, headers, data) = pm_to_views(new_pm);
-                let header_pos = if new_ib == header1_val {
+                let header_pos = if new_ib == cdb0_val {
                     header1_pos
                 } else {
                     header2_pos
@@ -1864,8 +1840,8 @@ verus! {
                 lemma_header_correct(new_pm, new_header_bytes@, header_pos as int);
                 
                 // prove that new pm has the advance head update
-                let new_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(new_pm);
-                let old_log_state = UntrustedLogImpl::convert_from_pm_contents_to_log_state2(old(wrpm)@);
+                let new_log_state = UntrustedLogImpl::recover(new_pm);
+                let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
                 match (new_log_state, old_log_state) {
                     (Some(new_log_state), Some(old_log_state)) => {
                         lemma_pm_state_header(new_pm);
@@ -1885,24 +1861,27 @@ verus! {
             Ok(())
         }
 
-        pub exec fn untrusted_read(
+        pub exec fn untrusted_read<Perm, PM>(
             &self,
-            pm: &PersistentMemory,
+            wrpm: &WriteRestrictedPersistentMemory<Perm, PM>,
             pos: u64,
             len: u64
         ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), InfiniteLogErr>)
+            where
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires
-                self.consistent_with_pm2(pm@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@).is_Some(),
+                self.inv(wrpm),
+                UntrustedLogImpl::recover(wrpm@).is_Some(),
             ensures
-                match UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@).unwrap() {
+                match UntrustedLogImpl::recover(wrpm@).unwrap() {
                     AbstractInfiniteLogState{ head: head, log: log, .. } =>
                         match result {
                             Ok((bytes, addrs)) => {
                                 &&& pos >= head
                                 &&& pos + len <= head + log.len()
                                 &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
-                                &&& pm.impervious_to_corruption() ==>
+                                &&& wrpm.impervious_to_corruption() ==>
                                        bytes@ == log.subrange(pos - head, pos + len - head)
                             },
                             Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
@@ -1917,6 +1896,7 @@ verus! {
                         }
                 }
         {
+            let pm = wrpm.get_pm_ref();
             let physical_pos = Self::addr_logical_to_physical(pos, self.log_size);
             let contents_end = self.log_size + contents_offset;
             if pos < self.head {
@@ -1952,7 +1932,7 @@ verus! {
                 let physical_head = Self::addr_logical_to_physical(self.head, self.log_size);
                 let physical_tail = Self::addr_logical_to_physical(self.tail, self.log_size);
                 
-                let ghost log = Self::convert_from_pm_contents_to_log_state2(pm@).unwrap();
+                let ghost log = Self::recover(pm@).unwrap();
                 let buffer = if physical_head == physical_tail {
                     assert (Seq::<u8>::empty() =~= log.log.subrange(pos - log.head, pos + len - log.head));
                     (Vec::new(), Ghost(Seq::empty()))
@@ -1978,17 +1958,20 @@ verus! {
             }
         }
 
-        pub exec fn untrusted_get_head_and_tail(
+        pub exec fn untrusted_get_head_and_tail<Perm, PM>(
             &self,
-            pm: &PersistentMemory
+            wrpm: &WriteRestrictedPersistentMemory<Perm, PM>
         ) -> (result: Result<(u64, u64, u64), InfiniteLogErr>)
+            where
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemory
             requires
-                self.consistent_with_pm2(pm@),
-                UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@).is_Some()
+                self.inv(wrpm),
+                UntrustedLogImpl::recover(wrpm@).is_Some()
             ensures
                 match result {
                     Ok((result_head, result_tail, result_capacity)) =>
-                        match UntrustedLogImpl::convert_from_pm_contents_to_log_state2(pm@).unwrap() {
+                        match UntrustedLogImpl::recover(wrpm@).unwrap() {
                             AbstractInfiniteLogState{ head: head, log: log, capacity: capacity } => {
                                 &&& result_head == head
                                 &&& result_tail == head + log.len()
@@ -1998,6 +1981,7 @@ verus! {
                     Err(_) => false,
                 }
         {
+            let pm = wrpm.get_pm_ref();
             proof { lemma_pm_state_header(pm@); }
             Ok((self.head, self.tail, self.log_size - 1))
         }

@@ -8,16 +8,18 @@ pub mod infinitelog_t;
 pub mod logimpl_v;
 pub mod main_t;
 pub mod math;
+pub mod pmemmock_t;
 pub mod pmemspec_t;
 pub mod sccf;
 
 use crate::main_t::*;
 use crate::pmemspec_t::*;
+use crate::pmemmock_t::*;
 
 verus! {
 
     fn main() {
-        if let Ok(mut pm) = PersistentMemory::create(4096) {
+        if let Ok(mut pm) = VolatileMemoryMockingPersistentMemory::create(4096) {
             if let Ok(_) = InfiniteLogImpl::setup(&mut pm) {
                 if let Ok(mut log) = InfiniteLogImpl::start(pm) {
                     let mut v: Vec<u8> = Vec::<u8>::new();
