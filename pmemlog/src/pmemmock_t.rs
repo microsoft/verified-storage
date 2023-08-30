@@ -1,7 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
-use vstd::prelude::*;
 use crate::pmemspec_t::*;
+use std::convert::*;
+use vstd::prelude::*;
 
 verus! {
 
@@ -34,24 +35,22 @@ verus! {
             self.contents.len() <= u64::MAX
         }
 
-        #[verifier::external_body]
         closed spec fn impervious_to_corruption(self) -> bool
         {
-            unimplemented!()
+            true
         }
 
+        #[verifier::external_body]
         fn get_capacity(&self) -> (result: u64)
         {
-            // TODO: handle errors
-            self.contents.len() as u64//.try_into().unwrap()
+            self.contents.len().try_into().unwrap()
         }
 
         #[verifier::external_body]
         fn read(&self, addr: u64, num_bytes: u64) -> (out: (Vec<u8>, Ghost<Seq<int>>))
         {
-            // TODO: handle errors
-            let addr_usize: usize = addr as usize;//.try_into().unwrap();
-            let num_bytes_usize: usize = num_bytes as usize;//.try_into().unwrap();
+            let addr_usize: usize = addr.try_into().unwrap();
+            let num_bytes_usize: usize = num_bytes.try_into().unwrap();
             (
                 self.contents[addr_usize..addr_usize+num_bytes_usize].to_vec(),
                 Ghost(Seq::<int>::new(num_bytes as nat, |i: int| i + addr)),
@@ -61,8 +60,7 @@ verus! {
         #[verifier::external_body]
         fn write(&mut self, addr: u64, bytes: &[u8])
         {
-            // TODO: handle errors
-            let addr_usize: usize = addr as usize;//.try_into().unwrap();
+            let addr_usize: usize = addr.try_into().unwrap();
             self.contents.splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
         }
     }
