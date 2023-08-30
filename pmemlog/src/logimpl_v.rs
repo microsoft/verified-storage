@@ -1469,12 +1469,9 @@ verus! {
             let tail = header.metadata.tail;
             let log_size = header.metadata.log_size;
             // check log validity now that we have its uncorrupted metadata
-            if device_size != log_size + contents_offset ||
-                head > tail ||
-                tail - head >= log_size 
-            {
-                return Err(InfiniteLogErr::InvalidHeader { head: head, tail: tail, log_size: log_size });
-            }
+            assert(device_size == log_size + contents_offset);
+            assert(head <= tail);
+            assert(tail - head < log_size);
 
             let untrusted_log = UntrustedLogImpl {
                 incorruptible_bool: ib,

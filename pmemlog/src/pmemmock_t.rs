@@ -10,6 +10,19 @@ verus! {
         contents: Vec<u8>
     }
 
+    impl VolatileMemoryMockingPersistentMemory {
+        #[verifier::external_body]
+        pub fn new(capacity: u64) -> (result: Result<Self, ()>)
+            ensures
+                match result {
+                    Ok(pm) => pm@.len() == capacity && pm.inv(),
+                    Err(_) => true
+                }
+        {
+            Ok(Self {contents: vec![0; capacity as usize]})
+        }
+    }
+
     impl PersistentMemory for VolatileMemoryMockingPersistentMemory {
         closed spec fn view(self) -> Seq<u8>
         {
@@ -19,12 +32,6 @@ verus! {
         closed spec fn inv(self) -> bool
         {
             self.contents.len() <= u64::MAX
-        }
-
-        #[verifier::external_body]
-        fn new(capacity: u64) -> (result: Result<Self, ()>)
-        {
-            Ok(Self {contents: vec![0; capacity as usize]})
         }
 
         #[verifier::external_body]

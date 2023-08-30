@@ -115,13 +115,6 @@ verus! {
 
         spec fn inv(self) -> bool;
 
-        fn new(capacity: u64) -> (result: Result<Self, ()>)
-            ensures
-                match result {
-                    Ok(pm) => pm@.len() == capacity && pm.inv(),
-                    Err(_) => true
-                };
-
         spec fn impervious_to_corruption(self) -> bool;
 
         /// This is the model of some routine that queries how many

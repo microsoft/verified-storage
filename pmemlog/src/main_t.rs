@@ -61,7 +61,6 @@ verus! {
         CRCMismatch,
         CantAdvanceHeadPositionBeforeHead { head: u64 },
         CantAdvanceHeadPositionBeyondTail { tail: u64 },
-        InvalidHeader { head: u64, tail: u64, log_size: u64 },
     }
 
     impl <PM: PersistentMemory> InfiniteLogImpl<PM> {
