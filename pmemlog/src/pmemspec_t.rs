@@ -15,6 +15,9 @@ use vstd::set::*;
 use vstd::slice::*;
 use crate::sccf::CheckPermission;
 
+#[cfg(not(verus_keep_ghost))]
+use crc::Crc;
+
 verus! {
 
     pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
@@ -41,7 +44,15 @@ verus! {
             spec_crc_bytes(header_bytes@) == out@,
             out@.len() == crc_size
     {
-        unimplemented!();
+        #[cfg(not(verus_keep_ghost))]
+        {
+            let crc = Crc::<u64>::new(&crc::CRC_64_MS);
+            let mut digest = crc.digest();
+            digest.update(header_bytes);
+            u64_to_le_bytes(digest.finalize())
+        }
+        #[cfg(verus_keep_ghost)]
+        unimplemented!()
     }
 
     // We make two assumptions about how CRCs can be used to detect
@@ -104,7 +115,7 @@ verus! {
 
         spec fn inv(self) -> bool;
 
-        fn create(capacity: u64) -> (result: Result<Self, ()>)
+        fn new(capacity: u64) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(pm) => pm@.len() == capacity && pm.inv(),

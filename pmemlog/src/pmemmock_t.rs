@@ -22,7 +22,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn create(capacity: u64) -> (result: Result<Self, ()>)
+        fn new(capacity: u64) -> (result: Result<Self, ()>)
         {
             Ok(Self {contents: vec![0; capacity as usize]})
         }
