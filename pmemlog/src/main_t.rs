@@ -20,9 +20,14 @@ verus! {
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
                                                     impervious_to_corruption: bool) -> bool
     {
-        exists |addrs: Seq<int>| {
-            &&& all_elements_unique(addrs)
-            &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs, impervious_to_corruption)
+        if impervious_to_corruption {
+            bytes == true_bytes
+        }
+        else {
+            exists |addrs: Seq<int>| {
+                &&& all_elements_unique(addrs)
+                &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs)
+            }
         }
     }
 

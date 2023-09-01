@@ -24,14 +24,11 @@ verus! {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
     }
 
-    pub closed spec fn byte_read_from_corruptible_device(byte: u8, true_byte: u8, physical_addr: int) -> bool;
+    pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
-    pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>, incorruptible: bool) -> bool {
+    pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
         &&& bytes.len() == true_bytes.len() == addrs.len()
-        &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> {
-              ||| bytes[i] == true_bytes[i]
-              ||| !incorruptible && byte_read_from_corruptible_device(bytes[i], true_bytes[i], addrs[i])
-           }
+        &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
     pub const crc_size: u64 = 8; 
@@ -68,11 +65,11 @@ verus! {
     // corrupted, i.e., that `x_c == x`.
 
     #[verifier(external_body)]
-    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>, incorruptible_x: bool,
-                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>, incorruptible_y: bool)
+    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
         requires 
-            maybe_corrupted(x_c, x, x_addrs, incorruptible_x),
-            maybe_corrupted(y_c, y, y_addrs, incorruptible_y),
+            maybe_corrupted(x_c, x, x_addrs),
+            maybe_corrupted(y_c, y, y_addrs),
             y == spec_crc_bytes(x),
             y_c == spec_crc_bytes(x_c),
             all_elements_unique(x_addrs),
@@ -96,9 +93,9 @@ verus! {
     pub const cdb1_val: u64 = 0xab21aa73069531b7; // CRC(b"1")
 
     #[verifier(external_body)]
-    pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>, incorruptible: bool)
+    pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>)
         requires 
-            maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs, incorruptible),
+            maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs),
             all_elements_unique(addrs),
             cdb == cdb0_val || cdb == cdb1_val,
             cdb_c == cdb0_val || cdb_c == cdb1_val,
@@ -135,7 +132,12 @@ verus! {
                 ({
                     let true_bytes = self@.subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    maybe_corrupted(bytes@, true_bytes, addrs, self.impervious_to_corruption())
+                    if self.impervious_to_corruption() {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        maybe_corrupted(bytes@, true_bytes, addrs)
+                    }
                 });
 
         /// This is the model of some routine that writes `bytes`

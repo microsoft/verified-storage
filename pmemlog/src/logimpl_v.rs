@@ -937,20 +937,6 @@ verus! {
         lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
     }
 
-    pub proof fn lemma_maybe_corrupted_divergence_implies_not_incorruptible(bytes: Seq<u8>, true_bytes: Seq<u8>,
-                                                                            addrs: Seq<int>, incorruptible: bool)
-        requires
-            maybe_corrupted(bytes, true_bytes, addrs, incorruptible)
-        ensures
-            bytes != true_bytes ==> !incorruptible
-    {
-        if !(bytes =~= true_bytes) {
-            assert (exists |i| 0 <= i < bytes.len() && bytes[i] != true_bytes[i]);
-            let i = choose |i| 0 <= i < bytes.len() && bytes[i] != true_bytes[i];
-            assert (byte_read_from_corruptible_device(bytes[i], true_bytes[i], addrs[i]));
-        }
-    }
-
     pub proof fn lemma_incorruptible_bool_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires 
             old_pm.len() == new_pm.len(),
@@ -1235,18 +1221,12 @@ verus! {
                 proof {
                     let (spec_ib, _, _) = pm_to_views(pm@);
                     lemma_auto_spec_u64_to_from_le_bytes();
-                    axiom_corruption_detecting_boolean(ib, spec_ib, addrs, pm.impervious_to_corruption());
+                    if !pm.impervious_to_corruption() {
+                        axiom_corruption_detecting_boolean(ib, spec_ib, addrs);
+                    }
                 }
                 Ok(ib)
             } else {
-                proof {
-                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
-                        bytes@,
-                        pm@.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8),
-                        addrs,
-                        pm.impervious_to_corruption()
-                    );
-                };
                 Err(InfiniteLogErr::CRCMismatch)
             }
         }
@@ -1476,33 +1456,19 @@ verus! {
                 proof {
                     lemma_auto_spec_u64_to_from_le_bytes();
                     lemma_u64_bytes_eq(spec_u64_from_le_bytes(spec_crc_bytes(header_bytes@)), spec_u64_from_le_bytes(crc_bytes@));
-                    axiom_bytes_uncorrupted(
-                        header_bytes@,
-                        pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
-                        header_addrs,
-                        wrpm.impervious_to_corruption(),
-                        crc_bytes@,
-                        pm@.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
-                        crc_addrs,
-                        wrpm.impervious_to_corruption(),
-                    );
+                    if !wrpm.impervious_to_corruption() {
+                        axiom_bytes_uncorrupted(
+                            header_bytes@,
+                            pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
+                            header_addrs,
+                            crc_bytes@,
+                            pm@.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
+                            crc_addrs,
+                        );
+                    }
                 }
                 crc_and_metadata_bytes_to_header(crc_bytes.as_slice(), header_bytes.as_slice())
             } else {
-                proof {
-                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
-                        header_bytes@,
-                        pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
-                        header_addrs,
-                        wrpm.impervious_to_corruption()
-                    );
-                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
-                        crc_bytes@,
-                        pm@.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
-                        crc_addrs,
-                        wrpm.impervious_to_corruption()
-                    );
-                };
                 return Err(InfiniteLogErr::CRCMismatch);
             };
 
@@ -1975,7 +1941,8 @@ verus! {
                     assert (Seq::<u8>::empty() =~= log.log.subrange(pos - log.head, pos + len - log.head));
                     let buf = Vec::new();
                     let ghost addrs = Seq::<int>::empty();
-                    assert (maybe_corrupted(buf@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    assert (if wrpm.impervious_to_corruption() { buf@ == true_bytes }
+                            else { maybe_corrupted(buf@, true_bytes, addrs) });
                     Ok(buf)
                 } else if physical_pos >= physical_head && physical_pos >= contents_end - len {
                     let r1_len: u64 = contents_end - physical_pos;
@@ -1991,14 +1958,16 @@ verus! {
                     assert (pm@.subrange(physical_pos as int, physical_pos + r1_len)
                                 + pm@.subrange(contents_offset as int, contents_offset + r2_len)
                                 =~= log.log.subrange(pos - log.head, pos + len - log.head));
-                    assert (maybe_corrupted(r1@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    assert (if wrpm.impervious_to_corruption() { r1@ == true_bytes }
+                            else { maybe_corrupted(r1@, true_bytes, addrs) });
                     Ok(r1)
                 } else {
                     assert (pm@.subrange(physical_pos as int, physical_pos + len) =~=
                                 log.log.subrange(pos - log.head, pos + len - log.head));
                     let ghost addrs = Seq::<int>::new(len as nat, |i: int| i + physical_pos);
                     let buf = pm.read(physical_pos, len);
-                    assert (maybe_corrupted(buf@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    assert (if wrpm.impervious_to_corruption() { buf@ == true_bytes }
+                            else { maybe_corrupted(buf@, true_bytes, addrs) });
                     Ok(buf)
                 }
             }
