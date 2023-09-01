@@ -103,6 +103,10 @@ verus! {
             cdb_c == cdb
     {}
 
+    pub struct PersistentMemoryConstants {
+        pub impervious_to_corruption: bool
+    }
+
     // We mark this as `external_body` so that the verifier can't see
     // that there's nothing important in it and thereby shortcut some
     // checks.
@@ -112,15 +116,7 @@ verus! {
 
         spec fn inv(self) -> bool;
 
-        spec fn impervious_to_corruption(self) -> bool;
-
-        /// This is the model of some routine that queries how many
-        /// bytes are in the persistent memory region.
-        fn get_capacity(&self) -> (result: u64)
-            requires
-                self.inv()
-            ensures
-                result == self@.len();
+        spec fn constants(self) -> PersistentMemoryConstants;
 
         /// This is the model of some routine that reads the
         /// `num_bytes` bytes at address `addr`.
@@ -132,7 +128,7 @@ verus! {
                 ({
                     let true_bytes = self@.subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    if self.impervious_to_corruption() {
+                    if self.constants().impervious_to_corruption {
                         bytes@ == true_bytes
                     }
                     else {
@@ -149,8 +145,8 @@ verus! {
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
-                self.impervious_to_corruption() == old(self).impervious_to_corruption();
+                self.constants() == old(self).constants(),
+                self@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@);
     }
 
     /// We model the persistent memory as getting flushed in chunks,
@@ -252,8 +248,8 @@ verus! {
             self.pm.inv()
         }
 
-        pub closed spec fn impervious_to_corruption(self) -> bool {
-            self.pm.impervious_to_corruption()
+        pub closed spec fn constants(self) -> PersistentMemoryConstants {
+            self.pm.constants()
         }
 
         pub exec fn new(pm: PM) -> (wrpm: Self)
@@ -262,7 +258,7 @@ verus! {
             ensures
                 wrpm@ == pm@,
                 wrpm.inv(),
-                wrpm.impervious_to_corruption() == pm.impervious_to_corruption()
+                wrpm.constants() == pm.constants()
         {
             Self { pm: pm, perm: None }
         }
@@ -273,7 +269,7 @@ verus! {
             ensures
                 pm.inv(),
                 pm@ == self@,
-                pm.impervious_to_corruption() == self.impervious_to_corruption()
+                pm.constants() == self.constants()
         {
             &self.pm
         }
@@ -297,8 +293,8 @@ verus! {
                 },
             ensures
                 self.inv(),
+                self.constants() == old(self).constants(),
                 self@ == update_contents_to_reflect_write(old(self)@, addr as int, bytes@),
-                self.impervious_to_corruption() == old(self).impervious_to_corruption()
         {
             self.pm.write(addr, bytes)
         }

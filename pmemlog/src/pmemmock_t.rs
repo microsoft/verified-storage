@@ -13,14 +13,14 @@ verus! {
 
     impl VolatileMemoryMockingPersistentMemory {
         #[verifier::external_body]
-        pub fn new(capacity: u64) -> (result: Result<Self, ()>)
+        pub fn new(device_size: u64) -> (result: Result<Self, ()>)
             ensures
                 match result {
-                    Ok(pm) => pm@.len() == capacity && pm.inv(),
+                    Ok(pm) => pm@.len() == device_size && pm.inv(),
                     Err(_) => true
                 }
         {
-            Ok(Self {contents: vec![0; capacity as usize]})
+            Ok(Self {contents: vec![0; device_size as usize]})
         }
     }
 
@@ -35,15 +35,9 @@ verus! {
             self.contents.len() <= u64::MAX
         }
 
-        closed spec fn impervious_to_corruption(self) -> bool
+        closed spec fn constants(self) -> PersistentMemoryConstants
         {
-            true
-        }
-
-        #[verifier::external_body]
-        fn get_capacity(&self) -> (result: u64)
-        {
-            self.contents.len().try_into().unwrap()
+            PersistentMemoryConstants { impervious_to_corruption: true }
         }
 
         #[verifier::external_body]

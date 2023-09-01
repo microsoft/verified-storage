@@ -19,9 +19,10 @@ use crate::pmemmock_t::*;
 verus! {
 
     fn main() {
-        if let Ok(mut pm) = VolatileMemoryMockingPersistentMemory::new(4096) {
-            if let Ok(_) = InfiniteLogImpl::setup(&mut pm) {
-                if let Ok(mut log) = InfiniteLogImpl::start(pm) {
+        let device_size: u64 = 4096;
+        if let Ok(mut pm) = VolatileMemoryMockingPersistentMemory::new(device_size) {
+            if let Ok(_) = InfiniteLogImpl::setup(&mut pm, device_size) {
+                if let Ok(mut log) = InfiniteLogImpl::start(pm, device_size) {
                     let mut v: Vec<u8> = Vec::<u8>::new();
                     v.push(30); v.push(42); v.push(100);
                     if let Ok(pos) = log.append(&v) {

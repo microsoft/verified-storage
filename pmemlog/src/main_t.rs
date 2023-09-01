@@ -83,9 +83,9 @@ verus! {
             recovery_view()(self.wrpm@)
         }
 
-        pub closed spec fn pm_impervious_to_corruption(self) -> bool
+        pub closed spec fn constants(self) -> PersistentMemoryConstants
         {
-            self.wrpm.impervious_to_corruption()
+            self.wrpm.constants()
         }
 
         pub closed spec fn valid(self) -> bool {
@@ -97,36 +97,41 @@ verus! {
         /// to it such that its state represents an empty log starting
         /// at head position 0. This function is meant to be called
         /// exactly once per log, to create and initialize it.
-        pub exec fn setup(pm: &mut PM) -> (result: Result<u64, InfiniteLogErr>)
+        pub exec fn setup(pm: &mut PM, device_size: u64) -> (result: Result<u64, InfiniteLogErr>)
             requires
-                old(pm).inv()
+                old(pm).inv(),
+                old(pm)@.len() == device_size
             ensures
                 pm.inv(),
+                pm.constants() == old(pm).constants(),
+                pm@.len() == device_size,
                 match result {
-                    Ok(capacity) => recovery_view()(pm@) == Some(AbstractInfiniteLogState::initialize(capacity as int)),
-                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
+                    Ok(log_capacity) =>
+                        recovery_view()(pm@) == Some(AbstractInfiniteLogState::initialize(log_capacity as int)),
+                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => device_size < required_space,
                     _ => false
                 }
         {
-            UntrustedLogImpl::untrusted_setup(pm)
+            UntrustedLogImpl::untrusted_setup(pm, device_size)
         }
 
         /// This static function takes a `PersistentMemory` and wraps
         /// it into an `InfiniteLogImpl`. It's meant to be called after
         /// setting up the persistent memory or after crashing and
         /// restarting.
-        pub exec fn start(pm: PM) -> (result: Result<InfiniteLogImpl<PM>, InfiniteLogErr>)
+        pub exec fn start(pm: PM, device_size: u64) -> (result: Result<InfiniteLogImpl<PM>, InfiniteLogErr>)
             requires
                 pm.inv(),
+                pm@.len() == device_size,
                 recovery_view()(pm@).is_Some()
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl@ == recovery_view()(pm@)
-                        &&& trusted_log_impl.pm_impervious_to_corruption() == pm.impervious_to_corruption()
+                        &&& trusted_log_impl.constants() == pm.constants()
                     },
-                    Err(InfiniteLogErr::CRCMismatch) => !pm.impervious_to_corruption(),
+                    Err(InfiniteLogErr::CRCMismatch) => !pm.constants().impervious_to_corruption,
                     _ => false
                 }
         {
@@ -134,7 +139,7 @@ verus! {
             // as it keeps its abstraction as a log unchanged.
             let mut wrpm = WriteRestrictedPersistentMemory::new(pm);
             let tracked perm = TrustedPermission::new(pm@, |s1, s2| false);
-            match UntrustedLogImpl::untrusted_start(&mut wrpm, Tracked(&perm)) {
+            match UntrustedLogImpl::untrusted_start(&mut wrpm, device_size, Tracked(&perm)) {
                 Ok(untrusted_log_impl) => Ok(InfiniteLogImpl { untrusted_log_impl, wrpm }),
                 Err(e) => Err(e)
             }
@@ -147,7 +152,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
-                self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(offset) =>
                         match (old(self)@, self@) {
@@ -187,7 +192,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
-                self.pm_impervious_to_corruption() == old(self).pm_impervious_to_corruption(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(offset) => {
                         match (old(self)@, self@) {
@@ -239,7 +244,8 @@ verus! {
                             let true_bytes = log.subrange(pos - head, pos + len - head);
                             &&& pos >= head
                             &&& pos + len <= head + log.len()
-                            &&& read_correct_modulo_corruption(bytes@, true_bytes, self.pm_impervious_to_corruption())
+                            &&& read_correct_modulo_corruption(bytes@, true_bytes,
+                                                             self.constants().impervious_to_corruption)
                         },
                         Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < head

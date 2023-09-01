@@ -1210,7 +1210,7 @@ verus! {
                         let (spec_ib, _, _) = pm_to_views(pm@);
                         ib == spec_ib
                     }
-                    Err(InfiniteLogErr::CRCMismatch) => !pm.impervious_to_corruption(),
+                    Err(InfiniteLogErr::CRCMismatch) => !pm.constants().impervious_to_corruption,
                     _ => false,
                 }
         {
@@ -1221,7 +1221,7 @@ verus! {
                 proof {
                     let (spec_ib, _, _) = pm_to_views(pm@);
                     lemma_auto_spec_u64_to_from_le_bytes();
-                    if !pm.impervious_to_corruption() {
+                    if !pm.constants().impervious_to_corruption {
                         axiom_corruption_detecting_boolean(ib, spec_ib, addrs);
                     }
                 }
@@ -1256,7 +1256,7 @@ verus! {
             ensures 
                 self.inv(wrpm),
                 Self::recover(wrpm@).is_Some(),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                wrpm.constants() == old(wrpm).constants(),
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
@@ -1347,23 +1347,25 @@ verus! {
 
         // Since untrusted_setup doesn't take a WriteRestrictedPersistentMemory, it is not guaranteed
         // to perform crash-safe updates.
-        pub exec fn untrusted_setup<PM>(pm: &mut PM) -> (result: Result<u64, InfiniteLogErr>)
+        pub exec fn untrusted_setup<PM>(pm: &mut PM, device_size: u64) -> (result: Result<u64, InfiniteLogErr>)
             where
                 PM: PersistentMemory
             requires
-                old(pm).inv()
+                old(pm).inv(),
+                old(pm)@.len() == device_size
             ensures
                 pm.inv(),
+                pm.constants() == old(pm).constants(),
+                pm@.len() == device_size,
                 match result {
                     Ok(capacity) => Self::recover(pm@) ==
                                 Some(AbstractInfiniteLogState::initialize(capacity as int)),
-                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
+                    Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => device_size < required_space,
                     _ => false
                 }
         {
-            let device_size = pm.get_capacity();
             if device_size <= contents_offset {
-                return Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space: device_size + 1 });
+                return Err(InfiniteLogErr::InsufficientSpaceForSetup { required_space: contents_offset + 1 });
             }
 
             let log_size = device_size - contents_offset;
@@ -1407,6 +1409,7 @@ verus! {
         }
 
         pub exec fn untrusted_start<Perm, PM>(wrpm: &mut WriteRestrictedPersistentMemory<Perm, PM>,
+                                              device_size: u64,
                                               Tracked(perm): Tracked<&Perm>)
                                               -> (result: Result<UntrustedLogImpl, InfiniteLogErr>)
             where
@@ -1415,6 +1418,7 @@ verus! {
             requires
                 Self::recover(old(wrpm)@).is_Some(),
                 old(wrpm).inv(),
+                old(wrpm)@.len() == device_size,
                 header_crc_offset < header_crc_offset + crc_size <= header_head_offset < header_tail_offset < header_log_size_offset,
                 // The restriction on writing persistent memory during initialization is
                 // that it can't change the interpretation of that memory's contents.
@@ -1425,16 +1429,15 @@ verus! {
                 }),
             ensures
                 Self::recover(old(wrpm)@) == Self::recover(wrpm@),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                wrpm.constants() == old(wrpm).constants(),
                 match result {
                     Ok(log_impl) => log_impl.inv(wrpm),
-                    Err(InfiniteLogErr::CRCMismatch) => !old(wrpm).impervious_to_corruption(),
+                    Err(InfiniteLogErr::CRCMismatch) => !wrpm.constants().impervious_to_corruption,
                     _ => false
                 }
         {
             let pm = wrpm.get_pm_ref();
-            let device_size = pm.get_capacity();
-            assert (device_size >= contents_offset);
+            assert (device_size > contents_offset);
 
             let ib = match Self::read_incorruptible_boolean(pm) {
                 Ok(ib) => ib,
@@ -1456,7 +1459,7 @@ verus! {
                 proof {
                     lemma_auto_spec_u64_to_from_le_bytes();
                     lemma_u64_bytes_eq(spec_u64_from_le_bytes(spec_crc_bytes(header_bytes@)), spec_u64_from_le_bytes(crc_bytes@));
-                    if !wrpm.impervious_to_corruption() {
+                    if !wrpm.constants().impervious_to_corruption {
                         axiom_bytes_uncorrupted(
                             header_bytes@,
                             pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
@@ -1513,7 +1516,7 @@ verus! {
                 }),
             ensures
                 self.inv(wrpm),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                wrpm.constants() == old(wrpm).constants(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
                     let new_log_state = Self::recover(wrpm@);
@@ -1639,8 +1642,8 @@ verus! {
                 })
             ensures 
                 self.inv(wrpm),
+                wrpm.constants() == old(wrpm).constants(),
                 Self::recover(wrpm@).is_Some(),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
@@ -1694,7 +1697,7 @@ verus! {
             ensures 
                 self.inv(wrpm),
                 Self::recover(wrpm@).is_Some(),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                wrpm.constants() == old(wrpm).constants(),
                 match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
@@ -1759,7 +1762,7 @@ verus! {
                 })
             ensures
                 self.inv(wrpm),
-                wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
+                wrpm.constants() == old(wrpm).constants(),
                 ({
                     let old_log_state = Self::recover(old(wrpm)@);
                     let new_log_state = Self::recover(wrpm@);
@@ -1885,7 +1888,8 @@ verus! {
                             let true_bytes = log.log.subrange(pos - log.head, pos + len - log.head);
                             &&& pos >= log.head
                             &&& pos + len <= log.head + log.log.len()
-                            &&& read_correct_modulo_corruption(bytes@, true_bytes, wrpm.impervious_to_corruption())
+                            &&& read_correct_modulo_corruption(bytes@, true_bytes,
+                                                             wrpm.constants().impervious_to_corruption)
                         },
                         Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& pos < log.head
@@ -1941,7 +1945,7 @@ verus! {
                     assert (Seq::<u8>::empty() =~= log.log.subrange(pos - log.head, pos + len - log.head));
                     let buf = Vec::new();
                     let ghost addrs = Seq::<int>::empty();
-                    assert (if wrpm.impervious_to_corruption() { buf@ == true_bytes }
+                    assert (if wrpm.constants().impervious_to_corruption { buf@ == true_bytes }
                             else { maybe_corrupted(buf@, true_bytes, addrs) });
                     Ok(buf)
                 } else if physical_pos >= physical_head && physical_pos >= contents_end - len {
@@ -1958,7 +1962,7 @@ verus! {
                     assert (pm@.subrange(physical_pos as int, physical_pos + r1_len)
                                 + pm@.subrange(contents_offset as int, contents_offset + r2_len)
                                 =~= log.log.subrange(pos - log.head, pos + len - log.head));
-                    assert (if wrpm.impervious_to_corruption() { r1@ == true_bytes }
+                    assert (if wrpm.constants().impervious_to_corruption { r1@ == true_bytes }
                             else { maybe_corrupted(r1@, true_bytes, addrs) });
                     Ok(r1)
                 } else {
@@ -1966,7 +1970,7 @@ verus! {
                                 log.log.subrange(pos - log.head, pos + len - log.head));
                     let ghost addrs = Seq::<int>::new(len as nat, |i: int| i + physical_pos);
                     let buf = pm.read(physical_pos, len);
-                    assert (if wrpm.impervious_to_corruption() { buf@ == true_bytes }
+                    assert (if wrpm.constants().impervious_to_corruption { buf@ == true_bytes }
                             else { maybe_corrupted(buf@, true_bytes, addrs) });
                     Ok(buf)
                 }
