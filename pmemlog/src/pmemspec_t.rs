@@ -20,18 +20,18 @@ use crc::Crc;
 
 verus! {
 
-    pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
-        if bytes.len() != true_bytes.len() || bytes.len() != addrs.len() {
-            false
-        } else {
-            forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
-        }
-    }
-
-    pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
-
     pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
+    }
+
+    pub closed spec fn byte_read_from_corruptible_device(byte: u8, true_byte: u8, physical_addr: int) -> bool;
+
+    pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>, incorruptible: bool) -> bool {
+        &&& bytes.len() == true_bytes.len() == addrs.len()
+        &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> {
+              ||| bytes[i] == true_bytes[i]
+              ||| !incorruptible && byte_read_from_corruptible_device(bytes[i], true_bytes[i], addrs[i])
+           }
     }
 
     pub const crc_size: u64 = 8; 
@@ -68,15 +68,15 @@ verus! {
     // corrupted, i.e., that `x_c == x`.
 
     #[verifier(external_body)]
-    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>, incorruptible_x: bool,
+                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>, incorruptible_y: bool)
         requires 
-            maybe_corrupted(x_c, x, x_addrs),
-            maybe_corrupted(y_c, y, y_addrs),
+            maybe_corrupted(x_c, x, x_addrs, incorruptible_x),
+            maybe_corrupted(y_c, y, y_addrs, incorruptible_y),
             y == spec_crc_bytes(x),
             y_c == spec_crc_bytes(x_c),
             all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs),
+            all_elements_unique(y_addrs)
         ensures
             x == x_c
     {}
@@ -96,9 +96,9 @@ verus! {
     pub const cdb1_val: u64 = 0xab21aa73069531b7; // CRC(b"1")
 
     #[verifier(external_body)]
-    pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>)
+    pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>, incorruptible: bool)
         requires 
-            maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs),
+            maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs, incorruptible),
             all_elements_unique(addrs),
             cdb == cdb0_val || cdb == cdb1_val,
             cdb_c == cdb0_val || cdb_c == cdb1_val,
@@ -127,17 +127,15 @@ verus! {
 
         /// This is the model of some routine that reads the
         /// `num_bytes` bytes at address `addr`.
-        fn read(&self, addr: u64, num_bytes: u64) -> (out: (Vec<u8>, Ghost<Seq<int>>))
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
             requires
                 self.inv(),
                 addr + num_bytes <= self@.len()
             ensures
                 ({
-                    let (bytes, addrs) = out;
-                    &&& addrs == Ghost(Seq::<int>::new(num_bytes as nat, |i: int| i + addr))
-                    &&& maybe_corrupted(bytes@, self@.subrange(addr as int, addr + num_bytes), addrs@)
-                    &&& all_elements_unique(addrs@)
-                    &&& self.impervious_to_corruption() ==> bytes@ == self@.subrange(addr as int, addr + num_bytes)
+                    let true_bytes = self@.subrange(addr as int, addr + num_bytes);
+                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
+                    maybe_corrupted(bytes@, true_bytes, addrs, self.impervious_to_corruption())
                 });
 
         /// This is the model of some routine that writes `bytes`

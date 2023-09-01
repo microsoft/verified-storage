@@ -47,14 +47,11 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn read(&self, addr: u64, num_bytes: u64) -> (out: (Vec<u8>, Ghost<Seq<int>>))
+        fn read(&self, addr: u64, num_bytes: u64) -> Vec<u8>
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-            (
-                self.contents[addr_usize..addr_usize+num_bytes_usize].to_vec(),
-                Ghost(Seq::<int>::new(num_bytes as nat, |i: int| i + addr)),
-            )
+            self.contents[addr_usize..addr_usize+num_bytes_usize].to_vec()
         }
 
         #[verifier::external_body]

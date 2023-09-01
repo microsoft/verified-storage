@@ -17,6 +17,15 @@ verus! {
         |c| UntrustedLogImpl::recover(c)
     }
 
+    pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
+                                                    impervious_to_corruption: bool) -> bool
+    {
+        exists |addrs: Seq<int>| {
+            &&& all_elements_unique(addrs)
+            &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs, impervious_to_corruption)
+        }
+    }
+
     /// A `TrustedPermission` indicates what states of persistent
     /// memory are permitted. The struct isn't public, so it can't be
     /// created outside of this file. As a further defense against one
@@ -211,32 +220,33 @@ verus! {
 
         /// This function reads `len` bytes from byte position `pos`
         /// in the log. It returns a vector of those bytes.
-        pub exec fn read(&self, pos: u64, len: u64) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), InfiniteLogErr>)
+        pub exec fn read(&self, pos: u64, len: u64) -> (result: Result<Vec<u8>, InfiniteLogErr>)
             requires
                 self.valid(),
                 pos + len <= u64::MAX
             ensures
-                match (self@.unwrap()) {
-                    AbstractInfiniteLogState{ head: head, log: log, .. } =>
-                        match result {
-                            Ok((bytes, addrs)) => {
-                                &&& pos >= head
-                                &&& pos + len <= head + log.len()
-                                &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
-                                &&& self.pm_impervious_to_corruption() ==>
-                                       bytes@ == log.subrange(pos - head, pos + len - head)
-                            },
-                            Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
-                                &&& pos < head
-                                &&& head_pos == head
-                            },
-                            Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
-                                &&& pos + len > head + log.len()
-                                &&& tail == head + log.len()
-                            },
-                            _ => false
-                        }
-                }
+                ({
+                    let state = self@.unwrap();
+                    let head = state.head;
+                    let log = state.log;
+                    match result {
+                        Ok(bytes) => {
+                            let true_bytes = log.subrange(pos - head, pos + len - head);
+                            &&& pos >= head
+                            &&& pos + len <= head + log.len()
+                            &&& read_correct_modulo_corruption(bytes@, true_bytes, self.pm_impervious_to_corruption())
+                        },
+                        Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
+                            &&& pos < head
+                            &&& head_pos == head
+                        },
+                        Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
+                            &&& pos + len > head + log.len()
+                            &&& tail == head + log.len()
+                        },
+                        _ => false
+                    }
+                })
         {
             // We don't need to provide permission to write to the
             // persistent memory because the untrusted code is only

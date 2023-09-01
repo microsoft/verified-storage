@@ -937,6 +937,20 @@ verus! {
         lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
     }
 
+    pub proof fn lemma_maybe_corrupted_divergence_implies_not_incorruptible(bytes: Seq<u8>, true_bytes: Seq<u8>,
+                                                                            addrs: Seq<int>, incorruptible: bool)
+        requires
+            maybe_corrupted(bytes, true_bytes, addrs, incorruptible)
+        ensures
+            bytes != true_bytes ==> !incorruptible
+    {
+        if !(bytes =~= true_bytes) {
+            assert (exists |i| 0 <= i < bytes.len() && bytes[i] != true_bytes[i]);
+            let i = choose |i| 0 <= i < bytes.len() && bytes[i] != true_bytes[i];
+            assert (byte_read_from_corruptible_device(bytes[i], true_bytes[i], addrs[i]));
+        }
+    }
+
     pub proof fn lemma_incorruptible_bool_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires 
             old_pm.len() == new_pm.len(),
@@ -1181,7 +1195,7 @@ verus! {
             &&& self.tail == tail 
             &&& self.log_size == log_size 
             &&& self.incorruptible_bool == ib
-            &&& match UntrustedLogImpl::recover(contents) {
+            &&& match Self::recover(contents) {
                    Some(inf_log) => tail == head + inf_log.log.len(),
                    None => false,
                }
@@ -1201,7 +1215,7 @@ verus! {
 
         pub exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
             requires 
-                UntrustedLogImpl::recover(pm@).is_Some(),
+                Self::recover(pm@).is_Some(),
                 pm.inv(),
                 pm@.len() > contents_offset 
             ensures 
@@ -1214,16 +1228,25 @@ verus! {
                     _ => false,
                 }
         {
-            let (bytes, addrs) = pm.read(incorruptible_bool_pos, 8);
+            let bytes = pm.read(incorruptible_bool_pos, 8);
             let ib = u64_from_le_bytes(bytes.as_slice());
+            let ghost addrs = Seq::<int>::new(8, |i: int| i + incorruptible_bool_pos);
             if ib == cdb0_val || ib == cdb1_val {
                 proof {
                     let (spec_ib, _, _) = pm_to_views(pm@);
                     lemma_auto_spec_u64_to_from_le_bytes();
-                    axiom_corruption_detecting_boolean(ib, spec_ib, Seq::<int>::new(8, |i: int| incorruptible_bool_pos + i));
+                    axiom_corruption_detecting_boolean(ib, spec_ib, addrs, pm.impervious_to_corruption());
                 }
                 Ok(ib)
             } else {
+                proof {
+                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
+                        bytes@,
+                        pm@.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8),
+                        addrs,
+                        pm.impervious_to_corruption()
+                    );
+                };
                 Err(InfiniteLogErr::CRCMismatch)
             }
         }
@@ -1242,19 +1265,19 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 contents_offset < old(wrpm)@.len(),
                 old(self).inv(&*old(wrpm)),
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 new_header_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8) =~= 
                     spec_crc_bytes(new_header_bytes@.subrange(header_head_offset as int, header_size as int)),
                 new_header_bytes.len() == header_size,
-                match UntrustedLogImpl::recover(old(wrpm)@) {
+                match Self::recover(old(wrpm)@) {
                     Some(log_state) => perm.check_permission(old(wrpm)@),
                     None => false
                 }
             ensures 
                 self.inv(wrpm),
-                UntrustedLogImpl::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
+                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1295,7 +1318,7 @@ verus! {
                 let new_pm = update_contents_to_reflect_write(wrpm@, header_pos as int, new_header_bytes@);
                 lemma_inactive_header_update_view(wrpm@, new_header_bytes@, header_pos as int);
                 lemma_same_log_state(wrpm@, new_pm);
-                assert(UntrustedLogImpl::recover(wrpm@) =~= UntrustedLogImpl::recover(new_pm));
+                assert(Self::recover(wrpm@) =~= Self::recover(new_pm));
                 
                 // prove crash consistency
                 assert forall |chunks_flushed| {
@@ -1314,7 +1337,7 @@ verus! {
             wrpm.write(header_pos, new_header_bytes.as_slice(), Tracked(perm));
             proof {
                 // TODO: clean up once ib update is done. put this all in a lemma
-                assert(UntrustedLogImpl::recover(wrpm@).is_Some());
+                assert(Self::recover(wrpm@).is_Some());
                 let (_, headers, _) = pm_to_views(wrpm@);
                 assert(wrpm@.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes@);
                 lemma_header_correct(wrpm@, new_header_bytes@, header_pos as int);
@@ -1352,7 +1375,7 @@ verus! {
             ensures
                 pm.inv(),
                 match result {
-                    Ok(capacity) => UntrustedLogImpl::recover(pm@) ==
+                    Ok(capacity) => Self::recover(pm@) ==
                                 Some(AbstractInfiniteLogState::initialize(capacity as int)),
                     Err(InfiniteLogErr::InsufficientSpaceForSetup{ required_space }) => pm@.len() < required_space,
                     _ => false
@@ -1410,18 +1433,18 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
             requires
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 old(wrpm).inv(),
                 header_crc_offset < header_crc_offset + crc_size <= header_head_offset < header_tail_offset < header_log_size_offset,
                 // The restriction on writing persistent memory during initialization is
                 // that it can't change the interpretation of that memory's contents.
                 ({
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==>
-                        UntrustedLogImpl::recover(pm_state) ==
-                        UntrustedLogImpl::recover(old(wrpm)@)
+                        Self::recover(pm_state) ==
+                        Self::recover(old(wrpm)@)
                 }),
             ensures
-                UntrustedLogImpl::recover(old(wrpm)@) == UntrustedLogImpl::recover(wrpm@),
+                Self::recover(old(wrpm)@) == Self::recover(wrpm@),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 match result {
                     Ok(log_impl) => log_impl.inv(wrpm),
@@ -1444,8 +1467,10 @@ verus! {
                 assert(ib == cdb1_val);
                 header2_pos
             };
-            let (crc_bytes, crc_addrs) = pm.read(header_pos + header_crc_offset, 8);
-            let (header_bytes, header_addrs) = pm.read(header_pos + header_head_offset, header_size - header_head_offset);
+            let crc_bytes = pm.read(header_pos + header_crc_offset, 8);
+            let ghost crc_addrs = Seq::<int>::new(8, |i: int| i + header_pos + header_crc_offset);
+            let header_bytes = pm.read(header_pos + header_head_offset, header_size - header_head_offset);
+            let ghost header_addrs = Seq::<int>::new((header_size - header_head_offset) as nat, |i: int| i + header_pos + header_head_offset);
             
             let header = if u64_from_le_bytes(bytes_crc(&header_bytes).as_slice()) == u64_from_le_bytes(crc_bytes.as_slice()) { 
                 proof {
@@ -1454,14 +1479,30 @@ verus! {
                     axiom_bytes_uncorrupted(
                         header_bytes@,
                         pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
-                        header_addrs@,
+                        header_addrs,
+                        wrpm.impervious_to_corruption(),
                         crc_bytes@,
                         pm@.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
-                        crc_addrs@
+                        crc_addrs,
+                        wrpm.impervious_to_corruption(),
                     );
                 }
                 crc_and_metadata_bytes_to_header(crc_bytes.as_slice(), header_bytes.as_slice())
             } else {
+                proof {
+                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
+                        header_bytes@,
+                        pm@.subrange(header_pos + header_head_offset, header_pos + header_size),
+                        header_addrs,
+                        wrpm.impervious_to_corruption()
+                    );
+                    lemma_maybe_corrupted_divergence_implies_not_incorruptible(
+                        crc_bytes@,
+                        pm@.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
+                        crc_addrs,
+                        wrpm.impervious_to_corruption()
+                    );
+                };
                 return Err(InfiniteLogErr::CRCMismatch);
             };
 
@@ -1496,11 +1537,11 @@ verus! {
                 PM: PersistentMemory
             requires
                 old(self).inv(&*old(wrpm)),
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 ({
-                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
+                    let old_log_state = Self::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
-                        let log_state = UntrustedLogImpl::recover(pm_state);
+                        let log_state = Self::recover(pm_state);
                         log_state == old_log_state || log_state == Some(old_log_state.unwrap().append(bytes_to_append@))
                     }
                 }),
@@ -1508,8 +1549,8 @@ verus! {
                 self.inv(wrpm),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 ({
-                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
-                    let new_log_state = UntrustedLogImpl::recover(wrpm@);
+                    let old_log_state = Self::recover(old(wrpm)@);
+                    let new_log_state = Self::recover(wrpm@);
                     match (result, old_log_state, new_log_state) {
                         (Ok(offset), Some(old_log_state), Some(new_log_state)) => {
                             &&& offset as nat == old_log_state.log.len() + old_log_state.head
@@ -1616,7 +1657,7 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 // TODO: clean up
                 ({
@@ -1632,9 +1673,9 @@ verus! {
                 })
             ensures 
                 self.inv(wrpm),
-                UntrustedLogImpl::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
+                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1673,7 +1714,7 @@ verus! {
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 old_header == spec_get_live_header(old(wrpm)@).metadata,
                 ({
                     let physical_head = spec_addr_logical_to_physical(old_header.head as int, old_header.log_size as int);
@@ -1686,9 +1727,9 @@ verus! {
                 }),
             ensures 
                 self.inv(wrpm),
-                UntrustedLogImpl::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@).is_Some(),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
-                match (UntrustedLogImpl::recover(old(wrpm)@), UntrustedLogImpl::recover(wrpm@)) {
+                match (Self::recover(old(wrpm)@), Self::recover(wrpm@)) {
                     (Some(old_log_state), Some(new_log_state)) => old_log_state =~= new_log_state,
                     _ => false
                 },
@@ -1741,11 +1782,11 @@ verus! {
                 PM: PersistentMemory
             requires
                 old(self).inv(&*old(wrpm)),
-                UntrustedLogImpl::recover(old(wrpm)@).is_Some(),
+                Self::recover(old(wrpm)@).is_Some(),
                 ({
-                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
+                    let old_log_state = Self::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
-                        let log_state = UntrustedLogImpl::recover(pm_state);
+                        let log_state = Self::recover(pm_state);
                         ||| log_state == old_log_state 
                         ||| log_state == Some(old_log_state.unwrap().advance_head(new_head as int))
                     }
@@ -1754,8 +1795,8 @@ verus! {
                 self.inv(wrpm),
                 wrpm.impervious_to_corruption() == old(wrpm).impervious_to_corruption(),
                 ({
-                    let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
-                    let new_log_state = UntrustedLogImpl::recover(wrpm@);
+                    let old_log_state = Self::recover(old(wrpm)@);
+                    let new_log_state = Self::recover(wrpm@);
                     match (result, old_log_state, new_log_state) {
                         (Ok(_), Some(old_log_state), Some(new_log_state)) => {
                             &&& old_log_state.head <= new_head <= old_log_state.head + old_log_state.log.len()
@@ -1837,8 +1878,8 @@ verus! {
                 lemma_header_correct(new_pm, new_header_bytes@, header_pos as int);
                 
                 // prove that new pm has the advance head update
-                let new_log_state = UntrustedLogImpl::recover(new_pm);
-                let old_log_state = UntrustedLogImpl::recover(old(wrpm)@);
+                let new_log_state = Self::recover(new_pm);
+                let old_log_state = Self::recover(old(wrpm)@);
                 match (new_log_state, old_log_state) {
                     (Some(new_log_state), Some(old_log_state)) => {
                         lemma_pm_state_header(new_pm);
@@ -1863,35 +1904,34 @@ verus! {
             wrpm: &WriteRestrictedPersistentMemory<Perm, PM>,
             pos: u64,
             len: u64
-        ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), InfiniteLogErr>)
+        ) -> (result: Result<Vec<u8>, InfiniteLogErr>)
             where
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
             requires
                 self.inv(wrpm),
-                UntrustedLogImpl::recover(wrpm@).is_Some(),
+                Self::recover(wrpm@).is_Some(),
             ensures
-                match UntrustedLogImpl::recover(wrpm@).unwrap() {
-                    AbstractInfiniteLogState{ head: head, log: log, .. } =>
-                        match result {
-                            Ok((bytes, addrs)) => {
-                                &&& pos >= head
-                                &&& pos + len <= head + log.len()
-                                &&& maybe_corrupted(bytes@, log.subrange(pos - head, pos + len - head), addrs@)
-                                &&& wrpm.impervious_to_corruption() ==>
-                                       bytes@ == log.subrange(pos - head, pos + len - head)
-                            },
-                            Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
-                                &&& pos < head
-                                &&& head_pos == head
-                            },
-                            Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
-                                &&& pos + len > head + log.len()
-                                &&& tail == head + log.len()
-                            },
-                            _ => false
-                        }
-                }
+                ({
+                    let log = Self::recover(wrpm@).unwrap();
+                    match result {
+                        Ok(bytes) => {
+                            let true_bytes = log.log.subrange(pos - log.head, pos + len - log.head);
+                            &&& pos >= log.head
+                            &&& pos + len <= log.head + log.log.len()
+                            &&& read_correct_modulo_corruption(bytes@, true_bytes, wrpm.impervious_to_corruption())
+                        },
+                        Err(InfiniteLogErr::CantReadBeforeHead{ head: head_pos }) => {
+                            &&& pos < log.head
+                            &&& head_pos == log.head
+                        },
+                        Err(InfiniteLogErr::CantReadPastTail{ tail }) => {
+                            &&& pos + len > log.head + log.log.len()
+                            &&& tail == log.head + log.log.len()
+                        },
+                        _ => false
+                    }
+                })
         {
             let pm = wrpm.get_pm_ref();
             let physical_pos = Self::addr_logical_to_physical(pos, self.log_size);
@@ -1930,28 +1970,37 @@ verus! {
                 let physical_tail = Self::addr_logical_to_physical(self.tail, self.log_size);
                 
                 let ghost log = Self::recover(pm@).unwrap();
-                let buffer = if physical_head == physical_tail {
+                let ghost true_bytes = log.log.subrange(pos - log.head, pos + len - log.head);
+                if physical_head == physical_tail {
                     assert (Seq::<u8>::empty() =~= log.log.subrange(pos - log.head, pos + len - log.head));
-                    (Vec::new(), Ghost(Seq::empty()))
+                    let buf = Vec::new();
+                    let ghost addrs = Seq::<int>::empty();
+                    assert (maybe_corrupted(buf@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    Ok(buf)
                 } else if physical_pos >= physical_head && physical_pos >= contents_end - len {
-                    let r1_len = contents_end - physical_pos;
-                    let r2_len = len - r1_len;
+                    let r1_len: u64 = contents_end - physical_pos;
+                    let r2_len: u64 = len - r1_len;
 
-                    let (mut r1, r1_addrs) = pm.read(physical_pos, r1_len);
-                    let (mut r2, r2_addrs) = pm.read(contents_offset, r2_len);
+                    let mut r1 = pm.read(physical_pos, r1_len);
+                    let mut r2 = pm.read(contents_offset, r2_len);
+                    let ghost r1_addrs = Seq::<int>::new(r1_len as nat, |i: int| i + physical_pos as int);
+                    let ghost r2_addrs = Seq::<int>::new(r2_len as nat, |i: int| i + contents_offset as int);
+                    let ghost addrs: Seq<int> = r1_addrs.add(r2_addrs);
 
                     r1.append(&mut r2);
                     assert (pm@.subrange(physical_pos as int, physical_pos + r1_len)
                                 + pm@.subrange(contents_offset as int, contents_offset + r2_len)
                                 =~= log.log.subrange(pos - log.head, pos + len - log.head));
-                    (r1, Ghost(r1_addrs@ + r2_addrs@))
+                    assert (maybe_corrupted(r1@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    Ok(r1)
                 } else {
                     assert (pm@.subrange(physical_pos as int, physical_pos + len) =~=
                                 log.log.subrange(pos - log.head, pos + len - log.head));
-                    pm.read(physical_pos, len)
-                };
-                proof { lemma_pm_state_header(pm@); }
-                Ok(buffer)
+                    let ghost addrs = Seq::<int>::new(len as nat, |i: int| i + physical_pos);
+                    let buf = pm.read(physical_pos, len);
+                    assert (maybe_corrupted(buf@, true_bytes, addrs, wrpm.impervious_to_corruption()));
+                    Ok(buf)
+                }
             }
         }
 
@@ -1964,11 +2013,11 @@ verus! {
                 PM: PersistentMemory
             requires
                 self.inv(wrpm),
-                UntrustedLogImpl::recover(wrpm@).is_Some()
+                Self::recover(wrpm@).is_Some()
             ensures
                 match result {
                     Ok((result_head, result_tail, result_capacity)) =>
-                        match UntrustedLogImpl::recover(wrpm@).unwrap() {
+                        match Self::recover(wrpm@).unwrap() {
                             AbstractInfiniteLogState{ head: head, log: log, capacity: capacity } => {
                                 &&& result_head == head
                                 &&& result_tail == head + log.len()
