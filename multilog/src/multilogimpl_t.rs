@@ -42,7 +42,7 @@ use std::fmt::Write;
 
 use builtin::*;
 use builtin_macros::*;
-use crate::logimpl_v::UntrustedMultiLogImpl;
+use crate::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::*;
 use vstd::prelude::*;

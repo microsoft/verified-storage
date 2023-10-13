@@ -9,7 +9,7 @@
 use builtin::*;
 use builtin_macros::*;
 use crate::layout_v::*;
-use crate::logimpl_v::LogInfo;
+use crate::multilogimpl_v::LogInfo;
 use crate::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmemspec_t::*;
 use crate::pmemutil_v::*;
@@ -22,19 +22,6 @@ verus! {
     pub open spec fn is_valid_log_index(which_log: u32, num_logs: u32) -> bool
     {
         which_log < num_logs
-    }
-
-    // This invariant says that various variables all have the same
-    // length, that that length is the number of logs, and that that
-    // number of logs is positive.
-    pub open spec fn lengths_match_and_are_positive(
-        pm_regions_view: PersistentMemoryRegionsView,
-        num_logs: u32,
-        infos: Seq<LogInfo>,
-        state: AbstractMultiLogState,
-    ) -> bool
-    {
-        pm_regions_view.regions.len() == infos.len() == state.num_logs() == num_logs > 0
     }
 
     // This invariant says that there are no outstanding writes to any
@@ -142,7 +129,8 @@ verus! {
         infos: Seq<LogInfo>,
     ) -> bool
     {
-        forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
+        &&& pm_regions_view.regions.len() == infos.len() == num_logs > 0
+        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
             let w = which_log as int;
             metadata_consistent_with_info(pm_regions_view[w], multilog_id, num_logs, which_log, cdb, infos[w])
         }
@@ -218,7 +206,8 @@ verus! {
         state: AbstractMultiLogState,
     ) -> bool
     {
-        forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
+        &&& pm_regions_view.regions.len() == infos.len() == state.num_logs() == num_logs > 0
+        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
            let w = which_log as int;
            info_consistent_with_log_area(pm_regions_view[w], infos[w], state[w])
         }
@@ -339,7 +328,6 @@ verus! {
     )
         requires
             pm_regions_view.can_crash_as(mems),
-            lengths_match_and_are_positive(pm_regions_view, num_logs, infos, state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
@@ -407,7 +395,6 @@ verus! {
         state: AbstractMultiLogState,
     )
         requires
-            lengths_match_and_are_positive(pm_regions_view, num_logs, infos, state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
@@ -447,7 +434,6 @@ verus! {
         bytes_to_write: Seq<u8>,
     )
         requires
-            lengths_match_and_are_positive(pm_regions_view, num_logs, infos, state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
@@ -499,7 +485,6 @@ verus! {
         state: AbstractMultiLogState,
     )
         requires
-            lengths_match_and_are_positive(pm_regions_view, num_logs, infos, state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view,  multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),

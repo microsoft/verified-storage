@@ -10,8 +10,8 @@ use builtin::*;
 use builtin_macros::*;
 use crate::inv_v::*;
 use crate::layout_v::*;
-use crate::logimpl_v::LogInfo;
 use crate::multilogimpl_t::MultiLogErr;
+use crate::multilogimpl_v::LogInfo;
 use crate::math::*;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::{CRC_SIZE, PersistentMemoryRegions};
@@ -370,7 +370,6 @@ verus! {
         ensures
             match result {
                 Ok(info) => {
-                    &&& lengths_match_and_are_positive(pm_regions@, num_regions, info@, state)
                     &&& each_metadata_consistent_with_info(pm_regions@, multilog_id, num_regions, cdb, info@)
                     &&& each_info_consistent_with_log_area(pm_regions@, num_regions, info@, state)
                 },

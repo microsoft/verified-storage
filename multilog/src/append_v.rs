@@ -9,7 +9,7 @@ use builtin::*;
 use builtin_macros::*;
 use crate::inv_v::*;
 use crate::layout_v::*;
-use crate::logimpl_v::LogInfo;
+use crate::multilogimpl_v::LogInfo;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::PersistentMemoryRegionsView;
 use vstd::prelude::*;
@@ -56,7 +56,6 @@ verus! {
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            lengths_match_and_are_positive(pm_regions_view, num_logs, prev_infos, prev_state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
@@ -206,7 +205,6 @@ verus! {
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            lengths_match_and_are_positive(pm_regions_view, num_logs, prev_infos, prev_state),
             memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
