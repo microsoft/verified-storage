@@ -11,7 +11,7 @@ use crate::append_v::*;
 use crate::inv_v::*;
 use crate::layout_v::*;
 use crate::multilogimpl_t::*;
-use crate::math::*;
+use crate::math_v::*;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::*;
 use crate::pmemutil_v::*;

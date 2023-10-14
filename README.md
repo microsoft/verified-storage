@@ -4,6 +4,19 @@ This repository contains code for verified storage systems. The code is
 written in, and its correctness properties are verified with,
 [Verus](https://github.com/verus-lang/verus).
 
+Currently, this project contains two crates:
+
+* `pmemlog` implements an append-only log on persistent memory. The
+  implementation handles crash consistency, ensuring that even if the process
+  or machine crashes, it acts like an append-only log across the crashes. It
+  also handles bit corruption, detecting if metadata read from persistent
+  memory is corrupted.
+
+* [`multilog`](https://github.com/microsoft/verified-storage/tree/main/multilog/README.md)
+  is like `pmemlog` except it implements a collection of append-only logs
+  instead of just one. It supports atomically appending to multiple of those
+  logs at once.
+
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a

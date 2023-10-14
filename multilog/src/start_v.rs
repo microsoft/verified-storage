@@ -12,7 +12,7 @@ use crate::inv_v::*;
 use crate::layout_v::*;
 use crate::multilogimpl_t::MultiLogErr;
 use crate::multilogimpl_v::LogInfo;
-use crate::math::*;
+use crate::math_v::*;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::{CRC_SIZE, PersistentMemoryRegions};
 use crate::pmemutil_v::{check_cdb, check_crc};

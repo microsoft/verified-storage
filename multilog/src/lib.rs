@@ -21,8 +21,8 @@
 //! `PersistentMemoryRegions` input rather than multiple
 //! `PersistentMemory` inputs is to do efficient flushes to multiple
 //! persistent memories at once. We anticipate that several persistent
-//! memory regions will be on the same region, and can thus be
-//! efficiently flushed collectively with a single flush call.
+//! memory regions will be on the same physical memory, and can thus
+//! be efficiently flushed collectively with a single flush call.
 //!
 //! To set up persistent memory objects to store an initial empty
 //! multilog, you call `MultiLogImpl::setup`. For instance, here's
@@ -46,7 +46,7 @@
 //! Once you've set up a multilog, you shouldn't set it up again as
 //! that will clear its state. The number of logs in the multilog will
 //! match the number of regions that you pass in, since it uses region
-//! #n to store log #n.
+//! #`n` to store log #`n`.
 //!
 //! Once you've set up a multilog, you can start using it. A multilog
 //! is only intended to be used by one process at a time. But if the
@@ -136,6 +136,7 @@
 //!     assert(bytes.len() == 2);
 //!     assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 42);
 //! }
+//! ```
 //!
 //! Note, as discussed before, that the bytes returned might be
 //! corruptions of the data you appended, since the implementation of
@@ -186,7 +187,7 @@ use vstd::prelude::*;
 pub mod append_v;
 pub mod inv_v;
 pub mod layout_v;
-pub mod math;
+pub mod math_v;
 pub mod multilogimpl_t;
 pub mod multilogimpl_v;
 pub mod multilogspec_t;
