@@ -191,7 +191,7 @@ multilog should operate) that must be audited and read to understand the
 semantics being proven. Files ending in `_v.rs` are verified and untrusted and
 so do not have to be read to have confidence in the correctness of the code.
 
-* `lib.rs` packages crate as a library
+* `lib.rs` packages this crate as a library
 * `multilogspec_t.rs` specifies the correct behavior of an abstract multilog,
   e.g., what should happen during a call to `tentatively_append`
 * `multilogimpl_t.rs` implements `MultiLogImpl`, the main type used by
