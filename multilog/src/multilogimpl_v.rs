@@ -4,7 +4,6 @@
 //! The code in this file is verified and untrusted (as indicated by
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
-//!
 
 use builtin::*;
 use builtin_macros::*;
@@ -92,7 +91,6 @@ verus! {
                 PMRegions: PersistentMemoryRegions
         {
             &&& wrpm_regions.inv() // whatever the persistent memory regions require as an invariant
-            &&& lengths_match_and_are_positive(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& no_outstanding_writes_to_metadata(wrpm_regions@, self.num_logs)
             &&& memory_matches_cdb(wrpm_regions@, self.cdb)
             &&& each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, self.infos@)
@@ -572,8 +570,6 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(wrpm_regions).inv(),
-                lengths_match_and_are_positive(old(wrpm_regions)@, old(self).num_logs, prev_infos, prev_state),
-                lengths_match_and_are_positive(old(wrpm_regions)@, old(self).num_logs, old(self).infos@, old(self).state@),
                 memory_matches_cdb(old(wrpm_regions)@, old(self).cdb),
                 no_outstanding_writes_to_metadata(old(wrpm_regions)@, old(self).num_logs),
                 each_metadata_consistent_with_info(old(wrpm_regions)@, multilog_id, old(self).num_logs,
@@ -611,8 +607,6 @@ verus! {
                     wrpm_regions.inv(),
                     wrpm_regions.constants() == old(wrpm_regions).constants(),
                     unused_metadata_pos == get_level3_metadata_pos(!self.cdb),
-                    lengths_match_and_are_positive(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                    lengths_match_and_are_positive(wrpm_regions@, self.num_logs, self.infos@, self.state@),
                     memory_matches_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
@@ -858,11 +852,10 @@ verus! {
                     current_log <= self.num_logs,
                     wrpm_regions.inv(),
 
-                    lengths_match_and_are_positive(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                    lengths_match_and_are_positive(wrpm_regions@, self.num_logs, self.infos@, self.state@),
                     memory_matches_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
+                    self.infos@.len() == self.state@.num_logs() == self.num_logs,
                     self.state@ == prev_state.commit(),
 
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
