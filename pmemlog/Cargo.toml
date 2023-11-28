@@ -9,4 +9,4 @@ edition = "2021"
 builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="309a0eca409eeec23d3f7142ca27fb3151c79025" }
 builtin = { git = "https://github.com/verus-lang/verus.git", rev="309a0eca409eeec23d3f7142ca27fb3151c79025" }
 vstd = { git = "https://github.com/verus-lang/verus.git", rev="309a0eca409eeec23d3f7142ca27fb3151c79025" }
-crc = "3.0"
+crc64fast = "1.0.0"

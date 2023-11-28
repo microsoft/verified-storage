@@ -7,16 +7,16 @@
 
 */
 
+use crate::sccf::CheckPermission;
 use builtin::*;
 use builtin_macros::*;
-use vstd::prelude::*;
 use vstd::bytes::*;
+use vstd::prelude::*;
 use vstd::set::*;
 use vstd::slice::*;
-use crate::sccf::CheckPermission;
 
 #[cfg(not(verus_keep_ghost))]
-use crc::Crc;
+use crc64fast::Digest;
 
 verus! {
 
@@ -31,7 +31,7 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
-    pub const crc_size: u64 = 8; 
+    pub const crc_size: u64 = 8;
 
     pub closed spec fn spec_crc_bytes(header_bytes: Seq<u8>) -> Seq<u8>;
 
@@ -43,10 +43,9 @@ verus! {
     {
         #[cfg(not(verus_keep_ghost))]
         {
-            let crc = Crc::<u64>::new(&crc::CRC_64_MS);
-            let mut digest = crc.digest();
-            digest.update(header_bytes);
-            u64_to_le_bytes(digest.finalize())
+            let mut c = Digest::new();
+            c.write(header_bytes.as_slice());
+            u64_to_le_bytes(c.sum64())
         }
         #[cfg(verus_keep_ghost)]
         unimplemented!()
@@ -67,7 +66,7 @@ verus! {
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
                                          y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
             y == spec_crc_bytes(x),
@@ -94,12 +93,12 @@ verus! {
 
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: u64, cdb: u64, addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(spec_u64_to_le_bytes(cdb_c), spec_u64_to_le_bytes(cdb), addrs),
             all_elements_unique(addrs),
             cdb == cdb0_val || cdb == cdb1_val,
             cdb_c == cdb0_val || cdb_c == cdb1_val,
-        ensures 
+        ensures
             cdb_c == cdb
     {}
 

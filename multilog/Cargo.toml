@@ -11,6 +11,7 @@ builtin = { git = "https://github.com/verus-lang/verus.git", rev="0bfb56eb67d0de
 vstd = { git = "https://github.com/verus-lang/verus.git", rev="0bfb56eb67d0de7ab71ae316466faf302b321db3" }
 crc = "3.0"
 rand = "0.8.5"
+crc64fast = "1.0.0"
 
 [package.metadata.verus.ide]
 extra_args = "--expand-errors"
