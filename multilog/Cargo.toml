@@ -6,12 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="0bfb56eb67d0de7ab71ae316466faf302b321db3" }
-builtin = { git = "https://github.com/verus-lang/verus.git", rev="0bfb56eb67d0de7ab71ae316466faf302b321db3" }
-vstd = { git = "https://github.com/verus-lang/verus.git", rev="0bfb56eb67d0de7ab71ae316466faf302b321db3" }
-crc = "3.0"
-rand = "0.8.5"
-crc64fast = "1.0.0"
+builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="8d7c059f964fe26b23e4b45e95b378671de5d94e" }
+builtin = { git = "https://github.com/verus-lang/verus.git", rev="8d7c059f964fe26b23e4b45e95b378671de5d94e" }
+vstd = { git = "https:	//github.com/verus-lang/verus.git", rev="8d7c059f964fe26b23e4b45e95b378671de5d94e" }
+deps_hack = { path = "../deps_hack" }
 
 [package.metadata.verus.ide]
-extra_args = "--expand-errors"
+extra_args = "--expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib"

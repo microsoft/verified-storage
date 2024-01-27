@@ -47,8 +47,7 @@ use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::*;
 use vstd::prelude::*;
 
-#[cfg(not(verus_keep_ghost))]
-use rand::Rng;
+use deps_hack::rand::Rng;
 
 verus! {
 
@@ -176,17 +175,11 @@ verus! {
     }
 
     // This executable method can be called to compute a random GUID.
-    // In Verus, it's modeled as having an external body; in Rust,
-    // it's code that uses the `rand` crate.
+    // It uses the external `rand` crate.
     #[verifier::external_body]
     pub exec fn generate_fresh_multilog_id() -> (out: u128)
     {
-        #[cfg(not(verus_keep_ghost))]
-        {
-            rand::thread_rng().gen::<u128>()
-        }
-        #[cfg(verus_keep_ghost)]
-        unimplemented!()
+        deps_hack::rand::thread_rng().gen::<u128>()
     }
 
     /// A `MultiLogImpl` wraps one `UntrustedMultiLogImpl` and a

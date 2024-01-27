@@ -31,6 +31,7 @@ verus! {
     }
 
     #[verifier::nonlinear]
+    #[verifier::rlimit(30)]
     pub proof fn lemma_mul_is_distributive_add(x: int, y: int, z: int)
         ensures
             x*(y + z) == x*y + x*z

@@ -5,12 +5,12 @@ version = 3
 [[package]]
 name = "builtin"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=0bfb56eb67d0de7ab71ae316466faf302b321db3#0bfb56eb67d0de7ab71ae316466faf302b321db3"
+source = "git+https://github.com/verus-lang/verus.git?rev=8d7c059f964fe26b23e4b45e95b378671de5d94e#8d7c059f964fe26b23e4b45e95b378671de5d94e"
 
 [[package]]
 name = "builtin_macros"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=0bfb56eb67d0de7ab71ae316466faf302b321db3#0bfb56eb67d0de7ab71ae316466faf302b321db3"
+source = "git+https://github.com/verus-lang/verus.git?rev=8d7c059f964fe26b23e4b45e95b378671de5d94e#8d7c059f964fe26b23e4b45e95b378671de5d94e"
 dependencies = [
  "prettyplease_verus",
  "proc-macro2",
@@ -27,25 +27,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "crc"
-version = "3.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86ec7a15cbe22e59248fc7eadb1907dab5ba09372595da4d73dd805ed4417dfe"
-dependencies = [
- "crc-catalog",
-]
-
-[[package]]
-name = "crc-catalog"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
-
-[[package]]
 name = "crc64fast"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd3d10c557924c719a61e583165e31a0d8131b20415d6858983e67d1eb8a82bd"
+
+[[package]]
+name = "deps_hack"
+version = "0.1.0"
+dependencies = [
+ "crc64fast",
+ "rand",
+ "winapi",
+]
 
 [[package]]
 name = "getrandom"
@@ -70,9 +64,7 @@ version = "0.1.0"
 dependencies = [
  "builtin",
  "builtin_macros",
- "crc",
- "crc64fast",
- "rand",
+ "deps_hack",
  "vstd",
 ]
 
@@ -85,7 +77,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 [[package]]
 name = "prettyplease_verus"
 version = "0.1.15"
-source = "git+https://github.com/verus-lang/verus.git?rev=0bfb56eb67d0de7ab71ae316466faf302b321db3#0bfb56eb67d0de7ab71ae316466faf302b321db3"
+source = "git+https://github.com/verus-lang/verus.git?rev=8d7c059f964fe26b23e4b45e95b378671de5d94e#8d7c059f964fe26b23e4b45e95b378671de5d94e"
 dependencies = [
  "proc-macro2",
  "syn_verus",
@@ -153,7 +145,7 @@ dependencies = [
 [[package]]
 name = "syn_verus"
 version = "1.0.95"
-source = "git+https://github.com/verus-lang/verus.git?rev=0bfb56eb67d0de7ab71ae316466faf302b321db3#0bfb56eb67d0de7ab71ae316466faf302b321db3"
+source = "git+https://github.com/verus-lang/verus.git?rev=8d7c059f964fe26b23e4b45e95b378671de5d94e#8d7c059f964fe26b23e4b45e95b378671de5d94e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -187,7 +179,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "vstd"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=0bfb56eb67d0de7ab71ae316466faf302b321db3#0bfb56eb67d0de7ab71ae316466faf302b321db3"
+source = "git+https://github.com/verus-lang/verus.git?rev=8d7c059f964fe26b23e4b45e95b378671de5d94e#8d7c059f964fe26b23e4b45e95b378671de5d94e"
 dependencies = [
  "builtin",
  "builtin_macros",
@@ -198,3 +190,25 @@ name = "wasi"
 version = "0.11.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"

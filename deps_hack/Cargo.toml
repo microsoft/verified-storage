@@ -1,0 +1,13 @@
+[package]
+name = "deps_hack"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+crc64fast = "1.0.0"
+rand = "0.8.5"
+winapi = { version = "0.3.9", features = ["errhandlingapi", "fileapi", "handleapi", "memoryapi", "winbase", "winerror", "winnt"] }

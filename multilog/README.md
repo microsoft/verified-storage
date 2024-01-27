@@ -17,7 +17,34 @@ that the implementation read your data from the same place on
 persistent memory where it was stored, but the data still might
 have gotten corrupted on that memory.
 
-## Usage
+## Verifying, building, and running the code
+
+To verify, build, and run the code, follow the following steps.
+
+1. Install [Verus](https://github.com/verus-lang/verus) if you don't already
+   have it.
+
+2. Build the `deps_hack` crate if you haven't yet done so, with:
+```
+cd deps_hack
+cargo build
+```
+
+3. Verify the code with:
+```
+cd multilog/src
+verus  --crate-type=lib -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib lib.rs
+```
+
+It should report 0 verification errors.
+
+4. Run the driver with:
+```
+cd ../unverified/multilog_test
+cargo run
+```
+
+## Using the library
 
 To create a `MultiLogImpl`, you need an object satisfying the
 `PersistentMemoryRegions` trait, i.e., one implementing a list of
@@ -25,8 +52,8 @@ persistent-memory regions. The reason we take a single
 `PersistentMemoryRegions` input rather than multiple
 `PersistentMemory` inputs is to do efficient flushes to multiple
 persistent memories at once. We anticipate that several persistent
-memory regions will be on the same physical memory, and can thus
-be efficiently flushed collectively with a single flush call.
+memory regions will be on the same physical memory, and can thus be
+efficiently flushed collectively with a single flush call.
 
 To set up persistent memory objects to store an initial empty
 multilog, you call `MultiLogImpl::setup`. For instance, here's
@@ -200,6 +227,8 @@ so do not have to be read to have confidence in the correctness of the code.
   correctness and invoked by `MultiLogImpl` methods
 * `pmemspec_t.rs` specifies how persistent memory is assumed to behave, including
   both normal operation and exceptional cases like crashes and bit corruption
+* `pmemfile_t.rs` implements `FileBackedPersistentMemoryRegions`, which
+  lets one use a directory in a persistent-memory file system as multilog storage
 * `pmemmock_t.rs` mocks persistent memory using volatile memory, in a way only
   intended for use in testing
 * `pmemutil_v.rs` provides utility functions and proofs about persistent
