@@ -402,10 +402,8 @@ verus! {
                     }
                 },
                 _ => {
-                    let mut i: usize = 0;
-                    while i < self.pms.len() {
+                    for i in 0..self.pms.len() {
                         self.pms[i].flush();
-                        i += 1;
                     }
                 },
             }

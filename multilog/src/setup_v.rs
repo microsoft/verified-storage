@@ -46,10 +46,8 @@ verus! {
         // Loop through all the regions, checking for sufficiency of
         // size.
 
-        let mut which_log: u32 = 0;
-        while which_log < num_regions
+        for which_log in 0..num_regions
             invariant
-                which_log <= num_regions,
                 num_regions == region_sizes.len(),
                 forall |j| 0 <= j < which_log ==> region_sizes[j] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
         {
@@ -59,7 +57,6 @@ verus! {
                     required_space: ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
                 });
             }
-            which_log += 1;
         }
         Ok(())
     }
@@ -74,19 +71,15 @@ verus! {
                 #[trigger] result[i] + ABSOLUTE_POS_OF_LOG_AREA == region_sizes[i]
     {
         let mut result = Vec::<u64>::new();
-        let num_regions: usize = region_sizes.len();
-        let mut which_region = 0;
-        while which_region < num_regions
+        for which_region in iter: 0..region_sizes.len()
             invariant
-                0 <= which_region <= num_regions,
-                num_regions == region_sizes.len(),
+                iter.end == region_sizes.len(),
                 forall |i: int| 0 <= i < region_sizes.len() ==> region_sizes[i] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
                 result.len() == which_region,
                 forall |i: int| 0 <= i < which_region ==>
                     #[trigger] result[i] + ABSOLUTE_POS_OF_LOG_AREA == region_sizes[i]
         {
             result.push(region_sizes[which_region] - ABSOLUTE_POS_OF_LOG_AREA);
-            which_region += 1;
         }
         result
     }
@@ -516,14 +509,12 @@ verus! {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
 
-        let num_logs: u32 = region_sizes.len() as u32;
-        let mut which_log: u32 = 0;
-        while which_log < num_logs
+        let num_logs = region_sizes.len() as u32;
+        for which_log in 0..num_logs
             invariant
+                num_logs == pm_regions@.len(),
                 pm_regions.inv(),
                 pm_regions.constants() == old(pm_regions).constants(),
-                which_log <= num_logs,
-                num_logs == pm_regions@.len(),
                 pm_regions@.len() == old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
                 pm_regions@.len() >= 1,
                 pm_regions@.len() <= u32::MAX,
@@ -542,7 +533,6 @@ verus! {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
             write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log);
-            which_log += 1;
         }
 
         proof {

@@ -588,8 +588,6 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
-            let mut current_log: u32 = 0;
-
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -601,9 +599,8 @@ verus! {
             // Loop, each time performing the update of the inactive level-3
             // metadata for log number `current_log`.
 
-            while current_log < self.num_logs
+            for current_log in 0..self.num_logs
                 invariant
-                    current_log <= self.num_logs,
                     wrpm_regions.inv(),
                     wrpm_regions.constants() == old(wrpm_regions).constants(),
                     unused_metadata_pos == get_level3_metadata_pos(!self.cdb),
@@ -703,7 +700,6 @@ verus! {
                 // Actually perform the write.
 
                 wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
-                current_log += 1;
             }
 
             // Prove that after the flush we're about to do, all our
@@ -846,10 +842,9 @@ verus! {
             // area, if flushed, would be consistent with `self.infos` and
             // `self.state`.
 
-            let mut current_log: u32 = 0;
-            while current_log < self.num_logs
+            for current_log in iter: 0..self.num_logs
                 invariant
-                    current_log <= self.num_logs,
+                    iter.end == self.num_logs, // we need to remember this since `self` is changed in the loop body
                     wrpm_regions.inv(),
 
                     memory_matches_cdb(wrpm_regions@, self.cdb),
@@ -885,8 +880,6 @@ verus! {
                     ..self.infos[current_log as usize]
                 };
                 self.infos.set(current_log as usize, new_info);
-
-                current_log += 1;
             }
 
             // Update the inactive metadata on all regions and flush, then

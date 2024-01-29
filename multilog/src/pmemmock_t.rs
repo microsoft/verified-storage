@@ -173,16 +173,13 @@ verus! {
         #[verifier::external_body]
         fn flush(&mut self)
         {
-            let mut which_region: usize = 0;
-            let num_regions = self.pms.len();
-            while which_region < num_regions
+            for which_region in iter: 0..self.pms.len()
                 invariant
-                    0 <= which_region <= num_regions == self.pms.len(),
+                    iter.end == self.pms.len(),
                     forall |i: int| 0 <= i < which_region ==>
                         self.pms[which_region as int]@ == old(self).pms[which_region as int]@.flush()
             {
                 self.pms[which_region].flush();
-                which_region += 1;
             }
         }
     }

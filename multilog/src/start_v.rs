@@ -378,11 +378,9 @@ verus! {
             }
     {
         let mut infos = Vec::<LogInfo>::new();
-        let mut which_log: u32 = 0;
-        while which_log < num_regions
+        for which_log in 0..num_regions
             invariant
                 pm_regions.inv(),
-                which_log <= num_regions,
                 which_log == infos.len(),
                 forall |j:u32| j < which_log ==> {
                     &&& info_consistent_with_log_area(#[trigger] pm_regions@[j as int], infos[j as int], state[j as int])
@@ -415,7 +413,6 @@ verus! {
                 Ok(info) => infos.push(info),
                 Err(e) => return Err(e),
             }
-            which_log = which_log + 1;
         }
         Ok(infos)
     }

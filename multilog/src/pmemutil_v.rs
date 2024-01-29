@@ -127,19 +127,15 @@ verus! {
             result@.len() == pm_regions@.len(),
             forall |i: int| 0 <= i < pm_regions@.len() ==> result@[i] == #[trigger] pm_regions@[i].len()
     {
-        let num_regions: usize = pm_regions.get_num_regions();
-        let mut which_region: usize = 0;
         let mut result: Vec<u64> = Vec::<u64>::new();
-        while which_region < num_regions
+        for which_region in iter: 0..pm_regions.get_num_regions()
             invariant
+                iter.end == pm_regions@.len(),
                 pm_regions.inv(),
-                which_region <= num_regions == pm_regions@.len(),
                 result@.len() == which_region,
                 forall |i: int| 0 <= i < which_region ==> result@[i] == #[trigger] pm_regions@[i].len(),
         {
-            let region_size = pm_regions.get_region_size(which_region);
-            result.push(region_size);
-            which_region += 1;
+            result.push(pm_regions.get_region_size(which_region));
         }
         result
     }
