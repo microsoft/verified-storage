@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
 builtin = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
-vstd = { git = "https:	//github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
 deps_hack = { path = "../deps_hack" }
 
 [package.metadata.verus.ide]
