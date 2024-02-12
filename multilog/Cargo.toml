@@ -12,4 +12,4 @@ vstd = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876
 deps_hack = { path = "../deps_hack" }
 
 [package.metadata.verus.ide]
-extra_args = "--expand-errors -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib"
+extra_args = "--crate-type=lib --expand-errors -L dependency=../deps_hack/target/debug/deps -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib"

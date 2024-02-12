@@ -32,8 +32,8 @@ cargo build
 
 3. Verify the code with:
 ```
-cd multilog/src
-verus  --crate-type=lib -L dependency=../../deps_hack/target/debug/deps --extern=deps_hack=../../deps_hack/target/debug/libdeps_hack.rlib lib.rs
+cd multilog
+verus  --crate-type=lib -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib src/lib.rs
 ```
 
 It should report 0 verification errors.
