@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
-builtin = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
-vstd = { git = "https://github.com/verus-lang/verus.git", rev="a7c432b807a241876dc68c8f9a160650401d6554" }
+builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="f16f5fadbfbb08cf34b37acc533d04855e053918" }
+builtin = { git = "https://github.com/verus-lang/verus.git", rev="f16f5fadbfbb08cf34b37acc533d04855e053918" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="f16f5fadbfbb08cf34b37acc533d04855e053918" }
 deps_hack = { path = "../deps_hack" }
 
 [package.metadata.verus.ide]

@@ -104,7 +104,7 @@ verus! {
     // rely on it to restrict access to persistent memory.
     #[allow(dead_code)]
     pub struct TrustedPermission {
-        ghost is_state_allowable: FnSpec(Seq<Seq<u8>>) -> bool
+        ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
     }
 
     impl CheckPermission<Seq<Seq<u8>>> for TrustedPermission {
