@@ -280,10 +280,8 @@ verus! {
                 }
         {
             let multilog_id = generate_fresh_multilog_id();
-            match UntrustedMultiLogImpl::setup(pm_regions, multilog_id) {
-                Ok(capacities) => Ok((capacities, multilog_id)),
-                Err(err) => Err(err),
-            }
+            let capacities = UntrustedMultiLogImpl::setup(pm_regions, multilog_id)?;
+            Ok((capacities, multilog_id))
         }
 
         // The `start` method creates an `UntrustedMultiLogImpl` out
@@ -318,14 +316,14 @@ verus! {
             let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
             let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
             let tracked perm = TrustedPermission::new_one_possibility(multilog_id, state);
-            match UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state)) {
-                Ok(untrusted_log_impl) => Ok(MultiLogImpl {
-                    untrusted_log_impl,
-                    multilog_id:  Ghost(multilog_id),
-                    wrpm_regions
-                }),
-                Err(e) => Err(e)
-            }
+            let untrusted_log_impl =
+                UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
+            Ok(MultiLogImpl {
+                untrusted_log_impl,
+                multilog_id:  Ghost(multilog_id),
+                wrpm_regions
+
+            })
         }
 
         // The `tentatively_append` method tentatively appends

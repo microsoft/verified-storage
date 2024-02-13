@@ -409,10 +409,8 @@ verus! {
                 assert(region_state == seq_option[which_log as int]);
             }
 
-            match read_log_variables(pm_regions, multilog_id, cdb, num_regions, which_log) {
-                Ok(info) => infos.push(info),
-                Err(e) => return Err(e),
-            }
+            let info = read_log_variables(pm_regions, multilog_id, cdb, num_regions, which_log)?;
+            infos.push(info);
         }
         Ok(infos)
     }

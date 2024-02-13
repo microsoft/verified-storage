@@ -184,9 +184,7 @@ verus! {
                 return Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { });
             }
             let num_logs = num_regions as u32;
-            if let Err(e) = check_for_required_space(&region_sizes, num_logs) {
-                return Err(e);
-            }
+            check_for_required_space(&region_sizes, num_logs)?;
 
             // Compute log capacities so we can return them.
 
@@ -278,33 +276,25 @@ verus! {
             // First, we read the corruption-detecting boolean and
             // return an error if that fails.
 
-            match read_cdb(pm_regions) {
-                Err(e) => Err(e),
-                Ok(cdb) => {
+            let cdb = read_cdb(pm_regions)?;
 
-                    // Second, we read the logs variables to store in
-                    // `infos`. If that fails, we return an error.
+            // Second, we read the logs variables to store in
+            // `infos`. If that fails, we return an error.
 
-                    match read_logs_variables(pm_regions, multilog_id, cdb, num_logs, Ghost(state)) {
-                        Err(e) => Err(e),
-                        Ok(infos) => {
-                            proof {
-                                // We have to prove that we can only crash as the given abstract
-                                // state with all pending appends dropped. We prove this with two
-                                // lemmas. The first says that since we've established certain
-                                // invariants, we can only crash as `state`. The second says that,
-                                // because this is a recovered state, it's unaffected by dropping
-                                // all pending appends.
+            let infos = read_logs_variables(pm_regions, multilog_id, cdb, num_logs, Ghost(state))?;
+            proof {
+                // We have to prove that we can only crash as the given abstract
+                // state with all pending appends dropped. We prove this with two
+                // lemmas. The first says that since we've established certain
+                // invariants, we can only crash as `state`. The second says that,
+                // because this is a recovered state, it's unaffected by dropping
+                // all pending appends.
 
-                                lemma_invariants_imply_crash_recover_forall(pm_regions@, multilog_id, num_logs, cdb,
-                                                                            infos@, state);
-                                lemma_recovered_state_is_crash_idempotent(wrpm_regions@.committed(), multilog_id);
-                            }
-                            Ok(Self{ num_logs, cdb, infos, state: Ghost(state) })
-                        }
-                    }
-                }
+                lemma_invariants_imply_crash_recover_forall(pm_regions@, multilog_id, num_logs, cdb,
+                                                            infos@, state);
+                lemma_recovered_state_is_crash_idempotent(wrpm_regions@.committed(), multilog_id);
             }
+            Ok(Self{ num_logs, cdb, infos, state: Ghost(state) })
         }
 
         // The `tentatively_append` method tentatively appends
