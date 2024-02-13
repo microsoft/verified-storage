@@ -15,7 +15,7 @@ use crate::multilogimpl_v::LogInfo;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::{CRC_SIZE, PersistentMemoryRegions};
 use crate::pmemutil_v::{check_cdb, check_crc};
-use vstd::arithmetic::div_mod::lemma_mod_bound;
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::slice::*;
