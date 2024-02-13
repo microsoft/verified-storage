@@ -17,7 +17,8 @@ use crate::pmemutil_v::*;
 use crate::setup_v::{check_for_required_space, compute_level3_metadata_encoded, compute_log_capacities,
                      write_setup_metadata_to_all_regions};
 use crate::start_v::{read_cdb, read_logs_variables};
-use vstd::arithmetic::div_mod::*;
+use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_mod_multiples_vanish,
+                                lemma_mod_sub_multiples_vanish, lemma_small_mod};
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::slice::*;
