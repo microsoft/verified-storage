@@ -243,7 +243,6 @@ so do not have to be read to have confidence in the correctness of the code.
   setting up a collection of persistent memory regions to act as a multilog
 * `start_v.rs` implements subroutines called when the multilog code is
   starting up, either immediately after setup or to recover after a crash
-* `math_v.rs` provides math proofs
 
 ## Example
 
