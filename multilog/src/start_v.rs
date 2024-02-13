@@ -12,10 +12,10 @@ use crate::inv_v::*;
 use crate::layout_v::*;
 use crate::multilogimpl_t::MultiLogErr;
 use crate::multilogimpl_v::LogInfo;
-use crate::math_v::*;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::{CRC_SIZE, PersistentMemoryRegions};
 use crate::pmemutil_v::{check_cdb, check_crc};
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::slice::*;
@@ -318,7 +318,7 @@ verus! {
         // need to invoke a math lemma saying that the result of a
         // modulo operation is always less than the divisor.
 
-        proof { lemma_mod_range(head as int, log_area_len as int); }
+        proof { lemma_mod_bound(head as int, log_area_len as int); }
         let head_log_area_offset: u64 = (head % log_area_len as u128) as u64;
 
         // Return the log info. This necessitates computing the

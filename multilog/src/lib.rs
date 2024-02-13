@@ -182,13 +182,13 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::arithmetic::div_mod::*;
 use vstd::prelude::*;
 use vstd::pervasive::runtime_assert;
 
 pub mod append_v;
 pub mod inv_v;
 pub mod layout_v;
-pub mod math_v;
 pub mod multilogimpl_t;
 pub mod multilogimpl_v;
 pub mod multilogspec_t;

@@ -11,13 +11,13 @@ use crate::append_v::*;
 use crate::inv_v::*;
 use crate::layout_v::*;
 use crate::multilogimpl_t::*;
-use crate::math_v::*;
 use crate::multilogspec_t::AbstractMultiLogState;
 use crate::pmemspec_t::*;
 use crate::pmemutil_v::*;
 use crate::setup_v::{check_for_required_space, compute_level3_metadata_encoded, compute_log_capacities,
                      write_setup_metadata_to_all_regions};
 use crate::start_v::{read_cdb, read_logs_variables};
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::slice::*;
@@ -1014,7 +1014,12 @@ verus! {
                 // congruent modulo n to `advancement` plus `head` % n.
 
                 assert((advancement + head) % n == (advancement + head_mod_n) % n) by {
-                    lemma_sum_congruent_to_sum_with_mod(n, advancement, head);
+                    assert(head == n * (head / n) + head % n) by {
+                        lemma_fundamental_div_mod(head, n);
+                    }
+                    assert((n * (head / n) + (advancement + head_mod_n)) % n == (advancement + head_mod_n) % n) by {
+                        lemma_mod_multiples_vanish(head / n, advancement + head_mod_n, n);
+                    }
                 }
 
                 // Next, observe that `advancement` + `head` % n is
@@ -1025,7 +1030,7 @@ verus! {
                 // other case, it's that quantity minus n.
 
                 assert((advancement + head % n) % n == (advancement + head_mod_n - n) % n) by {
-                    lemma_mod_auto_basics(n, advancement + head_mod_n);
+                    lemma_mod_sub_multiples_vanish(advancement + head_mod_n, n);
                 }
 
                 // So we know that in either case, `new_head` % n ==
@@ -1041,7 +1046,7 @@ verus! {
                 // < n.
                 
                 assert(supposed_new_head_mod_n % n == supposed_new_head_mod_n) by {
-                    lemma_small_mod(supposed_new_head_mod_n, n);
+                    lemma_small_mod(supposed_new_head_mod_n as nat, n as nat);
                 }
             }
 
