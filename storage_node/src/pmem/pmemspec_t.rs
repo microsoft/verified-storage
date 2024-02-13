@@ -1,7 +1,7 @@
 //! This file contains the trusted specification for how a collection
 //! of persistent memory regions (implementing trait
 //! `PersistentMemoryRegions`) behaves.
-//! 
+//!
 //! One of the things it models is what can happen to a persistent
 //! memory region if the system crashes in the middle of a write.
 //! Specifically, it says that on a crash some subset of the
@@ -32,10 +32,12 @@
 //! use of CRCs to detect possible corruption, and model a CRC match
 //! as showing evidence of an absence of corruption.
 
+use crate::pmem::device_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
-use vstd::prelude::*;
 use vstd::bytes::*;
+use vstd::prelude::*;
 
 use deps_hack::crc64fast::Digest;
 
@@ -70,7 +72,7 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
-    pub const CRC_SIZE: u64 = 8; 
+    pub const CRC_SIZE: u64 = 8;
 
     pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
 
@@ -102,7 +104,7 @@ verus! {
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
                                          y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
             y == spec_crc_bytes(x),
@@ -129,13 +131,13 @@ verus! {
 
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(cdb_c, cdb, addrs),
             all_elements_unique(addrs),
             cdb.len() == 8,
             spec_u64_from_le_bytes(cdb) == CDB_FALSE || spec_u64_from_le_bytes(cdb) == CDB_TRUE,
             spec_u64_from_le_bytes(cdb_c) == CDB_FALSE || spec_u64_from_le_bytes(cdb_c) == CDB_TRUE,
-        ensures 
+        ensures
             cdb_c == cdb
     {}
 
@@ -159,14 +161,16 @@ verus! {
     pub struct PersistentMemoryByte {
         pub state_at_last_flush: u8,
         pub outstanding_write: Option<u8>,
+        pub write_timestamp: PmTimestamp,
     }
 
     impl PersistentMemoryByte {
-        pub open spec fn write(self, byte: u8) -> Self
+        pub open spec fn write(self, byte: u8, write_timestamp: PmTimestamp) -> Self
         {
             Self {
                 state_at_last_flush: self.state_at_last_flush,
-                outstanding_write: Some(byte)
+                outstanding_write: Some(byte),
+                write_timestamp,
             }
         }
 
@@ -180,7 +184,11 @@ verus! {
 
         pub open spec fn flush(self) -> Self
         {
-            Self { state_at_last_flush: self.flush_byte(), outstanding_write: None }
+            Self {
+                state_at_last_flush: self.flush_byte(),
+                outstanding_write: None,
+                write_timestamp: self.write_timestamp
+            }
         }
     }
 
@@ -201,10 +209,10 @@ verus! {
             self.state.len()
         }
 
-        pub open spec fn write(self, addr: int, bytes: Seq<u8>) -> Self
+        pub open spec fn write(self, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> Self
         {
             Self { state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte|
-                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr]) }
+                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr], timestamp) }
                                          else { pre_byte }) }
         }
 
@@ -276,7 +284,8 @@ verus! {
 
     #[verifier::ext_equal]
     pub struct PersistentMemoryRegionsView {
-        pub regions: Seq<PersistentMemoryRegionView>
+        pub regions: Seq<PersistentMemoryRegionView>,
+        pub fence_timestamp: PmTimestamp,
     }
 
     impl PersistentMemoryRegionsView {
@@ -285,27 +294,37 @@ verus! {
             self.regions.len()
         }
 
-        pub open spec fn spec_index(self, i: int) -> PersistentMemoryRegionView 
+        pub open spec fn spec_index(self, i: int) -> PersistentMemoryRegionView
         {
             self.regions[i]
         }
 
-        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self 
+        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> (Self, PmTimestamp)
         {
-            Self {
-                regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
-                    if pos == index {
-                        pre_view.write(addr, bytes)
-                    } else {
-                        pre_view
-                    }
-                )
-            }
+            (
+                Self {
+                    regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
+                        if pos == index {
+                            pre_view.write(addr, bytes, timestamp)
+                        } else {
+                            pre_view
+                        }
+                    ),
+                    fence_timestamp: self.fence_timestamp,
+                },
+                timestamp.inc_timestamp()
+            )
         }
 
-        pub open spec fn flush(self) -> Self 
+        pub open spec fn flush(self, timestamp: PmTimestamp) -> (Self, PmTimestamp)
         {
-            Self { regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.flush()) }
+            (
+                Self {
+                    regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.flush()),
+                    fence_timestamp: timestamp
+                },
+                timestamp.inc_timestamp()
+            )
         }
 
         pub open spec fn no_outstanding_writes(self) -> bool {
@@ -322,7 +341,7 @@ verus! {
             Seq::<Seq<u8>>::new(self.len(), |i: int| self[i].committed())
         }
 
-        pub open spec fn can_crash_as(self, crash_regions: Seq<Seq<u8>>) -> bool 
+        pub open spec fn can_crash_as(self, crash_regions: Seq<Seq<u8>>) -> bool
         {
             &&& crash_regions.len() == self.len()
             &&& forall |i: int| #![auto] 0 <= i < self.len() ==> self[i].can_crash_as(crash_regions[i])
@@ -347,6 +366,11 @@ verus! {
 
         spec fn constants(&self) -> PersistentMemoryConstants;
 
+        // I expect this to be a closed uninterpreted spec function that is set
+        // only by PmDevice methods.
+        // TODO: how can we enforce that?
+        spec fn timestamp_corresponds_to_regions(&self, timestamp: PmTimestamp) -> bool;
+
         fn get_num_regions(&self) -> (result: usize)
             requires
                 self.inv()
@@ -361,7 +385,7 @@ verus! {
                 result == self@[index as int].len();
 
         fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires 
+            requires
                 self.inv(),
                 index < self@.len(),
                 addr + num_bytes <= self@[index as int].len(),
@@ -383,25 +407,47 @@ verus! {
                     }
                 });
 
-        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
+        // TODO: do write and flush need to return updated ghost PmTimestamp? maybe it needs to be tracked?
+
+        fn write(&mut self, index: usize, addr: u64, bytes: &[u8], timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
                 index < old(self)@.len(),
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-            ensures 
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, bytes@);
-
-        fn flush(&mut self)
-            requires
-                old(self).inv()
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    // timestamp.timestamp_corresponds_to_regions(&*old(self))
+                    old(self).timestamp_corresponds_to_regions(timestamp)
+                })
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@ == old(self)@.flush();
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                    self@ == written
+                });
+
+
+        fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
+            requires
+                old(self).inv(),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    // timestamp.timestamp_corresponds_to_regions(&*old(self))
+                    old(self).timestamp_corresponds_to_regions(timestamp)
+                })
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    let (flushed, new_timestamp) = old(self)@.flush(timestamp);
+                    self@ == flushed
+                })
+            ;
     }
 
     /// A `WriteRestrictedPersistentMemoryRegions` is a wrapper around a
@@ -418,7 +464,7 @@ verus! {
 
     #[allow(dead_code)]
     pub struct WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
-        where 
+        where
             Perm: CheckPermission<Seq<Seq<u8>>>,
             PMRegions: PersistentMemoryRegions
     {
@@ -427,7 +473,7 @@ verus! {
     }
 
     impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
-        where 
+        where
             Perm: CheckPermission<Seq<Seq<u8>>>,
             PMRegions: PersistentMemoryRegions
     {
@@ -441,15 +487,23 @@ verus! {
             self.pm_regions.inv()
         }
 
+        // pub closed spec fn corresponds_to_timestamp(&self, timestamp: PmTimestamp) -> bool {
+        //     timestamp.timestamp_corresponds_to_regions(&self.pm_regions)
+        // }
+
         pub closed spec fn constants(&self) -> PersistentMemoryConstants
         {
             self.pm_regions.constants()
         }
 
+        pub closed spec fn spec_pm_regions_ref(&self) -> &PMRegions {
+            &self.pm_regions
+        }
+
         pub exec fn new(pm_regions: PMRegions) -> (wrpm_regions: Self)
             requires
                 pm_regions.inv()
-            ensures 
+            ensures
                 wrpm_regions.inv(),
                 wrpm_regions@ == pm_regions@,
                 wrpm_regions.constants() == pm_regions.constants()
@@ -481,22 +535,34 @@ verus! {
         // can crash and recover into, the permission authorizes that
         // state.
         #[allow(unused_variables)]
-        pub exec fn write(&mut self, index: usize, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
+        pub exec fn write(&mut self, index: usize, addr: u64, bytes: &[u8], perm: Tracked<&Perm>, timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
                 index < old(self)@.len(),
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 addr + bytes@.len() <= u64::MAX,
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-                // The key thing the caller must prove is that all crash states are authorized by `perm`
-                forall |s| old(self)@.write(index as int, addr as int, bytes@).can_crash_as(s)
-                    ==> #[trigger] perm@.check_permission(s),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    // &&& timestamp.timestamp_corresponds_to_regions(old(self).spec_pm_regions_ref())
+                    &&& old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                    // The key thing the caller must prove is that all crash states are authorized by `perm`
+                    &&& forall |s| {
+                            let (pm_state, timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                            pm_state.can_crash_as(s)
+                        } ==> #[trigger] perm@.check_permission(s)
+                }),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, bytes@),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                    &&& self@ == written
+                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                })
         {
-            self.pm_regions.write(index, addr, bytes)
+            self.pm_regions.write(index, addr, bytes, timestamp)
         }
 
         // Even though the memory is write-restricted, no restrictions are
@@ -504,15 +570,25 @@ verus! {
         // the possible states the memory can crash into. So if the memory
         // is already restricted to only crash into good states, `flush`
         // automatically maintains that restriction.
-        pub exec fn flush(&mut self)
+        pub exec fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
             requires
-                old(self).inv()
+                old(self).inv(),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                    // old(self).corresponds_to_timestamp(timestamp)
+                })
             ensures
                 self.inv(),
-                self@ == old(self)@.flush(),
+                ({
+                    let Ghost(timestamp) = timestamp;
+                    let (flushed, new_timestamp) = old(self)@.flush(timestamp);
+                    &&& self@ == flushed
+                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                }),
                 self.constants() == old(self).constants(),
         {
-            self.pm_regions.flush()
+            self.pm_regions.flush(timestamp)
         }
     }
 }

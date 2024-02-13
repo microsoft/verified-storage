@@ -1,0 +1,53 @@
+//! The `PmDevice` trait represents a single persistent memory device,
+//! which may contain multiple regions. For example, a struct that
+//! implements `PmDevice` may store a path to a directory in a PM file system,
+//! a path to a character device, a handle for a single mmap'ed file.
+//! The implementer is responsible for defining how the device is separated
+//! into PMRegion(s).
+//! Each `PmDevice` has a single `PmTimestamp`, which also encompasses all
+//! of its regions.
+
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::timestamp_t::*;
+use builtin::*;
+use builtin_macros::*;
+use vstd::prelude::*;
+
+verus! {
+
+
+
+    pub trait PmDevice<PMRegions: PersistentMemoryRegions> {
+        spec fn len(&self) -> u64;
+
+        exec fn capacity(&self) -> (result: u64)
+            ensures
+                result == self.len();
+
+        /// `get_regions` consumes the PmDevice so it cannot be used to obtain any more regions or another timestamp.
+        /// It returns a set of PersistentMemoryRegions based on the given sizes and a single ghost timestamp
+        /// that can be used with all of the regions.
+        exec fn get_regions(self, regions: Vec<Vec<u64>>) -> (result: (Vec<PMRegions>, Ghost<PmTimestamp>))
+            where
+                Self: Sized
+            requires
+            ({
+                // the sum of region sizes must not exceed the actual size of the device
+                let acc_seq = Seq::new(regions@.len(), |i| regions[i]@.fold_left(0, |acc: int, x| acc + x));
+                let region_size_sum = acc_seq.fold_left(0, |acc: int, x| acc + x);
+                region_size_sum <= self.len()
+            })
+            ensures
+                regions@.len() == result.0@.len(),
+                ({
+                    let regions_list = result.0@;
+                    let Ghost(timestamp) = result.1;
+                    forall |i| 0 <= i < result.0@.len() ==> {
+                        &&& regions_list[i]@.len() == regions@[i].len()
+                        // &&& timestamp.timestamp_corresponds_to_regions(&regions_list[i])
+                        &&& regions_list[i].timestamp_corresponds_to_regions(timestamp)
+                    }
+                });
+
+    }
+}

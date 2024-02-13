@@ -10,6 +10,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegionView,
     PersistentMemoryRegions, PersistentMemoryRegionsView,
 };
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use std::convert::*;
@@ -31,7 +32,7 @@ verus! {
 
     impl VolatileMemoryMockingPersistentMemoryRegion {
         #[verifier::external_body]
-        pub fn new(region_size: u64) -> (result: Result<Self, ()>)
+        pub fn new(region_size: u64, timestamp: PmTimestamp) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(pm) => {
@@ -47,7 +48,8 @@ verus! {
                 Seq::<PersistentMemoryByte>::new(region_size as nat,
                                                  |i| PersistentMemoryByte {
                                                      state_at_last_flush: 0,
-                                                     outstanding_write: None
+                                                     outstanding_write: None,
+                                                     write_timestamp: timestamp,
                                                  });
             let persistent_memory_view = Ghost(PersistentMemoryRegionView { state });
             Ok(Self { contents, persistent_memory_view })
