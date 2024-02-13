@@ -416,38 +416,28 @@ verus! {
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-                ({
-                    let Ghost(timestamp) = timestamp;
-                    // timestamp.timestamp_corresponds_to_regions(&*old(self))
-                    old(self).timestamp_corresponds_to_regions(timestamp)
-                })
+                old(self).timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let Ghost(timestamp) = timestamp;
-                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
-                    &&& self.timestamp_corresponds_to_regions(timestamp)
+                    &&& self.timestamp_corresponds_to_regions(timestamp@)
                 });
 
 
         fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                ({
-                    let Ghost(timestamp) = timestamp;
-                    // timestamp.timestamp_corresponds_to_regions(&*old(self))
-                    old(self).timestamp_corresponds_to_regions(timestamp)
-                })
+                old(self).timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let Ghost(timestamp) = timestamp;
-                    let (flushed, new_timestamp) = old(self)@.flush(timestamp);
+                    let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
                     &&& self@ == flushed
-                    &&& self.timestamp_corresponds_to_regions(timestamp)
+                    &&& self.timestamp_corresponds_to_regions(timestamp@)
                 })
             ;
     }
@@ -545,12 +535,10 @@ verus! {
                 addr + bytes@.len() <= u64::MAX,
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
                 ({
-                    let Ghost(timestamp) = timestamp;
-                    // &&& timestamp.timestamp_corresponds_to_regions(old(self).spec_pm_regions_ref())
-                    &&& old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                    &&& old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
                     // The key thing the caller must prove is that all crash states are authorized by `perm`
                     &&& forall |s| {
-                            let (pm_state, timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                            let (pm_state, timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                             pm_state.can_crash_as(s)
                         } ==> #[trigger] perm@.check_permission(s)
                 }),
@@ -558,10 +546,9 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let Ghost(timestamp) = timestamp;
-                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
+                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
-                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
                 })
         {
             self.pm_regions.write(index, addr, bytes, timestamp)
@@ -575,18 +562,13 @@ verus! {
         pub exec fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                ({
-                    let Ghost(timestamp) = timestamp;
-                    old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
-                    // old(self).corresponds_to_timestamp(timestamp)
-                })
+                old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 ({
-                    let Ghost(timestamp) = timestamp;
-                    let (flushed, new_timestamp) = old(self)@.flush(timestamp);
+                    let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
                     &&& self@ == flushed
-                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp)
+                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
                 }),
                 self.constants() == old(self).constants(),
         {
