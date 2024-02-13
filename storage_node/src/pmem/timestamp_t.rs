@@ -4,28 +4,35 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
+    #[derive(PartialEq, Eq)]
     pub struct PmTimestamp {
         pub value: int,
     }
 
-    // we should only be able to get one PM timestamp per device?
-
+    // TODO: should this be tracked? if so, might need to implement clone?
     impl PmTimestamp {
         pub closed spec fn inc_timestamp(self) -> Self {
             Self {
                 value: self.value + 1
             }
         }
-
-        // pub closed spec fn timestamp_corresponds_to_regions<PMRegions: PersistentMemoryRegions>(&self, regions: &PMRegions) -> bool;
     }
 
-    impl Clone for PmTimestamp {
-        fn clone(&self) -> Self {
-            Self {
-                value: self.value
-            }
+    impl SpecOrd for PmTimestamp {
+        fn spec_lt(self, rhs: PmTimestamp) -> bool {
+            self.value < rhs.value
+        }
+
+        fn spec_le(self, rhs: PmTimestamp) -> bool {
+            self.value <= rhs.value
+        }
+
+        fn spec_gt(self, rhs: PmTimestamp) -> bool {
+            self.value > rhs.value
+        }
+
+        fn spec_ge(self, rhs: PmTimestamp) -> bool {
+            self.value >= rhs.value
         }
     }
-
 }

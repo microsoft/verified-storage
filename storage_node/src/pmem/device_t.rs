@@ -42,7 +42,7 @@ verus! {
                 ({
                     let regions_list = result.0@;
                     let Ghost(timestamp) = result.1;
-                    forall |i| 0 <= i < result.0@.len() ==> {
+                    forall |i| #![auto] 0 <= i < result.0@.len() ==> {
                         &&& regions_list[i]@.len() == regions@[i].len()
                         // &&& timestamp.timestamp_corresponds_to_regions(&regions_list[i])
                         &&& regions_list[i].timestamp_corresponds_to_regions(timestamp)
