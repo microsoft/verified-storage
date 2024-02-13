@@ -6,11 +6,17 @@ use vstd::prelude::*;
 verus! {
     #[derive(PartialEq, Eq)]
     pub struct PmTimestamp {
-        pub value: int,
+        value: int,
     }
 
     // TODO: should this be tracked? if so, might need to implement clone?
     impl PmTimestamp {
+        pub closed spec fn new() -> Self {
+            Self {
+                value: 0
+            }
+        }
+
         pub closed spec fn inc_timestamp(self) -> Self {
             Self {
                 value: self.value + 1

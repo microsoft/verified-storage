@@ -15,10 +15,8 @@ use vstd::prelude::*;
 
 verus! {
 
-
-
     pub trait PmDevice<PMRegions: PersistentMemoryRegions> {
-        spec fn len(&self) -> u64;
+        spec fn len(&self) -> u64; // is this doing anything?
 
         exec fn capacity(&self) -> (result: u64)
             ensures
@@ -27,7 +25,7 @@ verus! {
         /// `get_regions` consumes the PmDevice so it cannot be used to obtain any more regions or another timestamp.
         /// It returns a set of PersistentMemoryRegions based on the given sizes and a single ghost timestamp
         /// that can be used with all of the regions.
-        exec fn get_regions(self, regions: Vec<Vec<u64>>) -> (result: (Vec<PMRegions>, Ghost<PmTimestamp>))
+        exec fn get_regions(self, regions: Vec<Vec<u64>>) -> (result: Result<(Vec<PMRegions>, Ghost<PmTimestamp>), ()>)
             where
                 Self: Sized
             requires
@@ -38,16 +36,17 @@ verus! {
                 region_size_sum <= self.len()
             })
             ensures
-                regions@.len() == result.0@.len(),
-                ({
-                    let regions_list = result.0@;
-                    let Ghost(timestamp) = result.1;
-                    forall |i| #![auto] 0 <= i < result.0@.len() ==> {
-                        &&& regions_list[i]@.len() == regions@[i].len()
-                        // &&& timestamp.timestamp_corresponds_to_regions(&regions_list[i])
-                        &&& regions_list[i].timestamp_corresponds_to_regions(timestamp)
+                match result {
+                    Ok((regions_list, timestamp)) => {
+                        let Ghost(timestamp) = timestamp;
+                        &&& regions@.len() == regions_list@.len()
+                        &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
+                                &&& regions_list[i]@.len() == regions@[i].len()
+                                // &&& timestamp.timestamp_corresponds_to_regions(&regions_list[i])
+                                &&& regions_list[i].timestamp_corresponds_to_regions(timestamp)
+                            }
                     }
-                });
-
+                    Err(_) => false
+                };
     }
 }
