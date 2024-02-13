@@ -111,7 +111,7 @@ verus! {
         ensures
             ({
                 let (flushed, new_timestamp) = regions_view.flush(timestamp);
-                flushed == regions_view
+                flushed.regions == regions_view.regions
             })
     {
         let (flushed_regions_view, new_timestamp) = regions_view.flush(timestamp);

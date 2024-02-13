@@ -427,7 +427,8 @@ verus! {
                 ({
                     let Ghost(timestamp) = timestamp;
                     let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp);
-                    self@ == written
+                    &&& self@ == written
+                    &&& self.timestamp_corresponds_to_regions(timestamp)
                 });
 
 
@@ -445,7 +446,8 @@ verus! {
                 ({
                     let Ghost(timestamp) = timestamp;
                     let (flushed, new_timestamp) = old(self)@.flush(timestamp);
-                    self@ == flushed
+                    &&& self@ == flushed
+                    &&& self.timestamp_corresponds_to_regions(timestamp)
                 })
             ;
     }
