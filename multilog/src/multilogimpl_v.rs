@@ -814,10 +814,8 @@ verus! {
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
-                match result {
-                    Ok(()) => self@ == old(self)@.commit(),
-                    _ => false
-                }
+                result is Ok,
+                self@ == old(self)@.commit(),
         {
             let ghost prev_infos = self.infos@;
             let ghost prev_state = self.state@;
