@@ -43,6 +43,7 @@ use std::fmt::Write;
 use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -243,7 +244,7 @@ verus! {
         // listing the capacities of the logs as well as a fresh
         // multilog ID to uniquely identify it. See `main.rs` for more
         // documentation.
-        pub exec fn setup(pm_regions: &mut PMRegions) -> (result: Result<(Vec<u64>, u128), MultiLogErr>)
+        pub exec fn setup(pm_regions: &mut PMRegions, timestamp: Ghost<PmTimestamp>) -> (result: Result<(Vec<u64>, u128), MultiLogErr>)
             requires
                 old(pm_regions).inv()
             ensures
@@ -252,6 +253,7 @@ verus! {
                 match result {
                     Ok((log_capacities, multilog_id)) => {
                         let state = AbstractMultiLogState::initialize(log_capacities@);
+                        let (flushed_view, new_timestamp) = pm_regions@.flush(timestamp@);
                         &&& pm_regions@.len() == old(pm_regions)@.len()
                         &&& pm_regions@.len() >= 1
                         &&& pm_regions@.len() <= u32::MAX
@@ -261,26 +263,29 @@ verus! {
                         &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
                                #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
                         &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
+                        &&& UntrustedMultiLogImpl::recover(flushed_view.committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@[which_log as int].len() < required_space
                     },
                     Err(MultiLogErr::CantSetupWithFewerThanOneRegion { }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() < 1
                     },
                     Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() > u32::MAX
                     },
                     _ => false
                 }
         {
             let multilog_id = generate_fresh_multilog_id();
-            let capacities = UntrustedMultiLogImpl::setup(pm_regions, multilog_id)?;
+            let capacities = UntrustedMultiLogImpl::setup(pm_regions, multilog_id, timestamp)?;
             Ok((capacities, multilog_id))
         }
 
@@ -289,18 +294,25 @@ verus! {
         // those regions were initialized with `setup` and then only
         // multilog operations were allowed to mutate them. See
         // `main.rs` for more documentation and an example of use.
-        pub exec fn start(pm_regions: PMRegions, multilog_id: u128)
+        pub exec fn start(pm_regions: PMRegions, multilog_id: u128, timestamp: Ghost<PmTimestamp>)
                           -> (result: Result<MultiLogImpl<PMRegions>, MultiLogErr>)
             requires
                 pm_regions.inv(),
-                UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).is_Some(),
+                ({
+                    let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+                    UntrustedMultiLogImpl::recover(flushed_regions.committed(), multilog_id).is_Some()
+                })
+
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl.constants() == pm_regions.constants()
-                        &&& Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(),
+                        &&& ({
+                            let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+                            Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(flushed_regions.committed(),
                                                                                     multilog_id)
+                            })
                     },
                     Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
                     _ => false
@@ -313,11 +325,14 @@ verus! {
             // it write such that, if a crash happens in the middle,
             // it doesn't change the persistent state.
 
-            let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
+            // let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
+            let ghost (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+            let ghost committed_regions = flushed_regions.committed();
+            let ghost state = UntrustedMultiLogImpl::recover(committed_regions, multilog_id).get_Some_0();
             let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
             let tracked perm = TrustedPermission::new_one_possibility(multilog_id, state);
             let untrusted_log_impl =
-                UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
+                UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state), timestamp)?;
             Ok(MultiLogImpl {
                 untrusted_log_impl,
                 multilog_id:  Ghost(multilog_id),
@@ -332,7 +347,7 @@ verus! {
         // appends, and reads aren't allowed in the tentative part of
         // the log. See `main.rs` for more documentation and examples
         // of use.
-        pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8])
+        pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8], timestamp: Ghost<PmTimestamp>)
                                        -> (result: Result<u128, MultiLogErr>)
             requires
                 old(self).valid()
@@ -371,7 +386,7 @@ verus! {
             // appended.
             let tracked perm = TrustedPermission::new_one_possibility(self.multilog_id@, self@.drop_pending_appends());
             self.untrusted_log_impl.tentatively_append(&mut self.wrpm_regions, which_log, bytes_to_append,
-                                                       self.multilog_id, Tracked(&perm))
+                                                       self.multilog_id, Tracked(&perm), timestamp)
         }
 
         // The `commit` method atomically commits all tentative
@@ -380,7 +395,7 @@ verus! {
         // crash in the middle, the recovered-to state either reflects
         // all those tentative appends or none of them. See `main.rs`
         // for more documentation and examples of use.
-        pub exec fn commit(&mut self) -> (result: Result<(), MultiLogErr>)
+        pub exec fn commit(&mut self, timestamp: Ghost<PmTimestamp>) -> (result: Result<(), MultiLogErr>)
             requires
                 old(self).valid()
             ensures
@@ -399,7 +414,7 @@ verus! {
             // committed.
             let tracked perm = TrustedPermission::new_two_possibilities(self.multilog_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
-            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.multilog_id, Tracked(&perm))
+            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.multilog_id, Tracked(&perm), timestamp)
         }
 
         // The `advance_head` method advances the head of log number
@@ -409,7 +424,7 @@ verus! {
         // appends; to do that, you need a separate call to
         // `commit`. See `main.rs` for more documentation and examples
         // of use.
-        pub exec fn advance_head(&mut self, which_log: u32, new_head: u128) -> (result: Result<(), MultiLogErr>)
+        pub exec fn advance_head(&mut self, which_log: u32, new_head: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<(), MultiLogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -452,7 +467,7 @@ verus! {
                 self@.advance_head(which_log as int, new_head as int).drop_pending_appends()
             );
             self.untrusted_log_impl.advance_head(&mut self.wrpm_regions, which_log, new_head,
-                                                 self.multilog_id, Tracked(&perm))
+                                                 self.multilog_id, Tracked(&perm), timestamp)
         }
 
         // The `read` method reads `len` bytes from log number
