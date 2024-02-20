@@ -299,6 +299,7 @@ verus! {
             self.regions[i]
         }
 
+        // TODO: this doesn't need to update the timestamp, I think
         pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> (Self, PmTimestamp)
         {
             (
@@ -316,6 +317,7 @@ verus! {
             )
         }
 
+        // this does need to update timestamp. would it be easier for this to be tracked rather than handled like this?
         pub open spec fn flush(self, timestamp: PmTimestamp) -> (Self, PmTimestamp)
         {
             (
@@ -408,7 +410,7 @@ verus! {
                 });
 
         // TODO: do write and flush need to return updated ghost PmTimestamp? maybe it needs to be tracked?
-
+        // I don't think writes need to update timestamp -- they can just take it and keep track of it for later comparison.
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8], timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),

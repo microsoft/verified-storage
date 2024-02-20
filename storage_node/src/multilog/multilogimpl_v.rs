@@ -17,6 +17,7 @@ use crate::multilog::setup_v::{
 use crate::multilog::start_v::{read_cdb, read_logs_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -111,7 +112,8 @@ verus! {
         // to store an initial empty multilog. It returns a vector
         // listing the capacities of the logs. See `main.rs` for more
         // documentation.
-        pub exec fn setup<PMRegions>(pm_regions: &mut PMRegions, multilog_id: u128)
+        // TODO: update global timestamp?
+        pub exec fn setup<PMRegions>(pm_regions: &mut PMRegions, multilog_id: u128, timestamp: Ghost<PmTimestamp>)
                                      -> (result: Result<Vec<u64>, MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -124,6 +126,7 @@ verus! {
                 match result {
                     Ok(log_capacities) => {
                         let state = AbstractMultiLogState::initialize(log_capacities@);
+                        let (flushed, new_timestamp) = pm_regions@.flush(timestamp@);
                         &&& pm_regions@.len() == old(pm_regions)@.len()
                         &&& pm_regions@.len() >= 1
                         &&& pm_regions@.len() <= u32::MAX
@@ -132,19 +135,23 @@ verus! {
                         &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
                                #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
                         &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
+                        &&& Self::recover(flushed.committed(), multilog_id) == Some(state)
+                        // &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@[which_log as int].len() < required_space
                     },
                     Err(MultiLogErr::CantSetupWithFewerThanOneRegion { }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() < 1
                     },
                     Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
-                        &&& pm_regions@ == old(pm_regions)@.flush()
+                        let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
+                        &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() > u32::MAX
                     },
                     _ => false
@@ -170,7 +177,7 @@ verus! {
             // might be invalid. So we need to flush before writing
             // anything anyway.
 
-            pm_regions.flush();
+            pm_regions.flush(timestamp);
 
             // Get the list of region sizes and make sure they support
             // storing a multilog. If not, return an appropriate
@@ -194,7 +201,7 @@ verus! {
 
             // Write setup metadata to all regions.
 
-            write_setup_metadata_to_all_regions(pm_regions, &region_sizes, Ghost(log_capacities@), multilog_id);
+            write_setup_metadata_to_all_regions(pm_regions, &region_sizes, Ghost(log_capacities@), multilog_id, timestamp);
 
             proof {
                 // Prove various postconditions about how we can
@@ -205,7 +212,7 @@ verus! {
 
                 let state = AbstractMultiLogState::initialize(log_capacities@);
                 assert(state =~= state.drop_pending_appends());
-                lemma_if_no_outstanding_writes_then_flush_is_idempotent(pm_regions@);
+                lemma_if_no_outstanding_writes_then_flush_is_idempotent(pm_regions@, timestamp@);
                 lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(
                     pm_regions@);
             }
@@ -224,17 +231,22 @@ verus! {
         // persistent memory regions `wrpm_regions`. This restricts
         // how we can write `wrpm_regions`. This is moot, though,
         // because we don't ever write to the memory.
+        // TODO: update timestamp?
         pub exec fn start<PMRegions>(
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
             multilog_id: u128,
             Tracked(perm): Tracked<&TrustedPermission>,
-            Ghost(state): Ghost<AbstractMultiLogState>
+            Ghost(state): Ghost<AbstractMultiLogState>,
+            timestamp: Ghost<PmTimestamp>,
         ) -> (result: Result<Self, MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
             requires
+                ({
+                    let (flushed, new_timestamp) = old(wrpm_regions)@.flush(timestamp@);
+                    Self::recover(flushed.committed(), multilog_id) == Some(state)
+                }),
                 old(wrpm_regions).inv(),
-                Self::recover(old(wrpm_regions)@.flush().committed(), multilog_id) == Some(state),
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, multilog_id) == Some(state)
             ensures
                 wrpm_regions.inv(),
@@ -253,7 +265,7 @@ verus! {
             // writes to various location. To make sure of this, we
             // flush all memory regions.
 
-            wrpm_regions.flush();
+            wrpm_regions.flush(timestamp);
 
             // Out of paranoia, we check to make sure that the number
             // of regions is sensible. Both cases are technically
@@ -319,7 +331,8 @@ verus! {
             which_log: u32,
             bytes_to_append: &[u8],
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>
+            Tracked(perm): Tracked<&TrustedPermission>,
+            timestamp: Ghost<PmTimestamp>
         ) -> (result: Result<u128, MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -440,9 +453,10 @@ verus! {
 
                 proof {
                     lemma_tentatively_append(wrpm_regions@, multilog_id, self.num_logs, which_log,
-                                             bytes_to_append@, self.cdb, self.infos@, self.state@);
+                                             bytes_to_append@, self.cdb, self.infos@, self.state@,
+                                             timestamp@);
                 }
-                wrpm_regions.write(which_log as usize, write_addr, bytes_to_append, Tracked(perm));
+                wrpm_regions.write(which_log as usize, write_addr, bytes_to_append, Tracked(perm), timestamp);
             }
             else {
 
@@ -477,9 +491,10 @@ verus! {
 
                     proof {
                         lemma_tentatively_append(wrpm_regions@, multilog_id, self.num_logs, which_log,
-                                                 bytes_to_append@, self.cdb, self.infos@, self.state@);
+                                                 bytes_to_append@, self.cdb, self.infos@, self.state@,
+                                                 timestamp@);
                     }
-                    wrpm_regions.write(which_log as usize, write_addr, bytes_to_append, Tracked(perm));
+                    wrpm_regions.write(which_log as usize, write_addr, bytes_to_append, Tracked(perm), timestamp);
                 }
                 else {
 
@@ -494,15 +509,16 @@ verus! {
 
                     proof {
                         lemma_tentatively_append_wrapping(wrpm_regions@, multilog_id, self.num_logs, which_log,
-                                                          bytes_to_append@, self.cdb, self.infos@, self.state@);
+                                                          bytes_to_append@, self.cdb, self.infos@, self.state@,
+                                                          timestamp@);
                     }
                     wrpm_regions.write(which_log as usize, write_addr,
                                 slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
-                                Tracked(perm));
+                                Tracked(perm), timestamp);
                     wrpm_regions.write(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA,
                                 slice_subrange(bytes_to_append, max_len_without_wrapping as usize,
                                                bytes_to_append.len()),
-                                Tracked(perm));
+                                Tracked(perm), timestamp);
                 }
             }
 
@@ -557,6 +573,7 @@ verus! {
             Ghost(prev_infos): Ghost<Seq<LogInfo>>,
             Ghost(prev_state): Ghost<AbstractMultiLogState>,
             Tracked(perm): Tracked<&TrustedPermission>,
+            timestamp: Ghost<PmTimestamp>,
         )
             where
                 PMRegions: PersistentMemoryRegions
@@ -566,9 +583,13 @@ verus! {
                 no_outstanding_writes_to_metadata(old(wrpm_regions)@, old(self).num_logs),
                 each_metadata_consistent_with_info(old(wrpm_regions)@, multilog_id, old(self).num_logs,
                                                    old(self).cdb, prev_infos),
+                ({
+                    let (flushed, new_timestamp) = old(wrpm_regions)@.flush(timestamp@);
+                    each_info_consistent_with_log_area(flushed, old(self).num_logs,
+                                                   old(self).infos@, old(self).state@)
+
+                }),
                 each_info_consistent_with_log_area(old(wrpm_regions)@, old(self).num_logs, prev_infos, prev_state),
-                each_info_consistent_with_log_area(old(wrpm_regions)@.flush(), old(self).num_logs,
-                                                   old(self).infos@, old(self).state@),
                 forall |which_log: u32| #[trigger] is_valid_log_index(which_log, old(self).num_logs) ==>
                     old(self).infos@[which_log as int].log_area_len == prev_infos[which_log as int].log_area_len,
                 forall |s| {
@@ -599,8 +620,10 @@ verus! {
                     memory_matches_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                    each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
-
+                    ({
+                        let (flushed, new_timestamp) = wrpm_regions@.flush(timestamp@);
+                        each_info_consistent_with_log_area(flushed, self.num_logs, self.infos@, self.state@)
+                    }),
                     forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                         #[trigger] perm.check_permission(s),
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==>
@@ -630,7 +653,8 @@ verus! {
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs)
                                        && which_log < current_log ==> {
                         let w = which_log as int;
-                        metadata_consistent_with_info(wrpm_regions@.flush()[w], multilog_id, self.num_logs, which_log,
+                        let (flushed, new_timestamp) = wrpm_regions@.flush(timestamp@);
+                        metadata_consistent_with_info(flushed[w], multilog_id, self.num_logs, which_log,
                                                         !self.cdb, self.infos@[w])
                     },
             {
@@ -661,14 +685,14 @@ verus! {
                 proof {
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
-                        bytes_to_write@);
+                        bytes_to_write@, timestamp@);
                 }
 
                 // Use `lemma_invariants_imply_crash_recover_forall` to prove that it's OK to call
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
 
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@);
+                let ghost (wrpm_regions_new, new_timestamp) = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@, timestamp@);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
@@ -678,20 +702,22 @@ verus! {
                 // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
                 // be reflected in memory.
 
-                assert (metadata_consistent_with_info(wrpm_regions_new.flush()[current_log as int], multilog_id,
+                let ghost (flushed, new_timestamp) = wrpm_regions_new.flush(timestamp@);
+                assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
                     let mem1 = wrpm_regions@[cur].committed();
-                    let mem2 = wrpm_regions_new.flush()[cur].committed();
+                    let (flushed_mem2, new_timestamp) = wrpm_regions_new.flush(timestamp@);
+                    let mem2 = flushed_mem2[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
-                                                                level3_metadata_bytes + level3_crc);
+                                                                level3_metadata_bytes + level3_crc, timestamp@);
                     assert(extract_level3_metadata(mem2, !self.cdb) =~= level3_metadata_bytes);
                     assert(extract_level3_crc(mem2, !self.cdb) =~= level3_crc);
                 }
 
                 // Actually perform the write.
 
-                wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
+                wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm), timestamp);
             }
 
             // Prove that after the flush we're about to do, all our
@@ -700,14 +726,14 @@ verus! {
 
             proof {
                 lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
-                                                             prev_infos, prev_state);
+                                                             prev_infos, prev_state, timestamp@);
             }
 
             // Next, flush all outstanding writes to memory. This is
             // necessary so that those writes are ordered before the update
             // to the CDB.
-
-            wrpm_regions.flush();
+            // TODO: update and return the new timestamp
+            wrpm_regions.flush(timestamp);
 
             // Next, compute the new encoded CDB to write.
 
@@ -715,16 +741,18 @@ verus! {
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 
-            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
-            assert(memory_matches_cdb(pm_regions_after_write.flush(), !self.cdb)) by {
+            let ghost (pm_regions_after_write, new_timestamp) = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@, timestamp@);
+            let ghost (flushed_mem_after_write, new_timestamp) = pm_regions_after_write.flush(timestamp@);
+            assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
                 lemma_auto_spec_u64_to_from_le_bytes();
-                assert(extract_level3_cdb(pm_regions_after_write.flush()[0].committed()) =~= new_cdb@);
+                let (flushed_regions, new_timestamp) = pm_regions_after_write.flush(timestamp@);
+                assert(extract_level3_cdb(flushed_regions[0].committed()) =~= new_cdb@);
             }
 
             // Show that after writing and flushing, our invariants will
             // hold for each log if we flip `self.cdb`.
 
-            let ghost pm_regions_after_flush = pm_regions_after_write.flush();
+            let ghost (pm_regions_after_flush, new_timestamp) = pm_regions_after_write.flush(timestamp@);
             assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) implies {
                 let w = which_log as int;
                 &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
@@ -772,16 +800,16 @@ verus! {
                 lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
                                                             self.cdb, prev_infos, prev_state);
                 lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
-                                                                   ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
+                                                                   ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@, timestamp@);
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.
             // There's no need to flip `self.cdb` atomically with the write
             // since the flip of `self.cdb` is happening in local
             // non-persistent memory so if we crash it'll be lost anyway.
-
-            wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm));
-            wrpm_regions.flush();
+            // TODO: update timestamp
+            wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm), timestamp);
+            wrpm_regions.flush(timestamp);
             self.cdb = !self.cdb;
         }
 
@@ -802,7 +830,8 @@ verus! {
             &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>
+            Tracked(perm): Tracked<&TrustedPermission>,
+            timestamp: Ghost<PmTimestamp>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -848,7 +877,8 @@ verus! {
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
                         let w = which_log as int;
                         if which_log < current_log {
-                            info_consistent_with_log_area(wrpm_regions@.flush()[w], self.infos[w], self.state@[w])
+                            let (flushed_regions, new_timestamp) = wrpm_regions@.flush(timestamp@);
+                            info_consistent_with_log_area(flushed_regions[w], self.infos[w], self.state@[w])
                         }
                         else {
                             self.infos[w] == prev_infos[w]
@@ -878,7 +908,7 @@ verus! {
             // swap the CDB to its opposite.
 
             self.update_level3_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos),
-                                        Ghost(prev_state), Tracked(perm));
+                                        Ghost(prev_state), Tracked(perm), timestamp);
 
             Ok(())
         }
@@ -904,7 +934,8 @@ verus! {
             which_log: u32,
             new_head: u128,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>
+            Tracked(perm): Tracked<&TrustedPermission>,
+            timestamp: Ghost<PmTimestamp>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -1074,7 +1105,8 @@ verus! {
             // same addresses in the log area.
 
             let ghost w = which_log as int;
-            assert (info_consistent_with_log_area(wrpm_regions@.flush()[w], self.infos@[w], self.state@[w])) by {
+            let ghost (flushed_regions, new_timestamp) = wrpm_regions@.flush(timestamp@);
+            assert (info_consistent_with_log_area(flushed_regions[w], self.infos@[w], self.state@[w])) by {
                 lemma_addresses_in_log_area_correspond_to_relative_log_positions(wrpm_regions@[w], prev_infos[w]);
             }
 
@@ -1087,7 +1119,7 @@ verus! {
             // to update the inactive metadata on all regions.
 
             self.update_level3_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos), Ghost(prev_state),
-                                        Tracked(perm));
+                                        Tracked(perm), timestamp);
 
             Ok(())
         }

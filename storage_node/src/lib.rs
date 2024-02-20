@@ -3,7 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-// pub mod multilog;
+pub mod multilog;
 pub mod pmem;
 
 verus! {

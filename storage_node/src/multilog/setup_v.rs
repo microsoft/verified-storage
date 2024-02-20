@@ -9,6 +9,7 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -363,6 +364,7 @@ verus! {
         multilog_id: u128,
         num_logs: u32,
         which_log: u32,
+        timestamp: Ghost<PmTimestamp>,
     )
         requires
             old(pm_regions).inv(),
@@ -416,7 +418,7 @@ verus! {
 
         // Write the vector to memory.
 
-        pm_regions.write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA, bytes_to_write.as_slice());
+        pm_regions.write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA, bytes_to_write.as_slice(), timestamp);
 
         proof {
             // We want to prove that if we parse the result of
@@ -486,7 +488,8 @@ verus! {
         pm_regions: &mut PMRegions,
         region_sizes: &Vec<u64>,
         Ghost(log_capacities): Ghost<Seq<u64>>,
-        multilog_id: u128
+        multilog_id: u128,
+        timestamp: Ghost<PmTimestamp>,
     )
         requires
             old(pm_regions).inv(),
@@ -532,7 +535,7 @@ verus! {
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
-            write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log);
+            write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log, timestamp);
         }
 
         proof {
@@ -540,7 +543,8 @@ verus! {
             // abstract state
             // `AbstractMultiLogState::initialize(log_capacities)`.
 
-            let pm_regions_committed = pm_regions@.flush().committed();
+            let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+            let pm_regions_committed = flushed_regions.committed();
             assert(recover_all(pm_regions_committed, multilog_id)
                    =~= Some(AbstractMultiLogState::initialize(log_capacities))) by {
                 assert(forall |i: int| 0 <= i < pm_regions_committed.len() ==>
@@ -554,10 +558,11 @@ verus! {
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] pm_regions@.flush()[i].len());
+            // assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] pm_regions@.flush()[i].len());
+            assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
         }
 
-        pm_regions.flush();
+        pm_regions.flush(timestamp);
     }
 
 }
