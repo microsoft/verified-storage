@@ -187,8 +187,6 @@ verus! {
             PersistentMemoryConstants { impervious_to_corruption: true }
         }
 
-        closed spec fn timestamp_corresponds_to_regions(&self, timestamp: PmTimestamp) -> bool;
-
         fn get_num_regions(&self) -> usize
         {
             self.pms.len()

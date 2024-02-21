@@ -373,6 +373,7 @@ verus! {
             old(pm_regions)@[which_log as int].no_outstanding_writes(),
             old(pm_regions)@[which_log as int].len() == region_size,
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
+            old(pm_regions)@.timestamp_corresponds_to_regions(timestamp@),
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -381,6 +382,7 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
+            pm_regions@.timestamp_corresponds_to_regions(timestamp@),
     {
         // Initialize an empty vector.
         let mut bytes_to_write = Vec::<u8>::new();
@@ -501,13 +503,15 @@ verus! {
             forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
                 #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
+            old(pm_regions)@.timestamp_corresponds_to_regions(timestamp@)
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
             pm_regions@.len() == old(pm_regions)@.len(),
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
-            recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities))
+            recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
+            pm_regions@.timestamp_corresponds_to_regions(timestamp@)
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -531,7 +535,8 @@ verus! {
                 // The key invariant is that every region less than `which_log` has been set up correctly.
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
-                                                             region_sizes@[i as int], multilog_id, num_logs, i)
+                                                             region_sizes@[i as int], multilog_id, num_logs, i),
+                pm_regions@.timestamp_corresponds_to_regions(timestamp@)
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
