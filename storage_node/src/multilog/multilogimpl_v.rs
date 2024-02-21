@@ -692,7 +692,7 @@ verus! {
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
 
-                let ghost (wrpm_regions_new, new_timestamp) = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@, timestamp@);
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@, timestamp@);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
@@ -741,7 +741,7 @@ verus! {
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 
-            let ghost (pm_regions_after_write, new_timestamp) = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@, timestamp@);
+            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@, timestamp@);
             let ghost (flushed_mem_after_write, new_timestamp) = pm_regions_after_write.flush(timestamp@);
             assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
                 lemma_auto_spec_u64_to_from_le_bytes();

@@ -300,21 +300,18 @@ verus! {
         }
 
         // TODO: this doesn't need to update the timestamp, I think
-        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> (Self, PmTimestamp)
+        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> Self
         {
-            (
-                Self {
-                    regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
-                        if pos == index {
-                            pre_view.write(addr, bytes, timestamp)
-                        } else {
-                            pre_view
-                        }
-                    ),
-                    fence_timestamp: self.fence_timestamp,
-                },
-                timestamp.inc_timestamp()
-            )
+            Self {
+                regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
+                    if pos == index {
+                        pre_view.write(addr, bytes, timestamp)
+                    } else {
+                        pre_view
+                    }
+                ),
+                fence_timestamp: self.fence_timestamp,
+            }
         }
 
         // this does need to update timestamp. would it be easier for this to be tracked rather than handled like this?
@@ -423,7 +420,7 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
+                    let written= old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
                     &&& self.timestamp_corresponds_to_regions(timestamp@)
                 });
@@ -540,7 +537,7 @@ verus! {
                     &&& old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
                     // The key thing the caller must prove is that all crash states are authorized by `perm`
                     &&& forall |s| {
-                            let (pm_state, timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
+                            let pm_state = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                             pm_state.can_crash_as(s)
                         } ==> #[trigger] perm@.check_permission(s)
                 }),
@@ -548,7 +545,7 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let (written, new_timestamp) = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
+                    let written = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
                     &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
                 })

@@ -423,7 +423,7 @@ verus! {
             pm_regions_view.no_outstanding_writes(),
         ensures
             ({
-                let (new_pm_regions_view, new_timestamp) = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
+                let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
                 let (flushed_pm_regions_view, flushed_timestamp) = new_pm_regions_view.flush(timestamp);
                 forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) ==> {
                     ||| crash_bytes == pm_regions_view.committed()
@@ -431,7 +431,7 @@ verus! {
                 }
             })
     {
-        let (new_pm_regions_view, new_timestamp) = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
+        let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
         let (flushed_pm_regions_view, flushed_timestamp) = new_pm_regions_view.flush(timestamp);
         assert forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) implies {
             ||| crash_bytes == pm_regions_view.committed()
@@ -462,7 +462,7 @@ verus! {
                 assert(crash_bytes =~= pm_regions_view.committed());
             }
             if crash_bytes[index] == pm_regions_view[index].write(write_addr, bytes_to_write, timestamp).flush().committed() {
-                let (new_regions_view, new_timestamp) = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
+                let new_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
                 let (flushed_regions_view, new_timestamp) = new_regions_view.flush(timestamp);
                 assert(forall |any| 0 <= any < pm_regions_view.len() ==> #[trigger] crash_bytes[any] =~=
                     flushed_regions_view.committed()[any]);
