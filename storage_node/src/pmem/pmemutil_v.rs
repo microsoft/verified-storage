@@ -421,6 +421,7 @@ verus! {
             0 <= write_addr,
             write_addr + PERSISTENCE_CHUNK_SIZE <= pm_regions_view[index as int].len(),
             pm_regions_view.no_outstanding_writes(),
+
         ensures
             ({
                 let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);

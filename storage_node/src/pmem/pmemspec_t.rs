@@ -299,6 +299,8 @@ verus! {
             self.regions[i]
         }
 
+        pub closed spec fn timestamp_corresponds_to_regions(&self, timestamp: PmTimestamp) -> bool;
+
         // TODO: this doesn't need to update the timestamp, I think
         pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> Self
         {
@@ -365,11 +367,6 @@ verus! {
 
         spec fn constants(&self) -> PersistentMemoryConstants;
 
-        // I expect this to be a closed uninterpreted spec function that is set
-        // only by PmDevice methods.
-        // TODO: how can we enforce that?
-        spec fn timestamp_corresponds_to_regions(&self, timestamp: PmTimestamp) -> bool;
-
         fn get_num_regions(&self) -> (result: usize)
             requires
                 self.inv()
@@ -415,28 +412,28 @@ verus! {
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-                old(self).timestamp_corresponds_to_regions(timestamp@)
+                old(self)@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
                     let written= old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
-                    &&& self.timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
                 });
 
 
         fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                old(self).timestamp_corresponds_to_regions(timestamp@)
+                old(self)@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
                     let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
                     &&& self@ == flushed
-                    &&& self.timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
                 })
             ;
     }
@@ -478,17 +475,9 @@ verus! {
             self.pm_regions.inv()
         }
 
-        // pub closed spec fn corresponds_to_timestamp(&self, timestamp: PmTimestamp) -> bool {
-        //     timestamp.timestamp_corresponds_to_regions(&self.pm_regions)
-        // }
-
         pub closed spec fn constants(&self) -> PersistentMemoryConstants
         {
             self.pm_regions.constants()
-        }
-
-        pub closed spec fn spec_pm_regions_ref(&self) -> &PMRegions {
-            &self.pm_regions
         }
 
         pub exec fn new(pm_regions: PMRegions) -> (wrpm_regions: Self)
@@ -534,7 +523,7 @@ verus! {
                 addr + bytes@.len() <= u64::MAX,
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
                 ({
-                    &&& old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
+                    &&& old(self)@.timestamp_corresponds_to_regions(timestamp@)
                     // The key thing the caller must prove is that all crash states are authorized by `perm`
                     &&& forall |s| {
                             let pm_state = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
@@ -547,7 +536,7 @@ verus! {
                 ({
                     let written = old(self)@.write(index as int, addr as int, bytes@, timestamp@);
                     &&& self@ == written
-                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
                 })
         {
             self.pm_regions.write(index, addr, bytes, timestamp)
@@ -561,13 +550,13 @@ verus! {
         pub exec fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                old(self).spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
+                old(self)@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 ({
                     let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
                     &&& self@ == flushed
-                    &&& self.spec_pm_regions_ref().timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
                 }),
                 self.constants() == old(self).constants(),
         {

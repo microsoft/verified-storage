@@ -42,8 +42,7 @@ verus! {
                         &&& regions@.len() == regions_list@.len()
                         &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
                                 &&& regions_list[i]@.len() == regions@[i].len()
-                                // &&& timestamp.timestamp_corresponds_to_regions(&regions_list[i])
-                                &&& regions_list[i].timestamp_corresponds_to_regions(timestamp)
+                                &&& regions_list[i]@.timestamp_corresponds_to_regions(timestamp)
                             }
                     }
                     Err(_) => false
