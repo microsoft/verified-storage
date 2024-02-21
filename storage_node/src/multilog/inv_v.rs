@@ -443,14 +443,14 @@ verus! {
             bytes_to_write.len() <= LENGTH_OF_LEVEL3_METADATA + CRC_SIZE,
        ensures
             ({
-                let (pm_regions_view2, new_timestamp) = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
                                                              bytes_to_write, timestamp);
                 &&& memory_matches_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
-        let (pm_regions_view2, new_timestamp) = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+        let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
                                                      bytes_to_write, timestamp);
         let w = which_log as int;
 
