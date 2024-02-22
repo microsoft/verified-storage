@@ -143,6 +143,7 @@ verus! {
                         &&& Self::recover(pm_regions@.committed(), multilog_id) == Some(state)
                         // &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
+                        &&& regions_correspond(timestamp, new_timestamp@)
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp);
