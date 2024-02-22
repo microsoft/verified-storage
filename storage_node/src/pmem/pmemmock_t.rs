@@ -26,6 +26,17 @@ verus! {
         capacity: u64
     }
 
+    impl VolatileMemoryMockingPersistentMemoryDevice {
+        pub fn new(capacity: u64) -> (result: Self)
+            ensures
+                result.len() == capacity
+        {
+            Self {
+                capacity
+            }
+        }
+    }
+
     impl PmDevice<VolatileMemoryMockingPersistentMemoryRegions> for VolatileMemoryMockingPersistentMemoryDevice {
         closed spec fn len(&self) -> u64 {
             self.capacity
@@ -35,15 +46,28 @@ verus! {
             self.capacity
         }
 
-        // TODO: should this be external body? Something panics if it's not
-        #[verifier::external_body]
+        /// Converts a 2D vector into a vector of VolatileMemoryMockingPersistentMemoryRegions.
+        /// regions[i][j] should contain the capacity of the jth region in the ith VolatileMemoryMockingPersistentMemoryRegions
+        /// This function allows us to obtain multiple VolatileMemoryMockingPersistentMemoryRegions objects from a single device
+        /// and is the only way to get a timestamp to coordinate flushes across all of the separate region lists.
         fn get_regions(self, regions: Vec<Vec<u64>>) -> Result<(Vec<VolatileMemoryMockingPersistentMemoryRegions>, Ghost<PmTimestamp>), ()> {
-            let mut pm_regions = Vec::new();
+            let mut pm_regions: Vec<VolatileMemoryMockingPersistentMemoryRegions> = Vec::new();
             let timestamp: Ghost<PmTimestamp> = Ghost(PmTimestamp::new());
-            for i in 0..regions.len() {
-                let region_set = &regions[i];
-                let regions = VolatileMemoryMockingPersistentMemoryRegions::new_mock_only_for_use_in_testing(region_set.as_slice(), timestamp)?;
-                pm_regions.push(regions);
+
+            // This is easier to prove with a while loop than a for loop -- it's hard to establish a relationship
+            // between `idx` and the length of pm_regions in a for loop
+            let mut idx = 0;
+            while idx < regions.len()
+                invariant
+                    0 <= idx <= regions@.len(),
+                    pm_regions@.len() == idx,
+                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.timestamp_corresponds_to_regions(timestamp@),
+                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.len() == regions[j]@.len(),
+                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j].inv()
+            {
+                let mock_regions = VolatileMemoryMockingPersistentMemoryRegions::new_mock_only_for_use_in_testing(regions[idx].as_slice(), timestamp)?;
+                pm_regions.push(mock_regions);
+                idx += 1;
             }
 
             Ok((pm_regions, timestamp))
@@ -239,6 +263,7 @@ verus! {
                         &&& pm_regions@.no_outstanding_writes()
                         &&& pm_regions@.len() == region_sizes@.len()
                         &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+                        &&& pm_regions@.timestamp_corresponds_to_regions(timestamp@)
                     },
                     Err(_) => true
                 }

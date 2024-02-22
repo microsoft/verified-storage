@@ -515,6 +515,7 @@ verus! {
             // pm_regions@.timestamp_corresponds_to_regions(timestamp@),
             pm_regions@.fence_timestamp == timestamp@,
             new_timestamp@ == timestamp@.inc_timestamp(),
+            regions_correspond(timestamp@, new_timestamp@)
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.

@@ -4,7 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    #[derive(PartialEq, Eq)]
+    // #[derive(PartialEq, Eq)]
     pub struct PmTimestamp {
         value: int,
     }

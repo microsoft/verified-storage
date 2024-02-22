@@ -25,27 +25,35 @@ verus! {
         /// `get_regions` consumes the PmDevice so it cannot be used to obtain any more regions or another timestamp.
         /// It returns a set of PersistentMemoryRegions based on the given sizes and a single ghost timestamp
         /// that can be used with all of the regions.
+        /// TODO: the recursive spec function in the precondition makes it hard to satisfy the precondition...
         exec fn get_regions(self, regions: Vec<Vec<u64>>) -> (result: Result<(Vec<PMRegions>, Ghost<PmTimestamp>), ()>)
-            where
-                Self: Sized
-            requires
+        where
+            Self: Sized
+        requires
             ({
                 // the sum of region sizes must not exceed the actual size of the device
                 let acc_seq = Seq::new(regions@.len(), |i| regions[i]@.fold_left(0, |acc: int, x| acc + x));
                 let region_size_sum = acc_seq.fold_left(0, |acc: int, x| acc + x);
                 region_size_sum <= self.len()
-            })
-            ensures
-                match result {
-                    Ok((regions_list, timestamp)) => {
-                        let Ghost(timestamp) = timestamp;
-                        &&& regions@.len() == regions_list@.len()
-                        &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
-                                &&& regions_list[i]@.len() == regions@[i].len()
-                                &&& regions_list[i]@.timestamp_corresponds_to_regions(timestamp)
-                            }
+            }),
+            1 <= regions@.len() < usize::MAX,
+        ensures
+            match result {
+                Ok((regions_list, timestamp)) => {
+                    &&& regions@.len() == regions_list@.len()
+                    // NOTE: asserting each of these separately after this function only works
+                    // if they get their own foralls here. Why?
+                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
+                            regions_list[i]@.timestamp_corresponds_to_regions(timestamp@)
+                        }
+                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
+                        regions_list[i]@.len() == regions@[i].len()
                     }
-                    Err(_) => false
-                };
-    }
+                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
+                        regions_list[i].inv()
+                    }
+                }
+                Err(_) => true // TODO
+            };
+}
 }

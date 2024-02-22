@@ -148,6 +148,10 @@ verus! {
 
     pub spec const PERSISTENCE_CHUNK_SIZE: int = 8;
 
+    pub open spec fn regions_correspond(old_timestamp: PmTimestamp, new_timestamp: PmTimestamp) -> bool {
+        forall |pm: PersistentMemoryRegionsView| pm.timestamp_corresponds_to_regions(old_timestamp) ==> pm.timestamp_corresponds_to_regions(new_timestamp)
+    }
+
     /// We model the state of each byte of persistent memory as
     /// follows. `state_at_last_flush` contains the contents
     /// immediately after the most recent flush. `outstanding_write`
@@ -190,6 +194,18 @@ verus! {
                 write_timestamp: self.write_timestamp
             }
         }
+
+        // If we are passed a timestamp that is greater than the write timestamp,
+        // then the device has been flushed since the write, and we can update the byte
+        // accordingly
+        pub open spec fn update_byte_with_timestamp(self, timestamp: PmTimestamp) -> Self
+        {
+            if timestamp.gt(self.write_timestamp) {
+                self.flush()
+            } else {
+                self
+            }
+        }
     }
 
     /// We model the state of a region of persistent memory as a
@@ -219,6 +235,11 @@ verus! {
         pub open spec fn flush(self) -> Self
         {
             Self { state: self.state.map(|_addr, b: PersistentMemoryByte| b.flush()) }
+        }
+
+        pub open spec fn update_region_with_timestamp(self, timestamp: PmTimestamp) -> Self
+        {
+            Self { state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte| pre_byte.update_byte_with_timestamp(timestamp)) }
         }
 
         pub open spec fn no_outstanding_writes_in_range(self, i: int, j: int) -> bool
@@ -316,7 +337,7 @@ verus! {
             }
         }
 
-        // this does need to update timestamp. would it be easier for this to be tracked rather than handled like this?
+
         pub open spec fn flush(self, timestamp: PmTimestamp) -> (Self, PmTimestamp)
         {
             (
@@ -326,6 +347,24 @@ verus! {
                 },
                 timestamp.inc_timestamp()
             )
+        }
+
+        /// Updates any bytes in the PersistentMemoryRegionsView that have a write timestamp
+        /// that is lower than the given timestamp, as the presence of the greater timestamp
+        /// indicates that a global store fence has been invoked since we wrote those bytes.
+        /// If the given timestamp does not correspond to this region view, then the view
+        /// does not change.
+        pub open spec fn update_regions_with_timestamp(self, timestamp: PmTimestamp) -> Self
+        {
+            if self.timestamp_corresponds_to_regions(timestamp) {
+                Self {
+                    regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.update_region_with_timestamp(timestamp)),
+                    fence_timestamp: timestamp
+                }
+            } else {
+                self
+            }
+
         }
 
         pub open spec fn no_outstanding_writes(self) -> bool {
@@ -438,6 +477,7 @@ verus! {
                     &&& self@ == flushed
                     &&& self@.fence_timestamp == timestamp
                     &&& self@.timestamp_corresponds_to_regions(new_timestamp@)
+                    &&& regions_correspond(timestamp@, new_timestamp@)
                 })
             ;
     }
@@ -563,6 +603,7 @@ verus! {
                     &&& new_timestamp@.gt(timestamp@)
                     &&& self@ == flushed
                     &&& self@.timestamp_corresponds_to_regions(new_timestamp@)
+                    &&& regions_correspond(timestamp@, new_timestamp@)
                 }),
                 self.constants() == old(self).constants(),
         {
