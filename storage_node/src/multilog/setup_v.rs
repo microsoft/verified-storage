@@ -492,7 +492,7 @@ verus! {
         Ghost(log_capacities): Ghost<Seq<u64>>,
         multilog_id: u128,
         timestamp: Ghost<PmTimestamp>,
-    )
+    ) -> (new_timestamp: Ghost<PmTimestamp>)
         requires
             old(pm_regions).inv(),
             old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
@@ -511,7 +511,10 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            pm_regions@.timestamp_corresponds_to_regions(timestamp@)
+            pm_regions@.timestamp_corresponds_to_regions(new_timestamp@),
+            // pm_regions@.timestamp_corresponds_to_regions(timestamp@),
+            pm_regions@.fence_timestamp == timestamp@,
+            new_timestamp@ == timestamp@.inc_timestamp(),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -567,7 +570,7 @@ verus! {
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
         }
 
-        pm_regions.flush(timestamp);
+        pm_regions.flush(timestamp)
     }
 
 }

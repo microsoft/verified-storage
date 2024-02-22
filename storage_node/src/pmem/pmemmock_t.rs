@@ -209,7 +209,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
+        fn flush(&mut self, Ghost(timestamp): Ghost<PmTimestamp>) -> Ghost<PmTimestamp>
         {
             for which_region in iter: 0..self.pms.len()
                 invariant
@@ -219,6 +219,7 @@ verus! {
             {
                 self.pms[which_region].flush();
             }
+            Ghost(timestamp.inc_timestamp())
         }
     }
 

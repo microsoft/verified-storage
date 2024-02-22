@@ -423,7 +423,7 @@ verus! {
                 });
 
 
-        fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
+        fn flush(&mut self, timestamp: Ghost<PmTimestamp>) -> (new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
                 old(self)@.timestamp_corresponds_to_regions(timestamp@)
@@ -431,9 +431,13 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
-                    let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
+                    let (flushed, new_ts) = old(self)@.flush(timestamp@);
+                    &&& new_timestamp == new_ts
+                    // &&& new_ts > timestamp@
+                    &&& new_timestamp@.gt(timestamp@)
                     &&& self@ == flushed
-                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.fence_timestamp == timestamp
+                    &&& self@.timestamp_corresponds_to_regions(new_timestamp@)
                 })
             ;
     }
@@ -547,16 +551,18 @@ verus! {
         // the possible states the memory can crash into. So if the memory
         // is already restricted to only crash into good states, `flush`
         // automatically maintains that restriction.
-        pub exec fn flush(&mut self, timestamp: Ghost<PmTimestamp>)
+        pub exec fn flush(&mut self, timestamp: Ghost<PmTimestamp>) -> (new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
                 old(self)@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 self.inv(),
                 ({
-                    let (flushed, new_timestamp) = old(self)@.flush(timestamp@);
+                    let (flushed, new_ts) = old(self)@.flush(timestamp@);
+                    &&& new_ts == new_timestamp
+                    &&& new_timestamp@.gt(timestamp@)
                     &&& self@ == flushed
-                    &&& self@.timestamp_corresponds_to_regions(timestamp@)
+                    &&& self@.timestamp_corresponds_to_regions(new_timestamp@)
                 }),
                 self.constants() == old(self).constants(),
         {

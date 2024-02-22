@@ -220,6 +220,10 @@ verus! {
             self.wrpm_regions.constants()
         }
 
+        pub closed spec fn corresponds_to_timestamp(&self, timestamp: PmTimestamp) -> bool {
+            self.wrpm_regions@.timestamp_corresponds_to_regions(timestamp)
+        }
+
         // This is the validity condition that is maintained between
         // calls to methods on `self`.
         //
@@ -244,16 +248,17 @@ verus! {
         // listing the capacities of the logs as well as a fresh
         // multilog ID to uniquely identify it. See `main.rs` for more
         // documentation.
-        pub exec fn setup(pm_regions: &mut PMRegions, timestamp: Ghost<PmTimestamp>) -> (result: Result<(Vec<u64>, u128), MultiLogErr>)
+        pub exec fn setup(pm_regions: &mut PMRegions, timestamp: Ghost<PmTimestamp>) -> (result: Result<(Vec<u64>, Ghost<PmTimestamp>, u128), MultiLogErr>)
             requires
-                old(pm_regions).inv()
+                old(pm_regions).inv(),
+                old(pm_regions)@.timestamp_corresponds_to_regions(timestamp@),
             ensures
                 pm_regions.inv(),
                 pm_regions@.no_outstanding_writes(),
                 match result {
-                    Ok((log_capacities, multilog_id)) => {
+                    Ok((log_capacities, new_timestamp, multilog_id)) => {
                         let state = AbstractMultiLogState::initialize(log_capacities@);
-                        let (flushed_view, new_timestamp) = pm_regions@.flush(timestamp@);
+                        // let (flushed_view, new_timestamp) = pm_regions@.flush(timestamp@);
                         &&& pm_regions@.len() == old(pm_regions)@.len()
                         &&& pm_regions@.len() >= 1
                         &&& pm_regions@.len() <= u32::MAX
@@ -263,7 +268,7 @@ verus! {
                         &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
                                #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
                         &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& UntrustedMultiLogImpl::recover(flushed_view.committed(), multilog_id) == Some(state)
+                        &&& UntrustedMultiLogImpl::recover(pm_regions@.committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
@@ -285,8 +290,8 @@ verus! {
                 }
         {
             let multilog_id = generate_fresh_multilog_id();
-            let capacities = UntrustedMultiLogImpl::setup(pm_regions, multilog_id, timestamp)?;
-            Ok((capacities, multilog_id))
+            let (capacities, timestamp) = UntrustedMultiLogImpl::setup(pm_regions, multilog_id, timestamp)?;
+            Ok((capacities, timestamp, multilog_id))
         }
 
         // The `start` method creates an `UntrustedMultiLogImpl` out
@@ -301,8 +306,8 @@ verus! {
                 ({
                     let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
                     UntrustedMultiLogImpl::recover(flushed_regions.committed(), multilog_id).is_Some()
-                })
-
+                }),
+                pm_regions@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
@@ -350,7 +355,8 @@ verus! {
         pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8], timestamp: Ghost<PmTimestamp>)
                                        -> (result: Result<u128, MultiLogErr>)
             requires
-                old(self).valid()
+                old(self).valid(),
+                old(self).corresponds_to_timestamp(timestamp@)
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -395,14 +401,18 @@ verus! {
         // crash in the middle, the recovered-to state either reflects
         // all those tentative appends or none of them. See `main.rs`
         // for more documentation and examples of use.
-        pub exec fn commit(&mut self, timestamp: Ghost<PmTimestamp>) -> (result: Result<(), MultiLogErr>)
+        pub exec fn commit(&mut self, timestamp: Ghost<PmTimestamp>) -> (result: Result<Ghost<PmTimestamp>, MultiLogErr>)
             requires
-                old(self).valid()
+                old(self).valid(),
+                old(self).corresponds_to_timestamp(timestamp@)
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
                 match result {
-                    Ok(()) => self@ == old(self)@.commit(),
+                    Ok(new_timestamp) => {
+                        &&& self@ == old(self)@.commit()
+                        &&& new_timestamp@.gt(timestamp@)
+                    }
                     _ => false
                 }
         {
@@ -427,6 +437,7 @@ verus! {
         pub exec fn advance_head(&mut self, which_log: u32, new_head: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<(), MultiLogErr>)
             requires
                 old(self).valid(),
+                old(self).corresponds_to_timestamp(timestamp@)
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
