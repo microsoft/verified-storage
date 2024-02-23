@@ -124,6 +124,22 @@ verus! {
         assert(flushed_regions_view.regions =~= regions_view.regions);
     }
 
+    // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
+    pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
+        ensures
+            forall |r: PersistentMemoryRegionsView, ts| r.no_outstanding_writes() ==> {
+                let (flushed, new_timestamp) = #[trigger] r.flush(ts);
+                flushed.regions == r.regions
+            }
+    {
+        assert forall |r: PersistentMemoryRegionsView, ts| r.no_outstanding_writes() implies {
+            let (flushed, new_timestamp) = #[trigger] r.flush(ts);
+            flushed.regions == r.regions
+        } by {
+            lemma_if_no_outstanding_writes_then_flush_is_idempotent(r, ts);
+        };
+    }
+
     // This executable function returns a vector containing the sizes
     // of the regions in the given collection of persistent memory
     // regions.

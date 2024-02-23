@@ -144,6 +144,7 @@ verus! {
                         // &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                         &&& regions_correspond(timestamp, new_timestamp@)
+                        &&& pm_regions@.timestamp_corresponds_to_regions(new_timestamp@)
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp);
@@ -244,7 +245,7 @@ verus! {
             Tracked(perm): Tracked<&TrustedPermission>,
             Ghost(state): Ghost<AbstractMultiLogState>,
             timestamp: Ghost<PmTimestamp>,
-        ) -> (result: Result<Self, MultiLogErr>)
+        ) -> (result: Result<(Self, Ghost<PmTimestamp>), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
             requires
@@ -259,7 +260,7 @@ verus! {
                 wrpm_regions.inv(),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 match result {
-                    Ok(log_impl) => {
+                    Ok((log_impl, new_timestamp)) => {
                         &&& log_impl.inv(wrpm_regions, multilog_id)
                         &&& log_impl@ == state
                         &&& can_only_crash_as_state(wrpm_regions@, multilog_id, state.drop_pending_appends())
@@ -272,7 +273,7 @@ verus! {
             // writes to various location. To make sure of this, we
             // flush all memory regions.
 
-            wrpm_regions.flush(timestamp);
+            let timestamp = wrpm_regions.flush(timestamp);
 
             // Out of paranoia, we check to make sure that the number
             // of regions is sensible. Both cases are technically
@@ -315,7 +316,7 @@ verus! {
                                                             infos@, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_regions@.committed(), multilog_id);
             }
-            Ok(Self{ num_logs, cdb, infos, state: Ghost(state) })
+            Ok((Self{ num_logs, cdb, infos, state: Ghost(state) }, timestamp))
         }
 
         // The `tentatively_append` method tentatively appends

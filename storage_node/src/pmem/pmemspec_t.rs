@@ -149,7 +149,7 @@ verus! {
     pub spec const PERSISTENCE_CHUNK_SIZE: int = 8;
 
     pub open spec fn regions_correspond(old_timestamp: PmTimestamp, new_timestamp: PmTimestamp) -> bool {
-        forall |pm: PersistentMemoryRegionsView| pm.timestamp_corresponds_to_regions(old_timestamp) ==> pm.timestamp_corresponds_to_regions(new_timestamp)
+        &&& forall |pm: PersistentMemoryRegionsView| pm.timestamp_corresponds_to_regions(old_timestamp) ==> pm.timestamp_corresponds_to_regions(new_timestamp)
     }
 
     /// We model the state of each byte of persistent memory as
@@ -322,7 +322,6 @@ verus! {
 
         pub closed spec fn timestamp_corresponds_to_regions(&self, timestamp: PmTimestamp) -> bool;
 
-        // TODO: this doesn't need to update the timestamp, I think
         pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>, timestamp: PmTimestamp) -> Self
         {
             Self {
@@ -442,8 +441,6 @@ verus! {
                     }
                 });
 
-        // TODO: do write and flush need to return updated ghost PmTimestamp? maybe it needs to be tracked?
-        // I don't think writes need to update timestamp -- they can just take it and keep track of it for later comparison.
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8], timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
