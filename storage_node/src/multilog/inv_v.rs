@@ -448,7 +448,6 @@ verus! {
         state: AbstractMultiLogState,
         which_log: u32,
         bytes_to_write: Seq<u8>,
-        timestamp: PmTimestamp,
     )
         requires
             memory_matches_cdb(pm_regions_view, cdb),
@@ -459,14 +458,14 @@ verus! {
        ensures
             ({
                 let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
-                                                             bytes_to_write, timestamp);
+                                                             bytes_to_write);
                 &&& memory_matches_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
         let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
-                                                     bytes_to_write, timestamp);
+                                                     bytes_to_write);
         let w = which_log as int;
 
         assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
@@ -500,7 +499,6 @@ verus! {
         cdb: bool,
         infos: Seq<LogInfo>,
         state: AbstractMultiLogState,
-        timestamp: PmTimestamp
     )
         requires
             memory_matches_cdb(pm_regions_view, cdb),
@@ -508,13 +506,13 @@ verus! {
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
        ensures
             ({
-                let (pm_regions_view2, new_timestamp) = pm_regions_view.flush(timestamp);
+                let pm_regions_view2 = pm_regions_view.flush();
                 &&& memory_matches_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
-        let (pm_regions_view2, new_timestamp) = pm_regions_view.flush(timestamp);
+        let pm_regions_view2 = pm_regions_view.flush();
 
         assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.

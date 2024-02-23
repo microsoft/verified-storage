@@ -364,7 +364,6 @@ verus! {
         multilog_id: u128,
         num_logs: u32,
         which_log: u32,
-        timestamp: Ghost<PmTimestamp>,
     )
         requires
             old(pm_regions).inv(),
@@ -373,7 +372,7 @@ verus! {
             old(pm_regions)@[which_log as int].no_outstanding_writes(),
             old(pm_regions)@[which_log as int].len() == region_size,
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-            old(pm_regions)@.timestamp_corresponds_to_regions(timestamp@),
+            // old(pm_regions)@.device_id() == timestamp@.device_id()
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -382,7 +381,7 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            pm_regions@.timestamp_corresponds_to_regions(timestamp@),
+            // pm_regions@.device_id() == timestamp@.device_id()
     {
         // Initialize an empty vector.
         let mut bytes_to_write = Vec::<u8>::new();
@@ -420,7 +419,7 @@ verus! {
 
         // Write the vector to memory.
 
-        pm_regions.write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA, bytes_to_write.as_slice(), timestamp);
+        pm_regions.write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA, bytes_to_write.as_slice());
 
         proof {
             // We want to prove that if we parse the result of
@@ -491,8 +490,7 @@ verus! {
         region_sizes: &Vec<u64>,
         Ghost(log_capacities): Ghost<Seq<u64>>,
         multilog_id: u128,
-        timestamp: Ghost<PmTimestamp>,
-    ) -> (new_timestamp: Ghost<PmTimestamp>)
+    )
         requires
             old(pm_regions).inv(),
             old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
@@ -503,7 +501,7 @@ verus! {
             forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
                 #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
-            old(pm_regions)@.timestamp_corresponds_to_regions(timestamp@)
+            // old(pm_regions)@.device_id() == timestamp@.device_id()
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -511,11 +509,9 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            pm_regions@.timestamp_corresponds_to_regions(new_timestamp@),
-            // pm_regions@.timestamp_corresponds_to_regions(timestamp@),
-            pm_regions@.fence_timestamp == timestamp@,
-            new_timestamp@ == timestamp@.inc_timestamp(),
-            regions_correspond(timestamp@, new_timestamp@)
+            // pm_regions@.device_id() == new_timestamp@.device_id(),
+            // pm_regions@.fence_timestamp == timestamp@,
+            // new_timestamp@ == timestamp@.inc_timestamp(),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -540,11 +536,11 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                pm_regions@.timestamp_corresponds_to_regions(timestamp@)
+                // pm_regions@.device_id() == timestamp@.device_id()
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
-            write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log, timestamp);
+            write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log);
         }
 
         proof {
@@ -552,7 +548,7 @@ verus! {
             // abstract state
             // `AbstractMultiLogState::initialize(log_capacities)`.
 
-            let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+            let flushed_regions = pm_regions@.flush();
             let pm_regions_committed = flushed_regions.committed();
             assert(recover_all(pm_regions_committed, multilog_id)
                    =~= Some(AbstractMultiLogState::initialize(log_capacities))) by {
@@ -571,7 +567,7 @@ verus! {
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
         }
 
-        pm_regions.flush(timestamp)
+        pm_regions.flush()
     }
 
 }

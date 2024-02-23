@@ -54,7 +54,6 @@ verus! {
         cdb: bool,
         prev_infos: Seq<LogInfo>,
         prev_state: AbstractMultiLogState,
-        timestamp: PmTimestamp,
     )
         requires
             is_valid_log_index(which_log, num_logs),
@@ -91,7 +90,7 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append, timestamp);
+                let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
                 &&& each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, new_infos)
                 // The write doesn't conflict with any outstanding writes
                 &&& pm_regions_view.no_outstanding_writes_in_range(which_log as int, write_addr, write_addr + num_bytes)
@@ -118,7 +117,7 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append, timestamp);
+        let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
         let new_state = prev_state.tentatively_append(w, bytes_to_append);
 
         // To prove that the post-write metadata is consistent with
@@ -204,7 +203,6 @@ verus! {
         cdb: bool,
         prev_infos: Seq<LogInfo>,
         prev_state: AbstractMultiLogState,
-        timestamp: PmTimestamp,
     )
         requires
             is_valid_log_index(which_log, num_logs),
@@ -243,8 +241,8 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1, timestamp);
-                let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2, timestamp);
+                let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
+                let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
                 &&& each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, new_infos)
                 // The first write doesn't conflict with any outstanding writes
                 &&& pm_regions_view.no_outstanding_writes_in_range(w, write_addr,
@@ -293,15 +291,15 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1, timestamp);
-        let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2, timestamp);
+        let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
+        let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
 
         // Invoke `lemma_tentatively_append` on each write.
 
         lemma_tentatively_append(pm_regions_view, multilog_id, num_logs, which_log, bytes_to_append_part1, cdb,
-                                 prev_infos, prev_state, timestamp);
+                                 prev_infos, prev_state);
         lemma_tentatively_append(pm_regions_view2, multilog_id, num_logs, which_log, bytes_to_append_part2, cdb,
-                                 intermediate_infos, intermediate_state, timestamp);
+                                 intermediate_infos, intermediate_state);
 
         // Use extensional equality to prove the equivalence of the
         // intermediate abstract state between writes and the previous

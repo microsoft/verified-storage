@@ -8,12 +8,13 @@
 
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::{
-    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegionView,
-    PersistentMemoryRegions, PersistentMemoryRegionsView,
+    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
+    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
 };
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
+use deps_hack::rand::Rng;
 use std::convert::*;
 use vstd::prelude::*;
 
@@ -23,7 +24,16 @@ verus! {
     // it will let us get PM regions and a timestamp but does not actually
     // represent or store any bytes or physical space.
     pub struct VolatileMemoryMockingPersistentMemoryDevice {
-        capacity: u64
+        capacity: u64,
+        id: u128,
+    }
+
+    // This executable method can be called to compute a random GUID.
+    // It uses the external `rand` crate.
+    #[verifier::external_body]
+    pub exec fn generate_fresh_device_id() -> (out: u128)
+    {
+        deps_hack::rand::thread_rng().gen::<u128>()
     }
 
     impl VolatileMemoryMockingPersistentMemoryDevice {
@@ -32,12 +42,13 @@ verus! {
                 result.len() == capacity
         {
             Self {
-                capacity
+                capacity,
+                id: generate_fresh_device_id()
             }
         }
     }
 
-    impl PmDevice<VolatileMemoryMockingPersistentMemoryRegions> for VolatileMemoryMockingPersistentMemoryDevice {
+    impl PmDevice<VolatileMemoryMockingPersistentMemoryRegion> for VolatileMemoryMockingPersistentMemoryDevice {
         closed spec fn len(&self) -> u64 {
             self.capacity
         }
@@ -46,13 +57,12 @@ verus! {
             self.capacity
         }
 
-        /// Converts a 2D vector into a vector of VolatileMemoryMockingPersistentMemoryRegions.
-        /// regions[i][j] should contain the capacity of the jth region in the ith VolatileMemoryMockingPersistentMemoryRegions
-        /// This function allows us to obtain multiple VolatileMemoryMockingPersistentMemoryRegions objects from a single device
-        /// and is the only way to get a timestamp to coordinate flushes across all of the separate region lists.
-        fn get_regions(self, regions: Vec<Vec<u64>>) -> Result<(Vec<VolatileMemoryMockingPersistentMemoryRegions>, Ghost<PmTimestamp>), ()> {
-            let mut pm_regions: Vec<VolatileMemoryMockingPersistentMemoryRegions> = Vec::new();
-            let timestamp: Ghost<PmTimestamp> = Ghost(PmTimestamp::new());
+        /// Returns a vector of `VolatileMemoryMockingPersistentMemoryRegion`s based on the given vector of sizes.
+        /// The caller can later combine these into `VolatileMemoryMockingPersistentMemoryRegions` in whatever
+        /// configuration they want.
+        fn get_regions(self, regions: Vec<u64>) -> Result<(Vec<VolatileMemoryMockingPersistentMemoryRegion>), ()> {
+            let mut pm_regions: Vec<VolatileMemoryMockingPersistentMemoryRegion> = Vec::new();
+            let timestamp: Ghost<PmTimestamp> = Ghost(PmTimestamp::new(self.id as int));
 
             // This is easier to prove with a while loop than a for loop -- it's hard to establish a relationship
             // between `idx` and the length of pm_regions in a for loop
@@ -61,16 +71,16 @@ verus! {
                 invariant
                     0 <= idx <= regions@.len(),
                     pm_regions@.len() == idx,
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.timestamp_corresponds_to_regions(timestamp@),
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.len() == regions[j]@.len(),
+                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j].spec_device_id() == timestamp@.device_id(),
+                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.len() == regions[j]@,
                     forall |j| #![auto] 0 <= j < idx ==> pm_regions[j].inv()
             {
-                let mock_regions = VolatileMemoryMockingPersistentMemoryRegions::new_mock_only_for_use_in_testing(regions[idx].as_slice(), timestamp)?;
+                let mock_regions = VolatileMemoryMockingPersistentMemoryRegion::new(regions[idx], self.id, timestamp)?;
                 pm_regions.push(mock_regions);
                 idx += 1;
             }
 
-            Ok((pm_regions, timestamp))
+            Ok(pm_regions)
         }
     }
 
@@ -83,12 +93,13 @@ verus! {
     pub struct VolatileMemoryMockingPersistentMemoryRegion
     {
         contents: Vec<u8>,
-        persistent_memory_view: Ghost<PersistentMemoryRegionView>
+        persistent_memory_view: Ghost<PersistentMemoryRegionView>,
+        device_id: u128,
     }
 
-    impl VolatileMemoryMockingPersistentMemoryRegion {
+    impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion {
         #[verifier::external_body]
-        pub fn new(region_size: u64, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+        fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(pm) => {
@@ -107,16 +118,16 @@ verus! {
                                                      outstanding_write: None,
                                                      write_timestamp: timestamp@,
                                                  });
-            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state });
-            Ok(Self { contents, persistent_memory_view })
+            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state, device_id, current_timestamp: timestamp@ });
+            Ok(Self { contents, persistent_memory_view, device_id })
         }
 
-        pub closed spec fn view(self) -> PersistentMemoryRegionView
+        closed spec fn view(&self) -> PersistentMemoryRegionView
         {
             self.persistent_memory_view@
         }
 
-        pub closed spec fn inv(self) -> bool
+        closed spec fn inv(&self) -> bool
         {
             // We maintain the invariant that our size fits in a `u64`.
             &&& self.contents.len() <= u64::MAX
@@ -127,22 +138,24 @@ verus! {
             &&& self.contents@ == self.persistent_memory_view@.flush().committed()
         }
 
-        pub fn get_region_size(&self) -> (result: u64)
-            requires
-                self.inv()
-            ensures
-                result == self@.len()
+        closed spec fn spec_device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+
+        fn device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn get_region_size(&self) -> (result: u64)
         {
             self.contents.len() as u64
         }
 
         #[verifier::external_body]
-        pub fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires
-                self.inv(),
-                addr + num_bytes <= self@.len()
-            ensures
-                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes)
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
@@ -150,26 +163,14 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub fn write(&mut self, addr: u64, bytes: &[u8], timestamp: Ghost<PmTimestamp>)
-            requires
-                old(self).inv(),
-                addr + bytes@.len() <= old(self)@.len(),
-                addr + bytes@.len() <= u64::MAX
-            ensures
-                self.inv(),
-                self@ == self@.write(addr as int, bytes@, timestamp@)
+        fn write(&mut self, addr: u64, bytes: &[u8])
         {
             let addr_usize: usize = addr.try_into().unwrap();
             self.contents.splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
-            self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@, timestamp@))
+            self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
-        pub fn flush(&mut self)
-            requires
-                old(self).inv()
-            ensures
-                self.inv(),
-                self@ == old(self)@.flush()
+        fn flush(&mut self)
         {
             // Because of our invariant, we don't have to do anything
             // to the actual contents. We just have to update the
@@ -185,7 +186,8 @@ verus! {
     pub struct VolatileMemoryMockingPersistentMemoryRegions
     {
         pub pms: Vec<VolatileMemoryMockingPersistentMemoryRegion>,
-        pub fence_timestamp: Ghost<PmTimestamp>
+        pub current_timestamp: Ghost<PmTimestamp>,
+        pub device_id: u128,
     }
 
     /// So that `VolatileMemoryMockingPersistentMemoryRegions` can be
@@ -197,7 +199,8 @@ verus! {
         {
             PersistentMemoryRegionsView {
                 regions: self.pms@.map(|_idx, pm: VolatileMemoryMockingPersistentMemoryRegion| pm@),
-                fence_timestamp: self.fence_timestamp@
+                current_timestamp: self.current_timestamp@,
+                device_id: self.device_id
             }
         }
 
@@ -209,6 +212,16 @@ verus! {
         closed spec fn constants(&self) -> PersistentMemoryConstants
         {
             PersistentMemoryConstants { impervious_to_corruption: true }
+        }
+
+        closed spec fn spec_device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn device_id(&self) -> u128
+        {
+            self.device_id
         }
 
         fn get_num_regions(&self) -> usize
@@ -227,13 +240,13 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn write(&mut self, index: usize, addr: u64, bytes: &[u8], timestamp: Ghost<PmTimestamp>)
+        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
         {
-            self.pms[index].write(addr, bytes, timestamp)
+            self.pms[index].write(addr, bytes)
         }
 
         #[verifier::external_body]
-        fn flush(&mut self, Ghost(timestamp): Ghost<PmTimestamp>) -> Ghost<PmTimestamp>
+        fn flush(&mut self)
         {
             for which_region in iter: 0..self.pms.len()
                 invariant
@@ -243,38 +256,82 @@ verus! {
             {
                 self.pms[which_region].flush();
             }
-            Ghost(timestamp.inc_timestamp())
+            // Ghost(timestamp.inc_timestamp())
+            self.current_timestamp = Ghost(self.current_timestamp@.inc_timestamp());
         }
     }
-
-    /// We also implement a constructor for
-    /// `VolatileMemoryMockingPersistentMemoryRegions` so it can be
-    /// created by test code. We name this constructor
-    /// `new_mock_only_for_use_in_testing` to make clear that it
-    /// shouldn't be used in production.
 
     impl VolatileMemoryMockingPersistentMemoryRegions {
-        #[verifier::external_body]
-        pub fn new_mock_only_for_use_in_testing(region_sizes: &[u64], timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
-            ensures
-                match result {
-                    Ok(pm_regions) => {
-                        &&& pm_regions.inv()
-                        &&& pm_regions@.no_outstanding_writes()
-                        &&& pm_regions@.len() == region_sizes@.len()
-                        &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
-                        &&& pm_regions@.timestamp_corresponds_to_regions(timestamp@)
-                    },
-                    Err(_) => true
+        // TODO: ideally this would be a trait method of PersistentMemoryRegions, but the generics don't work out very well.
+        fn combine_regions(regions: Vec<VolatileMemoryMockingPersistentMemoryRegion>, timestamp: Ghost<PmTimestamp>) -> (result: Self)
+            requires
+                regions@.len() > 0,
+                forall |i| 0 <= i < regions@.len() ==> {
+                    let region = #[trigger] regions[i];
+                    &&& region.inv()
+                    &&& region.spec_device_id() == timestamp@.device_id()
                 }
+            ensures
+                result@.len() == regions@.len(),
+                result.inv(),
+                result.spec_device_id() == timestamp@.device_id()
         {
-            let mut pms = Vec::<VolatileMemoryMockingPersistentMemoryRegion>::new();
-            for &region_size in region_sizes {
-                let pm = VolatileMemoryMockingPersistentMemoryRegion::new(region_size, timestamp)?;
-                pms.push(pm);
+            let device_id = regions[0].device_id();
+            Self {
+                pms: regions,
+                current_timestamp: timestamp,
+                device_id
             }
-            Ok(Self {pms, fence_timestamp: timestamp})
         }
     }
+
+    // impl VolatileMemoryMockingPersistentMemoryRegion {
+    //     #[verifier::external_body]
+    //     pub fn new_mock_only_for_use_in_testing(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+    //         requires
+    //             device_id == timestamp@.device_id(),
+    //         ensures
+    //             match result {
+    //                 Ok(pm_region) => {
+    //                     &&& pm_region.inv()
+    //                     &&& pm_region@.no_outstanding_writes()
+    //                     &&& pm_region@.len() == region_size
+    //                     &&& pm_region.device_id() == device_id
+    //                 }
+    //             }
+    //     {
+
+    //     }
+    // }
+
+    // /// We also implement a constructor for
+    // /// `VolatileMemoryMockingPersistentMemoryRegions` so it can be
+    // /// created by test code. We name this constructor
+    // /// `new_mock_only_for_use_in_testing` to make clear that it
+    // /// shouldn't be used in production.
+
+    // impl VolatileMemoryMockingPersistentMemoryRegions {
+    //     #[verifier::external_body]
+    //     pub fn new_mock_only_for_use_in_testing(region_sizes: &[u64], timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+    //         ensures
+    //             match result {
+    //                 Ok(pm_regions) => {
+    //                     &&& pm_regions.inv()
+    //                     &&& pm_regions@.no_outstanding_writes()
+    //                     &&& pm_regions@.len() == region_sizes@.len()
+    //                     &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+    //                     &&& pm_regions@.timestamp_corresponds_to_regions(timestamp@)
+    //                 },
+    //                 Err(_) => true
+    //             }
+    //     {
+    //         let mut pms = Vec::<VolatileMemoryMockingPersistentMemoryRegion>::new();
+    //         for &region_size in region_sizes {
+    //             let pm = VolatileMemoryMockingPersistentMemoryRegion::new(region_size, timestamp)?;
+    //             pms.push(pm);
+    //         }
+    //         Ok(Self {pms, fence_timestamp: timestamp})
+    //     }
+    // }
 
 }

@@ -7,19 +7,28 @@ verus! {
     // #[derive(PartialEq, Eq)]
     pub struct PmTimestamp {
         value: int,
+        device_id: int
     }
 
     // TODO: should this be tracked? if so, might need to implement clone?
     impl PmTimestamp {
-        pub closed spec fn new() -> Self {
+        pub closed spec fn new(device_id: int) -> Self
+        {
             Self {
-                value: 0
+                value: 0,
+                device_id,
             }
+        }
+
+        pub closed spec fn device_id(&self) -> int
+        {
+            self.device_id
         }
 
         pub closed spec fn inc_timestamp(self) -> Self {
             Self {
-                value: self.value + 1
+                value: self.value + 1,
+                device_id: self.device_id
             }
         }
 
