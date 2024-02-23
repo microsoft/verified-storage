@@ -104,39 +104,30 @@ verus! {
     // of them does nothing.
     pub proof fn lemma_if_no_outstanding_writes_then_flush_is_idempotent(
         regions_view: PersistentMemoryRegionsView,
-        timestamp: PmTimestamp,
     )
         requires
             regions_view.no_outstanding_writes()
         ensures
             ({
-                let (flushed, new_timestamp) = regions_view.flush(timestamp);
-                flushed.regions == regions_view.regions
+                let flushed = regions_view.flush();
+                // the timestamps are allowed to differ
+                flushed.equal_except_for_timestamps(regions_view)
             })
-    {
-        let (flushed_regions_view, new_timestamp) = regions_view.flush(timestamp);
-        assert forall |i: int| 0 <= i < regions_view.len() implies
-            flushed_regions_view.regions[i] == #[trigger] regions_view.regions[i] by
-        {
-            assert(flushed_regions_view[i] =~= regions_view[i]);
-            assert(flushed_regions_view.regions[i] =~= regions_view.regions[i]);
-        }
-        assert(flushed_regions_view.regions =~= regions_view.regions);
-    }
+    {}
 
     // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
     pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
         ensures
-            forall |r: PersistentMemoryRegionsView, ts| r.no_outstanding_writes() ==> {
-                let (flushed, new_timestamp) = #[trigger] r.flush(ts);
-                flushed.regions == r.regions
+            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> {
+                let flushed = #[trigger] r.flush();
+                flushed.equal_except_for_timestamps(r)
             }
     {
-        assert forall |r: PersistentMemoryRegionsView, ts| r.no_outstanding_writes() implies {
-            let (flushed, new_timestamp) = #[trigger] r.flush(ts);
-            flushed.regions == r.regions
+        assert forall |r: PersistentMemoryRegionsView, | r.no_outstanding_writes() implies {
+            let flushed = #[trigger] r.flush();
+            flushed.equal_except_for_timestamps(r)
         } by {
-            lemma_if_no_outstanding_writes_then_flush_is_idempotent(r, ts);
+            lemma_if_no_outstanding_writes_then_flush_is_idempotent(r);
         };
     }
 
@@ -373,7 +364,6 @@ verus! {
         pm_region_view: PersistentMemoryRegionView,
         write_addr: int,
         bytes_to_write: Seq<u8>,
-        timestamp: PmTimestamp,
     )
         requires
             bytes_to_write.len() == PERSISTENCE_CHUNK_SIZE,
@@ -383,7 +373,7 @@ verus! {
             pm_region_view.no_outstanding_writes()
         ensures
             ({
-                let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write, timestamp);
+                let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write);
                 forall |crash_bytes: Seq<u8>| new_pm_region_view.can_crash_as(crash_bytes) ==> {
                     ||| crash_bytes == pm_region_view.committed()
                     ||| crash_bytes == new_pm_region_view.flush().committed()
@@ -391,12 +381,12 @@ verus! {
             })
     {
         assert forall |crash_bytes: Seq<u8>|
-                   pm_region_view.write(write_addr, bytes_to_write, timestamp).can_crash_as(crash_bytes) implies {
+                   pm_region_view.write(write_addr, bytes_to_write).can_crash_as(crash_bytes) implies {
                        ||| crash_bytes == pm_region_view.committed()
-                       ||| crash_bytes == pm_region_view.write(write_addr, bytes_to_write, timestamp).flush().committed()
+                       ||| crash_bytes == pm_region_view.write(write_addr, bytes_to_write).flush().committed()
                    } by {
             let chunk = write_addr / PERSISTENCE_CHUNK_SIZE;
-            let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write, timestamp);
+            let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write);
 
             // To reason about all the bytes we haven't written, it's useful to invoke
             // the lemma that says that wherever there's no outstanding write, there's
@@ -411,7 +401,7 @@ verus! {
                 assert(crash_bytes =~= pm_region_view.committed());
             }
             if new_pm_region_view.chunk_corresponds_after_flush(chunk, crash_bytes) {
-                assert(crash_bytes =~= pm_region_view.write(write_addr, bytes_to_write, timestamp).flush().committed());
+                assert(crash_bytes =~= pm_region_view.write(write_addr, bytes_to_write).flush().committed());
             }
         }
     }
@@ -428,7 +418,6 @@ verus! {
         index: int,
         write_addr: int,
         bytes_to_write: Seq<u8>,
-        timestamp: PmTimestamp,
     )
         requires
             0 <= index < pm_regions_view.len(),
@@ -440,16 +429,16 @@ verus! {
 
         ensures
             ({
-                let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
-                let (flushed_pm_regions_view, flushed_timestamp) = new_pm_regions_view.flush(timestamp);
+                let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+                let flushed_pm_regions_view = new_pm_regions_view.flush();
                 forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) ==> {
                     ||| crash_bytes == pm_regions_view.committed()
                     ||| crash_bytes == flushed_pm_regions_view.committed()
                 }
             })
     {
-        let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
-        let (flushed_pm_regions_view, flushed_timestamp) = new_pm_regions_view.flush(timestamp);
+        let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+        let flushed_pm_regions_view = new_pm_regions_view.flush();
         assert forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) implies {
             ||| crash_bytes == pm_regions_view.committed()
             ||| crash_bytes == flushed_pm_regions_view.committed()
@@ -469,7 +458,7 @@ verus! {
 
             // This lemma says that there are only two possible states for
             // region number `index` after this write is initiated.
-            lemma_single_write_crash_effect_on_pm_region_view(pm_regions_view[index], write_addr, bytes_to_write, timestamp);
+            lemma_single_write_crash_effect_on_pm_region_view(pm_regions_view[index], write_addr, bytes_to_write);
 
             // We now use extensional equality to show the final result.
             // There are two cases to consider: (1) the write doesn't get
@@ -478,9 +467,9 @@ verus! {
             if crash_bytes[index] == pm_regions_view[index].committed() {
                 assert(crash_bytes =~= pm_regions_view.committed());
             }
-            if crash_bytes[index] == pm_regions_view[index].write(write_addr, bytes_to_write, timestamp).flush().committed() {
-                let new_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write, timestamp);
-                let (flushed_regions_view, new_timestamp) = new_regions_view.flush(timestamp);
+            if crash_bytes[index] == pm_regions_view[index].write(write_addr, bytes_to_write).flush().committed() {
+                let new_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+                let flushed_regions_view = new_regions_view.flush();
                 assert(forall |any| 0 <= any < pm_regions_view.len() ==> #[trigger] crash_bytes[any] =~=
                     flushed_regions_view.committed()[any]);
                 assert(crash_bytes =~= flushed_regions_view.committed());
@@ -494,16 +483,15 @@ verus! {
         pm_region_view: PersistentMemoryRegionView,
         addr: int,
         bytes: Seq<u8>,
-        timestamp: PmTimestamp
     )
         requires
             0 <= addr,
             addr + bytes.len() <= pm_region_view.len(),
         ensures
-            pm_region_view.write(addr, bytes, timestamp).flush().committed().subrange(addr as int, addr + bytes.len()) == bytes
+            pm_region_view.write(addr, bytes).flush().committed().subrange(addr as int, addr + bytes.len()) == bytes
     {
         // All we need is to get Z3 to consider extensional equality.
-        assert(pm_region_view.write(addr, bytes, timestamp).flush().committed().subrange(addr as int, addr + bytes.len()) =~=
+        assert(pm_region_view.write(addr, bytes).flush().committed().subrange(addr as int, addr + bytes.len()) =~=
                bytes);
     }
 

@@ -15,42 +15,34 @@ use vstd::prelude::*;
 
 verus! {
 
-    pub trait PmDevice<PMRegions: PersistentMemoryRegions> {
-        spec fn len(&self) -> u64; // is this doing anything?
+    pub trait PmDevice<PMRegion: PersistentMemoryRegion> {
+        spec fn len(&self) -> u64;
 
         exec fn capacity(&self) -> (result: u64)
             ensures
                 result == self.len();
 
         /// `get_regions` consumes the PmDevice so it cannot be used to obtain any more regions or another timestamp.
-        /// It returns a set of PersistentMemoryRegions based on the given sizes and a single ghost timestamp
+        /// It returns a set of `PersistentMemoryRegion`s based on the given sizes and a single ghost timestamp
         /// that can be used with all of the regions.
         /// TODO: the recursive spec function in the precondition makes it hard to satisfy the precondition...
-        exec fn get_regions(self, regions: Vec<Vec<u64>>) -> (result: Result<(Vec<PMRegions>, Ghost<PmTimestamp>), ()>)
+        exec fn get_regions(self, regions: Vec<u64>) -> (result: Result<Vec<PMRegion>, ()>)
         where
             Self: Sized
         requires
             ({
-                // the sum of region sizes must not exceed the actual size of the device
-                let acc_seq = Seq::new(regions@.len(), |i| regions[i]@.fold_left(0, |acc: int, x| acc + x));
-                let region_size_sum = acc_seq.fold_left(0, |acc: int, x| acc + x);
+                let region_size_sum = regions@.fold_left(0, |acc: int, x| acc + x);
                 region_size_sum <= self.len()
             }),
             1 <= regions@.len() < usize::MAX,
         ensures
             match result {
-                Ok((regions_list, timestamp)) => {
+                Ok(regions_list) => {
                     &&& regions@.len() == regions_list@.len()
-                    // NOTE: asserting each of these separately after this function only works
-                    // if they get their own foralls here. Why?
                     &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
-                            regions_list[i]@.timestamp_corresponds_to_regions(timestamp@)
-                        }
-                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
-                        regions_list[i]@.len() == regions@[i].len()
-                    }
-                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
-                        regions_list[i].inv()
+                        // &&& regions_list[i].spec_device_id() == timestamp@.device_id()
+                        &&& regions_list[i]@.len() == regions[i]
+                        &&& regions_list[i].inv()
                     }
                 }
                 Err(_) => true // TODO
