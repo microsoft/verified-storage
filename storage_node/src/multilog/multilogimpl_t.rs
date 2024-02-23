@@ -271,6 +271,7 @@ verus! {
                         &&& UntrustedMultiLogImpl::recover(pm_regions@.committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                         &&& regions_correspond(timestamp@, new_timestamp@)
+                        &&& pm_regions@.timestamp_corresponds_to_regions(new_timestamp@)
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let (flushed_regions, new_timestamp) = old(pm_regions)@.flush(timestamp@);
@@ -301,7 +302,7 @@ verus! {
         // multilog operations were allowed to mutate them. See
         // `main.rs` for more documentation and an example of use.
         pub exec fn start(pm_regions: PMRegions, multilog_id: u128, timestamp: Ghost<PmTimestamp>)
-                          -> (result: Result<MultiLogImpl<PMRegions>, MultiLogErr>)
+                          -> (result: Result<(MultiLogImpl<PMRegions>, Ghost<PmTimestamp>), MultiLogErr>)
             requires
                 pm_regions.inv(),
                 ({
@@ -311,11 +312,11 @@ verus! {
                 pm_regions@.timestamp_corresponds_to_regions(timestamp@)
             ensures
                 match result {
-                    Ok(trusted_log_impl) => {
+                    Ok((trusted_log_impl, new_timestamp)) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl.constants() == pm_regions.constants()
                         &&& ({
-                            let (flushed_regions, new_timestamp) = pm_regions@.flush(timestamp@);
+                            let (flushed_regions, new_ts) = pm_regions@.flush(timestamp@);
                             Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(flushed_regions.committed(),
                                                                                     multilog_id)
                             })
@@ -337,14 +338,18 @@ verus! {
             let ghost state = UntrustedMultiLogImpl::recover(committed_regions, multilog_id).get_Some_0();
             let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
             let tracked perm = TrustedPermission::new_one_possibility(multilog_id, state);
-            let untrusted_log_impl =
+            let (untrusted_log_impl, new_timestamp) =
                 UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state), timestamp)?;
-            Ok(MultiLogImpl {
-                untrusted_log_impl,
-                multilog_id:  Ghost(multilog_id),
-                wrpm_regions
-
-            })
+            Ok(
+                (
+                    MultiLogImpl {
+                        untrusted_log_impl,
+                        multilog_id:  Ghost(multilog_id),
+                        wrpm_regions
+                    },
+                    new_timestamp
+                )
+            )
         }
 
         // The `tentatively_append` method tentatively appends
