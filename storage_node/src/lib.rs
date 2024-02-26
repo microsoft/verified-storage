@@ -12,108 +12,153 @@ use crate::pmem::device_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::timestamp_t::*;
 
 verus! {
     fn main() {}
 
     fn test_multilog_with_timestamps() -> bool {
-        // proof { lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent(); }
+        // TODO: ideally we wouldn't invoke this from trusted code, but we need it to prove the relationships
+        // between different timestamps from the same region
+        proof { lemma_auto_timestamp_helpers(); }
 
-        // let device_capacity: u64 = 1024;
-        // let log_capacity: u64 = 256;
-        // let mut regions1 = Vec::new();
-        // let mut regions2 = Vec::new();
-        // regions1.push(log_capacity);
-        // regions1.push(log_capacity);
-        // regions2.push(log_capacity);
-        // regions2.push(log_capacity);
+        // set up vectors to mock persistent memory
+        let device_capacity = 1024;
+        let log_capacity = 256;
+        let mut device_regions = Vec::new();
+        device_regions.push(log_capacity); device_regions.push(log_capacity);
+        device_regions.push(log_capacity); device_regions.push(log_capacity);
+        let ghost old_device_regions = device_regions@;
 
-        // let mut device_regions = Vec::new();
-        // device_regions.push(regions1);
-        // device_regions.push(regions2);
-        // let ghost old_device_regions = device_regions@;
+        // obtain a device abstraction with enough space for the requested regions
+        let device = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
 
-        // let device = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
+        // Required to pass the precondition for get_regions -- we need to unroll the
+        // recursive spec fn `fold_left` enough times to calculate the sum of
+        // all of the PM regions.
+        proof { reveal_with_fuel(Seq::fold_left, 5); }
+        let result = device.get_regions(device_regions);
 
-        // // Required to pass the precondition for get_regions -- we need to unroll the
-        // // recursive spec fn `fold_left` enough times to calculate the sum of
-        // // all of the PM regions specified in our 2D vector.
-        // proof { reveal_with_fuel(Seq::fold_left, 3); }
-        // let result = device.get_regions(device_regions);
+        let mut regions = match result {
+            Ok(regions) => regions,
+            Err(()) => return false
+        };
 
-        // let (mut regions, timestamp) = match result {
-        //     Ok((regions, timestamp)) => (regions, timestamp),
-        //     Err(()) => return false
-        // };
+        let mut multilog1_regions = Vec::new();
+        let mut multilog2_regions = Vec::new();
+        multilog1_regions.push(regions.pop().unwrap());
+        multilog1_regions.push(regions.pop().unwrap());
+        multilog2_regions.push(regions.pop().unwrap());
+        multilog2_regions.push(regions.pop().unwrap());
 
-        // // We have to pop from `regions` so we can get ownership over its elements.
-        // // Ideally, this would be a `pop_front` so that we don't have to go backwards,
-        // // but in this example it's fine because all of the regions are identical.
-        // let mut region1 = regions.pop().unwrap();
-        // let mut region2 = regions.pop().unwrap();
-        // assert(regions@.len() == 0);
+        // combine individual regions into groups so we can use them to set up multilogs
+        let mut multilog1_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog1_regions);
+        let mut multilog2_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog2_regions);
 
+        let result = MultiLogImpl::setup(&mut multilog1_regions);
+        let (log1_capacities, multilog_id1) = match result {
+            Ok((log1_capacities, multilog_id)) => (log1_capacities, multilog_id),
+            Err(_) => return false
+        };
 
-        // let result = MultiLogImpl::setup(&mut region1, timestamp);
-        // let (log1_capacities, timestamp, multilog_id1) = match result {
-        //     Ok((log1_capacities, timestamp, multilog_id)) => (log1_capacities, timestamp, multilog_id),
-        //     Err(_) => return false
-        // };
+        let result = MultiLogImpl::setup(&mut multilog2_regions);
+        let (log2_capacities, multilog_id2) = match result {
+            Ok((log2_capacities, multilog_id)) => (log2_capacities, multilog_id),
+            Err(_) => return false
+        };
 
-        // let result = MultiLogImpl::setup(&mut region2, timestamp);
-        // let (log2_capacities, timestamp, multilog_id2) = match result {
-        //     Ok((log1_capacities, timestamp, multilog_id)) => (log1_capacities, timestamp, multilog_id),
-        //     Err(_) => return false
-        // };
-
-        // let mut regions3 = Vec::new();
-        // let mut regions4 = Vec::new();
-        // regions3.push(log_capacity);
-        // regions3.push(log_capacity);
-        // regions4.push(log_capacity);
-        // regions4.push(log_capacity);
-
-        // let mut device_regions2 = Vec::new();
-        // device_regions2.push(regions3);
-        // device_regions2.push(regions4);
+        // // set up vectors for a second PM device (which we are pretending is separate in terms of
+        // // flush/fence effects from the first device)
+        // let mut device2_regions = Vec::new();
+        // device2_regions.push(log_capacity); device2_regions.push(log_capacity);
+        // device2_regions.push(log_capacity); device2_regions.push(log_capacity);
 
         // let device2 = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
-        // let result = device2.get_regions(device_regions2);
+        // let result = device2.get_regions(device2_regions);
 
-        // let (mut regions, timestamp2) = match result {
-        //     Ok((regions, timestamp)) => (regions, timestamp),
+        // let mut regions = match result {
+        //     Ok(regions) => regions,
         //     Err(()) => return false
         // };
 
-        // let mut region3 = regions.pop().unwrap();
-        // let mut region4 = regions.pop().unwrap();
+        // let mut multilog3_regions = Vec::new();
+        // let mut multilog4_regions = Vec::new();
+        // multilog3_regions.push(regions.pop().unwrap());
+        // multilog3_regions.push(regions.pop().unwrap());
+        // multilog4_regions.push(regions.pop().unwrap());
+        // multilog4_regions.push(regions.pop().unwrap());
 
-        // let result = MultiLogImpl::setup(&mut region3, timestamp2);
-        // let (log3_capacities, timestamp2, multilog_id3) = match result {
-        //     Ok((log3_capacities, timestamp, multilog_id)) => (log3_capacities, timestamp, multilog_id),
+        // let mut multilog3_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog3_regions);
+        // let mut multilog4_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog4_regions);
+
+        // let result = MultiLogImpl::setup(&mut multilog3_regions);
+        // let (log3_capacities, multilog_id3) = match result {
+        //     Ok((log3_capacities, multilog_id)) => (log3_capacities, multilog_id),
         //     Err(_) => return false
         // };
 
-        // let result = MultiLogImpl::setup(&mut region4, timestamp2);
-        // let (log4_capacities, timestamp2, multilog_id4) = match result {
-        //     Ok((log4_capacities, timestamp, multilog_id)) => (log4_capacities, timestamp, multilog_id),
+
+        // let result = MultiLogImpl::setup(&mut multilog4_regions);
+        // let (log4_capacities, multilog_id4) = match result {
+        //     Ok((log4_capacities, multilog_id)) => (log4_capacities, multilog_id),
         //     Err(_) => return false
         // };
 
-        // proof {
-        //     let (flushed_regions, new_timestamp) = region1@.flush(timestamp@);
-        //     assert(flushed_regions.committed() =~= region1@.committed());
+        // start the logs
+        let result = MultiLogImpl::start(multilog1_regions, multilog_id1);
+        let mut multilog1 = match result {
+            Ok(multilog) => multilog,
+            Err(_) => return false
+        };
 
-        //     let (flushed_regions, new_timestamp) = region2@.flush(timestamp@);
-        //     assert(flushed_regions.committed() =~= region2@.committed());
-        // }
+        let result = MultiLogImpl::start(multilog2_regions, multilog_id2);
+        let mut multilog2 = match result {
+            Ok(multilog) => multilog,
+            Err(_) => return false
+        };
 
-        // // This should work, because `timestamp` corresponds to `region1`.
-        // let result = MultiLogImpl::start(region1, multilog_id1, timestamp);
+        // let result = MultiLogImpl::start(multilog3_regions, multilog_id3);
+        // let multilog3 = match result {
+        //     Ok(multilog) => multilog,
+        //     Err(_) => return false
+        // };
 
-        // // // This should not verify, because `timestamp2` does not correspond to `region2`,
-        // // // even though `timestamp` and `timestamp2` have the same numerical value right now.
-        // // let result2 = MultiLogImpl::start(region2, multilog_id1, timestamp2);
+        // let result = MultiLogImpl::start(multilog4_regions, multilog_id4);
+        // let multilog4 = match result {
+        //     Ok(multilog) => multilog,
+        //     Err(_) => return false
+        // };
+
+        let mut vec = Vec::new();
+        vec.push(1); vec.push(2); vec.push(3);
+
+        let ghost old1 = multilog1;
+        let ghost old2 = multilog2;
+
+        let result1 = multilog1.tentatively_append(0, vec.as_slice());
+        let result2 = multilog1.tentatively_append(1, vec.as_slice());
+        match (result1, result2) {
+            (Ok(_), Ok(_)) => {}
+            _=> return false
+        }
+
+        let result1 = multilog2.tentatively_append(0, vec.as_slice());
+        let result2 = multilog2.tentatively_append(1, vec.as_slice());
+        match (result1, result2) {
+            (Ok(_), Ok(_)) => {}
+            _=> return false
+        }
+
+        multilog2.commit();
+
+        // we should now be able to (attempt) to update multilog1's ghost state using multilog2's
+        // timestamp. doing so here is kind of silly (we can't do anything differently); it's just
+        // to make sure the interface works and makes some sense.
+
+        // I should be allowed to (as in, verification will succeed) try to update
+        // multilog1's timestamp using multilog2's.
+        multilog1.update_timestamp(Ghost(multilog2.get_timestamp()));
+
 
         true
     }

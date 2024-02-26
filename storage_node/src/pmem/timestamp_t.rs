@@ -4,13 +4,13 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    // #[derive(PartialEq, Eq)]
+    #[derive(Eq, PartialEq)]
+    #[verifier::ext_equal]
     pub struct PmTimestamp {
         value: int,
         device_id: int
     }
 
-    // TODO: should this be tracked? if so, might need to implement clone?
     impl PmTimestamp {
         pub closed spec fn new(device_id: int) -> Self
         {
@@ -23,6 +23,11 @@ verus! {
         pub closed spec fn device_id(&self) -> int
         {
             self.device_id
+        }
+
+        pub closed spec fn value(&self) -> int
+        {
+            self.value
         }
 
         pub closed spec fn inc_timestamp(self) -> Self {
@@ -41,27 +46,38 @@ verus! {
         }
     }
 
-    pub proof fn lemma_auto_timestamp_gt_transitive()
+    pub proof fn lemma_auto_timestamp_helpers()
         ensures
-            forall |t1: PmTimestamp, t2, t3| t1.gt(t2) && t2.gt(t3) ==> t1.gt(t3)
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().value() == #[trigger] ts.value() + 1,
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().gt(ts),
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().device_id() == #[trigger] ts.device_id(),
+            forall |t1: PmTimestamp, t2, t3| t1.gt(t2) && t2.gt(t3) ==> t1.gt(t3),
+            forall |t1: PmTimestamp, t2: PmTimestamp| t1.value() == t2.value() && t1.device_id() == t2.device_id() <==> t1 == t2,
+            forall |t1: PmTimestamp, t2: PmTimestamp, x: int|
+                x > 0 && #[trigger] t1.value() == #[trigger] (t2.value() + x) ==> #[trigger] t1.gt(t2)
     {}
 
-    // // this does not seem to be doing what you would like it to
-    // impl SpecOrd for PmTimestamp {
-    //     fn spec_lt(self, rhs: PmTimestamp) -> bool {
-    //         self.value < rhs.value
-    //     }
+    /// Higher-level storage component modules (e.g., multilog) should implement this
+    /// in order to be able to update their ghost timestamp when other components on
+    /// the same device perform a global flush/fence.
+    pub trait TimestampedModule : Sized {
+        type RegionsView;
 
-    //     fn spec_le(self, rhs: PmTimestamp) -> bool {
-    //         self.value <= rhs.value
-    //     }
+        spec fn get_timestamp(&self) -> PmTimestamp;
 
-    //     fn spec_gt(self, rhs: PmTimestamp) -> bool {
-    //         self.value > rhs.value
-    //     }
+        // this function should invoke the `inv` function for internal PM regions
+        spec fn inv(self) -> bool;
 
-    //     fn spec_ge(self, rhs: PmTimestamp) -> bool {
-    //         self.value >= rhs.value
-    //     }
-    // }
+        // TODO: having this be an exec function seems wrong -- but I want to
+        // use preconditions/postconditions, and not sure how else to update
+        // ghost variable stored inside a concrete implementor...
+        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
+            requires
+                old(self).inv(),
+                new_timestamp@.gt(old(self).get_timestamp()),
+                new_timestamp@.device_id() == old(self).get_timestamp().device_id()
+            ensures
+                self.inv(),
+                self.get_timestamp() == new_timestamp;
+    }
 }

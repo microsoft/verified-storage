@@ -372,7 +372,6 @@ verus! {
             old(pm_regions)@[which_log as int].no_outstanding_writes(),
             old(pm_regions)@[which_log as int].len() == region_size,
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-            // old(pm_regions)@.device_id() == timestamp@.device_id()
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -381,7 +380,8 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            // pm_regions@.device_id() == timestamp@.device_id()
+            pm_regions@.current_timestamp == old(pm_regions)@.current_timestamp,
+            pm_regions@.current_timestamp.device_id() == old(pm_regions)@.current_timestamp.device_id()
     {
         // Initialize an empty vector.
         let mut bytes_to_write = Vec::<u8>::new();
@@ -501,7 +501,7 @@ verus! {
             forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
                 #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
-            // old(pm_regions)@.device_id() == timestamp@.device_id()
+
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -509,13 +509,13 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            // pm_regions@.device_id() == new_timestamp@.device_id(),
-            // pm_regions@.fence_timestamp == timestamp@,
-            // new_timestamp@ == timestamp@.inc_timestamp(),
+            pm_regions@.current_timestamp.value() == old(pm_regions)@.current_timestamp.value() + 1,
+            pm_regions@.current_timestamp.device_id() == old(pm_regions)@.current_timestamp.device_id()
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
 
+        let ghost old_pm_regions = pm_regions@;
         let num_logs = region_sizes.len() as u32;
         for which_log in 0..num_logs
             invariant
@@ -536,7 +536,8 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                // pm_regions@.device_id() == timestamp@.device_id()
+                pm_regions@.current_timestamp == old_pm_regions.current_timestamp,
+                pm_regions@.current_timestamp.device_id() == old_pm_regions.current_timestamp.device_id()
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
@@ -563,8 +564,9 @@ verus! {
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            // assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] pm_regions@.flush()[i].len());
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
+
+            lemma_auto_timestamp_helpers();
         }
 
         pm_regions.flush()
