@@ -410,21 +410,6 @@ verus! {
         }
     }
 
-    pub proof fn lemma_timestamp_does_not_change_committed_recovery_view(
-        pm_regions1: PersistentMemoryRegionsView,
-        multilog_id1: u128,
-        pm_regions2: PersistentMemoryRegionsView,
-        multilog_id2: u128,
-    )
-        requires
-            pm_regions1.regions =~= pm_regions2.regions,
-        ensures
-            recover_all(pm_regions1.committed(), multilog_id1) == recover_all(pm_regions2.committed(), multilog_id2)
-
-    {
-        assume(false);
-    }
-
     // This lemma establishes that, if one updates the inactive
     // level-3 metadata+CRC in a region, this will maintain various
     // invariants. The "inactive" level-3 metadata+CRC is the

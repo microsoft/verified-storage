@@ -39,10 +39,21 @@ verus! {
             match result {
                 Ok(regions_list) => {
                     &&& regions@.len() == regions_list@.len()
+                    // TODO: why does verification only go through if these are split up
+                    // into separate forall statements?
                     &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
-                        // &&& regions_list[i].spec_device_id() == timestamp@.device_id()
                         &&& regions_list[i]@.len() == regions[i]
+                    }
+                    &&& forall |i| #![auto] 0 <= i < regions_list@.len() ==> {
                         &&& regions_list[i].inv()
+                    }
+                    &&& forall |i| 0 <= i < regions_list@.len() ==> {
+                        let region = #[trigger] regions_list[i];
+                        &&& region@.current_timestamp == regions_list[0]@.current_timestamp
+                    }
+                    &&& forall |i| 0 <= i < regions_list@.len() ==> {
+                        let region = #[trigger] regions_list[i];
+                        &&& region.spec_device_id() == regions_list[0].spec_device_id()
                     }
                 }
                 Err(_) => true // TODO
