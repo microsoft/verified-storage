@@ -5,15 +5,16 @@
 
 use builtin::*;
 use builtin_macros::*;
-use crate::pmemspec_t::{PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegions,
-                        PersistentMemoryRegionView, PersistentMemoryRegionsView};
+use crate::pmemspec_t::{PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
+                        PersistentMemoryRegions, PersistentMemoryRegionView, PersistentMemoryRegionsView};
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
-use deps_hack::winapi::um::fileapi::{CreateFileA, OPEN_ALWAYS};
+use deps_hack::winapi::um::fileapi::{CreateFileA, DeleteFileA, OPEN_ALWAYS};
 use deps_hack::winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use deps_hack::winapi::um::memoryapi::{MapViewOfFile, FILE_MAP_ALL_ACCESS};
 use deps_hack::winapi::um::winbase::CreateFileMappingA;
 use deps_hack::winapi::um::winnt::{PAGE_READWRITE, FILE_SHARE_WRITE, FILE_SHARE_READ, FILE_SHARE_DELETE, GENERIC_READ, GENERIC_WRITE, FILE_ATTRIBUTE_NORMAL, ULARGE_INTEGER};
 use std::convert::*;
+use std::ffi::CString;
 use std::slice;
 use vstd::prelude::*;
 
@@ -52,13 +53,15 @@ verus! {
         // `MemoryMappedFile` to represent it.
     
         #[verifier::external_body]
-        pub fn from_file(path: &StrSlice, size: usize, media_type: MemoryMappedFileMediaType) -> Self {
+        pub fn from_file(path: &StrSlice, size: usize, media_type: MemoryMappedFileMediaType,
+                         temporary_for_testing: bool) -> Self {
             unsafe {
+                let path = path.into_rust_str();
                 // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
-                let cstr = std::ffi::CString::new(path.into_rust_str()).unwrap();
-    
+                let path_cstr = std::ffi::CString::new(path).unwrap();
+
                 let h_file = CreateFileA(
-                    cstr.as_ptr(),
+                    path_cstr.as_ptr(),
                     GENERIC_READ | GENERIC_WRITE,
                     FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
                     core::ptr::null_mut(),
@@ -69,11 +72,11 @@ verus! {
                 let error_code = deps_hack::winapi::um::errhandlingapi::GetLastError();
     
                 if h_file.is_null() {
-                    panic!("Could not open file. err={}", error_code);
+                    panic!("Could not open file {}. err={}", path, error_code);
                 }
     
                 if h_file == INVALID_HANDLE_VALUE {
-                    panic!("Could not find file. err={}", error_code);
+                    panic!("Could not find file {}. err={}", path, error_code);
                 }
     
                 let mut li : ULARGE_INTEGER = std::mem::zeroed();
@@ -90,7 +93,13 @@ verus! {
                 );
     
                 if h_map_file.is_null() {
-                    panic!("Could not create file mapping object.");
+                    panic!("Could not create file mapping object for {}.", path);
+                }
+
+                if temporary_for_testing {
+                    // After opening the file, mark it for deletion when the file is closed.
+                    // Obviously, we should only do this during testing!
+                    deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr.as_ptr());
                 }
     
                 // Map a view of the file mapping into the address space of the process
@@ -103,7 +112,7 @@ verus! {
                 );
     
                 if h_map_addr.is_null() {
-                    panic!("Could not map view of file.");
+                    panic!("Could not map view of file {}.", path);
                 }
 
                 // Convert the address into a static Rust slice.
@@ -210,7 +219,7 @@ verus! {
         // into memory and returns a `FileBackedPersistentMemoryRegion`.
         
         #[verifier::external_body]
-        pub fn new(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64)
+        pub fn new(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64, temporary_for_testing: bool)
                    -> (result: Result<Self, ()>)
             ensures
                 match result {
@@ -233,36 +242,31 @@ verus! {
                                                      outstanding_write: None
                                                  });
             let ghost persistent_memory_view = PersistentMemoryRegionView{ state };
-            let mmf = MemoryMappedFile::from_file(file_path, size as usize, media_type.clone());
+            let mmf = MemoryMappedFile::from_file(file_path, size as usize, media_type.clone(),
+                                                  temporary_for_testing);
             Ok(Self { mmf, size, persistent_memory_view: Ghost(persistent_memory_view) })
         }
+    }
 
-        pub closed spec fn view(self) -> PersistentMemoryRegionView
+    impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
+    {
+        closed spec fn view(self) -> PersistentMemoryRegionView
         {
             self.persistent_memory_view@
         }
 
-        pub closed spec fn inv(self) -> bool
+        closed spec fn inv(self) -> bool
         {
             self.size == self.persistent_memory_view@.len()
         }
 
-        pub fn get_region_size(&self) -> (result: u64)
-            requires
-                self.inv()
-            ensures
-                result == self@.len()
+        fn get_region_size(&self) -> (result: u64)
         {
             self.size
         }
 
         #[verifier::external_body]
-        pub fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires
-                self.inv(),
-                addr + num_bytes <= self@.len()
-            ensures
-                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes)
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
@@ -270,26 +274,14 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub fn write(&mut self, addr: u64, bytes: &[u8])
-            requires
-                old(self).inv(),
-                addr + bytes@.len() <= old(self)@.len(),
-                addr + bytes@.len() <= u64::MAX
-            ensures
-                self.inv(),
-                self@ == self@.write(addr as int, bytes@)
+        fn write(&mut self, addr: u64, bytes: &[u8])
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let _ = self.mmf.update_region(addr_usize, bytes);
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
-        pub fn flush(&mut self)
-            requires
-                old(self).inv()
-            ensures
-                self.inv(),
-                self@ == old(self)@.flush()
+        fn flush(&mut self)
         {
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
             self.mmf.flush();
@@ -309,10 +301,12 @@ verus! {
     impl FileBackedPersistentMemoryRegions {
 
         // The static function `new` creates a
-        // `FileBackedPersistentMemoryRegions` object using files in
-        // the given directory of the given sizes.
+        // `FileBackedPersistentMemoryRegions` object using files of
+        // the given sizes using the given path prefix.
+        // Region #1 will be in `path_prefix + "1"`, region #2
+        // will be in `path_prefix + "2"`, etc.
         //
-        // `dir_path` -- the directory in which to find files named
+        // `path_prefix` -- the prefix of file paths to use
         //  log1, log2, ..., log<n> where <n> is the length of
         //  `region_sizes`
         //
@@ -320,7 +314,8 @@ verus! {
         // `region_sizes[i]` is the length of file `log<i>`.
 
         #[verifier::external_body]
-        pub fn new(dir_path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64])
+        pub fn new(path_prefix: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
+                   temporary_for_testing: bool)
                    -> (result: Result<Self, ()>)
             ensures
                 match result {
@@ -334,12 +329,13 @@ verus! {
                 }
         {
             let mut pms = Vec::<FileBackedPersistentMemoryRegion>::new();
-            let dir_path = dir_path.into_rust_str();
+            let path_prefix = path_prefix.into_rust_str();
             for i in 0..region_sizes.len() {
                 let region_size = region_sizes[i];
-                let file_path = format!("{}/log{}", dir_path, i + 1);
+                let file_path = format!("{}{}", path_prefix, i + 1);
                 let file_path = StrSlice::from_rust_str(file_path.as_str());
-                let pm = FileBackedPersistentMemoryRegion::new(&file_path, media_type.clone(), region_size)?;
+                let pm = FileBackedPersistentMemoryRegion::new(&file_path, media_type.clone(), region_size,
+                                                               temporary_for_testing)?;
                 pms.push(pm);
             }
             Ok(Self { media_type, pms })

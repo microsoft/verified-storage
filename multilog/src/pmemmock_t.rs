@@ -8,8 +8,8 @@
 
 use builtin::*;
 use builtin_macros::*;
-use crate::pmemspec_t::{PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegions,
-                        PersistentMemoryRegionView, PersistentMemoryRegionsView};
+use crate::pmemspec_t::{PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
+                        PersistentMemoryRegions, PersistentMemoryRegionView, PersistentMemoryRegionsView};
 use std::convert::*;
 use vstd::prelude::*;
 
@@ -50,13 +50,16 @@ verus! {
             let persistent_memory_view = Ghost(PersistentMemoryRegionView { state });
             Ok(Self { contents, persistent_memory_view })
         }
+    }
 
-        pub closed spec fn view(self) -> PersistentMemoryRegionView
+    impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion
+    {
+        closed spec fn view(self) -> PersistentMemoryRegionView
         {
             self.persistent_memory_view@
         }
 
-        pub closed spec fn inv(self) -> bool
+        closed spec fn inv(self) -> bool
         {
             // We maintain the invariant that our size fits in a `u64`.
             &&& self.contents.len() <= u64::MAX
@@ -67,22 +70,13 @@ verus! {
             &&& self.contents@ == self.persistent_memory_view@.flush().committed()
         }
 
-        pub fn get_region_size(&self) -> (result: u64)
-            requires
-                self.inv()
-            ensures
-                result == self@.len()
+        fn get_region_size(&self) -> (result: u64)
         {
             self.contents.len() as u64
         }
 
         #[verifier::external_body]
-        pub fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires
-                self.inv(),
-                addr + num_bytes <= self@.len()
-            ensures
-                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes)
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
@@ -90,26 +84,14 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub fn write(&mut self, addr: u64, bytes: &[u8])
-            requires
-                old(self).inv(),
-                addr + bytes@.len() <= old(self)@.len(),
-                addr + bytes@.len() <= u64::MAX
-            ensures
-                self.inv(),
-                self@ == self@.write(addr as int, bytes@)
+        fn write(&mut self, addr: u64, bytes: &[u8])
         {
             let addr_usize: usize = addr.try_into().unwrap();
             self.contents.splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
-        pub fn flush(&mut self)
-            requires
-                old(self).inv()
-            ensures
-                self.inv(),
-                self@ == old(self)@.flush()
+        fn flush(&mut self)
         {
             // Because of our invariant, we don't have to do anything
             // to the actual contents. We just have to update the

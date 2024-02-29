@@ -5,12 +5,12 @@ version = 3
 [[package]]
 name = "builtin"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=961cb92a3b99269f8f0df39509af77a9acb83787#961cb92a3b99269f8f0df39509af77a9acb83787"
+source = "git+https://github.com/verus-lang/verus.git?rev=f1040e17a5a5e5ab819083fb673e7e8abd37c00a#f1040e17a5a5e5ab819083fb673e7e8abd37c00a"
 
 [[package]]
 name = "builtin_macros"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=961cb92a3b99269f8f0df39509af77a9acb83787#961cb92a3b99269f8f0df39509af77a9acb83787"
+source = "git+https://github.com/verus-lang/verus.git?rev=f1040e17a5a5e5ab819083fb673e7e8abd37c00a#f1040e17a5a5e5ab819083fb673e7e8abd37c00a"
 dependencies = [
  "prettyplease_verus",
  "proc-macro2",
@@ -77,7 +77,7 @@ checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 [[package]]
 name = "prettyplease_verus"
 version = "0.1.15"
-source = "git+https://github.com/verus-lang/verus.git?rev=961cb92a3b99269f8f0df39509af77a9acb83787#961cb92a3b99269f8f0df39509af77a9acb83787"
+source = "git+https://github.com/verus-lang/verus.git?rev=f1040e17a5a5e5ab819083fb673e7e8abd37c00a#f1040e17a5a5e5ab819083fb673e7e8abd37c00a"
 dependencies = [
  "proc-macro2",
  "syn_verus",
@@ -145,7 +145,7 @@ dependencies = [
 [[package]]
 name = "syn_verus"
 version = "1.0.95"
-source = "git+https://github.com/verus-lang/verus.git?rev=961cb92a3b99269f8f0df39509af77a9acb83787#961cb92a3b99269f8f0df39509af77a9acb83787"
+source = "git+https://github.com/verus-lang/verus.git?rev=f1040e17a5a5e5ab819083fb673e7e8abd37c00a#f1040e17a5a5e5ab819083fb673e7e8abd37c00a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -179,7 +179,7 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 [[package]]
 name = "vstd"
 version = "0.1.0"
-source = "git+https://github.com/verus-lang/verus.git?rev=961cb92a3b99269f8f0df39509af77a9acb83787#961cb92a3b99269f8f0df39509af77a9acb83787"
+source = "git+https://github.com/verus-lang/verus.git?rev=f1040e17a5a5e5ab819083fb673e7e8abd37c00a#f1040e17a5a5e5ab819083fb673e7e8abd37c00a"
 dependencies = [
  "builtin",
  "builtin_macros",

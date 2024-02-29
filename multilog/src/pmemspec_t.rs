@@ -1,7 +1,7 @@
 //! This file contains the trusted specification for how a collection
 //! of persistent memory regions (implementing trait
 //! `PersistentMemoryRegions`) behaves.
-//! 
+//!
 //! One of the things it models is what can happen to a persistent
 //! memory region if the system crashes in the middle of a write.
 //! Specifically, it says that on a crash some subset of the
@@ -70,7 +70,7 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
-    pub const CRC_SIZE: u64 = 8; 
+    pub const CRC_SIZE: u64 = 8;
 
     pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
 
@@ -102,7 +102,7 @@ verus! {
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
                                          y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
             y == spec_crc_bytes(x),
@@ -129,13 +129,13 @@ verus! {
 
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
-        requires 
+        requires
             maybe_corrupted(cdb_c, cdb, addrs),
             all_elements_unique(addrs),
             cdb.len() == 8,
             spec_u64_from_le_bytes(cdb) == CDB_FALSE || spec_u64_from_le_bytes(cdb) == CDB_TRUE,
             spec_u64_from_le_bytes(cdb_c) == CDB_FALSE || spec_u64_from_le_bytes(cdb_c) == CDB_TRUE,
-        ensures 
+        ensures
             cdb_c == cdb
     {}
 
@@ -285,12 +285,12 @@ verus! {
             self.regions.len()
         }
 
-        pub open spec fn spec_index(self, i: int) -> PersistentMemoryRegionView 
+        pub open spec fn spec_index(self, i: int) -> PersistentMemoryRegionView
         {
             self.regions[i]
         }
 
-        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self 
+        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self
         {
             Self {
                 regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
@@ -303,7 +303,7 @@ verus! {
             }
         }
 
-        pub open spec fn flush(self) -> Self 
+        pub open spec fn flush(self) -> Self
         {
             Self { regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.flush()) }
         }
@@ -322,7 +322,7 @@ verus! {
             Seq::<Seq<u8>>::new(self.len(), |i: int| self[i].committed())
         }
 
-        pub open spec fn can_crash_as(self, crash_regions: Seq<Seq<u8>>) -> bool 
+        pub open spec fn can_crash_as(self, crash_regions: Seq<Seq<u8>>) -> bool
         {
             &&& crash_regions.len() == self.len()
             &&& forall |i: int| #![auto] 0 <= i < self.len() ==> self[i].can_crash_as(crash_regions[i])
@@ -334,6 +334,44 @@ verus! {
 
     pub struct PersistentMemoryConstants {
         pub impervious_to_corruption: bool
+    }
+
+    /// The `PersistentMemoryRegion` trait represents a persistent memory region.
+
+    pub trait PersistentMemoryRegion : Sized
+    {
+        spec fn view(self) -> PersistentMemoryRegionView;
+
+        spec fn inv(self) -> bool;
+
+        fn get_region_size(&self) -> (result: u64)
+            requires
+                self.inv()
+            ensures
+                result == self@.len();
+
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+            requires
+                self.inv(),
+                addr + num_bytes <= self@.len()
+            ensures
+                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
+
+        fn write(&mut self, addr: u64, bytes: &[u8])
+            requires
+                old(self).inv(),
+                addr + bytes@.len() <= old(self)@.len(),
+                addr + bytes@.len() <= u64::MAX
+            ensures
+                self.inv(),
+                self@ == self@.write(addr as int, bytes@);
+
+        fn flush(&mut self)
+            requires
+                old(self).inv()
+            ensures
+                self.inv(),
+                self@ == old(self)@.flush();
     }
 
     /// The `PersistentMemoryRegions` trait represents an ordered list
@@ -361,7 +399,7 @@ verus! {
                 result == self@[index as int].len();
 
         fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires 
+            requires
                 self.inv(),
                 index < self@.len(),
                 addr + num_bytes <= self@[index as int].len(),
@@ -390,7 +428,7 @@ verus! {
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-            ensures 
+            ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(index as int, addr as int, bytes@);
@@ -418,7 +456,7 @@ verus! {
 
     #[allow(dead_code)]
     pub struct WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
-        where 
+        where
             Perm: CheckPermission<Seq<Seq<u8>>>,
             PMRegions: PersistentMemoryRegions
     {
@@ -427,7 +465,7 @@ verus! {
     }
 
     impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
-        where 
+        where
             Perm: CheckPermission<Seq<Seq<u8>>>,
             PMRegions: PersistentMemoryRegions
     {
@@ -449,7 +487,7 @@ verus! {
         pub exec fn new(pm_regions: PMRegions) -> (wrpm_regions: Self)
             requires
                 pm_regions.inv()
-            ensures 
+            ensures
                 wrpm_regions.inv(),
                 wrpm_regions@ == pm_regions@,
                 wrpm_regions.constants() == pm_regions.constants()

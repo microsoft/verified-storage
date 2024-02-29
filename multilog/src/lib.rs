@@ -218,7 +218,8 @@ verus! {
         // Create the multipersistent memory out of the two regions.
         let dir_name = vstd::string::new_strlit(".");
         let mut pm_regions = FileBackedPersistentMemoryRegions::new(&dir_name, MemoryMappedFileMediaType::SSD,
-                                                                    region_sizes.as_slice()).ok()?;
+                                                                    region_sizes.as_slice(),
+                                                                    /* temporary_for_testing: */ true).ok()?;
 
         // Set up the memory regions to contain a multilog. The capacities will be less
         // than 4096 and 1024 because a few bytes are needed in each region for metadata.
