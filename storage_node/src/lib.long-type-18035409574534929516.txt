@@ -1,0 +1,1 @@
+&mut pmem::pmemspec_t::WriteRestrictedPersistentMemoryRegions<multilog::multilogimpl_t::TrustedPermission, PMRegions>

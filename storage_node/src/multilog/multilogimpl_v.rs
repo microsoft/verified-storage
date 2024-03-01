@@ -896,7 +896,6 @@ verus! {
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.drop_pending_appends())
                     ||| Self::recover(s, multilog_id) == Some(old(self)@.commit().drop_pending_appends())
                 },
-                // old(wrpm_regions)@.device_id() == timestamp@.device_id()
             ensures
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
@@ -1017,6 +1016,8 @@ verus! {
                         &&& which_log < self@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
                         &&& self@ == old(self)@.advance_head(w, new_head as int)
+                        &&& wrpm_regions@.current_timestamp.value() == old(wrpm_regions)@.current_timestamp.value() + 2
+                        &&& wrpm_regions@.current_timestamp.device_id() == old(wrpm_regions)@.current_timestamp.device_id()
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
                         &&& self@ == old(self)@
