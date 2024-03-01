@@ -265,7 +265,7 @@ pub fn test_multilog() -> Option<()> {
         &dir_name,
         MemoryMappedFileMediaType::SSD,
         region_sizes.as_slice(),
-        /* temporary_for_testing: */ true
+        FileCloseBehavior::TestingSoDeleteOnClose,
     ).ok()?;
 
     // Set up the memory regions to contain a multilog. The capacities will be less

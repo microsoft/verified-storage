@@ -201,7 +201,7 @@ pub mod start_v;
 
 use crate::multilogimpl_t::{MultiLogErr, MultiLogImpl};
 use crate::pmemspec_t::PersistentMemoryRegions;
-use crate::pmemfile_t::{MemoryMappedFileMediaType, FileBackedPersistentMemoryRegions};
+use crate::pmemfile_t::{FileBackedPersistentMemoryRegions, FileCloseBehavior, MemoryMappedFileMediaType};
 
 verus! {
 
@@ -219,7 +219,7 @@ verus! {
         let dir_name = vstd::string::new_strlit(".");
         let mut pm_regions = FileBackedPersistentMemoryRegions::new(&dir_name, MemoryMappedFileMediaType::SSD,
                                                                     region_sizes.as_slice(),
-                                                                    /* temporary_for_testing: */ true).ok()?;
+                                                                    FileCloseBehavior::TestingSoDeleteOnClose).ok()?;
 
         // Set up the memory regions to contain a multilog. The capacities will be less
         // than 4096 and 1024 because a few bytes are needed in each region for metadata.
