@@ -487,6 +487,8 @@ verus! {
                         &&& which_log < self@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
                         &&& self@ == old(self)@.advance_head(w, new_head as int)
+                        &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
+                        &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
                         &&& which_log >= self@.num_logs()
