@@ -900,15 +900,10 @@ verus! {
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
-                match result {
-                    Ok(()) =>
-                    {
-                        &&& self@ == old(self)@.commit()
-                        &&& wrpm_regions@.current_timestamp.value() == old(wrpm_regions)@.current_timestamp.value() + 2
-                        &&& wrpm_regions@.current_timestamp.device_id() == old(wrpm_regions)@.current_timestamp.device_id()
-                    }
-                    _ => false
-                }
+                result is Ok,
+                self@ == old(self)@.commit(),
+                wrpm_regions@.current_timestamp.value() == old(wrpm_regions)@.current_timestamp.value() + 2,
+                wrpm_regions@.current_timestamp.device_id() == old(wrpm_regions)@.current_timestamp.device_id(),
         {
             let ghost prev_infos = self.infos@;
             let ghost prev_state = self.state@;
