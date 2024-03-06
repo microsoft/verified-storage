@@ -33,6 +33,7 @@
 //! as showing evidence of an absence of corruption.
 
 use crate::pmem::device_t::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -570,12 +571,28 @@ verus! {
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-                // old(self)@.device_id() == timestamp@.device_id()
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
                     let written = old(self)@.write(index as int, addr as int, bytes@);
+                    &&& self@ == written
+                    &&& self@.current_timestamp == old(self)@.current_timestamp
+                });
+
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
+            where
+                S: Serializable
+            requires
+                old(self).inv(),
+                index < old(self)@.len(),
+                addr + to_write.serialized_len() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + to_write.serialized_len()),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                ({
+                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
                     &&& self@ == written
                     &&& self@.current_timestamp == old(self)@.current_timestamp
                 });

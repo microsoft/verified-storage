@@ -11,6 +11,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
 };
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -274,6 +275,11 @@ verus! {
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
         {
             self.pms[index].write(addr, bytes)
+        }
+
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
+        {
+
         }
 
         #[verifier::external_body]
