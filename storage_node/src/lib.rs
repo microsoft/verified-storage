@@ -4,6 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 pub mod multilog;
+pub mod paged_kv;
 pub mod pmem;
 
 use crate::multilog::multilogimpl_t::*;
