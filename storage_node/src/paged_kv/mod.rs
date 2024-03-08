@@ -7,6 +7,7 @@
 //! the values themselves.
 
 pub mod durable;
-pub mod interface_t;
+pub mod pagedkvimpl_t;
+pub mod pagedkvimpl_v;
 pub mod pagedkvspec_t;
 pub mod volatile;

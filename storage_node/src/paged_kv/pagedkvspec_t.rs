@@ -3,7 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::interface_t::*;
+use crate::paged_kv::pagedkvimpl_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -40,30 +40,10 @@ verus! {
             }
         }
 
-        pub open spec fn read_header(self, key: K) -> Option<H>
-        {
-            if self.contents.contains_key(key) {
-                let (header, pages) = self.contents[key];
-                Some(header)
-            } else {
-                None
-            }
-        }
-
         pub open spec fn read_header_and_pages(self, key: K) -> Option<(H, Seq<P>)>
         {
             if self.contents.contains_key(key) {
                 Some(self.contents[key])
-            } else {
-                None
-            }
-        }
-
-        pub open spec fn read_pages(self, key: K) -> Option<Seq<P>>
-        {
-            if self.contents.contains_key(key) {
-                let (header, pages) = self.contents[key];
-                Some(pages)
             } else {
                 None
             }

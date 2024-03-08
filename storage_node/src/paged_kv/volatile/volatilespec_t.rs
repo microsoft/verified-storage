@@ -10,7 +10,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::interface_t::*;
+use crate::paged_kv::pagedkvimpl_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -35,18 +35,17 @@ verus! {
         {
             self.contents.contains_key(key)
         }
+
+        pub closed spec fn insert(&self, key: K, index: usize) -> Self
+        {
+            Self { contents: self.contents.insert(key, index) }
+        }
+
+        pub closed spec fn remove(&self, key: K) -> Self
+        {
+            Self { contents: self.contents.remove(key) }
+        }
     }
 
-    pub trait VolatileKvIndex<K, E> : Sized
-    where
-        K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-        E: std::fmt::Debug,
-    {
-        spec fn view(&self) -> VolatileKvIndexView<K>;
 
-        fn new(
-            kvstore_id: u128,
-            max_keys: usize,
-        ) -> Result<Self, PagedKvError<K, E>>;
-    }
 }

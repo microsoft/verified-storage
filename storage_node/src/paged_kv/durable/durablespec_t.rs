@@ -11,8 +11,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::interface_t::*;
-use crate::paged_kv::volatile::volatileimpl_t::*;
+use crate::paged_kv::pagedkvimpl_t::*;
+use crate::paged_kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
@@ -27,12 +27,44 @@ verus! {
         pages: Seq<P>,
     }
 
+    impl<K, H, P> DurableKvStoreViewEntry<K, H, P>
+    where
+        K: Hash + Eq,
+        P: LogicalRange
+    {
+        pub closed spec fn key(self) -> K
+        {
+            self.key
+        }
+
+        pub closed spec fn header(self) -> H
+        {
+            self.header
+        }
+
+        pub closed spec fn pages(self) -> Seq<P>
+        {
+            self.pages
+        }
+    }
+
     pub struct DurableKvStoreView<K, H, P>
     where
         K: Hash + Eq,
         P: LogicalRange,
     {
         contents: Seq<Option<DurableKvStoreViewEntry<K, H, P>>>
+    }
+
+    impl<K, H, P> DurableKvStoreView<K, H, P>
+    where
+        K: Hash + Eq,
+        P: LogicalRange,
+    {
+        pub closed spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, H, P>>
+        {
+            self.contents[idx]
+        }
     }
 
     impl<K, H, P> DurableKvStoreView<K, H, P>
@@ -53,23 +85,5 @@ verus! {
             }
 
         }
-    }
-
-    pub trait DurableKvStore<PM, K, H, P, E> : Sized
-    where
-        PM: PersistentMemoryRegions,
-        K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-        H: Serializable<E> + std::fmt::Debug,
-        P: Serializable<E> + LogicalRange + std::fmt::Debug,
-        E: std::fmt::Debug,
-    {
-        spec fn view(&self) -> DurableKvStoreView<K, H, P>;
-
-        fn new(pmem: PM,
-            kvstore_id: u128,
-            max_keys: usize,
-            lower_bound_on_max_pages: usize,
-            logical_range_gaps_policy: LogicalRangeGapsPolicy
-        ) -> Result<Self, PagedKvError<K, E>>;
     }
 }

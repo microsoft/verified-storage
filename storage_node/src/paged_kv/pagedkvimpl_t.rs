@@ -2,14 +2,20 @@
 //! The methods offered by this file should match the mocks.
 //! The key-value store itself should be as generic as possible, not
 //! restricted to particular data structures.
+//!
+//! TODO: handle errors properly in postconditions
 
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::durable::durableimpl_t::*;
-use super::volatile::volatileimpl_t::*;
+use super::durable::durableimpl_v::*;
+use super::durable::durablespec_t::*;
+use super::pagedkvimpl_v::*;
+use super::pagedkvspec_t::*;
+use super::volatile::volatileimpl_v::*;
+use super::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
@@ -76,6 +82,7 @@ pub enum LogicalRangeGapsPolicy {
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
+// TODO: actually should this be a wrapper around an untrusted implementation?
 pub struct PagedKv<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
@@ -86,9 +93,8 @@ where
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
-    durable_store: D,
-    volatile_index: V,
-    _phantom: Ghost<core::marker::PhantomData<(PM, K, H, P, E)>>,
+    id: u128,
+    untrusted_kv_impl: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
 }
 
 // TODO: is there a better way to handle PhantomData?
@@ -107,6 +113,16 @@ where
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, H, P>
+    {
+        self.untrusted_kv_impl@
+    }
+
+    pub closed spec fn valid(self) -> bool
+    {
+        self.untrusted_kv_impl.valid()
+    }
+
     /// The `PagedKv` constructor calls the constructors for the durable and
     /// volatile components of the key-value store.
     fn new(
@@ -115,29 +131,68 @@ where
         max_keys: usize,
         lower_bound_on_max_pages: usize,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    ) -> Result<Self, PagedKvError<K, E>>
+    ) -> (result: Result<Self, PagedKvError<K, E>>)
+        ensures
+            match result {
+                Ok(new_kv) => {
+                    &&& new_kv.valid()
+                }
+                Err(_) => true
+            }
     {
         Ok(
             Self {
-                durable_store: D::new(pmem, kvstore_id, max_keys, lower_bound_on_max_pages, logical_range_gaps_policy)?,
-                volatile_index: V::new(kvstore_id, max_keys)?,
-                _phantom: Ghost(spec_phantom_data()),
+                id: kvstore_id,
+                untrusted_kv_impl: UntrustedPagedKvImpl::new(
+                    pmem,
+                    kvstore_id,
+                    max_keys,
+                    lower_bound_on_max_pages,
+                    logical_range_gaps_policy
+                )?
             }
         )
     }
 
+    // TODO: write spec for this operation
     fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> Result<Self, PagedKvError<K, E>>
     {
         Err(PagedKvError::NotImplemented)
     }
 
-    fn create(&mut self, key: &K, header: H) -> Result<(), PagedKvError<K, E>>
+    fn create(&mut self, key: &K, header: H) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.create(*key, header)
+                }
+                Err(_) => true
+            }
     {
         Err(PagedKvError::NotImplemented)
     }
 
-    fn read_header(&self, key: &K) -> Option<&H>
+    fn read_header(&self, key: &K) -> (result: Option<&H>)
+        requires
+            self.valid()
+        ensures
+        ({
+            let spec_result = self@.read_header_and_pages(*key);
+            match (result, spec_result) {
+                (Some(output_header), Some((spec_header, pages))) => {
+                    &&& spec_header == output_header
+                }
+                _ => {
+                    let spec_result = self@.read_header_and_pages(*key);
+                    spec_result.is_None()
+                }
+            }
+        })
     {
+        assume(false);
         None
     }
 
