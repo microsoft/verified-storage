@@ -107,18 +107,18 @@ verus! {
 
         pub open spec fn find_page_with_logical_range_start(self, key: K, start: int) -> Option<int>
         {
-            let val = self.read_pages(key);
+            let val = self.read_header_and_pages(key);
             match val {
-                Some(pages) => Self::get_page_idx_with_start(pages, start),
+                Some((header, pages)) => Self::get_page_idx_with_start(pages, start),
                 None => None
             }
         }
 
         pub open spec fn find_pages_in_logical_range(self, key: K, start: int, end: int) -> Seq<P>
         {
-            let val = self.read_pages(key);
+            let val = self.read_header_and_pages(key);
             match val {
-                Some(pages) => {
+                Some((header, pages)) => {
                     let start_idx = Self::get_page_idx_with_start(pages, start);
                     let end_idx = Self::get_page_idx_with_end(pages, end);
                     match (start_idx, end_idx) {
