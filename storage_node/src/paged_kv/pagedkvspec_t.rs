@@ -3,10 +3,100 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::paged_kv::durable::durableimpl_v::*;
 use crate::paged_kv::pagedkvimpl_t::*;
+use crate::paged_kv::pagedkvimpl_v::*;
+use crate::paged_kv::volatile::volatileimpl_v::*;
+use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
 verus! {
+
+    // Since the durable part of the PagedKV is a list of PM regions,
+    // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
+    pub struct TrustedKvPermission<PM, K, H, P, D, V, E>
+        where
+            PM: PersistentMemoryRegions,
+            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + std::fmt::Debug,
+            P: Serializable<E> + LogicalRange + std::fmt::Debug,
+            D: DurableKvStore<PM, K, H, P, E>,
+            V: VolatileKvIndex<K, E>,
+            E: std::fmt::Debug,
+    {
+        ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
+        _phantom:  Ghost<core::marker::PhantomData<(PM, K, H, P, D, V, E)>>
+    }
+
+    impl<PM, K, H, P, D, V, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, H, P, D, V, E>
+        where
+            PM: PersistentMemoryRegions,
+            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + std::fmt::Debug,
+            P: Serializable<E> + LogicalRange + std::fmt::Debug,
+            D: DurableKvStore<PM, K, H, P, E>,
+            V: VolatileKvIndex<K, E>,
+            E: std::fmt::Debug,
+    {
+        closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
+        {
+            (self.is_state_allowable)(state)
+        }
+    }
+
+    impl<PM, K, H, P, D, V, E> TrustedKvPermission<PM, K, H, P, D, V, E>
+        where
+            PM: PersistentMemoryRegions,
+            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + std::fmt::Debug,
+            P: Serializable<E> + LogicalRange + std::fmt::Debug,
+            D: DurableKvStore<PM, K, H, P, E>,
+            V: VolatileKvIndex<K, E>,
+            E: std::fmt::Debug,
+    {
+        // methods copied from multilogimpl_t and updated for PagedKV structures
+
+        // This is one of two constructors for `TrustedKvPermission`.
+        // It conveys permission to do any update as long as a
+        // subsequent crash and recovery can only lead to given
+        // abstract state `state`.
+        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, H, P>) -> (tracked perm: Self)
+            ensures
+                forall |s| #[trigger] perm.check_permission(s) <==>
+                    UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state)
+        {
+            Self {
+                is_state_allowable: |s| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state),
+                _phantom: Ghost(spec_phantom_data())
+            }
+        }
+
+        // This is the second of two constructors for
+        // `TrustedKvPermission`.  It conveys permission to do any
+        // update as long as a subsequent crash and recovery can only
+        // lead to one of two given abstract states `state1` and
+        // `state2`.
+        pub proof fn new_two_possibilities(
+            kv_id: u128,
+            state1: AbstractKvStoreState<K, H, P>,
+            state2: AbstractKvStoreState<K, H, P>
+        ) -> (tracked perm: Self)
+            ensures
+                forall |s| #[trigger] perm.check_permission(s) <==> {
+                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state1)
+                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state2)
+                }
+        {
+            Self {
+                is_state_allowable: |s| {
+                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state1)
+                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state2)
+                },
+                _phantom: Ghost(spec_phantom_data())
+            }
+        }
+    }
+
 
     /// An `AbstractKvStoreState` is an abstraction of
     /// an entire `PagedKvStore`.

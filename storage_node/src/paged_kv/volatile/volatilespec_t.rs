@@ -45,6 +45,10 @@ verus! {
         {
             Self { contents: self.contents.remove(key) }
         }
+
+        pub closed spec fn empty(self) -> bool {
+            self.contents == Map::<K, usize>::empty()
+        }
     }
 
 

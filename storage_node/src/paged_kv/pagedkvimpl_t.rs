@@ -132,6 +132,8 @@ where
         lower_bound_on_max_pages: usize,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
     ) -> (result: Result<Self, PagedKvError<K, E>>)
+        requires
+            pmem.inv(),
         ensures
             match result {
                 Ok(new_kv) => {
@@ -143,7 +145,7 @@ where
         Ok(
             Self {
                 id: kvstore_id,
-                untrusted_kv_impl: UntrustedPagedKvImpl::new(
+                untrusted_kv_impl: UntrustedPagedKvImpl::untrusted_new(
                     pmem,
                     kvstore_id,
                     max_keys,
@@ -172,7 +174,8 @@ where
                 Err(_) => true
             }
     {
-        Err(PagedKvError::NotImplemented)
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, header));
+        self.untrusted_kv_impl.untrusted_create(key, header, Tracked(&perm))
     }
 
     fn read_header(&self, key: &K) -> (result: Option<&H>)
@@ -192,33 +195,103 @@ where
             }
         })
     {
-        assume(false);
-        None
+        self.untrusted_kv_impl.untrusted_read_header(key)
     }
 
-    fn read_header_and_pages(&self, key: &K) -> Option<(&H, &Vec<P>)>
+    fn read_header_and_pages(&self, key: &K) -> (result: Option<(&H, &Vec<P>)>)
+        requires
+            self.valid(),
+        ensures
+        ({
+            let spec_result = self@.read_header_and_pages(*key);
+            match (result, spec_result) {
+                (Some((output_header, output_pages)), Some((spec_header, spec_pages))) => {
+                    &&& spec_header == output_header
+                    &&& spec_pages == output_pages@
+                }
+                _ => {
+                    let spec_result = self@.read_header_and_pages(*key);
+                    spec_result.is_None()
+                }
+            }
+        })
     {
-        None
+        self.untrusted_kv_impl.untrusted_read_header_and_pages(key)
     }
 
-    fn read_pages(&self, key: &K) -> Option<&Vec<P>>
+    fn read_pages(&self, key: &K) -> (result: Option<&Vec<P>>)
+        requires
+            self.valid(),
+        ensures
+        ({
+            let spec_result = self@.read_header_and_pages(*key);
+            match (result, spec_result) {
+                (Some( output_pages), Some((spec_header, spec_pages))) => {
+                    &&& spec_pages == output_pages@
+                }
+                _ => {
+                    let spec_result = self@.read_header_and_pages(*key);
+                    spec_result.is_None()
+                }
+            }
+        })
     {
-        None
+        self.untrusted_kv_impl.untrusted_read_pages(key)
     }
 
-    fn update_header(&mut self, key: &K, new_header: H) -> Result<(), PagedKvError<K, E>>
+    fn update_header(&mut self, key: &K, new_header: H) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid(),
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.update_header(*key, new_header)
+                }
+                Err(_) => true // TODO
+            }
     {
-        Err(PagedKvError::NotImplemented)
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_header(*key, new_header));
+        self.untrusted_kv_impl.untrusted_update_header(key, new_header, Tracked(&perm))
     }
 
-    fn delete(&mut self, key: &K) -> Result<(), PagedKvError<K, E>>
+    fn delete(&mut self, key: &K) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.delete(*key)
+                }
+                Err(_) => true // TODO
+            }
     {
-        Err(PagedKvError::NotImplemented)
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.delete(*key));
+        self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
     }
 
-    fn find_page_with_logical_range_start(&self, key: &K, start: usize) -> Result<Option<usize>, PagedKvError<K, E>>
+    fn find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, PagedKvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            match result {
+                Ok(page_idx) => {
+                    let spec_page = self@.find_page_with_logical_range_start(*key, start as int);
+                    // page_idx is an Option<usize> and spec_page is an Option<int>, so we can't directly
+                    // compare them and need to use a match statement here.
+                    match (page_idx, spec_page) {
+                        (Some(page_idx), Some(spec_idx)) => {
+                            &&& page_idx == spec_idx
+                        }
+                        (None, None) => true,
+                        _ => true // TODO
+                    }
+                }
+                Err(_) => true // TODO
+            }
     {
-        Err(PagedKvError::NotImplemented)
+        self.untrusted_kv_impl.untrusted_find_page_with_logical_range_start(key, start)
     }
 
     fn find_pages_in_logical_range(&self, key: &K, start: usize, end: usize) -> Result<Vec<&P>, PagedKvError<K, E>>

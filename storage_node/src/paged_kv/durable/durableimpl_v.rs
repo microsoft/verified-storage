@@ -25,6 +25,13 @@ verus! {
             max_keys: usize,
             lower_bound_on_max_pages: usize,
             logical_range_gaps_policy: LogicalRangeGapsPolicy
-        ) -> Result<Self, PagedKvError<K, E>>;
+        ) -> (result: Result<Self, PagedKvError<K, E>>)
+            ensures
+                match(result) {
+                    Ok(durable_store) => {
+                        &&& durable_store@.empty()
+                    }
+                    Err(_) => true // TODO
+                };
     }
 }

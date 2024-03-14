@@ -18,6 +18,15 @@ verus! {
         fn new(
             kvstore_id: u128,
             max_keys: usize,
-        ) -> Result<Self, PagedKvError<K, E>>;
+        ) -> (result: Result<Self, PagedKvError<K, E>>)
+            ensures
+                match result {
+                    Ok(volatile_index) => {
+                        &&& volatile_index@.empty()
+                    }
+                    Err(_) => true // TODO
+                }
+
+        ;
     }
 }
