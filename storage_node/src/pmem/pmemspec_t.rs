@@ -426,8 +426,12 @@ verus! {
         pub impervious_to_corruption: bool
     }
 
-    pub trait PersistentMemoryRegion : Sized
+    pub trait PersistentMemoryRegion<S> : Sized
+    where
+        S: Serializable
     {
+        type RegionDesc : RegionDescriptor;
+
         spec fn view(&self) -> PersistentMemoryRegionView;
 
         spec fn inv(&self) -> bool;
@@ -441,39 +445,39 @@ verus! {
                 result == self.spec_device_id(),
                 result == self@.device_id;
 
-        fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(pm) => {
-                        &&& pm@.len() == region_size
+                        &&& pm@.len() == region_descriptor@.len
                         &&& pm.inv()
                         &&& pm@.no_outstanding_writes()
-                        &&& pm.spec_device_id() == timestamp@.device_id()
+                        &&& pm.spec_device_id() == region_descriptor@.device_id
                     },
                     Err(_) => true
                 };
 
-        fn get_region_size(&self) -> (result: u64)
+        fn get_region_size(&self) -> (result: usize)
             requires
                 self.inv()
             ensures
-                result == self@.len();
+                result == self@.len() / S::spec_serialized_len() as nat;
 
-        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        fn read(&self, addr: u64, len: u64) -> (bytes: Vec<S>)
             requires
                 self.inv(),
-                addr + num_bytes <= self@.len()
+                addr + len <= self@.len()
             ensures
-                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
+                view_serializable_seq_as_bytes(bytes@) == self@.committed().subrange(addr as int, addr + len);
 
-        fn write(&mut self, addr: u64, bytes: &[u8])
+        fn write(&mut self, addr: u64, bytes: &[S])
             requires
                 old(self).inv(),
                 addr + bytes@.len() <= old(self)@.len(),
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == self@.write(addr as int, bytes@),
+                self@ == self@.write(addr as int, view_serializable_seq_as_bytes(bytes@)),
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
                             r.current_timestamp == self@.current_timestamp
                 ;
@@ -580,22 +584,22 @@ verus! {
                     &&& self@.current_timestamp == old(self)@.current_timestamp
                 });
 
-        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
-            where
-                S: Serializable
-            requires
-                old(self).inv(),
-                index < old(self)@.len(),
-                addr + to_write.serialized_len() <= old(self)@[index as int].len(),
-                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + to_write.serialized_len()),
-            ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                ({
-                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
-                    &&& self@ == written
-                    &&& self@.current_timestamp == old(self)@.current_timestamp
-                });
+        // fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
+        //     where
+        //         S: Serializable
+        //     requires
+        //         old(self).inv(),
+        //         index < old(self)@.len(),
+        //         addr + to_write.serialized_len() <= old(self)@[index as int].len(),
+        //         old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + to_write.serialized_len()),
+        //     ensures
+        //         self.inv(),
+        //         self.constants() == old(self).constants(),
+        //         ({
+        //             let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+        //             &&& self@ == written
+        //             &&& self@.current_timestamp == old(self)@.current_timestamp
+        //         });
 
 
         fn flush(&mut self)

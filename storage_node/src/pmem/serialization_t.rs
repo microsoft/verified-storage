@@ -2,6 +2,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::pmem::pmemspec_t::*;
+
 verus! {
     // In order to serialize an object straight onto PM, we need functions
     // that serialize to a given raw pointer, and also have a byte-level
@@ -29,20 +31,56 @@ verus! {
     pub trait Serializable : Sized {
         spec fn spec_serialize(&self) -> Seq<u8>;
 
-        spec fn serialized_len(&self) -> int;
+        // TODO: this should really be a constant, but verus doesn't
+        // support associated constants right now
+        spec fn spec_serialized_len() -> u64;
 
-        fn get_serialized_len(&self) -> (out: u64)
+        fn serialized_len() -> (out: u64)
             ensures
-                out == self.spec_serialize().len()
+                out == Self::spec_serialized_len()
         ;
 
+        // TODO: think about how to represent the destination
         fn serialize(&self, destination: &mut [u8])
             requires
-                old(destination)@.len() == self.spec_serialize().len(),
+                old(destination)@.len() == Self::spec_serialized_len()
             ensures
                 destination@ =~= self.spec_serialize(),
         ;
 
         fn deserialize(source: &[u8]) -> Self;
+
+        // NOTE: this is NOT a view method and should only be used to
+        // initially set up the ghost state for a PersistentMemoryRegion.
+        // TODO: express that more clearly? Enforce it somehow?
+        spec fn view_as_pm_bytes(&self) -> Seq<PersistentMemoryByte>;
+    }
+
+    pub open spec fn view_serializable_seq_as_pm_bytes<S>(serializable_seq: Seq<S>) -> Seq<PersistentMemoryByte>
+        where
+            S: Serializable
+        decreases
+            serializable_seq.len()
+    {
+        if serializable_seq.len() == 0 {
+            Seq::empty()
+        } else {
+            serializable_seq[0].view_as_pm_bytes() +
+                view_serializable_seq_as_pm_bytes(serializable_seq.subrange(1, serializable_seq.len() as int))
+        }
+    }
+
+    pub open spec fn view_serializable_seq_as_bytes<S>(serializable_seq: Seq<S>) -> Seq<u8>
+        where
+            S: Serializable
+        decreases
+            serializable_seq.len()
+    {
+        if serializable_seq.len() == 0 {
+            Seq::empty()
+        } else {
+            serializable_seq[0].spec_serialize() +
+                view_serializable_seq_as_bytes(serializable_seq.subrange(1, serializable_seq.len() as int))
+        }
     }
 }
