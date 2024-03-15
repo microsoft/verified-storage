@@ -253,6 +253,163 @@ where
     {
         Err(PagedKvError::NotImplemented)
     }
+
+    pub fn untrusted_find_pages_in_logical_range(
+        &self,
+        key: &K,
+        start: usize,
+        end: usize
+    ) -> (result: Result<Vec<&P>, PagedKvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            match result {
+                Ok(output_pages) =>  {
+                    let spec_pages = self@.find_pages_in_logical_range(*key, start as int, end as int);
+                    let spec_pages_ref = Seq::new(spec_pages.len(), |i| { &spec_pages[i] });
+                    output_pages@ == spec_pages_ref
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_append_page(
+        &mut self,
+        key: &K,
+        new_index: P,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.append_page(*key, new_index)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_append_page_and_update_header(
+        &mut self,
+        key: &K,
+        new_index: P,
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.append_page_and_update_header(*key, new_index, new_header)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_update_page(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_index: P,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.update_page(*key, idx, new_index)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_update_page_and_header(
+        &mut self,
+        key: &K,
+        idx: usize,
+        new_index: P,
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.update_page_and_header(*key, idx, new_index, new_header)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_trim_pages(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_trim_pages_and_update_header(
+        &mut self,
+        key: &K,
+        trim_length: usize,
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+    ) -> (result: Result<(), PagedKvError<K, E>>)
+        requires
+            old(self).valid()
+        ensures
+            match result {
+                Ok(()) => {
+                    &&& self.valid()
+                    &&& self@ == old(self)@.trim_pages_and_update_header(*key, trim_length as int, new_header)
+                }
+                Err(_) => true // TODO
+            }
+    {
+        Err(PagedKvError::NotImplemented)
+    }
+
+    pub fn untrusted_get_keys(&self) -> (result: Vec<K>)
+        requires
+            self.valid()
+        ensures
+            result@.to_set() == self@.get_keys()
+    {
+        assume(false);
+        Vec::new()
+    }
+
 }
 
 }
