@@ -50,6 +50,8 @@ verus! {
 
         fn deserialize(source: &[u8]) -> Self;
 
+        spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
+
         // NOTE: this is NOT a view method and should only be used to
         // initially set up the ghost state for a PersistentMemoryRegion.
         // TODO: express that more clearly? Enforce it somehow?
@@ -70,6 +72,8 @@ verus! {
         }
     }
 
+    // NOTE: verus has trouble proving termination when this is used in postconditions.
+    // Might be better to take it out entirely...
     pub open spec fn view_serializable_seq_as_bytes<S>(serializable_seq: Seq<S>) -> Seq<u8>
         where
             S: Serializable

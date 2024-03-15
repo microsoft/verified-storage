@@ -463,12 +463,16 @@ verus! {
             ensures
                 result == self@.len() / S::spec_serialized_len() as nat;
 
-        fn read(&self, addr: u64, len: u64) -> (bytes: Vec<S>)
+        // TODO: the postconditions might need some tweaking to make them easier to prove
+        fn read(&self, addr: u64, len: u64) -> (results: Vec<S>)
             requires
                 self.inv(),
                 addr + len <= self@.len()
             ensures
-                view_serializable_seq_as_bytes(bytes@) == self@.committed().subrange(addr as int, addr + len);
+                forall |i| 0 <= i < results.len() ==> {
+                    let index = addr + S::spec_serialized_len() * i;
+                    #[trigger] results[i].spec_serialize() == self@.committed().subrange(index, index + S::spec_serialized_len())
+                };
 
         fn write(&mut self, addr: u64, bytes: &[S])
             requires
@@ -477,9 +481,12 @@ verus! {
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == self@.write(addr as int, view_serializable_seq_as_bytes(bytes@)),
+                forall |i| 0 <= i < bytes@.len() ==> {
+                    let index = addr + S::spec_serialized_len() * i;
+                    #[trigger] bytes[i].spec_serialize() == self@.committed().subrange(index, index + S::spec_serialized_len())
+                },
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
-                            r.current_timestamp == self@.current_timestamp
+                    r.current_timestamp == self@.current_timestamp
                 ;
 
         fn flush(&mut self)
