@@ -476,6 +476,8 @@ verus! {
             // empty string. If so, do nothing and return.
 
             if num_bytes == 0 {
+                assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
+                assert(bytes_to_append@ =~= Seq::<u8>::empty());
                 assert(self@ =~= old(self)@.tentatively_append(w, bytes_to_append@));
                 return Ok(old_pending_tail);
             }
