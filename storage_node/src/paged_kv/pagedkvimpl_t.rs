@@ -156,8 +156,20 @@ where
         )
     }
 
-    // TODO: write spec for this operation
-    fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> Result<Self, PagedKvError<K, E>>
+    fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, PagedKvError<K, E>>)
+        requires
+            pmem.inv(),
+        ensures
+            match result {
+                Ok(restored_kv) => {
+                    let restored_state = UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(pmem@.committed(), kvstore_id);
+                    match restored_state {
+                        Some(restored_state) => restored_kv@ == restored_state,
+                        None => false
+                    }
+                }
+                Err(_) => true // TODO
+            }
     {
         Err(PagedKvError::NotImplemented)
     }

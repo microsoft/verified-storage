@@ -119,9 +119,6 @@ verus! {
         K: Hash + Eq,
         P: LogicalRange,
     {
-        // TODO: spec function for restore, if it makes sense to have one...?
-        pub open spec fn restore(self);
-
         pub open spec fn create(self, key: K, header: H) -> Self
         {
             Self {
