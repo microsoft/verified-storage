@@ -46,9 +46,9 @@ verus! {
         // Loop through all the regions, checking for sufficiency of
         // size.
 
+        #[verifier::loop_isolation(false)]
         for which_log in 0..num_regions
             invariant
-                num_regions == region_sizes.len(),
                 forall |j| 0 <= j < which_log ==> region_sizes[j] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
         {
             if region_sizes[which_log as usize] < ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE {
@@ -71,10 +71,9 @@ verus! {
                 #[trigger] result[i] + ABSOLUTE_POS_OF_LOG_AREA == region_sizes[i]
     {
         let mut result = Vec::<u64>::new();
+        #[verifier::loop_isolation(false)]
         for which_region in iter: 0..region_sizes.len()
             invariant
-                iter.end == region_sizes.len(),
-                forall |i: int| 0 <= i < region_sizes.len() ==> region_sizes[i] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
                 result.len() == which_region,
                 forall |i: int| 0 <= i < which_region ==>
                     #[trigger] result[i] + ABSOLUTE_POS_OF_LOG_AREA == region_sizes[i]
@@ -510,15 +509,12 @@ verus! {
         // setting up the metadata for region `which_log`.
 
         let num_logs = region_sizes.len() as u32;
+        #[verifier::loop_isolation(false)]
         for which_log in 0..num_logs
             invariant
-                num_logs == pm_regions@.len(),
                 pm_regions.inv(),
                 pm_regions.constants() == old(pm_regions).constants(),
-                pm_regions@.len() == old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
-                pm_regions@.len() >= 1,
-                pm_regions@.len() <= u32::MAX,
-                forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
+                pm_regions@.len() == log_capacities.len(),
                 forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i],
                 forall |i: int| 0 <= i < pm_regions@.len() ==>
                     #[trigger] pm_regions@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,

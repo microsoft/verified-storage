@@ -157,7 +157,6 @@ verus! {
         {
             for which_region in iter: 0..self.pms.len()
                 invariant
-                    iter.end == self.pms.len(),
                     forall |i: int| 0 <= i < which_region ==>
                         self.pms[which_region as int]@ == old(self).pms[which_region as int]@.flush()
             {
