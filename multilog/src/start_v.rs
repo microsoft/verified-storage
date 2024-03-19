@@ -353,6 +353,7 @@ verus! {
     //
     // `Ok(log_info)` -- The information `log_info` has been
     // successfully read.
+    #[verifier::loop_isolation(false)]
     pub fn read_logs_variables<PMRegions: PersistentMemoryRegions>(
         pm_regions: &PMRegions,
         multilog_id: u128,
@@ -378,7 +379,6 @@ verus! {
             }
     {
         let mut infos = Vec::<LogInfo>::new();
-        #[verifier::loop_isolation(false)]
         for which_log in 0..num_regions
             invariant
                 which_log == infos.len(),

@@ -26,6 +26,7 @@ verus! {
     // 
     // `Ok(())` -- there's enough space on each region
     // `Err(err)` -- there isn't enough space, so the caller should return the error `err`.
+    #[verifier::loop_isolation(false)]
     pub fn check_for_required_space(region_sizes: &Vec<u64>, num_regions: u32) -> (result: Result<(), MultiLogErr>)
         requires
             num_regions == region_sizes.len()
@@ -46,7 +47,6 @@ verus! {
         // Loop through all the regions, checking for sufficiency of
         // size.
 
-        #[verifier::loop_isolation(false)]
         for which_log in 0..num_regions
             invariant
                 forall |j| 0 <= j < which_log ==> region_sizes[j] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
@@ -62,6 +62,7 @@ verus! {
     }
 
     // This exported function computes the log capacities allowed by the given region sizes.
+    #[verifier::loop_isolation(false)]
     pub fn compute_log_capacities(region_sizes: &Vec<u64>) -> (result: Vec<u64>)
         requires
             forall |i: int| 0 <= i < region_sizes.len() ==> region_sizes[i] >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
@@ -71,7 +72,6 @@ verus! {
                 #[trigger] result[i] + ABSOLUTE_POS_OF_LOG_AREA == region_sizes[i]
     {
         let mut result = Vec::<u64>::new();
-        #[verifier::loop_isolation(false)]
         for which_region in iter: 0..region_sizes.len()
             invariant
                 result.len() == which_region,
@@ -481,6 +481,7 @@ verus! {
     // the resulting recovered abstract state will be the valid
     // initial value
     // `AbstractMultiLogState::initialize(log_capacities)`.
+    #[verifier::loop_isolation(false)]
     pub fn write_setup_metadata_to_all_regions<PMRegions: PersistentMemoryRegions>(
         pm_regions: &mut PMRegions,
         region_sizes: &Vec<u64>,
@@ -509,7 +510,6 @@ verus! {
         // setting up the metadata for region `which_log`.
 
         let num_logs = region_sizes.len() as u32;
-        #[verifier::loop_isolation(false)]
         for which_log in 0..num_logs
             invariant
                 pm_regions.inv(),
