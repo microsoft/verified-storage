@@ -409,6 +409,8 @@ verus! {
             // empty string. If so, do nothing and return.
 
             if num_bytes == 0 {
+                assert(self@.states[which_log as int] =~=
+                       old(self)@.tentatively_append(w, bytes_to_append@).states[which_log as int]);
                 assert(self@ =~= old(self)@.tentatively_append(w, bytes_to_append@));
                 return Ok(old_pending_tail);
             }
