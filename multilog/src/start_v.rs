@@ -378,15 +378,18 @@ verus! {
             }
     {
         let mut infos = Vec::<LogInfo>::new();
-        #[verifier::loop_isolation(false)]
         for which_log in 0..num_regions
             invariant
+                pm_regions.inv(),
                 which_log == infos.len(),
                 forall |j:u32| j < which_log ==> {
                     &&& info_consistent_with_log_area(#[trigger] pm_regions@[j as int], infos[j as int], state[j as int])
                     &&& metadata_consistent_with_info(pm_regions@[j as int], multilog_id, num_regions, j, cdb,
                                                     infos[j as int])
                 },
+                num_regions == pm_regions@.len(),
+                recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
+                pm_regions@.no_outstanding_writes(),
         {
             // Before calling `read_log_variables`, establish that
             // region `which_log` is recoverable. This is useful
