@@ -428,7 +428,8 @@ verus! {
 
     pub trait PersistentMemoryRegion<S> : Sized
     where
-        S: Serializable
+        S: Sized + Serializable
+    //     S: Serializable
     {
         type RegionDesc : RegionDescriptor;
 
@@ -457,11 +458,24 @@ verus! {
                     Err(_) => true
                 };
 
+        // fn get_region_size(&self) -> (result: usize)
+        //     requires
+        //         self.inv()
+        //     ensures
+        //         result == self@.len();
+
         fn get_region_size(&self) -> (result: usize)
             requires
                 self.inv()
             ensures
                 result == self@.len() / S::spec_serialized_len() as nat;
+
+        // fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<S>)
+        //     requires
+        //         self.inv(),
+        //         addr + num_bytes <= self@.len()
+        //     ensures
+        //         bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
 
         // TODO: the postconditions might need some tweaking to make them easier to prove
         fn read(&self, addr: u64, len: u64) -> (results: Vec<S>)
@@ -473,6 +487,18 @@ verus! {
                     let index = addr + S::spec_serialized_len() * i;
                     #[trigger] results[i].spec_serialize() == self@.committed().subrange(index, index + S::spec_serialized_len())
                 };
+
+        // fn write(&mut self, addr: u64, bytes: &[S])
+        //     requires
+        //         old(self).inv(),
+        //         addr + bytes@.len() <= old(self)@.len(),
+        //         addr + bytes@.len() <= u64::MAX
+        //     ensures
+        //         self.inv(),
+        //         self@ == self@.write(addr as int, bytes@),
+        //         forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
+        //                     r.current_timestamp == self@.current_timestamp
+        //         ;
 
         fn write(&mut self, addr: u64, bytes: &[S])
             requires
