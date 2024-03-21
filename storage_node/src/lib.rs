@@ -3,12 +3,12 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-pub mod multilog;
+// pub mod multilog;
 pub mod pmem;
 pub mod singlelog;
 
-use crate::multilog::multilogimpl_t::*;
-use crate::multilog::multilogimpl_v::*;
+// use crate::multilog::multilogimpl_t::*;
+// use crate::multilog::multilogimpl_v::*;
 use crate::pmem::device_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;

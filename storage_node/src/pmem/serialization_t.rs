@@ -75,14 +75,14 @@ verus! {
 
     // implementations of serialization for some basic types
     impl Serializable for u64 {
-        spec fn spec_serialize(&self) -> Seq<u8>
+        closed spec fn spec_serialize(&self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(*self)
         }
 
         // TODO: this should really be a constant, but verus doesn't
         // support associated constants right now
-        spec fn spec_serialized_len() -> u64
+        closed spec fn spec_serialized_len() -> u64
         {
             8
         }
@@ -111,7 +111,7 @@ verus! {
         //     // val
         // }
 
-        spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             spec_u64_from_le_bytes(bytes)
         }
@@ -119,6 +119,6 @@ verus! {
         // NOTE: this is NOT a view method and should only be used to
         // initially set up the ghost state for a PersistentMemoryRegion.
         // TODO: express that more clearly? Enforce it somehow?
-        spec fn view_as_pm_bytes(&self) -> Seq<PersistentMemoryByte>;
+        closed spec fn view_as_pm_bytes(&self) -> Seq<PersistentMemoryByte>;
     }
 }
