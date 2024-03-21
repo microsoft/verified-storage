@@ -162,16 +162,14 @@ verus! {
     pub struct PersistentMemoryByte {
         pub state_at_last_flush: u8,
         pub outstanding_write: Option<u8>,
-        pub write_timestamp: PmTimestamp,
     }
 
     impl PersistentMemoryByte {
-        pub open spec fn write(self, byte: u8, write_timestamp: PmTimestamp) -> Self
+        pub open spec fn write(self, byte: u8) -> Self
         {
             Self {
                 state_at_last_flush: self.state_at_last_flush,
                 outstanding_write: Some(byte),
-                write_timestamp,
             }
         }
 
@@ -188,19 +186,6 @@ verus! {
             Self {
                 state_at_last_flush: self.flush_byte(),
                 outstanding_write: None,
-                write_timestamp: self.write_timestamp
-            }
-        }
-
-        // If we are passed a timestamp that is greater than the write timestamp,
-        // then the device has been flushed since the write, and we can update the byte
-        // accordingly
-        pub open spec fn update_byte_with_timestamp(self, timestamp: PmTimestamp) -> Self
-        {
-            if timestamp.gt(self.write_timestamp) {
-                self.flush()
-            } else {
-                self
             }
         }
     }
@@ -228,7 +213,7 @@ verus! {
         {
             Self {
                 state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte|
-                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr], self.current_timestamp) }
+                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr]) }
                                          else { pre_byte }),
                 device_id: self.device_id,
                 current_timestamp: self.current_timestamp
@@ -247,7 +232,7 @@ verus! {
         pub open spec fn update_region_with_timestamp(self, timestamp: PmTimestamp) -> Self
         {
             Self {
-                state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte| pre_byte.update_byte_with_timestamp(timestamp)),
+                state: self.state,
                 device_id: self.device_id,
                 current_timestamp: timestamp
             }
