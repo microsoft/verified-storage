@@ -59,6 +59,16 @@ use vstd::prelude::*;
 
 verus! {
 
+    // trait for the durable superblock to implement
+    pub trait SuperBlock {
+        spec fn valid(&self) -> bool;
+    }
+
+    // trait for the durable header type to implement
+    pub trait Headers {
+        spec fn valid(&self, cdb: bool) -> bool;
+    }
+
     /// Constants
 
     // These constants describe the absolute or relative positions of
@@ -564,6 +574,7 @@ verus! {
     // with it having been used as a singlelog
     //
     // `Some(cdb)` -- `cdb` is the corruption-detecting boolean
+    // TODO: this is going to have to change
     pub open spec fn recover_cdb(mem: Seq<u8>) -> Option<bool>
     {
         if mem.len() < ABSOLUTE_POS_OF_LEVEL2_METADATA {
@@ -598,7 +609,7 @@ verus! {
                     }
                     else {
                         // Extract and parse the level-3 CDB
-                        extract_and_parse_level3_cdb(mem)
+                        parse_cdb(mem)
                     }
                 }
                 else {

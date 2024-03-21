@@ -314,7 +314,8 @@ verus! {
         let level2_metadata_bytes = extract_level2_metadata(mem);
         let level2_crc = extract_level2_crc(mem);
         let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
-        let level3_cdb = extract_and_parse_level3_cdb(mem);
+        // let level3_cdb = extract_and_parse_level3_cdb(mem);
+        let level3_cdb = parse_cdb(mem); // TODO: this has to be updated
         let level3_metadata_bytes = extract_level3_metadata(mem, false);
         let level3_crc = extract_level3_crc(mem, false);
         let level3_metadata = parse_level3_metadata(level3_metadata_bytes);

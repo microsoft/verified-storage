@@ -265,21 +265,21 @@ verus! {
     //         }
     // }
 
-    // This invariant says that `info_consistent_with_log_area` holds
-    // for all logs in the singlelog.
-    pub open spec fn each_info_consistent_with_log_area(
-        pm_regions_view: PersistentMemoryRegionsView,
-        num_logs: u32,
-        infos: Seq<LogInfo>,
-        state: AbstractLogState,
-    ) -> bool
-    {
-        &&& pm_regions_view.regions.len() == infos.len() == state.num_logs() == num_logs > 0
-        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
-           let w = which_log as int;
-           info_consistent_with_log_area(pm_regions_view[w], infos[w], state[w])
-        }
-    }
+    // // This invariant says that `info_consistent_with_log_area` holds
+    // // for all logs in the singlelog.
+    // pub open spec fn each_info_consistent_with_log_area(
+    //     pm_regions_view: PersistentMemoryRegionsView,
+    //     num_logs: u32,
+    //     infos: Seq<LogInfo>,
+    //     state: AbstractLogState,
+    // ) -> bool
+    // {
+    //     &&& pm_regions_view.regions.len() == infos.len() == state.num_logs() == num_logs > 0
+    //     &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
+    //        let w = which_log as int;
+    //        info_consistent_with_log_area(pm_regions_view[w], infos[w], state[w])
+    //     }
+    // }
 
     // This lemma proves that, for any address in the log area of the
     // given persistent memory view, it corresponds to a specific
@@ -385,22 +385,36 @@ verus! {
     // `cdb` -- the current value of the corruption-detecting boolean
     // `infos` -- the log information
     // `state` -- the abstract singlelog state
-    proof fn lemma_invariants_imply_crash_recover(
-        pm_regions_view: PersistentMemoryRegionsView,
-        mems: Seq<Seq<u8>>,
+    proof fn lemma_invariants_imply_crash_recover<S,H>(
+        // pm_regions_view: PersistentMemoryRegionsView,
+        superblock_region_view: PersistentMemoryRegionView,
+        cdb_region_view: PersistentMemoryRegionView,
+        header_region_view: PersistentMemoryRegionView,
+        data_region_view: PersistentMemoryRegionView,
+        // mems: Seq<Seq<u8>>,
+        superblock_mem: Seq<u8>,
+        cdb_mem: Seq<u8>,
+        header_mem: Seq<u8>,
+        data_mem: Seq<u8>,
         log_id: u128,
-        num_logs: u32,
+        // num_logs: u32,
         cdb: bool,
-        infos: Seq<LogInfo>,
+        info: LogInfo,
         state: AbstractLogState,
     )
         requires
-            pm_regions_view.can_crash_as(mems),
-            memory_matches_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            // pm_regions_view.can_crash_as(mems),
+            superblock_region_view.can_crash_as(superblock_mem),
+            cdb_region_view.can_crash_as(cdb_mem),
+            header_region_view.can_crash_as(header_mem),
+            data_region_view.can_crash_as(data_mem),
+            memory_matches_cdb(cdb_region_view, cdb),
+            // each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
+            metadata_consistent_with_info::<S, H>(superblock_region_view, header_region_view, log_id, cdb, info),
+            info_consistent_with_log_area(data_region_view, info, state),
+            // each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
         ensures
-            recover_all(mems, log_id) == Some(state.drop_pending_appends())
+            recover_all(superblock_mem, cdb_mem, header_mem, data_mem, log_id) == Some(state.drop_pending_appends())
     {
         // For the CDB, we observe that:
         //
@@ -416,30 +430,31 @@ verus! {
         // matches `cdb` (per the invariants), the metadata in
         // `mems[0]` must also match `cdb`.
 
-        assert (recover_cdb(mems[0]) == Some(cdb)) by {
-            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in the invariants
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_regions_view[0]);
-            lemma_establish_extract_bytes_equivalence(mems[0], pm_regions_view.committed()[0]);
+        assert (recover_cdb(cdb_mem) == Some(cdb)) by {
+            // assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in the invariants
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(cdb_region_view);
+            lemma_establish_extract_bytes_equivalence(cdb_mem, cdb_region_view.committed());
         }
 
         // Use `lemma_invariants_imply_crash_recover_for_one_log` on
         // each region to establish that recovery works on all the
         // regions.
 
-        assert forall |which_log: u32| is_valid_log_index(which_log, num_logs) implies
-                recover_abstract_log_from_region_given_cdb(
-                    #[trigger] mems[which_log as int], log_id, mems.len() as int, which_log as int, cdb) ==
-                Some(state[which_log as int].drop_pending_appends()) by {
-            let w = which_log as int;
-            lemma_invariants_imply_crash_recover_for_one_log(pm_regions_view[w], mems[w], log_id,
-                                                             num_logs, which_log, cdb, infos[w], state[w]);
-        }
+        // TODO: replace with something
+        // assert forall |which_log: u32| is_valid_log_index(which_log, num_logs) implies
+        //         recover_abstract_log_from_region_given_cdb(
+        //             #[trigger] mems[which_log as int], log_id, mems.len() as int, which_log as int, cdb) ==
+        //         Some(state[which_log as int].drop_pending_appends()) by {
+        //     let w = which_log as int;
+        //     lemma_invariants_imply_crash_recover_for_one_log(pm_regions_view[w], mems[w], log_id,
+        //                                                      num_logs, which_log, cdb, infos[w], state[w]);
+        // }
 
         // Finally, get Z3 to see the equivalence of the recovery
         // result and the desired abstract state by asking it (with
         // `=~=`) to prove that they're piecewise equivalent.
 
-        assert(recover_all(mems, log_id) =~= Some(state.drop_pending_appends()));
+        assert(recover_all(superblock_mem, cdb_mem, header_mem, data_mem, log_id) == Some(state.drop_pending_appends()));
     }
 
     // This exported lemma proves that, if various invariants hold for
@@ -455,25 +470,65 @@ verus! {
     // `infos` -- the log information
     // `state` -- the abstract singlelog state
     pub proof fn lemma_invariants_imply_crash_recover_forall(
-        pm_regions_view: PersistentMemoryRegionsView,
+        // pm_regions_view: PersistentMemoryRegionsView,
+        superblock_region_view: PersistentMemoryRegionView,
+        cdb_region_view: PersistentMemoryRegionView,
+        header_region_view: PersistentMemoryRegionView,
+        data_region_view: PersistentMemoryRegionView,
         log_id: u128,
-        num_logs: u32,
+        // num_logs: u32,
         cdb: bool,
-        infos: Seq<LogInfo>,
+        info: LogInfo,
         state: AbstractLogState,
     )
         requires
-            memory_matches_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            memory_matches_cdb(cdb_region_view, cdb),
+            // each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
+            metadata_consistent_with_info(superblock_region_view, header_region_view, cdb, info),
+            // each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            info_consistent_with_log_area(data_region_view, info, state),
         ensures
-            forall |mem| pm_regions_view.can_crash_as(mem) ==>
-                recover_all(mem, log_id) == Some(state.drop_pending_appends())
+            forall |sb_mem, cdb_mem, h_mem, d_mem|
+            {
+                &&& superblock_region_view.can_crash_as(sb_mem)
+                &&& cdb_region_view.can_crash_as(cdb_mem)
+                &&& header_region_view.can_crash_as(h_mem)
+                &&& data_region_view.can_crash_as(d_mem)
+            } ==> {
+                recover_all(sb_mem, cdb_mem, h_mem, d_mem, log_id) == Some(state.drop_pending_appends())
+            }
+            // forall |mem| pm_regions_view.can_crash_as(mem) ==>
+            //     recover_all(mem, log_id) == Some(state.drop_pending_appends())
     {
-        assert forall |mem| pm_regions_view.can_crash_as(mem) implies recover_all(mem, log_id) ==
-                   Some(state.drop_pending_appends()) by
+        // assert forall |mem| pm_regions_view.can_crash_as(mem) implies recover_all(mem, log_id) ==
+        //            Some(state.drop_pending_appends()) by
+        // {
+        //     lemma_invariants_imply_crash_recover(pm_regions_view, mem, log_id, num_logs, cdb, infos, state);
+        // }
+
+        assert forall |sb_mem, cdb_mem, h_mem, d_mem|
         {
-            lemma_invariants_imply_crash_recover(pm_regions_view, mem, log_id, num_logs, cdb, infos, state);
+            &&& superblock_region_view.can_crash_as(sb_mem)
+            &&& cdb_region_view.can_crash_as(cdb_mem)
+            &&& header_region_view.can_crash_as(h_mem)
+            &&& data_region_view.can_crash_as(d_mem)
+        } implies {
+            recover_all(sb_mem, cdb_mem, h_mem, d_mem, log_id) == Some(state.drop_pending_appends())
+        } by {
+            lemma_invariants_imply_crash_recover(
+                superblock_region_view,
+                cdb_region_view,
+                header_region_view,
+                data_region_view,
+                sb_mem,
+                cdb_mem,
+                h_mem,
+                d_mem,
+                log_id,
+                cdb,
+                info,
+                state
+            );
         }
     }
 
@@ -492,20 +547,26 @@ verus! {
     // `which_log` -- region on which the inactive level-3 metadata+CRC will be overwritten
     // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata+CRC area
     pub proof fn lemma_updating_inactive_metadata_maintains_invariants(
-        pm_regions_view: PersistentMemoryRegionsView,
+        // pm_regions_view: PersistentMemoryRegionsView,
+        superblock_region_view: PersistentMemoryRegionView,
+        cdb_region_view: PersistentMemoryRegionView,
+        header_region_view: PersistentMemoryRegionView,
+        data_region_view: PersistentMemoryRegionView,
         log_id: u128,
-        num_logs: u32,
+        // num_logs: u32,
         cdb: bool,
-        infos: Seq<LogInfo>,
+        info: LogInfo,
         state: AbstractLogState,
-        which_log: u32,
+        // which_log: u32,
         bytes_to_write: Seq<u8>,
     )
         requires
-            memory_matches_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
-            is_valid_log_index(which_log, num_logs),
+            memory_matches_cdb(cdb_region_view, cdb),
+            // each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, infos),
+            metadata_consistent_with_info(superblock_region_view, header_region_view, cdb, info),
+            // each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            info_consistent_with_log_area(data_region_view, info, state),
+            // is_valid_log_index(which_log, num_logs),
             bytes_to_write.len() <= LENGTH_OF_LEVEL3_METADATA + CRC_SIZE,
        ensures
             ({

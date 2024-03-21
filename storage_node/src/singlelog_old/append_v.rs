@@ -6,6 +6,7 @@
 //! of the system's correctness.
 
 use crate::pmem::pmemspec_t::PersistentMemoryRegionView;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use crate::singlelog::inv_v::*;
 use crate::singlelog::layout_v::*;
@@ -60,7 +61,7 @@ verus! {
         requires
             memory_matches_cdb(cdb_region_view, cdb),
             // each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, prev_infos),
-            metadata_consistent_with_info(header_region_view, log_id, cdb, prev_info),
+            metadata_consistent_with_info(superblock_region_view, header_region_view, log_id, cdb, prev_info),
             // each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             info_consistent_with_log_area(data_region_view, prev_info, prev_state),
             ({
@@ -101,7 +102,7 @@ verus! {
                 // let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
                 let data_region_view2 = data_region_view.write(write_addr, bytes_to_append);
                 // &&& each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, new_infos)
-                &&& metadata_consistent_with_info(header_region_view, log_id, cdb, prev_info)
+                &&& metadata_consistent_with_info(superblock_region_view, header_region_view, log_id, cdb, prev_info)
                 // The write doesn't conflict with any outstanding writes
                 // &&& pm_regions_view.no_outstanding_writes_in_range(which_log as int, write_addr, write_addr + num_bytes)
                 &&& data_region_view.no_outstanding_writes_in_range(write_addr, write_addr + num_bytes)
@@ -114,8 +115,17 @@ verus! {
                 // After initiating the write, any crash and recovery will enter the abstract state
                 // `new_state.drop_pending_appends()`, so as long as that state is permitted the
                 // write will be.
-                &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
-                      recover_all(mem, log_id) == Some(new_state.drop_pending_appends())
+                // &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
+                //       recover_all(mem, log_id) == Some(new_state.drop_pending_appends())
+                &&& forall |sb_mem, cdb_mem, h_mem, d_mem|
+                    {
+                        &&& superblock_region_view.can_crash_as(sb_mem)
+                        &&& cdb_region_view.can_crash_as(cdb_mem)
+                        &&& header_region_view.can_crash_as(h_mem)
+                        &&& data_region_view.can_crash_as(d_mem)
+                    } ==> {
+                        recover_all(sb_mem, cdb_mem, h_mem, d_mem, log_id) == Some(new_state.drop_pending_appends())
+                    }
             }),
     {
         let log_area_len = prev_info.log_area_len;
@@ -144,23 +154,25 @@ verus! {
         // extracted byte sequences that match between the old and new
         // metadata regions.
 
-        assert forall |any_log: u32| #[trigger] is_valid_log_index(any_log, num_logs) implies {
-            let a = any_log as int;
-            metadata_consistent_with_info(pm_regions_view2[a], log_id, num_logs, any_log, cdb, new_infos[a])
-        } by {
-            let a = any_log as int;
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
-        }
+        // assert forall |any_log: u32| #[trigger] is_valid_log_index(any_log, num_logs) implies {
+        //     let a = any_log as int;
+        //     metadata_consistent_with_info(pm_regions_view2[a], log_id, num_logs, any_log, cdb, new_infos[a])
+        // } by {
+        //     let a = any_log as int;
+        //     lemma_establish_extract_bytes_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
+        // }
+        assert(metadata_consistent_with_info(superblock_region_view, header_region_view, log_id, cdb, prev_info));
 
         // To prove that the post-write CDB is the same as the
         // pre-write CDB, we have to reason about the equivalence of
         // extracted byte sequences that match between the old and new
         // region #0, where the CDB is stored.
 
-        assert (memory_matches_cdb(pm_regions_view2, cdb)) by {
-            assert(is_valid_log_index(0, num_logs));
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
-        }
+        // assert (memory_matches_cdb(pm_regions_view2, cdb)) by {
+        //     assert(is_valid_log_index(0, num_logs));
+        //     lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
+        // }
+        assert(memory_matches_cdb(cdb_region_view, cdb));
 
         // We need extensional equality to reason that the old and new
         // abstract states are the same after dropping pending appends.
@@ -171,17 +183,18 @@ verus! {
         // are OK, we just have to invoke the following lemma, which
         // requires that our invariants hold.
 
-        lemma_invariants_imply_crash_recover_forall(pm_regions_view2, log_id, num_logs, cdb, new_infos, new_state);
+        // TODO: replace these with something
+        // lemma_invariants_imply_crash_recover_forall(pm_regions_view2, log_id, num_logs, cdb, new_infos, new_state);
 
-        // To prove that there are no outstanding writes in the range
-        // where we plan to write, we need to reason about how
-        // addresses in the log area correspond to relative log
-        // positions. This is because the invariant talks about
-        // relative log positions but we're trying to prove something
-        // about addresses in the log area (that there are no
-        // outstanding writes to certain of them).
+        // // To prove that there are no outstanding writes in the range
+        // // where we plan to write, we need to reason about how
+        // // addresses in the log area correspond to relative log
+        // // positions. This is because the invariant talks about
+        // // relative log positions but we're trying to prove something
+        // // about addresses in the log area (that there are no
+        // // outstanding writes to certain of them).
 
-        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_regions_view[w], prev_info);
+        // lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_regions_view[w], prev_info);
     }
 
     // This lemma establishes useful facts about performing two
@@ -213,24 +226,28 @@ verus! {
     // `prev_infos` -- the pre-append `infos` value
     //
     // `prev_state` -- the pre-append abstract state
-    pub proof fn lemma_tentatively_append_wrapping(
-        pm_regions_view: PersistentMemoryRegionsView,
+    pub proof fn lemma_tentatively_append_wrapping<S,H>(
+        superblock_region_view: PersistentMemoryRegionView,
+        cdb_region_view: PersistentMemoryRegionView,
+        header_region_view: PersistentMemoryRegionView,
+        data_region_view: PersistentMemoryRegionView,
         log_id: u128,
-        num_logs: u32,
-        which_log: u32,
         bytes_to_append: Seq<u8>,
         cdb: bool,
-        prev_infos: Seq<LogInfo>,
+        prev_info: LogInfo,
         prev_state: AbstractLogState,
     )
+        where
+            S: Sized + Serializable + SuperBlock,
+            H: Sized + Serializable + Headers,
         requires
-            is_valid_log_index(which_log, num_logs),
-            memory_matches_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, prev_infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            // is_valid_log_index(which_log, num_logs),
+            memory_matches_cdb(cdb_region_view, cdb),
+            // each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, prev_infos),
+            metadata_consistent_with_info::<S, H>(superblock_region_view, header_region_view, log_id, cdb, prev_info),
+            // each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            info_consistent_with_log_area(data_region_view, prev_info, prev_state),
             ({
-                let w = which_log as int;
-                let prev_info = prev_infos[w];
                 let log_area_len = prev_info.log_area_len;
                 let num_bytes = bytes_to_append.len();
                 let max_len_without_wrapping = log_area_len -
@@ -242,53 +259,57 @@ verus! {
             }),
         ensures
             ({
-                let w = which_log as int;
-                let prev_info = prev_infos[w];
                 let log_area_len = prev_info.log_area_len;
                 let max_len_without_wrapping = log_area_len -
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int, log_area_len as int);
-                let new_infos = prev_infos.update(w, LogInfo{
+                let new_info = LogInfo{
                     log_plus_pending_length: (prev_info.log_plus_pending_length + bytes_to_append.len()) as u64,
-                    ..prev_infos[w]
-                });
-                let new_state = prev_state.tentatively_append(w, bytes_to_append);
+                    ..prev_info
+                };
+                let new_state = prev_state.tentatively_append(bytes_to_append);
                 let bytes_to_append_part1 = bytes_to_append.subrange(0, max_len_without_wrapping as int);
                 let bytes_to_append_part2 = bytes_to_append.subrange(max_len_without_wrapping as int,
                                                                      bytes_to_append.len() as int);
-                let write_addr = ABSOLUTE_POS_OF_LOG_AREA +
-                    relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
+                let write_addr = relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
-                let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
-                &&& each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, new_infos)
+                let data_region_view2 = data_region_view.write(write_addr, bytes_to_append_part1);
+                let data_region_view3 = data_region_view2.write(0, bytes_to_append_part2);
+                // let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
+                // let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
+                // &&& each_metadata_consistent_with_info(pm_regions_view, log_id, num_logs, cdb, new_infos)
+                &&& metadata_consistent_with_info::<S, H>(superblock_region_view, header_region_view, log_id, cdb, prev_info)
                 // The first write doesn't conflict with any outstanding writes
-                &&& pm_regions_view.no_outstanding_writes_in_range(w, write_addr,
-                                                                 write_addr + bytes_to_append_part1.len())
+                // &&& pm_regions_view.no_outstanding_writes_in_range(w, write_addr,
+                //                                                  write_addr + bytes_to_append_part1.len())
+                &&& data_region_view.no_outstanding_writes()
                 // The second write also doesn't conflict with any outstanding writes
-                &&& pm_regions_view2.no_outstanding_writes_in_range(
-                       w,
-                       ABSOLUTE_POS_OF_LOG_AREA as int,
-                       ABSOLUTE_POS_OF_LOG_AREA + bytes_to_append_part2.len())
-                &&& each_metadata_consistent_with_info(pm_regions_view3, log_id, num_logs, cdb, new_infos)
-                &&& each_info_consistent_with_log_area(pm_regions_view3, num_logs, new_infos, new_state)
-                &&& memory_matches_cdb(pm_regions_view3, cdb)
+                // &&& pm_regions_view2.no_outstanding_writes_in_range(
+                //        w,
+                //        ABSOLUTE_POS_OF_LOG_AREA as int,
+                //        ABSOLUTE_POS_OF_LOG_AREA + bytes_to_append_part2.len())
+                &&& data_region_view2.no_outstanding_writes()
+                // &&& each_metadata_consistent_with_info(pm_regions_view3, log_id, num_logs, cdb, new_infos)
+                // &&& each_info_consistent_with_log_area(pm_regions_view3, num_logs, new_infos, new_state)
+                &&& info_consistent_with_log_area(data_region_view3, new_info, new_state)
+                // &&& memory_matches_cdb(pm_regions_view3, cdb)
+                &&& memory_matches_cdb(cdb_region_view, cdb)
                 &&& new_state.drop_pending_appends() == prev_state.drop_pending_appends()
-                // After initiating the first write, any crash and recovery will enter the abstract
-                // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
-                // the write will be.
-                &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
-                       recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
-                // After initiating the second write, any crash and recovery will enter the abstract
-                // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
-                // the write will be.
-                &&& forall |mem| pm_regions_view3.can_crash_as(mem) ==>
-                       recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
+
+                // TODO: replace this with something
+                // // After initiating the first write, any crash and recovery will enter the abstract
+                // // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
+                // // the write will be.
+                // &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
+                //        recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
+                // // After initiating the second write, any crash and recovery will enter the abstract
+                // // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
+                // // the write will be.
+                // &&& forall |mem| pm_regions_view3.can_crash_as(mem) ==>
+                //        recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
             }),
     {
-        let w = which_log as int;
-        let prev_info = prev_infos[w];
         let log_area_len = prev_info.log_area_len;
         let max_len_without_wrapping = log_area_len -
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
@@ -296,30 +317,41 @@ verus! {
         let bytes_to_append_part1 = bytes_to_append.subrange(0, max_len_without_wrapping as int);
         let bytes_to_append_part2 = bytes_to_append.subrange(max_len_without_wrapping as int,
                                                              bytes_to_append.len() as int);
-        let intermediate_infos = prev_infos.update(w, LogInfo{
+        // let intermediate_infos = prev_infos.update(w, LogInfo{
+        //     log_plus_pending_length: (prev_info.log_plus_pending_length + max_len_without_wrapping) as u64,
+        //     ..prev_infos[w]
+        // });
+        let intermediate_info = LogInfo{
             log_plus_pending_length: (prev_info.log_plus_pending_length + max_len_without_wrapping) as u64,
-            ..prev_infos[w]
-        });
-        let intermediate_state = prev_state.tentatively_append(w, bytes_to_append_part1);
-        let new_infos = prev_infos.update(w, LogInfo{
+            ..prev_info
+        };
+        let intermediate_state = prev_state.tentatively_append(bytes_to_append_part1);
+        let new_info = LogInfo{
             log_plus_pending_length: (prev_info.log_plus_pending_length + bytes_to_append.len()) as u64,
-            ..prev_infos[w]
-        });
-        let new_state = prev_state.tentatively_append(w, bytes_to_append);
-        let write_addr = ABSOLUTE_POS_OF_LOG_AREA +
-            relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
+            ..prev_info
+        };
+        let new_state = prev_state.tentatively_append(bytes_to_append);
+        let write_addr = relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
-        let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
+        // let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
+        // let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
+
+        let data_region_view2 = data_region_view.write(write_addr, bytes_to_append_part1);
+        let data_region_view3 = data_region_view2.write(0, bytes_to_append_part2);
+
 
         // Invoke `lemma_tentatively_append` on each write.
 
-        lemma_tentatively_append(pm_regions_view, log_id, num_logs, which_log, bytes_to_append_part1, cdb,
-                                 prev_infos, prev_state);
-        lemma_tentatively_append(pm_regions_view2, log_id, num_logs, which_log, bytes_to_append_part2, cdb,
-                                 intermediate_infos, intermediate_state);
+        // lemma_tentatively_append(pm_regions_view, log_id, num_logs, which_log, bytes_to_append_part1, cdb,
+        //                          prev_infos, prev_state);
+        // lemma_tentatively_append(pm_regions_view2, log_id, num_logs, which_log, bytes_to_append_part2, cdb,
+        //                          intermediate_infos, intermediate_state);
 
+        lemma_tentatively_append(superblock_region_view, cdb_region_view, header_region_view, data_region_view,
+                                    log_id, bytes_to_append_part1, cdb, prev_info, prev_state);
+        lemma_tentatively_append(superblock_region_view, cdb_region_view, header_region_view, data_region_view2,
+                                    log_id, bytes_to_append_part2, cdb, intermediate_info, intermediate_state);
         // Use extensional equality to prove the equivalence of the
         // intermediate abstract state between writes and the previous
         // state, if both drop pending appends.
@@ -331,9 +363,13 @@ verus! {
         // an update to the intermediate abstract state, which is what the
         // second call to `lemma_tentatively_append` proves things about.
 
-        assert(new_state =~= intermediate_state.tentatively_append(w, bytes_to_append_part2)) by {
-            assert(prev_state[w].pending + bytes_to_append_part1 + bytes_to_append_part2 =~=
-                   prev_state[w].pending + bytes_to_append);
+        // assert(new_state =~= intermediate_state.tentatively_append(w, bytes_to_append_part2)) by {
+        //     assert(prev_state[w].pending + bytes_to_append_part1 + bytes_to_append_part2 =~=
+        //            prev_state[w].pending + bytes_to_append);
+        // }
+        assert(new_state =~= intermediate_state.tentatively_append(bytes_to_append_part2)) by {
+            assert(prev_state.pending + bytes_to_append_part1 + bytes_to_append_part2 =~=
+                   prev_state.pending + bytes_to_append);
         }
     }
 
