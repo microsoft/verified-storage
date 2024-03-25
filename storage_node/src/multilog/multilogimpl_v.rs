@@ -787,32 +787,28 @@ verus! {
 
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LEVEL3_METADATA, &level3_crc, Tracked(perm));
 
-                assume(false);
-
                 // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
                 // be reflected in memory.
-                // TODO: need to update this to use new types?
 
                 let ghost flushed = wrpm_regions_new.flush();
                 assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
+                    Level3Metadata::lemma_auto_serialize_deserialize();
+                    u64::lemma_auto_serialize_deserialize();
 
                     let mem1 = wrpm_regions@[cur].committed();
-                    // let (flushed_mem2, new_timestamp2) = wrpm_regions_new.flush(timestamp@);
-                    // let mem2 = flushed_mem2[cur].committed();
                     let mem2 = flushed[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
                                                                 level3_metadata_bytes + level3_crc_bytes);
                     assert(extract_level3_metadata(mem2, !self.cdb) =~= level3_metadata_bytes);
                     assert(extract_level3_crc(mem2, !self.cdb) =~= level3_crc_bytes);
+                    assert(deserialize_level3_metadata(mem2, !self.cdb) == level3_metadata);
+                    assert(deserialize_level3_crc(mem2, !self.cdb) == level3_crc);
                 }
-
-                assume(false);
-
-                // Actually perform the write.
-                // wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
             }
+
+            assume(false);
 
             // // Prove that after the flush we're about to do, all our
             // // invariants will continue to hold (using the still-unchanged

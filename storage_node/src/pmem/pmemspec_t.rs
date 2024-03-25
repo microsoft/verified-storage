@@ -506,7 +506,7 @@ verus! {
                 ({
                     let written = old(self)@.write(addr as int, to_write.spec_serialize());
                     &&& written == self@
-                    // &&& S::spec_deserialize(written.committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                    // &&& S::spec_deserialize(written.subrange(addr as int, addr + S::spec_serialized_len())) == to_write
                 })
         ;
 

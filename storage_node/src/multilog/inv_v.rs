@@ -11,6 +11,7 @@ use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -86,7 +87,9 @@ verus! {
         let level2_metadata_bytes = extract_level2_metadata(mem);
         let level2_crc = extract_level2_crc(mem);
         let level3_metadata_bytes = extract_level3_metadata(mem, cdb);
+        let level3_metadata = deserialize_level3_metadata(mem, cdb);
         let level3_crc = extract_level3_crc(mem, cdb);
+        let level3_crc_deserialized = deserialize_level3_crc(mem, cdb);
         let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
         let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
         let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
@@ -101,7 +104,8 @@ verus! {
         // All the CRCs match
         &&& level1_crc == spec_crc_bytes(level1_metadata_bytes)
         &&& level2_crc == spec_crc_bytes(level2_metadata_bytes)
-        &&& level3_crc == spec_crc_bytes(level3_metadata_bytes)
+        // &&& level3_crc == spec_crc_bytes(level3_metadata_bytes)
+        &&& level3_crc_deserialized == level3_metadata.spec_crc()
 
         // Various fields are valid and match the parameters to this function
         &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID
@@ -411,9 +415,9 @@ verus! {
     }
 
     // This lemma establishes that, if one updates the inactive
-    // level-3 metadata+CRC in a region, this will maintain various
-    // invariants. The "inactive" level-3 metadata+CRC is the
-    // metadata+CRC corresponding to the negation of the current
+    // level-3 metadata in a region, this will maintain various
+    // invariants. The "inactive" level-3 metadata is the
+    // metadata corresponding to the negation of the current
     // corruption-detecting boolean.
     //
     // `pm_regions_view` -- the persistent memory regions view
@@ -422,8 +426,8 @@ verus! {
     // `cdb` -- the current value of the corruption-detecting boolean
     // `infos` -- the log information
     // `state` -- the abstract multilog state
-    // `which_log` -- region on which the inactive level-3 metadata+CRC will be overwritten
-    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata+CRC area
+    // `which_log` -- region on which the inactive level-3 metadata will be overwritten
+    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
     pub proof fn lemma_updating_inactive_metadata_maintains_invariants(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,
@@ -468,6 +472,20 @@ verus! {
         }
     }
 
+    // This lemma establishes that, if one updates the inactive
+    // level-3 metadata in a region, this will maintain various
+    // invariants. The "inactive" level-3 metadata is the
+    // metadata corresponding to the negation of the current
+    // corruption-detecting boolean.
+    //
+    // `pm_regions_view` -- the persistent memory regions view
+    // `multilog_id` -- the ID of the multilog
+    // `num_logs` -- the number of logs
+    // `cdb` -- the current value of the corruption-detecting boolean
+    // `infos` -- the log information
+    // `state` -- the abstract multilog state
+    // `which_log` -- region on which the inactive level-3 metadata will be overwritten
+    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
     pub proof fn lemma_updating_inactive_crc_maintains_invariants(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,
@@ -486,14 +504,36 @@ verus! {
             bytes_to_write.len() == CRC_SIZE,
         ensures
             ({
-                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
-                                                             bytes_to_write);
+                let pm_regions_view2 = pm_regions_view.write(
+                    which_log as int,
+                    get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
+                    bytes_to_write
+                );
                 &&& memory_matches_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
-        assume(false);
+        let pm_regions_view2 = pm_regions_view.write(
+            which_log as int,
+            get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
+            bytes_to_write
+        );
+        let w = which_log as int;
+
+        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
+            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_level3_cdb(pm_regions_view[0].committed()));
+        }
+
+        // To show that all the metadata still matches even after the
+        // write, observe that everywhere the bytes match, any call to
+        // `extract_bytes` will also match.
+
+        assert(each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)) by {
+            lemma_establish_extract_bytes_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
+        }
     }
 
     // This lemma establishes that, if one flushes persistent memory,

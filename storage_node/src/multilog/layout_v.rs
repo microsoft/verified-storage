@@ -264,6 +264,12 @@ verus! {
         extract_bytes(mem, pos as int, LENGTH_OF_LEVEL3_METADATA as int)
     }
 
+    pub open spec fn deserialize_level3_metadata(mem: Seq<u8>, cdb: bool) -> Level3Metadata
+    {
+        let bytes = extract_level3_metadata(mem, cdb);
+        Level3Metadata::spec_deserialize(bytes)
+    }
+
     // This function extracts the CRC of the level-3 metadata from the
     // contents `mem` of a persistent memory region. It needs to know
     // the current boolean value `cdb` of the corruption-detecting
@@ -273,6 +279,12 @@ verus! {
         let pos = if cdb { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_TRUE }
                   else { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE };
         extract_bytes(mem, pos as int, CRC_SIZE as int)
+    }
+
+    pub open spec fn deserialize_level3_crc(mem: Seq<u8>, cdb: bool) -> u64
+    {
+        let bytes = extract_level3_crc(mem, cdb);
+        u64::spec_deserialize(bytes)
     }
 
     // This function returns the 4-byte unsigned integer (i.e., u32)
