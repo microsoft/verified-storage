@@ -466,6 +466,23 @@ verus! {
             ensures
                 bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
 
+        fn read_and_deserialize<S>(&self, addr: u64) -> (result: Result<S, ()>)
+            where
+                S: Serializable + Sized
+            requires
+                self.inv(),
+                addr + S::spec_serialized_len() <= self@.len()
+            ensures
+                match result {
+                    Ok(output) => {
+                        let true_val = S::spec_deserialize(
+                            self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                        output == true_val
+                    }
+                    Err(()) => true // TODO
+                }
+        ;
+
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
@@ -477,6 +494,22 @@ verus! {
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
                             r.current_timestamp == self@.current_timestamp
                 ;
+
+
+        fn serialize_and_write<S>(&mut self, addr: u64, to_write: S)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                addr + S::spec_serialized_len() <= old(self)@.len(),
+            ensures
+                ({
+                    let written = old(self)@.write(addr as int, to_write.spec_serialize());
+                    &&& written == self@
+                    &&& S::spec_deserialize(written.committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                })
+        ;
+
 
         fn flush(&mut self)
             requires
