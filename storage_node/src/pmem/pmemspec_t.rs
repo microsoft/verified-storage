@@ -466,7 +466,7 @@ verus! {
             ensures
                 bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
 
-        fn read_and_deserialize<S>(&self, addr: u64) -> (result: Result<S, ()>)
+        fn read_and_deserialize<S>(&self, addr: u64) -> (result: Result<&S, ()>)
             where
                 S: Serializable + Sized
             requires
@@ -496,7 +496,7 @@ verus! {
                 ;
 
 
-        fn serialize_and_write<S>(&mut self, addr: u64, to_write: S)
+        fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
                 S: Serializable + Sized
             requires
@@ -599,7 +599,7 @@ verus! {
 
         // TODO: should we be able to read more than one S with a single read call?
         // Note that addr is a regular offset in terms of bytes, but the result is of type S
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (result: Result<S, ()>)
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (result: Result<&S, ()>)
             where
                 S: Serializable + Sized
             requires
@@ -617,7 +617,7 @@ verus! {
                         if self.constants().impervious_to_corruption {
                             output == true_val
                         } else {
-                            &&& maybe_corrupted_serialized(output, true_val, addr as int)
+                            &&& maybe_corrupted_serialized(*output, true_val, addr as int)
                         }
                     }
                     Err(()) => true // TODO
@@ -649,7 +649,7 @@ verus! {
         // how to represent that though? need to map addresses to types in spec code...
         // or something similar...
         // Note that addr is a regular offset in terms of bytes, but to_write is type S
-        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
                 S: Serializable + Sized
             requires
