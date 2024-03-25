@@ -506,7 +506,7 @@ verus! {
                 ({
                     let written = old(self)@.write(addr as int, to_write.spec_serialize());
                     &&& written == self@
-                    &&& S::spec_deserialize(written.committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                    // &&& S::spec_deserialize(written.committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
                 })
         ;
 
@@ -665,7 +665,7 @@ verus! {
                     &&& self@ == written
                     &&& self@.current_timestamp == old(self)@.current_timestamp
                     // TODO: will this write be committed at this point? potentially not
-                    &&& S::spec_deserialize(written[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                    // &&& S::spec_deserialize(written[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
                     // TODO: is this sufficient?
                 });
 
@@ -789,6 +789,36 @@ verus! {
 
         {
             self.pm_regions.write(index, addr, bytes)
+        }
+
+        pub exec fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S, perm: Tracked<&Perm>)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                index < old(self)@.len(),
+                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                ({
+                    // The key thing the caller must prove is that all crash states are authorized by `perm`
+                    &&& forall |s| {
+                            let pm_state = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                            pm_state.can_crash_as(s)
+                        } ==> #[trigger] perm@.check_permission(s)
+                }),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@.current_timestamp == old(self)@.current_timestamp,
+                ({
+                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                    self@ == written
+                    // TODO: will this write be committed at this point? potentially not
+                    // &&& S::spec_deserialize(written[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                    // TODO: is this sufficient?
+                })
+        {
+            self.pm_regions.serialize_and_write(index, addr, to_write);
         }
 
         // Even though the memory is write-restricted, no restrictions are

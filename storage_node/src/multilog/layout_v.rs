@@ -52,6 +52,7 @@
 use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -119,6 +120,52 @@ verus! {
         pub head: u128,
         pub log_length: u64,
     }
+
+    impl Serializable for Level3Metadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u128_to_le_bytes(self.head) + spec_u64_to_le_bytes(self.log_length)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            Self {
+                head: spec_u128_from_le_bytes(bytes.subrange(0, 16)),
+                log_length: spec_u64_from_le_bytes(bytes.subrange(16, 24)),
+            }
+        }
+
+        open spec fn spec_serialized_len() -> u64
+        {
+            LENGTH_OF_LEVEL3_METADATA
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_head = #[trigger] spec_u128_to_le_bytes(s.head);
+                let serialized_log_length = #[trigger] spec_u64_to_le_bytes(s.log_length);
+                let serialized_metadata = #[trigger] s.spec_serialize();
+                &&& serialized_metadata.subrange(0, 16) == serialized_head
+                &&& serialized_metadata.subrange(16, 24) == serialized_log_length
+            });
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+        }
+
+        fn serialized_len() -> u64 {
+            LENGTH_OF_LEVEL3_METADATA
+        }
+    }
+
 
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.

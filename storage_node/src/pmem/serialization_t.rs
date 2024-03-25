@@ -4,6 +4,9 @@ use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
+use deps_hack::crc64fast::Digest;
+use std::convert::TryInto;
+
 verus! {
     // TODO: is this enough to prevent someone from creating an
     // S from different data and passing it off as one that was
@@ -76,6 +79,11 @@ verus! {
                 forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize())
         ;
 
+        proof fn lemma_auto_serialized_len()
+            ensures
+                forall |s: Self| #![auto] s.spec_serialize().len() == Self::spec_serialized_len()
+        ;
+
         // TODO: this should really be a constant, but verus doesn't
         // support associated constants right now
         spec fn spec_serialized_len() -> u64;
@@ -105,7 +113,14 @@ verus! {
             assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));
         }
 
-        closed spec fn spec_serialized_len() -> u64
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);
+            assert(Self::spec_serialized_len() == 8);
+        }
+
+        open spec fn spec_serialized_len() -> u64
         {
             8
         }
@@ -116,5 +131,27 @@ verus! {
         {
             8
         }
+    }
+
+    #[verifier::external_body]
+    pub fn calculate_crc<S>(val: &S) -> (out: u64)
+        where
+            S: Serializable + Sized
+        ensures
+            val.spec_crc() == out@
+    {
+        let num_bytes: usize = S::serialized_len().try_into().unwrap();
+        let s_pointer = val as *const S;
+        let bytes_pointer = s_pointer as *const u8;
+        // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
+        // bytes because it was obtained by casting a regular Rust object reference
+        // to a raw pointer.
+        let bytes = unsafe {
+            std::slice::from_raw_parts(bytes_pointer, num_bytes)
+        };
+
+        let mut digest = Digest::new();
+        digest.write(bytes);
+        digest.sum64()
     }
 }

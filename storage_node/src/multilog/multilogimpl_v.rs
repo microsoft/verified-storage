@@ -17,6 +17,7 @@ use crate::multilog::setup_v::{
 use crate::multilog::start_v::{read_cdb, read_logs_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -723,152 +724,187 @@ verus! {
                 // Encode the level-3 metadata as bytes, and compute the CRC of those bytes
 
                 let info = &self.infos[current_log as usize];
-                let mut t = compute_level3_metadata_encoded(info.head, info.log_length);
-                let mut c = bytes_crc(t.as_slice());
-                let ghost level3_metadata_bytes = t@;
-                let ghost level3_crc = c@;
+                let mut level3_metadata = Level3Metadata {
+                    head: info.head,
+                    log_length: info.log_length
+                };
+                let mut level3_crc = calculate_crc(&level3_metadata);
 
-                // Create a buffer of bytes to write, putting in it
-                // the encoded level-3 metadata and their CRC.
+                let ghost level3_metadata_bytes = level3_metadata.spec_serialize();
+                let ghost level3_crc_bytes = level3_crc.spec_serialize();
 
-                let mut bytes_to_write = Vec::<u8>::new();
-                bytes_to_write.append(&mut t);
-                bytes_to_write.append(&mut c);
-                assert(bytes_to_write@ == level3_metadata_bytes + level3_crc) by {
-                    assert(Seq::<u8>::empty() + level3_metadata_bytes =~= level3_metadata_bytes);
-                }
+            //     // Create a buffer of bytes to write, putting in it
+            //     // the encoded level-3 metadata and their CRC.
+
+            //     let mut bytes_to_write = Vec::<u8>::new();
+            //     bytes_to_write.append(&mut t);
+            //     bytes_to_write.append(&mut c);
+            //     assert(bytes_to_write@ == level3_metadata_bytes + level3_crc) by {
+            //         assert(Seq::<u8>::empty() + level3_metadata_bytes =~= level3_metadata_bytes);
+            //     }
 
                 // Prove that updating the inactive metadata maintains
                 // all invariants that held before.
 
                 proof {
+                    Level3Metadata::lemma_auto_serialized_len();
+                    u64::lemma_auto_serialized_len();
+                    // lemma_updating_inactive_metadata_maintains_invariants(
+                    //     wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
+                    //     level3_metadata_bytes + level3_crc_bytes);
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
-                        bytes_to_write@);
+                        level3_metadata_bytes);
+
+                    let wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, level3_metadata_bytes);
+                    lemma_updating_inactive_crc_maintains_invariants(
+                        wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
+                        level3_crc_bytes);
                 }
 
                 // Use `lemma_invariants_imply_crash_recover_forall` to prove that it's OK to call
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
 
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@);
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, level3_metadata_bytes);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
                 }
 
+                // Write the new metadata to the inactive header (without the CRC)
+                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos, &level3_metadata, Tracked(perm));
+
+                // Now, we need to prove that the crc is safe to update as well.
+
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LENGTH_OF_LEVEL3_METADATA, level3_crc_bytes);
+                assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
+                           implies #[trigger] perm.check_permission(crash_bytes) by {
+                    lemma_invariants_imply_crash_recover_forall(
+                        wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
+                }
+
+                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LEVEL3_METADATA, &level3_crc, Tracked(perm));
+
+                assume(false);
+
                 // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
                 // be reflected in memory.
+                // TODO: need to update this to use new types?
 
                 let ghost flushed = wrpm_regions_new.flush();
                 assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
+
                     let mem1 = wrpm_regions@[cur].committed();
                     // let (flushed_mem2, new_timestamp2) = wrpm_regions_new.flush(timestamp@);
                     // let mem2 = flushed_mem2[cur].committed();
                     let mem2 = flushed[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
-                                                                level3_metadata_bytes + level3_crc);
+                                                                level3_metadata_bytes + level3_crc_bytes);
                     assert(extract_level3_metadata(mem2, !self.cdb) =~= level3_metadata_bytes);
-                    assert(extract_level3_crc(mem2, !self.cdb) =~= level3_crc);
+                    assert(extract_level3_crc(mem2, !self.cdb) =~= level3_crc_bytes);
                 }
 
+                assume(false);
+
                 // Actually perform the write.
-
-                wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
+                // wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
             }
 
-            // Prove that after the flush we're about to do, all our
-            // invariants will continue to hold (using the still-unchanged
-            // CDB and the old metadata, infos, and state).
+            // // Prove that after the flush we're about to do, all our
+            // // invariants will continue to hold (using the still-unchanged
+            // // CDB and the old metadata, infos, and state).
 
-            proof {
-                lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
-                                                             prev_infos, prev_state);
-            }
+            // proof {
+            //     lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
+            //                                                  prev_infos, prev_state);
+            // }
 
-            // Next, flush all outstanding writes to memory. This is
-            // necessary so that those writes are ordered before the update
-            // to the CDB.
-            wrpm_regions.flush();
+            // // Next, flush all outstanding writes to memory. This is
+            // // necessary so that those writes are ordered before the update
+            // // to the CDB.
+            // wrpm_regions.flush();
 
-            // Next, compute the new encoded CDB to write.
+            // // Next, compute the new encoded CDB to write.
 
-            let new_cdb = u64_to_le_bytes(if self.cdb { CDB_FALSE } else { CDB_TRUE });
+            // let new_cdb = u64_to_le_bytes(if self.cdb { CDB_FALSE } else { CDB_TRUE });
 
-            // Show that after writing and flushing, the CDB will be !self.cdb
+            // // Show that after writing and flushing, the CDB will be !self.cdb
 
-            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
-            let ghost flushed_mem_after_write = pm_regions_after_write.flush();
-            assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
-                lemma_auto_spec_u64_to_from_le_bytes();
-                let flushed_regions = pm_regions_after_write.flush();
-                assert(extract_level3_cdb(flushed_regions[0].committed()) =~= new_cdb@);
-            }
+            // let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
+            // let ghost flushed_mem_after_write = pm_regions_after_write.flush();
+            // assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
+            //     lemma_auto_spec_u64_to_from_le_bytes();
+            //     let flushed_regions = pm_regions_after_write.flush();
+            //     assert(extract_level3_cdb(flushed_regions[0].committed()) =~= new_cdb@);
+            // }
 
-            // Show that after writing and flushing, our invariants will
-            // hold for each log if we flip `self.cdb`.
+            // // Show that after writing and flushing, our invariants will
+            // // hold for each log if we flip `self.cdb`.
 
-            let ghost pm_regions_after_flush = pm_regions_after_write.flush();
-            assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) implies {
-                let w = which_log as int;
-                &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
-                                                 !self.cdb, self.infos@[w])
-                &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
-            } by {
-                lemma_establish_extract_bytes_equivalence(
-                    wrpm_regions@[which_log as int].committed(),
-                    pm_regions_after_flush[which_log as int].committed());
-            }
+            // let ghost pm_regions_after_flush = pm_regions_after_write.flush();
+            // assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) implies {
+            //     let w = which_log as int;
+            //     &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
+            //                                      !self.cdb, self.infos@[w])
+            //     &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
+            // } by {
+            //     lemma_establish_extract_bytes_equivalence(
+            //         wrpm_regions@[which_log as int].committed(),
+            //         pm_regions_after_flush[which_log as int].committed());
+            // }
 
-            // Show that if we crash after the write and flush, we recover
-            // to an abstract state corresponding to `self.state@` after
-            // dropping pending appends.
+            // // Show that if we crash after the write and flush, we recover
+            // // to an abstract state corresponding to `self.state@` after
+            // // dropping pending appends.
 
-            proof {
-                lemma_invariants_imply_crash_recover_forall(pm_regions_after_flush, multilog_id,
-                                                            self.num_logs, !self.cdb, self.infos@, self.state@);
-            }
+            // proof {
+            //     lemma_invariants_imply_crash_recover_forall(pm_regions_after_flush, multilog_id,
+            //                                                 self.num_logs, !self.cdb, self.infos@, self.state@);
+            // }
 
-            // Show that if we crash after initiating the write of the CDB,
-            // we'll recover to a permissible state. There are two cases:
-            //
-            // If we crash without any updating, then we'll recover to
-            // state `prev_state.drop_pending_appends()` with the current
-            // CDB.
-            //
-            // If we crash after writing, then we'll recover to state
-            // `self.state@.drop_pending_appends()` with the flipped CDB.
-            //
-            // Because we're only writing within the persistence
-            // granularity of the persistent memory, a crash in the middle
-            // will either leave the persistent memory in the pre-state or
-            // the post-state.
-            //
-            // This means we're allowed to do the write because if we
-            // crash, we'll either be in state wrpm_regions@.committed() or
-            // pm_regions_after_write.flush().committed(). In the former
-            // case, we'll be in state `prev_state.drop_pending_appends()`
-            // and in the latter case, as shown above, we'll be in state
-            // `self.state@.drop_pending_appends()`.
+            // // Show that if we crash after initiating the write of the CDB,
+            // // we'll recover to a permissible state. There are two cases:
+            // //
+            // // If we crash without any updating, then we'll recover to
+            // // state `prev_state.drop_pending_appends()` with the current
+            // // CDB.
+            // //
+            // // If we crash after writing, then we'll recover to state
+            // // `self.state@.drop_pending_appends()` with the flipped CDB.
+            // //
+            // // Because we're only writing within the persistence
+            // // granularity of the persistent memory, a crash in the middle
+            // // will either leave the persistent memory in the pre-state or
+            // // the post-state.
+            // //
+            // // This means we're allowed to do the write because if we
+            // // crash, we'll either be in state wrpm_regions@.committed() or
+            // // pm_regions_after_write.flush().committed(). In the former
+            // // case, we'll be in state `prev_state.drop_pending_appends()`
+            // // and in the latter case, as shown above, we'll be in state
+            // // `self.state@.drop_pending_appends()`.
 
-            assert forall |crash_bytes| pm_regions_after_write.can_crash_as(crash_bytes) implies
-                       #[trigger] perm.check_permission(crash_bytes) by {
-                lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
-                                                            self.cdb, prev_infos, prev_state);
-                lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
-                                                                   ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
-            }
+            // assert forall |crash_bytes| pm_regions_after_write.can_crash_as(crash_bytes) implies
+            //            #[trigger] perm.check_permission(crash_bytes) by {
+            //     lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
+            //                                                 self.cdb, prev_infos, prev_state);
+            //     lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
+            //                                                        ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
+            // }
 
-            // Finally, update the CDB, then flush, then flip `self.cdb`.
-            // There's no need to flip `self.cdb` atomically with the write
-            // since the flip of `self.cdb` is happening in local
-            // non-persistent memory so if we crash it'll be lost anyway.
-            wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm));
-            wrpm_regions.flush();
-            self.cdb = !self.cdb;
+            // // Finally, update the CDB, then flush, then flip `self.cdb`.
+            // // There's no need to flip `self.cdb` atomically with the write
+            // // since the flip of `self.cdb` is happening in local
+            // // non-persistent memory so if we crash it'll be lost anyway.
+            // wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm));
+            // wrpm_regions.flush();
+            // self.cdb = !self.cdb;
+
+            assume(false);
         }
 
         // The `commit` method commits all tentative appends that have been

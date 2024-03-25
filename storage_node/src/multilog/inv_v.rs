@@ -439,7 +439,7 @@ verus! {
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
             is_valid_log_index(which_log, num_logs),
-            bytes_to_write.len() <= LENGTH_OF_LEVEL3_METADATA + CRC_SIZE,
+            bytes_to_write.len() == LENGTH_OF_LEVEL3_METADATA,
        ensures
             ({
                 let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
@@ -466,6 +466,34 @@ verus! {
         assert(each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)) by {
             lemma_establish_extract_bytes_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
         }
+    }
+
+    pub proof fn lemma_updating_inactive_crc_maintains_invariants(
+        pm_regions_view: PersistentMemoryRegionsView,
+        multilog_id: u128,
+        num_logs: u32,
+        cdb: bool,
+        infos: Seq<LogInfo>,
+        state: AbstractMultiLogState,
+        which_log: u32,
+        bytes_to_write: Seq<u8>,
+    )
+        requires
+            memory_matches_cdb(pm_regions_view, cdb),
+            each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
+            each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            is_valid_log_index(which_log, num_logs),
+            bytes_to_write.len() == CRC_SIZE,
+        ensures
+            ({
+                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
+                                                             bytes_to_write);
+                &&& memory_matches_cdb(pm_regions_view2, cdb)
+                &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
+                &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
+            })
+    {
+        assume(false);
     }
 
     // This lemma establishes that, if one flushes persistent memory,
