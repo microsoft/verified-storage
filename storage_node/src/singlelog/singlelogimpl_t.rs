@@ -4,6 +4,7 @@ use vstd::prelude::*;
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::serializedpmemspec_t::*;
 use crate::singlelog::layout_v::*;
 use crate::singlelog::singlelogimpl_v::*;
 use crate::singlelog::singlelogspec_t::*;
@@ -26,31 +27,34 @@ verus! {
         CantReadPastTail { tail: u128 },
         CantAdvanceHeadPositionBeforeHead { head: u128 },
         CantAdvanceHeadPositionBeyondTail { tail: u128 },
+        NotImplemented
     }
 
 
     pub struct LogImpl<
-        CDBRegion: PersistentMemoryRegion<u64>,
-        SRegion: PersistentMemoryRegion<S>,
-        HRegion: PersistentMemoryRegion<H>,
-        DRegion: PersistentMemoryRegion<D>,
+        CDBRegion: SerializedPmRegion<u64>,
+        SRegion: SerializedPmRegion<S>,
+        HRegion: SerializedPmRegion<H>,
+        DRegion: SerializedPmRegion<D>,
         S: Sized + Serializable + SuperBlock,
         H: Sized + Serializable + Headers,
         D: Sized + Serializable + LogContents,
+        Perm: CheckPermission<LogMemState>,
     > {
-        untrusted_log_impl: UntrustedLogImpl<CDBRegion, SRegion, HRegion, DRegion, S, H, D>,
+        untrusted_log_impl: UntrustedLogImpl<CDBRegion, SRegion, HRegion, DRegion, S, H, D, Perm>,
         log_id: Ghost<u128>,
     }
 
     impl<
-        CDBRegion: PersistentMemoryRegion<u64>,
-        SRegion: PersistentMemoryRegion<S>,
-        HRegion: PersistentMemoryRegion<H>,
-        DRegion: PersistentMemoryRegion<D>,
+        CDBRegion: SerializedPmRegion<u64>,
+        SRegion: SerializedPmRegion<S>,
+        HRegion: SerializedPmRegion<H>,
+        DRegion: SerializedPmRegion<D>,
         S: Sized + Serializable + SuperBlock,
         H: Sized + Serializable + Headers,
         D: Sized + Serializable + LogContents,
-    > LogImpl<CDBRegion, SRegion, HRegion, DRegion, S, H, D>
+        Perm: CheckPermission<LogMemState>,
+    > LogImpl<CDBRegion, SRegion, HRegion, DRegion, S, H, D, Perm>
     {
         pub closed spec fn view(self) -> AbstractLogState
         {
