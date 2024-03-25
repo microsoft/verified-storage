@@ -33,6 +33,7 @@
 //! as showing evidence of an absence of corruption.
 
 use crate::pmem::device_t::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -563,6 +564,34 @@ verus! {
                     }
                 });
 
+        // TODO: should we be able to read more than one S with a single read call?
+        // Note that addr is a regular offset in terms of bytes, but the result is of type S
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (result: Result<S, ()>)
+            where
+                S: Serializable + Sized
+            requires
+                self.inv(),
+                index < self@.len(),
+                addr + S::spec_serialized_len() <= self@[index as int].len(),
+                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                // TODO: should require that we have previously written an S to this address
+            ensures
+                match result {
+                    Ok(output) => {
+                        let true_val = S::spec_deserialize(
+                            self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                        if self.constants().impervious_to_corruption {
+                            output == true_val
+                        } else {
+                            &&& maybe_corrupted_serialized(output, true_val, addr as int)
+                        }
+                    }
+                    Err(()) => true // TODO
+                }
+        ;
+
+        // TODO: remove and fully replace with serialize_and_write
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
@@ -578,6 +607,33 @@ verus! {
                     let written = old(self)@.write(index as int, addr as int, bytes@);
                     &&& self@ == written
                     &&& self@.current_timestamp == old(self)@.current_timestamp
+                });
+
+        // TODO: should this take a &[S] or just S?
+        // We should probably only be able to write an S to this address if we can be sure
+        // that we are not partially overwriting another structure? since a subsequent
+        // read would make that structure invalid.
+        // how to represent that though? need to map addresses to types in spec code...
+        // or something similar...
+        // Note that addr is a regular offset in terms of bytes, but to_write is type S
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: S)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                index < old(self)@.len(),
+                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                ({
+                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                    &&& self@ == written
+                    &&& self@.current_timestamp == old(self)@.current_timestamp
+                    // TODO: will this write be committed at this point? potentially not
+                    &&& S::spec_deserialize(written[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len())) == to_write
+                    // TODO: is this sufficient?
                 });
 
 

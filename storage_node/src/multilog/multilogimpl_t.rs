@@ -157,7 +157,6 @@ verus! {
 
     // This enumeration represents the various errors that can be
     // returned from multilog operations. They're self-explanatory.
-    #[is_variant]
     #[derive(Debug)]
     pub enum MultiLogErr {
         CantSetupWithFewerThanOneRegion { },
