@@ -733,25 +733,15 @@ verus! {
                 let ghost level3_metadata_bytes = level3_metadata.spec_serialize();
                 let ghost level3_crc_bytes = level3_crc.spec_serialize();
 
-            //     // Create a buffer of bytes to write, putting in it
-            //     // the encoded level-3 metadata and their CRC.
-
-            //     let mut bytes_to_write = Vec::<u8>::new();
-            //     bytes_to_write.append(&mut t);
-            //     bytes_to_write.append(&mut c);
-            //     assert(bytes_to_write@ == level3_metadata_bytes + level3_crc) by {
-            //         assert(Seq::<u8>::empty() + level3_metadata_bytes =~= level3_metadata_bytes);
-            //     }
-
-                // Prove that updating the inactive metadata maintains
-                // all invariants that held before.
+                // Prove that updating the inactive metadata+CRC maintains
+                // all invariants that held before. We prove this separately
+                // for metadata and CRC because they are updated in two separate
+                // writes.
 
                 proof {
                     Level3Metadata::lemma_auto_serialized_len();
                     u64::lemma_auto_serialized_len();
-                    // lemma_updating_inactive_metadata_maintains_invariants(
-                    //     wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
-                    //     level3_metadata_bytes + level3_crc_bytes);
+
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
                         level3_metadata_bytes);
@@ -776,7 +766,7 @@ verus! {
                 // Write the new metadata to the inactive header (without the CRC)
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos, &level3_metadata, Tracked(perm));
 
-                // Now, we need to prove that the crc is safe to update as well.
+                // Now prove that the CRC is safe to update as well, and write it.
 
                 let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LENGTH_OF_LEVEL3_METADATA, level3_crc_bytes);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
