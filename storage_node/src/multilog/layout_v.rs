@@ -236,6 +236,24 @@ verus! {
         }
     }
 
+    pub open spec fn deserialize_level3_cdb(mem: Seq<u8>) -> u64
+    {
+        let bytes = extract_level3_cdb(mem);
+        u64::spec_deserialize(bytes)
+    }
+
+    pub open spec fn deserialize_and_check_level3_cdb(mem: Seq<u8>) -> Option<bool>
+    {
+        let level3_cdb = deserialize_level3_cdb(mem);
+        if level3_cdb == CDB_FALSE {
+            Some(false)
+        } else if level3_cdb == CDB_TRUE {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
     // This function computes where the level-3 metadata will be in a
     // persistent-memory region given the current boolean value `cdb`
     // of the corruption-detecting boolean.

@@ -798,35 +798,36 @@ verus! {
                 }
             }
 
-            assume(false);
+            // Prove that after the flush we're about to do, all our
+            // invariants will continue to hold (using the still-unchanged
+            // CDB and the old metadata, infos, and state).
 
-            // // Prove that after the flush we're about to do, all our
-            // // invariants will continue to hold (using the still-unchanged
-            // // CDB and the old metadata, infos, and state).
+            proof {
+                lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
+                                                             prev_infos, prev_state);
+            }
 
-            // proof {
-            //     lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
-            //                                                  prev_infos, prev_state);
-            // }
+            // Next, flush all outstanding writes to memory. This is
+            // necessary so that those writes are ordered before the update
+            // to the CDB.
+            wrpm_regions.flush();
 
-            // // Next, flush all outstanding writes to memory. This is
-            // // necessary so that those writes are ordered before the update
-            // // to the CDB.
-            // wrpm_regions.flush();
+            // Next, compute the new encoded CDB to write.
 
-            // // Next, compute the new encoded CDB to write.
+            let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
+            let ghost new_cdb_bytes = new_cdb.spec_serialize();
 
-            // let new_cdb = u64_to_le_bytes(if self.cdb { CDB_FALSE } else { CDB_TRUE });
+            // Show that after writing and flushing, the CDB will be !self.cdb
 
-            // // Show that after writing and flushing, the CDB will be !self.cdb
-
-            // let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
-            // let ghost flushed_mem_after_write = pm_regions_after_write.flush();
-            // assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
-            //     lemma_auto_spec_u64_to_from_le_bytes();
-            //     let flushed_regions = pm_regions_after_write.flush();
-            //     assert(extract_level3_cdb(flushed_regions[0].committed()) =~= new_cdb@);
-            // }
+            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb_bytes);
+            let ghost flushed_mem_after_write = pm_regions_after_write.flush();
+            assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
+                u64::lemma_auto_serialize_deserialize();
+                u64::lemma_auto_serialized_len();
+                let flushed_regions = pm_regions_after_write.flush();
+                lemma_write_reflected_after_flush_committed(wrpm_regions@[0], ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb_bytes);
+                assert(deserialize_level3_cdb(flushed_regions[0].committed()) == new_cdb);
+            }
 
             // // Show that after writing and flushing, our invariants will
             // // hold for each log if we flip `self.cdb`.

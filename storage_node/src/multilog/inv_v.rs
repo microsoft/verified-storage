@@ -51,6 +51,13 @@ verus! {
         &&& extract_and_parse_level3_cdb(pm_regions_view[0].committed()) == Some(cdb)
     }
 
+    pub open spec fn memory_matches_deserialized_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
+    {
+        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int,
+            ABSOLUTE_POS_OF_LEVEL3_CDB + CRC_SIZE)
+        &&& deserialize_and_check_level3_cdb(pm_regions_view[0].committed()) == Some(cdb)
+    }
+
     // This invariant says that there are no outstanding writes to the
     // activate metadata subregion of the persistent-memory region
     // (i.e., everything but the log area and the level-3 metadata
