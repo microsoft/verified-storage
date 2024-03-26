@@ -96,7 +96,7 @@ verus! {
         {
             &&& wrpm_regions.inv() // whatever the persistent memory regions require as an invariant
             &&& no_outstanding_writes_to_metadata(wrpm_regions@, self.num_logs)
-            &&& memory_matches_cdb(wrpm_regions@, self.cdb)
+            &&& memory_matches_deserialized_cdb(wrpm_regions@, self.cdb)
             &&& each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, self.infos@)
             &&& each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends())
@@ -630,7 +630,7 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(wrpm_regions).inv(),
-                memory_matches_cdb(old(wrpm_regions)@, old(self).cdb),
+                memory_matches_deserialized_cdb(old(wrpm_regions)@, old(self).cdb),
                 no_outstanding_writes_to_metadata(old(wrpm_regions)@, old(self).num_logs),
                 each_metadata_consistent_with_info(old(wrpm_regions)@, multilog_id, old(self).num_logs,
                                                    old(self).cdb, prev_infos),
@@ -672,7 +672,7 @@ verus! {
                     wrpm_regions.inv(),
                     wrpm_regions.constants() == old(wrpm_regions).constants(),
                     unused_metadata_pos == get_level3_metadata_pos(!self.cdb),
-                    memory_matches_cdb(wrpm_regions@, self.cdb),
+                    memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
                     ({
@@ -812,16 +812,6 @@ verus! {
             // to the CDB.
             wrpm_regions.flush();
 
-            // this holds here
-            // proof {
-            //     assert(forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
-            //         let w = which_log as int;
-            //         &&& metadata_consistent_with_info(wrpm_regions@[w], multilog_id, self.num_logs, which_log,
-            //                                          !self.cdb, self.infos@[w])
-            //         &&& info_consistent_with_log_area(wrpm_regions@[w], self.infos@[w], self.state@[w])
-            //     });
-            // }
-
             // Next, compute the new encoded CDB to write.
 
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
@@ -866,59 +856,58 @@ verus! {
                     !self.cdb,
                     self.infos@
                 );
+            }
+            assert(memory_matches_deserialized_cdb(pm_regions_after_flush, !self.cdb));
+            // assert(memory_matches_cdb(pm_regions_after_flush, !self.cdb));
 
-                assume(false);
-                assert(info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w]));
+            // Show that if we crash after the write and flush, we recover
+            // to an abstract state corresponding to `self.state@` after
+            // dropping pending appends.
+
+            proof {
+                lemma_invariants_imply_crash_recover_forall(pm_regions_after_flush, multilog_id,
+                                                            self.num_logs, !self.cdb, self.infos@, self.state@);
             }
 
-            // // Show that if we crash after the write and flush, we recover
-            // // to an abstract state corresponding to `self.state@` after
-            // // dropping pending appends.
+            // Show that if we crash after initiating the write of the CDB,
+            // we'll recover to a permissible state. There are two cases:
+            //
+            // If we crash without any updating, then we'll recover to
+            // state `prev_state.drop_pending_appends()` with the current
+            // CDB.
+            //
+            // If we crash after writing, then we'll recover to state
+            // `self.state@.drop_pending_appends()` with the flipped CDB.
+            //
+            // Because we're only writing within the persistence
+            // granularity of the persistent memory, a crash in the middle
+            // will either leave the persistent memory in the pre-state or
+            // the post-state.
+            //
+            // This means we're allowed to do the write because if we
+            // crash, we'll either be in state wrpm_regions@.committed() or
+            // pm_regions_after_write.flush().committed(). In the former
+            // case, we'll be in state `prev_state.drop_pending_appends()`
+            // and in the latter case, as shown above, we'll be in state
+            // `self.state@.drop_pending_appends()`.
 
-            // proof {
-            //     lemma_invariants_imply_crash_recover_forall(pm_regions_after_flush, multilog_id,
-            //                                                 self.num_logs, !self.cdb, self.infos@, self.state@);
-            // }
+            assert forall |crash_bytes| pm_regions_after_write.can_crash_as(crash_bytes) implies
+                       #[trigger] perm.check_permission(crash_bytes) by {
+                lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
+                                                            self.cdb, prev_infos, prev_state);
+                u64::lemma_auto_serialized_len();
+                lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
+                                                                   ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb_bytes);
+            }
 
-            // // Show that if we crash after initiating the write of the CDB,
-            // // we'll recover to a permissible state. There are two cases:
-            // //
-            // // If we crash without any updating, then we'll recover to
-            // // state `prev_state.drop_pending_appends()` with the current
-            // // CDB.
-            // //
-            // // If we crash after writing, then we'll recover to state
-            // // `self.state@.drop_pending_appends()` with the flipped CDB.
-            // //
-            // // Because we're only writing within the persistence
-            // // granularity of the persistent memory, a crash in the middle
-            // // will either leave the persistent memory in the pre-state or
-            // // the post-state.
-            // //
-            // // This means we're allowed to do the write because if we
-            // // crash, we'll either be in state wrpm_regions@.committed() or
-            // // pm_regions_after_write.flush().committed(). In the former
-            // // case, we'll be in state `prev_state.drop_pending_appends()`
-            // // and in the latter case, as shown above, we'll be in state
-            // // `self.state@.drop_pending_appends()`.
-
-            // assert forall |crash_bytes| pm_regions_after_write.can_crash_as(crash_bytes) implies
-            //            #[trigger] perm.check_permission(crash_bytes) by {
-            //     lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
-            //                                                 self.cdb, prev_infos, prev_state);
-            //     lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
-            //                                                        ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
-            // }
-
-            // // Finally, update the CDB, then flush, then flip `self.cdb`.
-            // // There's no need to flip `self.cdb` atomically with the write
-            // // since the flip of `self.cdb` is happening in local
-            // // non-persistent memory so if we crash it'll be lost anyway.
+            // Finally, update the CDB, then flush, then flip `self.cdb`.
+            // There's no need to flip `self.cdb` atomically with the write
+            // since the flip of `self.cdb` is happening in local
+            // non-persistent memory so if we crash it'll be lost anyway.
             // wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm));
-            // wrpm_regions.flush();
-            // self.cdb = !self.cdb;
-
-            assume(false);
+            wrpm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, &new_cdb, Tracked(perm));
+            wrpm_regions.flush();
+            self.cdb = !self.cdb;
         }
 
         // The `commit` method commits all tentative appends that have been
