@@ -99,7 +99,7 @@ verus! {
         let level3_crc_deserialized = deserialize_level3_crc(mem, cdb);
         let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
         let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
-        let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
+        // let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
 
         // No outstanding writes to level-1 metadata, level-2 metadata, or the level-3 CDB
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
@@ -128,6 +128,50 @@ verus! {
 
         // The memory region is large enough to hold the entirety of the log area
         &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
+    }
+
+    // This lemma proves that, if all regions are consistent wrt a new CDB, and then we
+    // write and flush that CDB, the regions stay consistent with info.
+    pub proof fn lemma_each_metadata_consistent_with_info_after_cdb_update(
+        old_pm_region_view: PersistentMemoryRegionsView,
+        new_pm_region_view: PersistentMemoryRegionsView,
+        multilog_id: u128,
+        num_logs: u32,
+        new_cdb_bytes: Seq<u8>,
+        new_cdb: bool,
+        infos: Seq<LogInfo>,
+    )
+        requires
+            new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_serialize(),
+            new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_serialize(),
+            new_cdb_bytes.len() == CRC_SIZE,
+            old_pm_region_view.no_outstanding_writes(),
+            new_pm_region_view.no_outstanding_writes(),
+            num_logs > 0,
+            new_pm_region_view =~= old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb_bytes).flush(),
+            each_metadata_consistent_with_info(old_pm_region_view, multilog_id, num_logs, new_cdb, infos),
+        ensures
+            each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
+    {
+        // The bytes in non-updated regions are unchanged and remain consistent after updating the CDB.
+        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+            old_pm_region_view[w as int].committed() =~= new_pm_region_view[w as int].committed()
+        );
+        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+            metadata_consistent_with_info(new_pm_region_view[w as int], multilog_id, num_logs, w, new_cdb, infos[w as int])
+        );
+
+        // The 0th old region (where the CDB is stored) is consistent with the new CDB; this follows from
+        // the precondition.
+        assert(is_valid_log_index(0, num_logs));
+        assert(metadata_consistent_with_info(old_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int]));
+
+        // The metadata in the updated region is also consistent
+        assert(metadata_consistent_with_info(new_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int])) by {
+            let old_mem = old_pm_region_view[0int].committed();
+            let new_mem = new_pm_region_view[0int].committed();
+            lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+        }
     }
 
     // This invariant says that `metadata_consistent_with_info` holds

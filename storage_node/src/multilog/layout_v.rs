@@ -795,6 +795,14 @@ verus! {
     {
     }
 
+    pub proof fn lemma_same_bytes_same_deserialization<S>(mem1: Seq<u8>, mem2: Seq<u8>)
+        where
+            S: Serializable + Sized
+        ensures
+            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
+                S::spec_deserialize(#[trigger] extract_bytes(mem1, i, n)) == S::spec_deserialize(#[trigger] extract_bytes(mem2, i, n))
+    {}
+
     // This lemma establishes that if the given persistent memory
     // regions' contents can be recovered to a valid abstract state,
     // then that abstract state is unaffected by

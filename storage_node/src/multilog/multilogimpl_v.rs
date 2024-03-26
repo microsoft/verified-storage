@@ -812,6 +812,16 @@ verus! {
             // to the CDB.
             wrpm_regions.flush();
 
+            // this holds here
+            // proof {
+            //     assert(forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
+            //         let w = which_log as int;
+            //         &&& metadata_consistent_with_info(wrpm_regions@[w], multilog_id, self.num_logs, which_log,
+            //                                          !self.cdb, self.infos@[w])
+            //         &&& info_consistent_with_log_area(wrpm_regions@[w], self.infos@[w], self.state@[w])
+            //     });
+            // }
+
             // Next, compute the new encoded CDB to write.
 
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
@@ -829,20 +839,37 @@ verus! {
                 assert(deserialize_level3_cdb(flushed_regions[0].committed()) == new_cdb);
             }
 
-            // // Show that after writing and flushing, our invariants will
-            // // hold for each log if we flip `self.cdb`.
+            // Show that after writing and flushing, our invariants will
+            // hold for each log if we flip `self.cdb`.
 
-            // let ghost pm_regions_after_flush = pm_regions_after_write.flush();
-            // assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) implies {
-            //     let w = which_log as int;
-            //     &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
-            //                                      !self.cdb, self.infos@[w])
-            //     &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
-            // } by {
-            //     lemma_establish_extract_bytes_equivalence(
-            //         wrpm_regions@[which_log as int].committed(),
-            //         pm_regions_after_flush[which_log as int].committed());
-            // }
+            let ghost pm_regions_after_flush = pm_regions_after_write.flush();
+            assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) implies {
+                let w = which_log as int;
+                &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
+                                                 !self.cdb, self.infos@[w])
+                &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
+            } by {
+                u64::lemma_auto_serialize_deserialize();
+                u64::lemma_auto_serialized_len();
+
+                let w = which_log as int;
+                lemma_establish_extract_bytes_equivalence(
+                    wrpm_regions@[which_log as int].committed(),
+                    pm_regions_after_flush[which_log as int].committed());
+
+                lemma_each_metadata_consistent_with_info_after_cdb_update(
+                    wrpm_regions@,
+                    pm_regions_after_flush,
+                    multilog_id,
+                    self.num_logs,
+                    new_cdb_bytes,
+                    !self.cdb,
+                    self.infos@
+                );
+
+                assume(false);
+                assert(info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w]));
+            }
 
             // // Show that if we crash after the write and flush, we recover
             // // to an abstract state corresponding to `self.state@` after
