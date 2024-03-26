@@ -365,7 +365,7 @@ verus! {
             num_regions == pm_regions@.len(),
             num_regions > 0,
             pm_regions@.no_outstanding_writes(),
-            memory_matches_cdb(pm_regions@, cdb),
+            memory_matches_deserialized_cdb(pm_regions@, cdb),
             recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
         ensures
             match result {

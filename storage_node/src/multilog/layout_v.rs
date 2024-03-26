@@ -663,7 +663,7 @@ verus! {
                     }
                     else {
                         // Extract and parse the level-3 CDB
-                        extract_and_parse_level3_cdb(mem)
+                        deserialize_and_check_level3_cdb(mem)
                     }
                 }
                 else {

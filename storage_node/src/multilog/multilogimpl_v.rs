@@ -964,7 +964,7 @@ verus! {
                     iter.end == self.num_logs, // we need to remember this since `self` is changed in the loop body
                     wrpm_regions.inv(),
 
-                    memory_matches_cdb(wrpm_regions@, self.cdb),
+                    memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
                     self.infos@.len() == self.state@.num_logs() == self.num_logs,

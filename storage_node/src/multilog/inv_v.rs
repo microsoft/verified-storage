@@ -451,7 +451,6 @@ verus! {
         state: AbstractMultiLogState,
     )
         requires
-            // memory_matches_cdb(pm_regions_view, cdb),
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
