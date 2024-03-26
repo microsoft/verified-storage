@@ -80,14 +80,23 @@ pub enum LogicalRangeGapsPolicy {
     LogicalRangeGapsPermitted,
 }
 
+pub trait Header<K> : Sized {
+    spec fn spec_key(self) -> K;
+
+    fn key(&self) -> (out: K)
+        ensures
+            out == self.spec_key()
+    ;
+}
+
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 // TODO: actually should this be a wrapper around an untrusted implementation?
 pub struct PagedKv<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-    H: Serializable<E> + std::fmt::Debug,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
     P: Serializable<E> + LogicalRange + std::fmt::Debug,
     D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
@@ -106,8 +115,8 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 impl<PM, K, H, P, D, V, E> PagedKv<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-    H: Serializable<E> + std::fmt::Debug,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
     P: Serializable<E> + LogicalRange + std::fmt::Debug,
     D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,

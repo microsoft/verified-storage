@@ -5,6 +5,7 @@ use vstd::prelude::*;
 
 use crate::paged_kv::durable::durablespec_t::*;
 use crate::paged_kv::pagedkvimpl_t::*;
+use crate::paged_kv::pagedkvspec_t::*;
 use crate::paged_kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
@@ -13,12 +14,16 @@ verus! {
     pub trait DurableKvStore<PM, K, H, P, E> : Sized
     where
         PM: PersistentMemoryRegions,
-        K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-        H: Serializable<E> + std::fmt::Debug,
+        K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+        H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
         P: Serializable<E> + LogicalRange + std::fmt::Debug,
         E: std::fmt::Debug,
     {
         spec fn view(&self) -> DurableKvStoreView<K, H, P>;
+
+        spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, H, P>>;
+
+        spec fn valid(self) -> bool;
 
         fn new(pmem: PM,
             kvstore_id: u128,
@@ -30,8 +35,34 @@ verus! {
                 match(result) {
                     Ok(durable_store) => {
                         &&& durable_store@.empty()
+                        &&& durable_store.valid()
                     }
                     Err(_) => true // TODO
                 };
+
+        fn create(
+            &mut self,
+            header: H,
+            perm: Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>
+        ) -> (result: Result<u64, PagedKvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                match result {
+                    Ok(offset) => {
+                        match self@.contents[offset as int] {
+                            Some(entry) => {
+                                &&& entry.key() == header.spec_key()
+                                &&& entry.header() == header
+                                &&& entry.pages() == Seq::<P>::empty()
+                            }
+                            None => false
+                        }
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            Err(PagedKvError::NotImplemented)
+        }
     }
 }

@@ -19,14 +19,14 @@ verus! {
     where
         K: Hash + Eq,
     {
-        contents: Map<K, usize>
+        contents: Map<K, int>
     }
 
     impl<K> VolatileKvIndexView<K>
     where
         K: Hash + Eq,
     {
-        pub closed spec fn index(&self, key: K) -> usize
+        pub closed spec fn index(&self, key: K) -> int
         {
             self.contents.index(key)
         }
@@ -36,7 +36,7 @@ verus! {
             self.contents.contains_key(key)
         }
 
-        pub closed spec fn insert(&self, key: K, index: usize) -> Self
+        pub closed spec fn insert(&self, key: K, index: int) -> Self
         {
             Self { contents: self.contents.insert(key, index) }
         }
@@ -47,7 +47,7 @@ verus! {
         }
 
         pub closed spec fn empty(self) -> bool {
-            self.contents == Map::<K, usize>::empty()
+            self.contents == Map::<K, int>::empty()
         }
     }
 

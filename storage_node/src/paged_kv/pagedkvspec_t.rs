@@ -14,28 +14,26 @@ verus! {
 
     // Since the durable part of the PagedKV is a list of PM regions,
     // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
-    pub struct TrustedKvPermission<PM, K, H, P, D, V, E>
+    pub struct TrustedKvPermission<PM, K, H, P, D, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + Header<K> + std::fmt::Debug,
             P: Serializable<E> + LogicalRange + std::fmt::Debug,
             D: DurableKvStore<PM, K, H, P, E>,
-            V: VolatileKvIndex<K, E>,
             E: std::fmt::Debug,
     {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
-        _phantom:  Ghost<core::marker::PhantomData<(PM, K, H, P, D, V, E)>>
+        _phantom:  Ghost<core::marker::PhantomData<(PM, K, H, P, D, E)>>
     }
 
-    impl<PM, K, H, P, D, V, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, H, P, D, V, E>
+    impl<PM, K, H, P, D, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, H, P, D, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + Header<K> + std::fmt::Debug,
             P: Serializable<E> + LogicalRange + std::fmt::Debug,
             D: DurableKvStore<PM, K, H, P, E>,
-            V: VolatileKvIndex<K, E>,
             E: std::fmt::Debug,
     {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
@@ -44,14 +42,13 @@ verus! {
         }
     }
 
-    impl<PM, K, H, P, D, V, E> TrustedKvPermission<PM, K, H, P, D, V, E>
+    impl<PM, K, H, P, D, E> TrustedKvPermission<PM, K, H, P, D, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + std::fmt::Debug,
+            H: Serializable<E> + Header<K> + std::fmt::Debug,
             P: Serializable<E> + LogicalRange + std::fmt::Debug,
             D: DurableKvStore<PM, K, H, P, E>,
-            V: VolatileKvIndex<K, E>,
             E: std::fmt::Debug,
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures
@@ -63,10 +60,10 @@ verus! {
         pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, H, P>) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
-                    UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state)
+                    D::recover_to_kv_state(s, kv_id) == Some(state)
         {
             Self {
-                is_state_allowable: |s| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state),
+                is_state_allowable: |s| D::recover_to_kv_state(s, kv_id) == Some(state),
                 _phantom: Ghost(spec_phantom_data())
             }
         }
@@ -83,14 +80,14 @@ verus! {
         ) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state1)
-                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state2)
+                    ||| D::recover_to_kv_state(s, kv_id) == Some(state1)
+                    ||| D::recover_to_kv_state(s, kv_id) == Some(state2)
                 }
         {
             Self {
                 is_state_allowable: |s| {
-                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state1)
-                    ||| UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(s, kv_id) == Some(state2)
+                    ||| D::recover_to_kv_state(s, kv_id) == Some(state1)
+                    ||| D::recover_to_kv_state(s, kv_id) == Some(state2)
                 },
                 _phantom: Ghost(spec_phantom_data())
             }
@@ -108,6 +105,7 @@ verus! {
     pub struct AbstractKvStoreState<K, H, P>
     where
         K: Hash + Eq,
+        H: Header<K>,
         P: LogicalRange,
     {
         pub id: u128,
@@ -117,6 +115,7 @@ verus! {
     impl<K, H, P> AbstractKvStoreState<K, H, P>
     where
         K: Hash + Eq,
+        H: Header<K>,
         P: LogicalRange,
     {
         pub open spec fn create(self, key: K, header: H) -> Self

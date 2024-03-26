@@ -19,7 +19,7 @@ pub struct UntrustedPagedKvImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-    H: Serializable<E> + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + std::fmt::Debug,
     P: Serializable<E> + LogicalRange + std::fmt::Debug,
     D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
@@ -34,8 +34,8 @@ where
 impl<PM, K, H, P, D, V, E> UntrustedPagedKvImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-    H: Serializable<E> + std::fmt::Debug,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
     P: Serializable<E> + LogicalRange + std::fmt::Debug,
     D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
@@ -77,7 +77,9 @@ where
 
     pub closed spec fn valid(self) -> bool
     {
-        self.durable_store@.matches_volatile_index(self.volatile_index@)
+        &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
+        &&& self.durable_store.valid()
+        &&& self.volatile_index.valid()
     }
 
     pub fn untrusted_new(
@@ -112,7 +114,7 @@ where
         &mut self,
         key: &K,
         header: H,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid(),
@@ -125,7 +127,12 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        // `header` stores its own key, so we don't have to pass its key to the durable
+        // store separately.
+        let offset = self.durable_store.create(header, perm)?;
+        self.volatile_index.insert(key, offset)?;
+        assume(false); // TODO
+        Ok(())
     }
 
     pub fn untrusted_read_header(&self, key: &K) -> (result: Option<&H>)
@@ -196,7 +203,7 @@ where
         &mut self,
         key: &K,
         new_header: H,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid(),
@@ -215,7 +222,7 @@ where
     pub fn untrusted_delete(
         &mut self,
         key: &K,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -279,7 +286,7 @@ where
         &mut self,
         key: &K,
         new_index: P,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -300,7 +307,7 @@ where
         key: &K,
         new_index: P,
         new_header: H,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -321,7 +328,7 @@ where
         key: &K,
         idx: usize,
         new_index: P,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -343,7 +350,7 @@ where
         idx: usize,
         new_index: P,
         new_header: H,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -363,7 +370,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
@@ -384,7 +391,7 @@ where
         key: &K,
         trim_length: usize,
         new_header: H,
-        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, V, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), PagedKvError<K, E>>)
         requires
             old(self).valid()
