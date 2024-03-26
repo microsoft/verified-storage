@@ -6,6 +6,7 @@
 //! of the system's correctness.
 
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -295,7 +296,7 @@ verus! {
     // `None` -- corruption was detected, so the persistent memory regions
     // can't be impervious to corruption
     pub fn check_cdb(
-        cdb_c: &[u8],
+        cdb_c: &u64,
         Ghost(mem): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
         Ghost(cdb_addr): Ghost<u64>,
@@ -303,36 +304,32 @@ verus! {
         requires
             cdb_addr + CRC_SIZE <= mem.len(),
             ({
-                let true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
-                &&& spec_u64_from_le_bytes(true_cdb) == CDB_FALSE || spec_u64_from_le_bytes(true_cdb) == CDB_TRUE
-                &&& if impervious_to_corruption { cdb_c@ == true_cdb }
-                   else { maybe_corrupted(cdb_c@, true_cdb, Seq::<int>::new(CRC_SIZE as nat, |i: int| i + cdb_addr)) }
+                let true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
+                &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
+                &&& if impervious_to_corruption { cdb_c == true_cdb }
+                        else { maybe_corrupted_serialized::<u64>(*cdb_c, true_cdb, cdb_addr as int) }
             })
         ensures
             ({
-                let true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
+                let true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
                 match result {
-                    Some(b) => if b { spec_u64_from_le_bytes(true_cdb) == CDB_TRUE }
-                               else { spec_u64_from_le_bytes(true_cdb) == CDB_FALSE },
+                    Some(b) => if b { true_cdb == CDB_TRUE }
+                               else { true_cdb == CDB_FALSE },
                     None => !impervious_to_corruption,
                 }
             })
     {
-        // Convert the read encoded CDB into a `u64` to facilitate
-        // comparing it to `CDB_TRUE` and `CDB_FALSE`.
-        let cdb_val = u64_from_le_bytes(cdb_c);
+        let cdb_val = *cdb_c;
 
         proof {
-
             // We may need to invoke the axiom
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
 
-            if !impervious_to_corruption && (cdb_val == CDB_FALSE || cdb_val == CDB_TRUE) {
-                let ghost true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
-                let ghost addrs = Seq::<int>::new(CRC_SIZE as nat, |i: int| i + cdb_addr);
-                axiom_corruption_detecting_boolean(cdb_c@, true_cdb, addrs);
+            if !impervious_to_corruption && (cdb_c == CDB_FALSE || cdb_c == CDB_TRUE) {
+                let ghost true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
+                axiom_corruption_detecting_boolean_serialized(cdb_val, true_cdb, cdb_addr as int);
             }
         }
 

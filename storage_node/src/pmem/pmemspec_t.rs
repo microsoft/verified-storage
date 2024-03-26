@@ -466,21 +466,18 @@ verus! {
             ensures
                 bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
 
-        fn read_and_deserialize<S>(&self, addr: u64) -> (result: Result<&S, ()>)
+        fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
             where
                 S: Serializable + Sized
             requires
                 self.inv(),
                 addr + S::spec_serialized_len() <= self@.len()
             ensures
-                match result {
-                    Ok(output) => {
-                        let true_val = S::spec_deserialize(
-                            self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                        output == true_val
-                    }
-                    Err(()) => true // TODO
-                }
+            ({
+                let true_val = S::spec_deserialize(
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                output == true_val
+            })
         ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
@@ -599,7 +596,7 @@ verus! {
 
         // TODO: should we be able to read more than one S with a single read call?
         // Note that addr is a regular offset in terms of bytes, but the result is of type S
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (result: Result<&S, ()>)
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (output: &S)
             where
                 S: Serializable + Sized
             requires
@@ -609,19 +606,16 @@ verus! {
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
                 // TODO: should require that we have previously written an S to this address
             ensures
-                match result {
-                    Ok(output) => {
-                        let true_val = S::spec_deserialize(
-                            self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-                        if self.constants().impervious_to_corruption {
-                            output == true_val
-                        } else {
-                            &&& maybe_corrupted_serialized(*output, true_val, addr as int)
-                        }
-                    }
-                    Err(()) => true // TODO
+            ({
+                let true_val = S::spec_deserialize(
+                    self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                if self.constants().impervious_to_corruption {
+                    output == true_val
+                } else {
+                    &&& maybe_corrupted_serialized(*output, true_val, addr as int)
                 }
+            })
         ;
 
         // TODO: remove and fully replace with serialize_and_write

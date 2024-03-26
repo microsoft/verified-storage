@@ -169,7 +169,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn read_and_deserialize<S>(&self, addr: u64) -> (result: Result<&S, ()>)
+        fn read_and_deserialize<S>(&self, addr: u64) -> &S
             where
                 S: Serializable + Sized
         {
@@ -184,7 +184,7 @@ verus! {
             unsafe {
                 let bytes_pointer = bytes.as_ptr();
                 let s_pointer = bytes_pointer as *const S;
-                Ok(&(*s_pointer))
+                &(*s_pointer)
             }
         }
 
@@ -311,7 +311,7 @@ verus! {
             self.pms[index].read(addr, num_bytes)
         }
 
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (result: Result<&S, ()>)
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
             where
                 S: Serializable + Sized
         {

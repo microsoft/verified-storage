@@ -51,8 +51,9 @@ verus! {
     {
         let ghost mem = pm_regions@[0].committed();
 
-        let level3_cdb_bytes = pm_regions.read(0, ABSOLUTE_POS_OF_LEVEL3_CDB, CRC_SIZE);
-        let result = check_cdb(level3_cdb_bytes.as_slice(), Ghost(mem),
+        // let level3_cdb_bytes = pm_regions.read(0, ABSOLUTE_POS_OF_LEVEL3_CDB, CRC_SIZE);
+        let level3_cdb = pm_regions.read_and_deserialize::<u64>(0, ABSOLUTE_POS_OF_LEVEL3_CDB);
+        let result = check_cdb(&level3_cdb, Ghost(mem),
                                Ghost(pm_regions.constants().impervious_to_corruption),
                                Ghost(ABSOLUTE_POS_OF_LEVEL3_CDB));
         match result {
