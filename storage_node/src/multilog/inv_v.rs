@@ -508,7 +508,7 @@ verus! {
                                                      bytes_to_write);
         let w = which_log as int;
 
-        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
             assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
                    extract_level3_cdb(pm_regions_view[0].committed()));
@@ -572,7 +572,7 @@ verus! {
         );
         let w = which_log as int;
 
-        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
             assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
                    extract_level3_cdb(pm_regions_view[0].committed()));
@@ -618,7 +618,7 @@ verus! {
     {
         let pm_regions_view2 = pm_regions_view.flush();
 
-        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
             assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
                    extract_level3_cdb(pm_regions_view[0].committed()));

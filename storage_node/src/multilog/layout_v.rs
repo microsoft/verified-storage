@@ -543,9 +543,9 @@ verus! {
                                 None
                             }
                             else {
-                                let level3_metadata_bytes = extract_level3_metadata(mem, cdb);
-                                let level3_crc = extract_level3_crc(mem, cdb);
-                                if level3_crc != spec_crc_bytes(level3_metadata_bytes) {
+                                let level3_metadata = deserialize_level3_metadata(mem, cdb);
+                                let level3_crc = deserialize_level3_crc(mem, cdb);
+                                if level3_crc != level3_metadata.spec_crc() {
                                     // To be valid, the level-3 CRC has to be a valid CRC of the
                                     // level-3 metadata encoded as bytes. (This only applies to the
                                     // "active" level-3 metadata, i.e., the level-3 metadata
@@ -553,7 +553,6 @@ verus! {
                                     None
                                 }
                                 else {
-                                    let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
                                     recover_abstract_log_from_region_given_metadata(
                                         mem, level2_metadata.log_area_len, level3_metadata.head,
                                         level3_metadata.log_length)
