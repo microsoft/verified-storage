@@ -84,11 +84,18 @@ verus! {
             ||| (self.empty() && volatile_index.empty())
             ||| forall |k: K| volatile_index.contains_key(k) <==>
                 {
-                    let entry = self.contents[volatile_index.index(k) as int];
-                    match entry {
-                        Some(entry) => entry.key == k,
+                    let index = volatile_index[k];
+                    match index {
+                        Some(index) => {
+                            let entry = self.contents[index as int];
+                            match entry {
+                                Some(entry) => entry.key == k,
+                                None => false
+                            }
+                        }
                         None => false
                     }
+
                 }
 
         }

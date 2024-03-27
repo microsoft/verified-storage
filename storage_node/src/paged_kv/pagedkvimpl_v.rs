@@ -57,19 +57,30 @@ where
             contents: Map::new(
                 |k| { self.volatile_index@.contains_key(k) },
                 |k| {
-                    let idx = self.volatile_index@.index(k) as int;
-                    match self.durable_store@[idx] {
-                        Some(entry) => (
-                            entry.header(), entry.pages()
-                        ),
+                    let idx = self.volatile_index@[k];
+                    match idx {
+                        Some(idx) => {
+                            match self.durable_store@[idx as int] {
+                                Some(entry) => (
+                                    entry.header(), entry.pages()
+                                ),
+                                None => {
+                                    // This case is unreachable, because we only include indexes that exist,
+                                    // but we have to return something, so pick a random entry and return its header.
+                                    // NOTE: could return H::default() if we add Default as a trait bound on H.
+                                    let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, H, P>| e.key() == k;
+                                    ( arbitrary_entry.header(), Seq::empty() )
+                                }
+                            }
+                        }
                         None => {
                             // This case is unreachable, because we only include indexes that exist,
                             // but we have to return something, so pick a random entry and return its header.
                             // NOTE: could return H::default() if we add Default as a trait bound on H.
                             let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, H, P>| e.key() == k;
-                            ( arbitrary_entry.header(), Seq::empty() )
-                        }
+                            ( arbitrary_entry.header(), Seq::empty() )}
                     }
+
                 }
             )
         }
@@ -152,10 +163,17 @@ where
             }
         })
     {
-        assume(false);
-        None
+        assume(false); // TODO
+
+        // First, get the offset of the header in the durable store using the volatile index
+        let offset = self.volatile_index.get(key);
+        match offset {
+            Some(offset) => self.durable_store.read_header(offset),
+            None => None
+        }
     }
 
+    // TODO: return a Vec<&P> to save space/reduce copies
     pub fn untrusted_read_header_and_pages(&self, key: &K) -> (result: Option<(&H, &Vec<P>)>)
         requires
             self.valid(),
@@ -175,7 +193,12 @@ where
         })
     {
         assume(false);
-        None
+        // First, get the offset of the header in the durable store using the volatile index
+        let offset = self.volatile_index.get(key);
+        match offset {
+            Some(offset) => self.durable_store.read_header_and_pages(offset),
+            None => None
+        }
     }
 
     pub fn untrusted_read_pages(&self, key: &K) -> (result: Option<&Vec<P>>)

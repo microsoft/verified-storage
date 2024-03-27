@@ -50,7 +50,7 @@ verus! {
             ensures
                 match result {
                     Ok(offset) => {
-                        match self@.contents[offset as int] {
+                        match self@[offset as int] {
                             Some(entry) => {
                                 &&& entry.key() == header.spec_key()
                                 &&& entry.header() == header
@@ -64,5 +64,47 @@ verus! {
         {
             Err(PagedKvError::NotImplemented)
         }
+
+        fn read_header(
+            &self,
+            offset: u64
+        ) -> (result: Option<&H>)
+            requires
+                self.valid(),
+            ensures
+                match result {
+                    Some(header) => {
+                        match self@[offset as int] {
+                            Some(entry) => entry.header() == header,
+                            None => false
+                        }
+                    }
+                    None => self@[offset as int].is_None()
+                }
+        {
+            assume(false);
+            None
+        }
+
+        fn read_header_and_pages(
+            &self,
+            offset: u64
+        ) -> (result: Option<(&H, &Vec<P>)>)
+            requires
+                self.valid()
+            ensures
+                match result {
+                    Some((header, pages)) => {
+                        match self@[offset as int] {
+                            Some(entry) => {
+                                &&& entry.header() == header
+                                &&& entry.pages() == pages@
+                            }
+                            None => false
+                        }
+                    }
+                    None => self@[offset as int].is_None()
+                }
+        ;
     }
 }

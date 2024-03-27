@@ -48,5 +48,21 @@ verus! {
                 }
         ;
 
+        fn get(
+            &self,
+            key: &K
+        ) -> (result: Option<u64>)
+            requires
+                self.valid(),
+            ensures
+                match result {
+                    Some(offset) => match self@[*key] {
+                            Some(val) => offset == val,
+                            None => false
+                        }
+                    None => self@[*key].is_None()
+                }
+        ;
+
     }
 }

@@ -26,9 +26,14 @@ verus! {
     where
         K: Hash + Eq,
     {
-        pub closed spec fn index(&self, key: K) -> int
+        pub closed spec fn spec_index(&self, key: K) -> Option<int>
         {
-            self.contents.index(key)
+            if self.contents.dom().contains(key) {
+                Some(self.contents.index(key))
+            } else {
+                None
+            }
+
         }
 
         pub closed spec fn contains_key(&self, key: K) -> bool
