@@ -10,7 +10,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::pagedkvimpl_t::*;
+use crate::kv::kvimpl_t::*;
 use std::hash::Hash;
 
 verus! {

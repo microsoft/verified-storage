@@ -3,10 +3,10 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::durable::durableimpl_v::*;
-use crate::paged_kv::pagedkvimpl_t::*;
-use crate::paged_kv::pagedkvimpl_v::*;
-use crate::paged_kv::volatile::volatileimpl_v::*;
+use crate::kv::durable::durableimpl_v::*;
+use crate::kv::kvimpl_t::*;
+use crate::kv::kvimpl_v::*;
+use crate::kv::volatile::volatileimpl_v::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 

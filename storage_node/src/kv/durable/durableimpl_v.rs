@@ -3,10 +3,10 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::durable::durablespec_t::*;
-use crate::paged_kv::pagedkvimpl_t::*;
-use crate::paged_kv::pagedkvspec_t::*;
-use crate::paged_kv::volatile::volatilespec_t::*;
+use crate::kv::durable::durablespec_t::*;
+use crate::kv::kvimpl_t::*;
+use crate::kv::kvspec_t::*;
+use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
@@ -30,7 +30,7 @@ verus! {
             max_keys: usize,
             lower_bound_on_max_pages: usize,
             logical_range_gaps_policy: LogicalRangeGapsPolicy
-        ) -> (result: Result<Self, PagedKvError<K, E>>)
+        ) -> (result: Result<Self, KvError<K, E>>)
             ensures
                 match(result) {
                     Ok(durable_store) => {
@@ -44,7 +44,7 @@ verus! {
             &mut self,
             header: H,
             perm: Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>
-        ) -> (result: Result<u64, PagedKvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid()
             ensures
@@ -62,7 +62,7 @@ verus! {
                     Err(_) => true // TODO
                 }
         {
-            Err(PagedKvError::NotImplemented)
+            Err(KvError::NotImplemented)
         }
 
         fn read_header(

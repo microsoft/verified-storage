@@ -5,10 +5,10 @@ use vstd::prelude::*;
 
 use super::durable::durableimpl_v::*;
 use super::durable::durablespec_t::*;
-use super::pagedkvspec_t::*;
+use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
-use crate::paged_kv::pagedkvimpl_t::*;
+use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 
 use std::hash::Hash;
@@ -99,7 +99,7 @@ where
         max_keys: usize,
         lower_bound_on_max_pages: usize,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    ) -> (result: Result<Self, PagedKvError<K, E>>)
+    ) -> (result: Result<Self, KvError<K, E>>)
         ensures
         match result {
             Ok(new_kv) => {
@@ -126,7 +126,7 @@ where
         key: &K,
         header: H,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
         ensures
@@ -227,7 +227,7 @@ where
         key: &K,
         new_header: H,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
         ensures
@@ -239,14 +239,14 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_delete(
         &mut self,
         key: &K,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -258,10 +258,10 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
-    pub fn untrusted_find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, PagedKvError<K, E>>)
+    pub fn untrusted_find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, KvError<K, E>>)
         requires
             self.valid()
         ensures
@@ -281,7 +281,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_find_pages_in_logical_range(
@@ -289,7 +289,7 @@ where
         key: &K,
         start: usize,
         end: usize
-    ) -> (result: Result<Vec<&P>, PagedKvError<K, E>>)
+    ) -> (result: Result<Vec<&P>, KvError<K, E>>)
         requires
             self.valid()
         ensures
@@ -302,7 +302,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_append_page(
@@ -310,7 +310,7 @@ where
         key: &K,
         new_index: P,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -322,7 +322,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_append_page_and_update_header(
@@ -331,7 +331,7 @@ where
         new_index: P,
         new_header: H,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -343,7 +343,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_update_page(
@@ -352,7 +352,7 @@ where
         idx: usize,
         new_index: P,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -364,7 +364,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_update_page_and_header(
@@ -374,7 +374,7 @@ where
         new_index: P,
         new_header: H,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -386,7 +386,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_trim_pages(
@@ -394,7 +394,7 @@ where
         key: &K,
         trim_length: usize,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -406,7 +406,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_trim_pages_and_update_header(
@@ -415,7 +415,7 @@ where
         trim_length: usize,
         new_header: H,
         perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -427,7 +427,7 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
     pub fn untrusted_get_keys(&self) -> (result: Vec<K>)

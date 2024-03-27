@@ -3,8 +3,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::paged_kv::pagedkvimpl_t::*;
-use crate::paged_kv::volatile::volatilespec_t::*;
+use crate::kv::kvimpl_t::*;
+use crate::kv::volatile::volatilespec_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -20,7 +20,7 @@ verus! {
         fn new(
             kvstore_id: u128,
             max_keys: usize,
-        ) -> (result: Result<Self, PagedKvError<K, E>>)
+        ) -> (result: Result<Self, KvError<K, E>>)
             ensures
                 match result {
                     Ok(volatile_index) => {
@@ -35,7 +35,7 @@ verus! {
             &mut self,
             key: &K,
             offset: u64,
-        ) -> (result: Result<(), PagedKvError<K, E>>)
+        ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
             ensures

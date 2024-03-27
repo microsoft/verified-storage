@@ -12,8 +12,8 @@ use vstd::prelude::*;
 
 use super::durable::durableimpl_v::*;
 use super::durable::durablespec_t::*;
-use super::pagedkvimpl_v::*;
-use super::pagedkvspec_t::*;
+use super::kvimpl_v::*;
+use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -49,7 +49,7 @@ pub trait Serializable<E>: Sized {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum PagedKvError<K, E>
+pub enum KvError<K, E>
 where
     K: std::fmt::Debug,
     E: std::fmt::Debug,
@@ -140,7 +140,7 @@ where
         max_keys: usize,
         lower_bound_on_max_pages: usize,
         logical_range_gaps_policy: LogicalRangeGapsPolicy,
-    ) -> (result: Result<Self, PagedKvError<K, E>>)
+    ) -> (result: Result<Self, KvError<K, E>>)
         requires
             pmem.inv(),
         ensures
@@ -165,7 +165,7 @@ where
         )
     }
 
-    fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, PagedKvError<K, E>>)
+    fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K, E>>)
         requires
             pmem.inv(),
         ensures
@@ -180,10 +180,10 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(PagedKvError::NotImplemented)
+        Err(KvError::NotImplemented)
     }
 
-    fn create(&mut self, key: &K, header: H) -> (result: Result<(), PagedKvError<K, E>>)
+    fn create(&mut self, key: &K, header: H) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -260,7 +260,7 @@ where
         self.untrusted_kv_impl.untrusted_read_pages(key)
     }
 
-    fn update_header(&mut self, key: &K, new_header: H) -> (result: Result<(), PagedKvError<K, E>>)
+    fn update_header(&mut self, key: &K, new_header: H) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
         ensures
@@ -276,7 +276,7 @@ where
         self.untrusted_kv_impl.untrusted_update_header(key, new_header, Tracked(&perm))
     }
 
-    fn delete(&mut self, key: &K) -> (result: Result<(), PagedKvError<K, E>>)
+    fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -292,7 +292,7 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
     }
 
-    fn find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, PagedKvError<K, E>>)
+    fn find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, KvError<K, E>>)
         requires
             self.valid()
         ensures
@@ -320,7 +320,7 @@ where
         key: &K,
         start: usize,
         end: usize
-    ) -> (result: Result<Vec<&P>, PagedKvError<K, E>>)
+    ) -> (result: Result<Vec<&P>, KvError<K, E>>)
         requires
             self.valid()
         ensures
@@ -341,7 +341,7 @@ where
         &mut self,
         key: &K,
         new_index: P
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -362,7 +362,7 @@ where
         key: &K,
         new_index: P,
         new_header: H,
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -378,7 +378,7 @@ where
         self.untrusted_kv_impl.untrusted_append_page_and_update_header(key,  new_index, new_header, Tracked(&perm))
     }
 
-    fn update_page(&mut self, key: &K, idx: usize, new_index: P) -> (result: Result<(), PagedKvError<K, E>>)
+    fn update_page(&mut self, key: &K, idx: usize, new_index: P) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -400,7 +400,7 @@ where
         idx: usize,
         new_index: P,
         new_header: H,
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -420,7 +420,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
@@ -441,7 +441,7 @@ where
         key: &K,
         trim_length: usize,
         new_header: H,
-    ) -> (result: Result<(), PagedKvError<K, E>>)
+    ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
