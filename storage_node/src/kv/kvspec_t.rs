@@ -118,6 +118,15 @@ verus! {
         H: Header<K>,
         P: LogicalRange,
     {
+        pub open spec fn spec_index(self, key: K) -> Option<(H, Seq<P>)>
+        {
+            if self.get_keys().contains(key) {
+                Some(self.contents[key])
+            } else {
+                None
+            }
+        }
+
         pub open spec fn create(self, key: K, header: H) -> Self
         {
             Self {

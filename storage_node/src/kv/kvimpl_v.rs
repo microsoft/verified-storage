@@ -57,12 +57,13 @@ where
             contents: Map::new(
                 |k| { self.volatile_index@.contains_key(k) },
                 |k| {
-                    let idx = self.volatile_index@[k];
-                    match idx {
-                        Some(idx) => {
-                            match self.durable_store@[idx as int] {
+                    let index_entry = self.volatile_index@[k];
+                    match index_entry {
+                        Some(index_entry) => {
+                            match self.durable_store@[index_entry.metadata_offset] {
                                 Some(entry) => (
-                                    entry.header(), entry.pages()
+                                    // pages seq only includes the entries themselves, not their physical offsets
+                                    entry.header(), entry.page_entries()
                                 ),
                                 None => {
                                     // This case is unreachable, because we only include indexes that exist,
@@ -219,7 +220,11 @@ where
         })
     {
         assume(false);
-        None
+        let offset = self.volatile_index.get(key);
+        match offset {
+            Some(offset) => self.durable_store.read_pages(offset),
+            None => None
+        }
     }
 
     pub fn untrusted_update_header(
@@ -231,15 +236,23 @@ where
         requires
             old(self).valid(),
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.update_header(*key, new_header)
+                    self@ == old(self)@.update_header(*key, new_header)
+                }
+                Err(KvError::KeyNotFound) => {
+                    self@[*key].is_None()
                 }
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let offset = self.volatile_index.get(key);
+        match offset {
+            Some(offset) => self.durable_store.update_header(offset, new_header),
+            None => Err(KvError::KeyNotFound)
+        }
     }
 
     pub fn untrusted_delete(
@@ -258,7 +271,10 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        // Remove the entry from the volatile index, obtaining the physical offset as the return value
+        let offset = self.volatile_index.remove(key)?;
+        self.durable_store.delete(offset, perm)
     }
 
     pub fn untrusted_find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, KvError<K, E>>)
@@ -281,6 +297,9 @@ where
                 Err(_) => true // TODO
             }
     {
+        // TODO: discuss how this will be implemented.
+        // 1. will we search in PM or in memory?
+        // 2. will the PM-resident entries be sorted?
         Err(KvError::NotImplemented)
     }
 
@@ -302,6 +321,8 @@ where
                 Err(_) => true // TODO
             }
     {
+        // TODO: like find_page_with_logical_range_start, implementation depends on what
+        // we want to do in volatile vs. durable components
         Err(KvError::NotImplemented)
     }
 
@@ -322,7 +343,15 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let offset = self.volatile_index.get(key);
+        // append a page to the list rooted at this offset
+        let page_offset = match offset {
+            Some(offset) => self.durable_store.append(offset, new_index, perm)?,
+            None => return Err(KvError::KeyNotFound)
+        };
+        // add the durable location of the page to the in-memory list
+        self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
     pub fn untrusted_append_page_and_update_header(
@@ -343,7 +372,15 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let offset = self.volatile_index.get(key);
+        // update the header at this offset append a page to the list rooted there
+        let page_offset = match offset {
+            Some(offset) => self.durable_store.update_header_and_append(offset, new_index, new_header, perm)?,
+            None => return Err(KvError::KeyNotFound)
+        };
+         // add the durable location of the page to the in-memory list
+         self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
     pub fn untrusted_update_page(
@@ -364,7 +401,15 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let header_offset = self.volatile_index.get(key);
+        let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
+        match (header_offset, entry_offset) {
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_page(header_offset, entry_offset, new_index, perm),
+            (None, _) => Err(KvError::KeyNotFound),
+            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
+            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        }
     }
 
     pub fn untrusted_update_page_and_header(

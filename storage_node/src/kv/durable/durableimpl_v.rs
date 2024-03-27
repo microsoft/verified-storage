@@ -54,7 +54,7 @@ verus! {
                             Some(entry) => {
                                 &&& entry.key() == header.spec_key()
                                 &&& entry.header() == header
-                                &&& entry.pages() == Seq::<P>::empty()
+                                &&& entry.pages() == Seq::<(int, P)>::empty()
                             }
                             None => false
                         }
@@ -98,7 +98,7 @@ verus! {
                         match self@[offset as int] {
                             Some(entry) => {
                                 &&& entry.header() == header
-                                &&& entry.pages() == pages@
+                                &&& entry.page_entries() == pages@
                             }
                             None => false
                         }
@@ -106,5 +106,136 @@ verus! {
                     None => self@[offset as int].is_None()
                 }
         ;
+
+        fn read_pages(
+            &self,
+            offset: u64
+        ) -> (result: Option<&Vec<P>>)
+            requires
+                self.valid()
+            ensures
+                match result {
+                    Some(pages) => {
+                        match self@[offset as int] {
+                            Some(entry) => {
+                                entry.page_entries() == pages@
+                            }
+                            None => false
+                        }
+                    }
+                    None => self@[offset as int].is_None()
+                }
+        ;
+
+        fn update_header(
+            &mut self,
+            offset: u64,
+            new_header: H,
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        match (old(self)@[offset as int], self@[offset as int]) {
+                            (Some(old_entry), Some(entry)) => {
+                                &&& entry.key() == old_entry.key()
+                                &&& entry.header() == new_header
+                                &&& entry.pages() == old_entry.pages()
+                            }
+                            (_, _) => false
+                        }
+                    }
+                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn delete(
+            &mut self,
+            offset: u64,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>,
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        self@[offset as int].is_None()
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn append(
+            &mut self,
+            offset: u64,
+            new_entry: P,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
+                        (Some(old_entry), Some(entry)) => {
+                            entry.pages() == old_entry.pages().push((phys_offset as int, new_entry))
+                        }
+                        (_, _) => false
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn update_header_and_append(
+            &mut self,
+            offset: u64,
+            new_entry: P,
+            new_header: H,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
+                        (Some(old_entry), Some(entry)) => {
+                            &&& entry.pages() == old_entry.pages().push((phys_offset as int, new_entry))
+                            &&& entry.header() == new_header
+                        }
+                        (_, _) => false
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn update_page(
+            &mut self,
+            header_offset: u64,
+            entry_offset: u64,
+            new_entry: P,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => match (old(self)@[header_offset as int], self@[header_offset as int]) {
+                        (Some(old), Some(new)) => {
+                            let phys_entry_offset = old.pages()[entry_offset as int].0;
+                            new.pages() == old.pages().update(entry_offset as int, (phys_entry_offset, new_entry))
+                        }
+                        (_, _) => false
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+
     }
 }

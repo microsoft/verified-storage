@@ -42,7 +42,24 @@ verus! {
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        &&& self@ == old(self)@.insert(*key, offset as int)
+                        &&& self@ == old(self)@.insert_metadata_offset(*key, offset as int)
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn append_offset_to_list(
+            &mut self,
+            key: &K,
+            entry_offset: u64
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        self@ == old(self)@.append_entry_offset(*key, entry_offset as int)
                     }
                     Err(_) => true // TODO
                 }
@@ -57,12 +74,55 @@ verus! {
             ensures
                 match result {
                     Some(offset) => match self@[*key] {
-                            Some(val) => offset == val,
+                            Some(val) => offset == val.metadata_offset,
                             None => false
                         }
                     None => self@[*key].is_None()
                 }
         ;
 
+        fn get_entry_location_by_index(
+            &self,
+            key: &K,
+            idx: usize,
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                self.valid(),
+            ensures
+                match result {
+                    Ok(offset) => match self@[*key] {
+                        Some(entry) => entry.list_entry_offsets[idx as int] == offset as int,
+                        None => false
+                    }
+                    Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                    Err(KvError::IndexOutOfRange) => match self@[*key] {
+                        Some(entry) => idx >= entry.list_entry_offsets.len(),
+                        None => false
+                    }
+                    Err(_) => false
+                }
+        ;
+
+        fn remove(
+            &mut self,
+            key: &K
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                old(self).valid(),
+            ensures
+                self.valid(),
+                match result {
+                    Ok(offset) => {
+                        match old(self)@[*key] {
+                            Some(entry) => {
+                                &&& entry.metadata_offset == offset as int
+                                &&& self@[*key].is_None()
+                            }
+                            None => false
+                        }
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
     }
 }

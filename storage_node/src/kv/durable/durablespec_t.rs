@@ -24,7 +24,7 @@ verus! {
     {
         key: K,
         header: H,
-        pages: Seq<P>,
+        pages: Seq<(int, P)>, // (physical location, entry at that location)
     }
 
     impl<K, H, P> DurableKvStoreViewEntry<K, H, P>
@@ -42,9 +42,15 @@ verus! {
             self.header
         }
 
-        pub closed spec fn pages(self) -> Seq<P>
+        pub closed spec fn pages(self) -> Seq<(int, P)>
         {
             self.pages
+        }
+
+        // returns a sequence of entries without their physical locations
+        pub closed spec fn page_entries(self) -> Seq<P>
+        {
+            Seq::new(self.pages.len(), |i| self.pages[i].1)
         }
     }
 
@@ -71,13 +77,7 @@ verus! {
             forall |i| 0 <= i < self.contents.len() ==>
                 self.contents[i].is_None()
         }
-    }
 
-    impl<K, H, P> DurableKvStoreView<K, H, P>
-    where
-        K: Hash + Eq,
-        P: LogicalRange,
-    {
         // TODO: might be cleaner to define this elsewhere (like in the interface)
         pub closed spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
         {
@@ -87,9 +87,14 @@ verus! {
                     let index = volatile_index[k];
                     match index {
                         Some(index) => {
-                            let entry = self.contents[index as int];
+                            let entry = self.contents[index.metadata_offset];
                             match entry {
-                                Some(entry) => entry.key == k,
+                                Some(entry) => {
+                                    &&& entry.key == k
+                                    &&& forall |i: int| #![auto] 0 <= i < entry.pages.len() ==> {
+                                            entry.pages[i].0 == index.list_entry_offsets[i]
+                                    }
+                                }
                                 None => false
                             }
                         }
