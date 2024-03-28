@@ -16,39 +16,42 @@ use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
+// TODO: is it safe for the fields of the structs in this file to be pub?
+
 verus! {
     pub struct DurableKvStoreViewEntry<K, H, P>
     where
         K: Hash + Eq,
         P: LogicalRange,
     {
-        key: K,
-        header: H,
-        pages: Seq<(int, P)>, // (physical location, entry at that location)
+        pub key: K,
+        pub header: H,
+        pub pages: Seq<(int, P)>, // (physical location, entry at that location)
     }
 
+    // TODO: remove since the fields are public
     impl<K, H, P> DurableKvStoreViewEntry<K, H, P>
     where
         K: Hash + Eq,
         P: LogicalRange
     {
-        pub closed spec fn key(self) -> K
+        pub open spec fn key(self) -> K
         {
             self.key
         }
 
-        pub closed spec fn header(self) -> H
+        pub open spec fn header(self) -> H
         {
             self.header
         }
 
-        pub closed spec fn pages(self) -> Seq<(int, P)>
+        pub open spec fn pages(self) -> Seq<(int, P)>
         {
             self.pages
         }
 
         // returns a sequence of entries without their physical locations
-        pub closed spec fn page_entries(self) -> Seq<P>
+        pub open spec fn page_entries(self) -> Seq<P>
         {
             Seq::new(self.pages.len(), |i| self.pages[i].1)
         }
@@ -57,6 +60,7 @@ verus! {
     pub struct DurableKvStoreView<K, H, P>
     where
         K: Hash + Eq,
+        H: Header<K>,
         P: LogicalRange,
     {
         pub contents: Seq<Option<DurableKvStoreViewEntry<K, H, P>>>
@@ -65,9 +69,10 @@ verus! {
     impl<K, H, P> DurableKvStoreView<K, H, P>
     where
         K: Hash + Eq,
+        H: Header<K>,
         P: LogicalRange,
     {
-        pub closed spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, H, P>>
+        pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, H, P>>
         {
             self.contents[idx]
         }
@@ -78,8 +83,27 @@ verus! {
                 self.contents[i].is_None()
         }
 
+        pub open spec fn len(self) -> nat
+        {
+            self.contents.len()
+        }
+
+        pub open spec fn create(self, offset: int, header: H) -> Self
+        {
+            Self {
+                contents: self.contents.update(
+                    offset,
+                    Some(DurableKvStoreViewEntry {
+                        key: header.spec_key(),
+                        header,
+                        pages: Seq::<(int, P)>::empty()
+                    })
+                )
+            }
+        }
+
         // TODO: might be cleaner to define this elsewhere (like in the interface)
-        pub closed spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
+        pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
         {
             ||| (self.empty() && volatile_index.empty())
             ||| forall |k: K| volatile_index.contains_key(k) <==>
@@ -90,9 +114,9 @@ verus! {
                             let entry = self.contents[index.metadata_offset];
                             match entry {
                                 Some(entry) => {
-                                    &&& entry.key == k
-                                    &&& forall |i: int| #![auto] 0 <= i < entry.pages.len() ==> {
-                                            entry.pages[i].0 == index.list_entry_offsets[i]
+                                    &&& entry.key() == k
+                                    &&& forall |i: int| #![auto] 0 <= i < entry.pages().len() ==> {
+                                            entry.pages()[i].0 == index.list_entry_offsets[i]
                                     }
                                 }
                                 None => false
@@ -102,18 +126,6 @@ verus! {
                     }
 
                 }
-
         }
     }
-
-    pub proof fn lemma_empty_index_matches_empty_store<K, H, P>(durable_store: DurableKvStoreView<K, H, P>, volatile_index: VolatileKvIndexView<K>)
-        where
-            K: Hash + Eq,
-            P: LogicalRange,
-        requires
-            durable_store.empty(),
-            volatile_index.empty(),
-        ensures
-            durable_store.matches_volatile_index(volatile_index)
-    {}
 }

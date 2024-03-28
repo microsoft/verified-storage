@@ -185,7 +185,8 @@ where
 
     fn create(&mut self, key: &K, header: H) -> (result: Result<(), KvError<K, E>>)
         requires
-            old(self).valid()
+            old(self).valid(),
+            key == header.spec_key(),
         ensures
             match result {
                 Ok(()) => {

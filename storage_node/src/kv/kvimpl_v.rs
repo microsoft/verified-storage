@@ -2,9 +2,11 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::seq::*;
 
 use super::durable::durableimpl_v::*;
 use super::durable::durablespec_t::*;
+use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
@@ -87,9 +89,117 @@ where
         }
     }
 
+    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, H, P>) -> bool
+    {
+        let kv_state = self@;
+        ||| kv_state.empty() && durable_store_state.empty()
+        ||| ({
+            // everything in the durable store is in the kv view
+            &&& forall |i: int| 0 <= i < durable_store_state.len() ==> {
+                    match #[trigger] durable_store_state[i] {
+                        Some(durable_entry) => {
+                            let key = durable_entry.key();
+                            match kv_state[key] {
+                                Some(kv_entry) => {
+                                    &&& kv_entry.0 == durable_entry.header()
+                                    &&& kv_entry.1 == durable_entry.page_entries()
+                                }
+                                None => false
+                            }
+                        }
+                        None => true
+                    }
+                }
+            // all keys in the kv view are also in the durable store
+            &&& forall |k: K| kv_state.contents.contains_key(k) ==> {
+                    match self.volatile_index@[k] {
+                        Some(index_entry) => {
+                            let durable_entry = durable_store_state[index_entry.metadata_offset as int];
+                            let kv_entry = kv_state[k];
+                            // we already checked that the entries match, so we just need to make sure
+                            // that there are no keys that exist in the kv view that do not exist
+                            // in the durable store here
+                            match (kv_entry, durable_entry) {
+                                (Some(_), Some(_)) => true,
+                                (_, _) => false
+                            }
+                        }
+                        None => false
+                    }
+                }
+        })
+    }
+
+    // Proves that if the durable store and volatile index comprising a KV are both empty,
+    // then the view of the KV is also empty.
+    proof fn lemma_empty_kv(self)
+        requires
+            self.durable_store@.empty(),
+            self.volatile_index@.empty(),
+        ensures
+            self@.empty()
+    {
+        lemma_empty_map_contains_no_keys(self.volatile_index@.contents);
+        assert(Set::new(|k| self.volatile_index@.contains_key(k)) =~= Set::<K>::empty());
+    }
+
+    proof fn lemma_create_in_durable_and_volatile_implies_create_in_kv_view(
+        old_kv: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
+        new_kv: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
+        k: K,
+        h: H,
+        offset: int,
+    )
+        requires
+            old_kv.valid(),
+            k == h.spec_key(),
+            0 <= offset < old_kv.durable_store@.len(),
+            new_kv.durable_store@ == old_kv.durable_store@.create(offset, h),
+            new_kv.durable_store@[offset].is_Some(),
+            new_kv.volatile_index@ == old_kv.volatile_index@.insert_metadata_offset(k, offset),
+        ensures
+            new_kv@ == old_kv@.create(k, h),
+            new_kv.durable_store_contents_match_kv_state(new_kv.durable_store@),
+            new_kv.durable_store@.matches_volatile_index(new_kv.volatile_index@)
+    {
+
+        // the new kv has the same keys as the old kv plus the created key
+        assert(old_kv@.get_keys() == old_kv.volatile_index@.keys());
+        assert(new_kv.volatile_index@.keys() =~= old_kv.volatile_index@.keys().insert(k));
+        assert(new_kv@.get_keys() == old_kv@.get_keys().insert(k));
+
+        assume(false);
+
+        // the new key in the new kv has the right header and page values
+        // TODO: unclear if proving this will actually help us prove the postconditions?
+        match new_kv.durable_store@[offset] {
+            Some(durable_entry) => {
+                assert(durable_entry.key() == k);
+                assert(durable_entry.header() == h);
+                assert(durable_entry.page_entries() == Seq::<P>::empty());
+
+                // the new key in the new kv has the right associated value
+                match new_kv@[k] {
+                    Some((header, pages)) => {
+                        assert(header == durable_entry.header());
+                        assert(header.spec_key() == durable_entry.key());
+                        assert(durable_entry.page_entries() == pages);
+
+                        assert(header == h);
+                        assert(header.spec_key() == k);
+                        assert(pages == Seq::<P>::empty());
+                    }
+                    None => assert(false)
+                }
+            }
+            None => assert(false)
+        }
+    }
+
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
+        &&& self.durable_store_contents_match_kv_state(self.durable_store@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
     }
@@ -111,15 +221,17 @@ where
     {
         let durable_store = D::new(pmem, kvstore_id, max_keys, lower_bound_on_max_pages, logical_range_gaps_policy)?;
         let volatile_index = V::new(kvstore_id, max_keys)?;
-        proof { lemma_empty_index_matches_empty_store(durable_store@, volatile_index@); }
-        Ok(
-            Self {
-                id: kvstore_id,
-                durable_store,
-                volatile_index,
-                _phantom: Ghost(spec_phantom_data()),
-            }
-        )
+        let kv = Self {
+            id: kvstore_id,
+            durable_store,
+            volatile_index,
+            _phantom: Ghost(spec_phantom_data()),
+        };
+        proof {
+            lemma_empty_index_matches_empty_store(durable_store@, volatile_index@);
+            kv.lemma_empty_kv();
+        }
+        Ok(kv)
     }
 
     pub fn untrusted_create(
@@ -130,6 +242,7 @@ where
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
+            key == header.spec_key(),
         ensures
             match result {
                 Ok(()) => {
@@ -139,11 +252,19 @@ where
                 Err(_) => true // TODO
             }
     {
+        let ghost old_kv = *self;
+
         // `header` stores its own key, so we don't have to pass its key to the durable
         // store separately.
         let offset = self.durable_store.create(header, perm)?;
         self.volatile_index.insert(key, offset)?;
-        assume(false); // TODO
+        proof {
+            Self::lemma_create_in_durable_and_volatile_implies_create_in_kv_view(old_kv, *self, *key, header, offset as int);
+
+            assert(self.durable_store_contents_match_kv_state(self.durable_store@));
+
+            assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
+        }
         Ok(())
     }
 

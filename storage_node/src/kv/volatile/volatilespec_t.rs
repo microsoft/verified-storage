@@ -25,7 +25,7 @@ verus! {
     where
         K: Hash + Eq,
     {
-        contents: Map<K, VolatileKvIndexEntry>,
+        pub contents: Map<K, VolatileKvIndexEntry>,
     }
 
     impl<K> VolatileKvIndexView<K>
@@ -41,12 +41,12 @@ verus! {
             }
         }
 
-        pub closed spec fn contains_key(&self, key: K) -> bool
+        pub open spec fn contains_key(&self, key: K) -> bool
         {
             self.contents.contains_key(key)
         }
 
-        pub closed spec fn insert_metadata_offset(&self, key: K, metadata_offset: int) -> Self
+        pub open spec fn insert_metadata_offset(&self, key: K, metadata_offset: int) -> Self
         {
             Self { contents: self.contents.insert(key, VolatileKvIndexEntry { metadata_offset, list_entry_offsets: Seq::empty() }) }
         }
@@ -68,12 +68,13 @@ verus! {
             Self { contents: self.contents.remove(key) }
         }
 
-        pub closed spec fn empty(self) -> bool {
-            self.contents == Map::<K, VolatileKvIndexEntry>::empty()
+        pub open spec fn empty(self) -> bool {
+            &&& self.contents.is_empty()
+            &&& self.contents.dom().finite()
         }
 
-        pub closed spec fn keys(self) -> Seq<K> {
-            self.contents.dom().to_seq()
+        pub open spec fn keys(self) -> Set<K> {
+            self.contents.dom()
         }
     }
 

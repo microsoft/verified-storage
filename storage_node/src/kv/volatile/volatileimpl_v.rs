@@ -161,7 +161,7 @@ verus! {
             requires
                 self.valid(),
             ensures
-                self@.keys() == result@
+                self@.keys() == result@.to_set()
         ;
 
     }

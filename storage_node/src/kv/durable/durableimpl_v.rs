@@ -48,16 +48,13 @@ verus! {
             requires
                 old(self).valid()
             ensures
+                self.valid(),
                 match result {
                     Ok(offset) => {
-                        match self@[offset as int] {
-                            Some(entry) => {
-                                &&& entry.key() == header.spec_key()
-                                &&& entry.header() == header
-                                &&& entry.pages() == Seq::<(int, P)>::empty()
-                            }
-                            None => false
-                        }
+                        &&& self@.len() == old(self)@.len()
+                        &&& self@ == old(self)@.create(offset as int, header)
+                        &&& 0 <= offset < self@.len()
+                        &&& self@[offset as int].is_Some()
                     }
                     Err(_) => true // TODO
                 }
@@ -81,10 +78,7 @@ verus! {
                     }
                     None => self@[offset as int].is_None()
                 }
-        {
-            assume(false);
-            None
-        }
+        ;
 
         fn read_header_and_pages(
             &self,

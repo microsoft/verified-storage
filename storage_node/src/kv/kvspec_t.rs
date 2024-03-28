@@ -127,6 +127,11 @@ verus! {
             }
         }
 
+        pub open spec fn empty(self) -> bool
+        {
+            self.contents.is_empty()
+        }
+
         pub open spec fn create(self, key: K, header: H) -> Self
         {
             Self {
