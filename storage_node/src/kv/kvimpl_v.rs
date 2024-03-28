@@ -431,7 +431,15 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let header_offset = self.volatile_index.get(key);
+        let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
+        match (header_offset, entry_offset) {
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_page_and_header(header_offset, entry_offset, new_header, new_index,  perm),
+            (None, _) => Err(KvError::KeyNotFound),
+            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
+            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        }
     }
 
     pub fn untrusted_trim_pages(
@@ -451,7 +459,19 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        // use the volatile index to figure out which physical offsets should be removed
+        // from the list, then use that information to trim the list on the durable side
+        // TODO: trim_length is in terms of list entries, not bytes, right? Check Jay's impl
+        // note: we trim from the beginning of the list, not the end
+        assume(false);
+        let header_offset = self.volatile_index.get(key);
+        let new_list_head_offset = self.volatile_index.trim_list(key, trim_length);
+        match (header_offset, new_list_head_offset) {
+            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list(header_offset, new_list_head_offset, trim_length, perm),
+            (None, _) => Err(KvError::KeyNotFound),
+            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
+            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        }
     }
 
     pub fn untrusted_trim_pages_and_update_header(
@@ -472,7 +492,15 @@ where
                 Err(_) => true // TODO
             }
     {
-        Err(KvError::NotImplemented)
+        assume(false);
+        let header_offset = self.volatile_index.get(key);
+        let new_list_head_offset = self.volatile_index.trim_list(key, trim_length);
+        match (header_offset, new_list_head_offset) {
+            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list_and_update_header(header_offset, new_list_head_offset, trim_length, new_header, perm),
+            (None, _) => Err(KvError::KeyNotFound),
+            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
+            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        }
     }
 
     pub fn untrusted_get_keys(&self) -> (result: Vec<K>)
@@ -482,7 +510,7 @@ where
             result@.to_set() == self@.get_keys()
     {
         assume(false);
-        Vec::new()
+        self.volatile_index.get_keys()
     }
 
 }

@@ -236,6 +236,86 @@ verus! {
                 }
         ;
 
+        fn update_page_and_header(
+            &mut self,
+            offset: u64,
+            entry_offset: u64,
+            new_header: H,
+            new_entry: P,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>,
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid()
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        match (old(self)@[offset as int], self@[offset as int]) {
+                            (Some(old_entry), Some(entry)) => {
+                                let phys_entry_offset = old_entry.pages()[entry_offset as int].0;
+                                &&& entry.key() == old_entry.key()
+                                &&& entry.header() == new_header
+                                &&& entry.pages() == old_entry.pages().update(entry_offset as int, (phys_entry_offset, new_entry))
+                            }
+                            (_, _) => false
+                        }
+                    }
+                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn trim_list(
+            &mut self,
+            offset: u64,
+            new_list_head_offset: u64,
+            trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>,
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid(),
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        match (old(self)@[offset as int], self@[offset as int]) {
+                            (Some(old_entry), Some(entry)) => {
+                                entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
+                            }
+                            (_,_) => false
+                        }
+                    }
+                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn trim_list_and_update_header(
+            &mut self,
+            offset: u64,
+            new_list_head_offset: u64,
+            trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
+            new_header: H,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, H, P, Self, E>>,
+        ) -> (result: Result<(), KvError<K, E>>)
+            requires
+                old(self).valid(),
+            ensures
+                self.valid(),
+                match result {
+                    Ok(()) => {
+                        match (old(self)@[offset as int], self@[offset as int]) {
+                            (Some(old_entry), Some(entry)) => {
+                                &&& entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
+                                &&& entry.header() == new_header
+                            }
+                            (_,_) => false
+                        }
+                    }
+                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+                    Err(_) => true // TODO
+                }
+        ;
 
     }
 }

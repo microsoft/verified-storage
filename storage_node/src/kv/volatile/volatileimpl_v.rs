@@ -124,5 +124,45 @@ verus! {
                     Err(_) => true // TODO
                 }
         ;
+
+        // trims the volatile index for the list associated with the key
+        // and returns the physical offset of the entry that will become the
+        // new durable head of the list
+        fn trim_list(
+            &mut self,
+            key: &K,
+            trim_length: usize
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                old(self).valid(),
+            ensures
+                self.valid(),
+                match result {
+                    Ok(offset) => {
+                        match (old(self)@[*key], self@[*key]) {
+                            (Some(old_entry), Some(entry)) => {
+                                &&& entry.list_entry_offsets ==
+                                    old_entry.list_entry_offsets.subrange(
+                                        trim_length as int,
+                                        old_entry.list_entry_offsets.len() as int
+                                    )
+                                &&& offset as int == old_entry.list_entry_offsets[trim_length as int]
+                            }
+                            (_, _) => true // TODO
+                        }
+                    }
+                    Err(_) => true // TODO
+                }
+        ;
+
+        fn get_keys(
+            &self
+        ) -> (result: Vec<K>)
+            requires
+                self.valid(),
+            ensures
+                self@.keys() == result@
+        ;
+
     }
 }

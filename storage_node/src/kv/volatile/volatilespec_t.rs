@@ -71,6 +71,10 @@ verus! {
         pub closed spec fn empty(self) -> bool {
             self.contents == Map::<K, VolatileKvIndexEntry>::empty()
         }
+
+        pub closed spec fn keys(self) -> Seq<K> {
+            self.contents.dom().to_seq()
+        }
     }
 
 
