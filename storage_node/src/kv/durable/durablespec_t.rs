@@ -1,4 +1,4 @@
-//! A `DurableKvStore` represents the durable components of a `PagedKv`. It is generic
+//! A `DurableKvStore` represents the durable components of a `KvStore`. It is generic
 //! to allow for different PM abstractions, persistent layouts, etc.
 //! It should refine an array where each element optionally contains a key, a header,
 //! and a list of pages. This structure encompasses all of the durable KV entries,

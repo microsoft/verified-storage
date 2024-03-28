@@ -1,3 +1,9 @@
+//! This file contains the unverified specification for the high-level KV store.
+//! We also define the crash-consistency-related TrustedKvPermission structure
+//! here.
+//!
+//! This file should be audited for correctness.
+
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
@@ -96,7 +102,7 @@ verus! {
 
 
     /// An `AbstractKvStoreState` is an abstraction of
-    /// an entire `PagedKvStore`.
+    /// an entire `KvStoreStore`.
     /// TODO: Should this be generic over the key/header/page
     /// types used in the kv store, or over their views?
     ///

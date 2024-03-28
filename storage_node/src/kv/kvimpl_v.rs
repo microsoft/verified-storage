@@ -1,3 +1,14 @@
+//! This file contains the verified implementation of the KV store. The methods
+//! defined here are meant to be called by methods in kvimpl_t.rs with `Perm`
+//! arguments that have been audited along with the rest of that file.
+//!
+//! The UntrustedKvStoreImpl is split into two key components: a volatile index
+//! and a durable store. Each of these may be further split into separate components,
+//! but having a high-level split between volatile and durable should make the
+//! distinction between updates that require crash-consistency proofs, and updates
+//! that don't, clear. The view of an UntrustedKvStoreImpl is obtained using the contents
+//! of its current volatile and durable components.
+
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
@@ -17,7 +28,7 @@ use std::hash::Hash;
 
 verus! {
 
-pub struct UntrustedPagedKvImpl<PM, K, H, P, D, V, E>
+pub struct UntrustedKvStoreImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
@@ -33,7 +44,7 @@ where
     _phantom: Ghost<core::marker::PhantomData<(PM, K, H, P, E)>>,
 }
 
-impl<PM, K, H, P, D, V, E> UntrustedPagedKvImpl<PM, K, H, P, D, V, E>
+impl<PM, K, H, P, D, V, E> UntrustedKvStoreImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
@@ -143,9 +154,12 @@ where
         assert(Set::new(|k| self.volatile_index@.contains_key(k)) =~= Set::<K>::empty());
     }
 
+    // Proves that creating a new key/header pair in the durable and volatile
+    // components results in the creation of the same key/header entry in
+    // the abstract KV store.
     proof fn lemma_create_in_durable_and_volatile_implies_create_in_kv_view(
-        old_kv: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
-        new_kv: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
+        old_kv: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
+        new_kv: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
         k: K,
         h: H,
         offset: int,
@@ -168,6 +182,7 @@ where
         assert(new_kv.volatile_index@.keys() =~= old_kv.volatile_index@.keys().insert(k));
         assert(new_kv@.get_keys() == old_kv@.get_keys().insert(k));
 
+        // TODO: finish
         assume(false);
 
         // the new key in the new kv has the right header and page values
@@ -260,9 +275,7 @@ where
         self.volatile_index.insert(key, offset)?;
         proof {
             Self::lemma_create_in_durable_and_volatile_implies_create_in_kv_view(old_kv, *self, *key, header, offset as int);
-
             assert(self.durable_store_contents_match_kv_state(self.durable_store@));
-
             assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
         }
         Ok(())

@@ -1,3 +1,6 @@
+//! This file contains helper proofs and invariants about the state
+//! of the high-level KV store.
+
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;

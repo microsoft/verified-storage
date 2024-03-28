@@ -2,6 +2,19 @@
 //! The methods offered by this file should match the mocks.
 //! The key-value store itself should be as generic as possible, not
 //! restricted to particular data structures.
+//! We define legal crash states at this level and pass them
+//! to the untrusted implementation, which passes them along
+//! to untrusted components.
+//!
+//! Note that the design of this component is different from the original
+//! verified log in that the untrusted implementation, rather than
+//! the trusted implementation in this file, owns the
+//! WriteRestrictedPersistentMemoryRegions backing the structures.
+//! This makes the interface to the untrusted component simpler and
+//! will make it easier to distinguish between regions owned by
+//! different components.
+//!
+//! This file is unverified and should be tested/audited for correctness.
 //!
 //! TODO: handle errors properly in postconditions
 
@@ -40,6 +53,9 @@ pub trait LogicalRange {
 // that they can be serialized to persistent memory. In particular, it
 // must specify a constant maximum size `MAX_BYTES` for such
 // serialization.
+// NOTE: eventually this will be replaced with a more complete Serializable
+// trait that is being written in a different branch. This is just a placeholder
+// for that trait right now.
 pub trait Serializable<E>: Sized {
     // const MAX_BYTES: usize;
     fn max_bytes(&self) -> usize; // TODO: verus does not support associated constants
@@ -91,8 +107,7 @@ pub trait Header<K> : Sized {
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
-// TODO: actually should this be a wrapper around an untrusted implementation?
-pub struct PagedKv<PM, K, H, P, D, V, E>
+pub struct KvStore<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
@@ -103,7 +118,7 @@ where
     E: std::fmt::Debug,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedPagedKvImpl<PM, K, H, P, D, V, E>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
 }
 
 // TODO: is there a better way to handle PhantomData?
@@ -112,7 +127,7 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-impl<PM, K, H, P, D, V, E> PagedKv<PM, K, H, P, D, V, E>
+impl<PM, K, H, P, D, V, E> KvStore<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
@@ -132,7 +147,7 @@ where
         self.untrusted_kv_impl.valid()
     }
 
-    /// The `PagedKv` constructor calls the constructors for the durable and
+    /// The `KvStore` constructor calls the constructors for the durable and
     /// volatile components of the key-value store.
     fn new(
         pmem: PM,
@@ -154,7 +169,7 @@ where
         Ok(
             Self {
                 id: kvstore_id,
-                untrusted_kv_impl: UntrustedPagedKvImpl::untrusted_new(
+                untrusted_kv_impl: UntrustedKvStoreImpl::untrusted_new(
                     pmem,
                     kvstore_id,
                     max_keys,
@@ -171,7 +186,7 @@ where
         ensures
             match result {
                 Ok(restored_kv) => {
-                    let restored_state = UntrustedPagedKvImpl::<PM, K, H, P, D, V, E>::recover(pmem@.committed(), kvstore_id);
+                    let restored_state = UntrustedKvStoreImpl::<PM, K, H, P, D, V, E>::recover(pmem@.committed(), kvstore_id);
                     match restored_state {
                         Some(restored_state) => restored_kv@ == restored_state,
                         None => false

@@ -1,9 +1,7 @@
-//! A `VolatileKvIndex` represents the volatile component of a `PagedKv`.
-//! Its main job is to map keys to physical locations within the `DurableKvStore`
-//! to facilitate lookups.
-//!
-//! I think this should refine a simple map of keys to indexes in the durable component,
-//! but not sure exactly how I think the spec should look yet.
+//! A `VolatileKvIndex` represents the volatile component of a `KvStore`.
+//! Currently, it maps each key to 1) the physical offset of the metadata header associated
+//! with that key in the header store, and 2) a list of physical offsets of list entries
+//! associated with that key.
 
 #![allow(unused_imports)]
 use builtin::*;
@@ -16,8 +14,8 @@ use std::hash::Hash;
 verus! {
     pub struct VolatileKvIndexEntry
     {
-        pub metadata_offset: int,
-        pub list_entry_offsets: Seq<int>,
+        pub metadata_offset: int, // the physical offset of the metadata header associated with this key
+        pub list_entry_offsets: Seq<int>, // the physical offset of list entries associated with this key, in order
     }
 
     #[verifier::reject_recursive_types(K)]
