@@ -785,6 +785,7 @@ verus! {
             self.pm_regions.write(index, addr, bytes)
         }
 
+        #[allow(unused_variables)]
         pub exec fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S, perm: Tracked<&Perm>)
             where
                 S: Serializable + Sized

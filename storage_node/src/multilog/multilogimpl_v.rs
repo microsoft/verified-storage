@@ -723,11 +723,11 @@ verus! {
                 // Encode the level-3 metadata as bytes, and compute the CRC of those bytes
 
                 let info = &self.infos[current_log as usize];
-                let mut log_metadata = LogMetadata {
+                let log_metadata = LogMetadata {
                     head: info.head,
                     log_length: info.log_length
                 };
-                let mut log_crc = calculate_crc(&log_metadata);
+                let log_crc = calculate_crc(&log_metadata);
 
                 let ghost log_metadata_bytes = log_metadata.spec_serialize();
                 let ghost log_crc_bytes = log_crc.spec_serialize();

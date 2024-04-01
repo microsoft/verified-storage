@@ -61,7 +61,7 @@ verus! {
         /// Returns a vector of `VolatileMemoryMockingPersistentMemoryRegion`s based on the given vector of sizes.
         /// The caller can later combine these into `VolatileMemoryMockingPersistentMemoryRegions` in whatever
         /// configuration they want.
-        fn get_regions(self, regions: Vec<u64>) -> Result<(Vec<VolatileMemoryMockingPersistentMemoryRegion>), ()> {
+        fn get_regions(self, regions: Vec<u64>) -> Result<Vec<VolatileMemoryMockingPersistentMemoryRegion>, ()> {
             let mut pm_regions: Vec<VolatileMemoryMockingPersistentMemoryRegion> = Vec::new();
             let timestamp: Ghost<PmTimestamp> = Ghost(PmTimestamp::new(self.id as int));
 
@@ -102,6 +102,7 @@ verus! {
 
     impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion {
         #[verifier::external_body]
+        #[allow(unused_variables)]
         fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
             ensures
                 match result {
@@ -221,7 +222,6 @@ verus! {
             // Because of our invariant, we don't have to do anything
             // to the actual contents. We just have to update the
             // abstract view to reflect the flush having happened.
-            let old_pm_view = self.persistent_memory_view;
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
             proof {
                 lemma_auto_timestamp_helpers();
@@ -229,6 +229,7 @@ verus! {
             assert (self.contents@ =~= self.persistent_memory_view@.flush().committed());
         }
 
+        #[allow(unused_variables)]
         fn update_region_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
         {
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.update_region_with_timestamp(new_timestamp@));
