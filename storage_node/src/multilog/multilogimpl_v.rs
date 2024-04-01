@@ -11,8 +11,7 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::multilog::setup_v::{
-    check_for_required_space, compute_log_capacities, compute_log_metadata_encoded,
-    write_setup_metadata_to_all_regions,
+    check_for_required_space, compute_log_capacities, write_setup_metadata_to_all_regions,
 };
 use crate::multilog::start_v::{read_cdb, read_logs_variables};
 use crate::pmem::pmemspec_t::*;

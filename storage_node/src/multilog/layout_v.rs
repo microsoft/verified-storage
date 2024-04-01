@@ -68,24 +68,35 @@ verus! {
     // various parts of the layout.
 
     pub const ABSOLUTE_POS_OF_GLOBAL_METADATA: u64 = 0;
-    pub const RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID: u64 = 0;
-    pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 16;
-    pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 24;
+
+    pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 0;
+    pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 8;
+    pub const RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID: u64 = 16;
+
     pub const LENGTH_OF_GLOBAL_METADATA: u64 = 32;
+
     pub const ABSOLUTE_POS_OF_GLOBAL_CRC: u64 = 32;
+
     pub const ABSOLUTE_POS_OF_REGION_METADATA: u64 = 40;
-    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 0;
-    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 8;
-    pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 24;
-    pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 28;
-    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 32;
+
+    pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 0;
+    pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 4;
+    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 8;
+    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 16;
+    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 24;
+
+
     pub const LENGTH_OF_REGION_METADATA: u64 = 40;
+
     pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 80;
     pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 88;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 96;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
-    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 0;
-    pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 16;
+
+    pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
+    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 8;
+
+
     pub const LENGTH_OF_LOG_METADATA: u64 = 24;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 152;
@@ -103,29 +114,34 @@ verus! {
     pub const MULTILOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
     // These structs represent the different levels of metadata.
-    // TODO: reorganize the contents of the structs to save space, and update
-    // corresponding spec serde methods
+    // TODO: confirm with runtime checks that the sizes and offsets are as expected
+
 
     #[repr(C)]
     pub struct GlobalMetadata {
-        pub program_guid: u128,
         pub version_number: u64,
         pub length_of_region_metadata: u64,
+        pub program_guid: u128,
     }
 
     impl Serializable for GlobalMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
-            spec_u128_to_le_bytes(self.program_guid) + spec_u64_to_le_bytes(self.version_number) +
-                spec_u64_to_le_bytes(self.length_of_region_metadata)
+            spec_u64_to_le_bytes(self.version_number) +
+                spec_u64_to_le_bytes(self.length_of_region_metadata) +
+                spec_u128_to_le_bytes(self.program_guid)
+
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
-                program_guid: spec_u128_from_le_bytes(bytes.subrange(0, 16)),
-                version_number: spec_u64_from_le_bytes(bytes.subrange(16, 24)),
-                length_of_region_metadata: spec_u64_from_le_bytes(bytes.subrange(24, 32))
+                version_number: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int, RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER + 8)),
+                length_of_region_metadata: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int, RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA + 8)),
+                program_guid: spec_u128_from_le_bytes(bytes.subrange(
+                    RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int, RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID + 16)),
             }
         }
 
@@ -138,9 +154,18 @@ verus! {
                 let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
                 let serialized_region_len = #[trigger] spec_u64_to_le_bytes(s.length_of_region_metadata);
                 let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(0, 16) == serialized_guid
-                &&& serialized_metadata.subrange(16, 24) == serialized_version
-                &&& serialized_metadata.subrange(24, 32) == serialized_region_len
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int,
+                        RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER + 8
+                    ) == serialized_version
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int,
+                        RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA + 8
+                    ) == serialized_region_len
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int,
+                        RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID + 16
+                    ) == serialized_guid
             });
         }
 
@@ -164,29 +189,34 @@ verus! {
 
     #[repr(C)]
     pub struct RegionMetadata {
-        pub region_size: u64,
-        pub multilog_id: u128,
         pub num_logs: u32,
         pub which_log: u32,
+        pub region_size: u64,
         pub log_area_len: u64,
+        pub multilog_id: u128,
     }
 
     impl Serializable for RegionMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
-            spec_u64_to_le_bytes(self.region_size) + spec_u128_to_le_bytes(self.multilog_id) +
-                spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
-                spec_u64_to_le_bytes(self.log_area_len)
+            spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
+                spec_u64_to_le_bytes(self.region_size) + spec_u64_to_le_bytes(self.log_area_len) +
+                spec_u128_to_le_bytes(self.multilog_id)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
-                region_size: spec_u64_from_le_bytes(bytes.subrange(0, 8)),
-                multilog_id: spec_u128_from_le_bytes(bytes.subrange(8, 24)),
-                num_logs: spec_u32_from_le_bytes(bytes.subrange(24, 28)),
-                which_log: spec_u32_from_le_bytes(bytes.subrange(28, 32)),
-                log_area_len: spec_u64_from_le_bytes(bytes.subrange(32, 40))
+                num_logs: spec_u32_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_NUM_LOGS as int, RELATIVE_POS_OF_REGION_NUM_LOGS + 4)),
+                which_log: spec_u32_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_WHICH_LOG as int, RELATIVE_POS_OF_REGION_WHICH_LOG + 4)),
+                region_size: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_REGION_SIZE as int, RELATIVE_POS_OF_REGION_REGION_SIZE + 8)),
+                log_area_len: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8)),
+                multilog_id: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_MULTILOG_ID as int, RELATIVE_POS_OF_REGION_MULTILOG_ID + 16)),
             }
         }
 
@@ -196,17 +226,32 @@ verus! {
             lemma_auto_spec_u64_to_from_le_bytes();
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
-                let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
-                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.multilog_id);
                 let serialized_num_logs = #[trigger] spec_u32_to_le_bytes(s.num_logs);
                 let serialized_which_log = #[trigger] spec_u32_to_le_bytes(s.which_log);
+                let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
                 let serialized_len = #[trigger] spec_u64_to_le_bytes(s.log_area_len);
+                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.multilog_id);
                 let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(0, 8) == serialized_region_size
-                &&& serialized_metadata.subrange(8, 24) == serialized_id
-                &&& serialized_metadata.subrange(24, 28) == serialized_num_logs
-                &&& serialized_metadata.subrange(28, 32) == serialized_which_log
-                &&& serialized_metadata.subrange(32, 40) == serialized_len
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_NUM_LOGS as int,
+                        RELATIVE_POS_OF_REGION_NUM_LOGS + 4
+                    ) == serialized_num_logs
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_WHICH_LOG as int,
+                        RELATIVE_POS_OF_REGION_WHICH_LOG + 4
+                    ) == serialized_which_log
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_REGION_SIZE as int,
+                        RELATIVE_POS_OF_REGION_REGION_SIZE + 8
+                    ) == serialized_region_size
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int,
+                        RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8
+                    ) == serialized_len
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_MULTILOG_ID as int,
+                        RELATIVE_POS_OF_REGION_MULTILOG_ID + 16
+                    ) == serialized_id
             });
         }
 
@@ -232,21 +277,23 @@ verus! {
 
     #[repr(C)]
     pub struct LogMetadata {
-        pub head: u128,
         pub log_length: u64,
+        pub head: u128,
     }
 
     impl Serializable for LogMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
-            spec_u128_to_le_bytes(self.head) + spec_u64_to_le_bytes(self.log_length)
+            spec_u64_to_le_bytes(self.log_length) + spec_u128_to_le_bytes(self.head)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
-                head: spec_u128_from_le_bytes(bytes.subrange(0, 16)),
-                log_length: spec_u64_from_le_bytes(bytes.subrange(16, 24)),
+                log_length: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_LOG_LOG_LENGTH as int, RELATIVE_POS_OF_LOG_LOG_LENGTH + 8)),
+                head: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_LOG_HEAD as int, RELATIVE_POS_OF_LOG_HEAD + 16)),
             }
         }
 
@@ -262,11 +309,17 @@ verus! {
             lemma_auto_spec_u64_to_from_le_bytes();
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
-                let serialized_head = #[trigger] spec_u128_to_le_bytes(s.head);
                 let serialized_log_length = #[trigger] spec_u64_to_le_bytes(s.log_length);
+                let serialized_head = #[trigger] spec_u128_to_le_bytes(s.head);
                 let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(0, 16) == serialized_head
-                &&& serialized_metadata.subrange(16, 24) == serialized_log_length
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_LOG_LOG_LENGTH as int,
+                        RELATIVE_POS_OF_LOG_LOG_LENGTH + 8,
+                    ) == serialized_log_length
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_LOG_HEAD as int,
+                        RELATIVE_POS_OF_LOG_HEAD + 16
+                    ) == serialized_head
             });
         }
 
