@@ -11,7 +11,7 @@
 //!                    the same for each region/log
 //! Region metadata:   Per-region metadata that does not change over the course
 //!                    of execution.
-//! Log metadata:  Metadata that changes as the data changes, so it
+//! Log metadata:      Per-log metadata that changes as the data changes, so it
 //!                    has two versions and a corruption-detecting boolean
 //!                    distinguishing which of those two versions is active
 //! Log area:          Area where log is written
