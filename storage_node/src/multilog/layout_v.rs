@@ -68,35 +68,24 @@ verus! {
     // various parts of the layout.
 
     pub const ABSOLUTE_POS_OF_GLOBAL_METADATA: u64 = 0;
-
     pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 0;
     pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 8;
     pub const RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID: u64 = 16;
-
     pub const LENGTH_OF_GLOBAL_METADATA: u64 = 32;
-
     pub const ABSOLUTE_POS_OF_GLOBAL_CRC: u64 = 32;
-
     pub const ABSOLUTE_POS_OF_REGION_METADATA: u64 = 40;
-
     pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 0;
     pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 4;
     pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 8;
     pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 16;
     pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 24;
-
-
     pub const LENGTH_OF_REGION_METADATA: u64 = 40;
-
     pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 80;
     pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 88;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 96;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
-
     pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
     pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 8;
-
-
     pub const LENGTH_OF_LOG_METADATA: u64 = 24;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 152;
