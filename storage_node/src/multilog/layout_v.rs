@@ -7,9 +7,11 @@
 //!
 //! Each persistent-memory region used to store a log will have the following layout.
 //!
-//! Level-1 metadata:  Metadata whose length is constant across all versions
-//! Level-2 metadata:  Metadata that never changes over the course of execution
-//! Level-3 metadata:  Metadata that changes as the data changes, so it
+//! Global metadata:   Metadata whose length is constant across all versions and
+//!                    the same for each region/log
+//! Region metadata:   Per-region metadata that does not change over the course
+//!                    of execution.
+//! Log metadata:  Metadata that changes as the data changes, so it
 //!                    has two versions and a corruption-detecting boolean
 //!                    distinguishing which of those two versions is active
 //! Log area:          Area where log is written
@@ -18,13 +20,13 @@
 //! it dictates which level-3 metadata is used on *all* regions. The
 //! corruption-detecting boolean on all other regions is ignored.
 //!
-//! Level-1 metadata (absolute offsets):
+//! Global metadata (absolute offsets):
 //!   bytes 0..16:    Program GUID for this program
 //!   bytes 16..24:   Version number of the program that created this metadata
 //!   bytes 24..32:   Length of level-2 metadata, not including CRC (i.e., 60 + length of multilog ID)
 //!   bytes 32..40:   CRC of the above 32 bytes
 //!
-//! Level-2 metadata (absolute offsets):
+//! Region metadata (absolute offsets):
 //!   bytes 40..48:   This region's size
 //!   bytes 48..64:   Multilog ID
 //!   bytes 64..68:   Number of logs in the multilog
@@ -32,7 +34,7 @@
 //!   bytes 72..80:   Length of log area (LoLA)
 //!   bytes 80..88:   CRC of the above 40 bytes
 //!
-//! Level-3 metadata (relative offsets):
+//! Log metadata (relative offsets):
 //!   bytes 0..16:    Log head virtual position
 //!   bytes 16..24:   Log length
 //!   bytes 24..32:   CRC of the above 24 bytes
@@ -65,28 +67,28 @@ verus! {
     // These constants describe the absolute or relative positions of
     // various parts of the layout.
 
-    pub const ABSOLUTE_POS_OF_LEVEL1_METADATA: u64 = 0;
-    pub const RELATIVE_POS_OF_LEVEL1_PROGRAM_GUID: u64 = 0;
-    pub const RELATIVE_POS_OF_LEVEL1_VERSION_NUMBER: u64 = 16;
-    pub const RELATIVE_POS_OF_LEVEL1_LENGTH_OF_LEVEL2_METADATA: u64 = 24;
-    pub const LENGTH_OF_LEVEL1_METADATA: u64 = 32;
-    pub const ABSOLUTE_POS_OF_LEVEL1_CRC: u64 = 32;
-    pub const ABSOLUTE_POS_OF_LEVEL2_METADATA: u64 = 40;
-    pub const RELATIVE_POS_OF_LEVEL2_REGION_SIZE: u64 = 0;
-    pub const RELATIVE_POS_OF_LEVEL2_MULTILOG_ID: u64 = 8;
-    pub const RELATIVE_POS_OF_LEVEL2_NUM_LOGS: u64 = 24;
-    pub const RELATIVE_POS_OF_LEVEL2_WHICH_LOG: u64 = 28;
-    pub const RELATIVE_POS_OF_LEVEL2_LENGTH_OF_LOG_AREA: u64 = 32;
-    pub const LENGTH_OF_LEVEL2_METADATA: u64 = 40;
-    pub const ABSOLUTE_POS_OF_LEVEL2_CRC: u64 = 80;
-    pub const ABSOLUTE_POS_OF_LEVEL3_CDB: u64 = 88;
-    pub const ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE: u64 = 96;
-    pub const ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_TRUE: u64 = 128;
-    pub const RELATIVE_POS_OF_LEVEL3_HEAD: u64 = 0;
-    pub const RELATIVE_POS_OF_LEVEL3_LOG_LENGTH: u64 = 16;
-    pub const LENGTH_OF_LEVEL3_METADATA: u64 = 24;
-    pub const ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE: u64 = 120;
-    pub const ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_TRUE: u64 = 152;
+    pub const ABSOLUTE_POS_OF_GLOBAL_METADATA: u64 = 0;
+    pub const RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID: u64 = 0;
+    pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 16;
+    pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 24;
+    pub const LENGTH_OF_GLOBAL_METADATA: u64 = 32;
+    pub const ABSOLUTE_POS_OF_GLOBAL_CRC: u64 = 32;
+    pub const ABSOLUTE_POS_OF_REGION_METADATA: u64 = 40;
+    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 0;
+    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 8;
+    pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 24;
+    pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 28;
+    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 32;
+    pub const LENGTH_OF_REGION_METADATA: u64 = 40;
+    pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 80;
+    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 88;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 96;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
+    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 0;
+    pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 16;
+    pub const LENGTH_OF_LOG_METADATA: u64 = 24;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 152;
     pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 160;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
@@ -105,17 +107,17 @@ verus! {
     // corresponding spec serde methods
 
     #[repr(C)]
-    pub struct Level1Metadata {
+    pub struct GlobalMetadata {
         pub program_guid: u128,
         pub version_number: u64,
-        pub length_of_level2_metadata: u64,
+        pub length_of_region_metadata: u64,
     }
 
-    impl Serializable for Level1Metadata {
+    impl Serializable for GlobalMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u128_to_le_bytes(self.program_guid) + spec_u64_to_le_bytes(self.version_number) +
-                spec_u64_to_le_bytes(self.length_of_level2_metadata)
+                spec_u64_to_le_bytes(self.length_of_region_metadata)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -123,7 +125,7 @@ verus! {
             Self {
                 program_guid: spec_u128_from_le_bytes(bytes.subrange(0, 16)),
                 version_number: spec_u64_from_le_bytes(bytes.subrange(16, 24)),
-                length_of_level2_metadata: spec_u64_from_le_bytes(bytes.subrange(24, 32))
+                length_of_region_metadata: spec_u64_from_le_bytes(bytes.subrange(24, 32))
             }
         }
 
@@ -134,11 +136,11 @@ verus! {
             assert(forall |s: Self| {
                 let serialized_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
                 let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
-                let serialized_level2_len = #[trigger] spec_u64_to_le_bytes(s.length_of_level2_metadata);
+                let serialized_region_len = #[trigger] spec_u64_to_le_bytes(s.length_of_region_metadata);
                 let serialized_metadata = #[trigger] s.spec_serialize();
                 &&& serialized_metadata.subrange(0, 16) == serialized_guid
                 &&& serialized_metadata.subrange(16, 24) == serialized_version
-                &&& serialized_metadata.subrange(24, 32) == serialized_level2_len
+                &&& serialized_metadata.subrange(24, 32) == serialized_region_len
             });
         }
 
@@ -149,19 +151,19 @@ verus! {
         }
 
         open spec fn spec_serialized_len() -> u64 {
-            LENGTH_OF_LEVEL1_METADATA
+            LENGTH_OF_GLOBAL_METADATA
         }
 
         closed spec fn spec_crc(self) -> u64;
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LEVEL1_METADATA
+            LENGTH_OF_GLOBAL_METADATA
         }
     }
 
     #[repr(C)]
-    pub struct Level2Metadata {
+    pub struct RegionMetadata {
         pub region_size: u64,
         pub multilog_id: u128,
         pub num_logs: u32,
@@ -169,7 +171,7 @@ verus! {
         pub log_area_len: u64,
     }
 
-    impl Serializable for Level2Metadata {
+    impl Serializable for RegionMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.region_size) + spec_u128_to_le_bytes(self.multilog_id) +
@@ -217,24 +219,24 @@ verus! {
 
         open spec fn spec_serialized_len() -> u64
         {
-            LENGTH_OF_LEVEL2_METADATA
+            LENGTH_OF_REGION_METADATA
         }
 
         closed spec fn spec_crc(self) -> u64;
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LEVEL2_METADATA
+            LENGTH_OF_REGION_METADATA
         }
     }
 
     #[repr(C)]
-    pub struct Level3Metadata {
+    pub struct LogMetadata {
         pub head: u128,
         pub log_length: u64,
     }
 
-    impl Serializable for Level3Metadata {
+    impl Serializable for LogMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u128_to_le_bytes(self.head) + spec_u64_to_le_bytes(self.log_length)
@@ -250,7 +252,7 @@ verus! {
 
         open spec fn spec_serialized_len() -> u64
         {
-            LENGTH_OF_LEVEL3_METADATA
+            LENGTH_OF_LOG_METADATA
         }
 
         closed spec fn spec_crc(self) -> u64;
@@ -275,7 +277,7 @@ verus! {
         }
 
         fn serialized_len() -> u64 {
-            LENGTH_OF_LEVEL3_METADATA
+            LENGTH_OF_LOG_METADATA
         }
     }
 
@@ -293,62 +295,62 @@ verus! {
 
     // This function extracts the bytes encoding level-1 metadata from
     // the contents `mem` of a persistent memory region.
-    pub open spec fn extract_level1_metadata(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_METADATA as int, LENGTH_OF_LEVEL1_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
     }
 
-    pub open spec fn deserialize_level1_metadata(mem: Seq<u8>) -> Level1Metadata
+    pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
     {
-        let bytes = extract_level1_metadata(mem);
-        Level1Metadata::spec_deserialize(bytes)
+        let bytes = extract_global_metadata(mem);
+        GlobalMetadata::spec_deserialize(bytes)
     }
 
     // This function extracts the CRC of the level-1 metadata from the
     // contents `mem` of a persistent memory region.
-    pub open spec fn extract_level1_crc(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
     }
 
-    pub open spec fn deserialize_level1_crc(mem: Seq<u8>) -> u64
+    pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
     {
-        let bytes = extract_level1_crc(mem);
+        let bytes = extract_global_crc(mem);
         u64::spec_deserialize(bytes)
     }
 
     // This function extracts the bytes encoding level-2 metadata
     // from the contents `mem` of a persistent memory region.
-    pub open spec fn extract_level2_metadata(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_METADATA as int, LENGTH_OF_LEVEL2_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
     }
 
-    pub open spec fn deserialize_level2_metadata(mem: Seq<u8>) -> Level2Metadata
+    pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
     {
-        let bytes = extract_level2_metadata(mem);
-        Level2Metadata::spec_deserialize(bytes)
+        let bytes = extract_region_metadata(mem);
+        RegionMetadata::spec_deserialize(bytes)
     }
 
     // This function extracts the CRC of the level-2 metadata from the
     // contents `mem` of a persistent memory region.
-    pub open spec fn extract_level2_crc(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
     }
 
-    pub open spec fn deserialize_level2_crc(mem: Seq<u8>) -> u64
+    pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
     {
-        let bytes = extract_level2_crc(mem);
+        let bytes = extract_region_crc(mem);
         u64::spec_deserialize(bytes)
     }
 
     // This function extracts the bytes encoding the level-3
     // corruption-detecting boolean (i.e., CDB) from the contents
     // `mem` of a persistent memory region.
-    pub open spec fn extract_level3_cdb(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL3_CDB as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
     }
 
     // This function extracts the level-3 corruption-detecting boolean
@@ -359,13 +361,13 @@ verus! {
     // Some(true) -- No corruption was detected and the CDB is true
     // Some(false) -- No corruption was detected and the CDB is false
     //
-    pub open spec fn extract_and_parse_level3_cdb(mem: Seq<u8>) -> Option<bool>
+    pub open spec fn extract_and_parse_log_cdb(mem: Seq<u8>) -> Option<bool>
     {
-        let level3_cdb = extract_level3_cdb(mem);
-        if spec_u64_from_le_bytes(level3_cdb) == CDB_FALSE {
+        let log_cdb = extract_log_cdb(mem);
+        if spec_u64_from_le_bytes(log_cdb) == CDB_FALSE {
             Some(false)
         }
-        else if spec_u64_from_le_bytes(level3_cdb) == CDB_TRUE {
+        else if spec_u64_from_le_bytes(log_cdb) == CDB_TRUE {
             Some(true)
         }
         else {
@@ -373,18 +375,18 @@ verus! {
         }
     }
 
-    pub open spec fn deserialize_level3_cdb(mem: Seq<u8>) -> u64
+    pub open spec fn deserialize_log_cdb(mem: Seq<u8>) -> u64
     {
-        let bytes = extract_level3_cdb(mem);
+        let bytes = extract_log_cdb(mem);
         u64::spec_deserialize(bytes)
     }
 
-    pub open spec fn deserialize_and_check_level3_cdb(mem: Seq<u8>) -> Option<bool>
+    pub open spec fn deserialize_and_check_log_cdb(mem: Seq<u8>) -> Option<bool>
     {
-        let level3_cdb = deserialize_level3_cdb(mem);
-        if level3_cdb == CDB_FALSE {
+        let log_cdb = deserialize_log_cdb(mem);
+        if log_cdb == CDB_FALSE {
             Some(false)
-        } else if level3_cdb == CDB_TRUE {
+        } else if log_cdb == CDB_TRUE {
             Some(true)
         } else {
             None
@@ -394,18 +396,18 @@ verus! {
     // This function computes where the level-3 metadata will be in a
     // persistent-memory region given the current boolean value `cdb`
     // of the corruption-detecting boolean.
-    pub open spec fn get_level3_metadata_pos(cdb: bool) -> u64
+    pub open spec fn get_log_metadata_pos(cdb: bool) -> u64
     {
-        if cdb { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE }
+        if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
     }
 
     // This function computes where the level-3 metadata ends in a
     // persistent-memory region (i.e., the index of the byte just past
     // the end of the level-3 metadata) given the current boolean
     // value `cdb` of the corruption-detecting boolean.
-    pub open spec fn get_level3_crc_end(cdb: bool) -> u64
+    pub open spec fn get_log_crc_end(cdb: bool) -> u64
     {
-        (get_level3_metadata_pos(cdb) + LENGTH_OF_LEVEL3_METADATA + CRC_SIZE) as u64
+        (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
     }
 
     // This function extracts the bytes encoding level-3 metadata from
@@ -413,32 +415,32 @@ verus! {
     // know the current boolean value `cdb` of the
     // corruption-detecting boolean because there are two possible
     // places for such metadata.
-    pub open spec fn extract_level3_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
+    pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
-        let pos = get_level3_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LENGTH_OF_LEVEL3_METADATA as int)
+        let pos = get_log_metadata_pos(cdb);
+        extract_bytes(mem, pos as int, LENGTH_OF_LOG_METADATA as int)
     }
 
-    pub open spec fn deserialize_level3_metadata(mem: Seq<u8>, cdb: bool) -> Level3Metadata
+    pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
     {
-        let bytes = extract_level3_metadata(mem, cdb);
-        Level3Metadata::spec_deserialize(bytes)
+        let bytes = extract_log_metadata(mem, cdb);
+        LogMetadata::spec_deserialize(bytes)
     }
 
     // This function extracts the CRC of the level-3 metadata from the
     // contents `mem` of a persistent memory region. It needs to know
     // the current boolean value `cdb` of the corruption-detecting
     // boolean because there are two possible places for that CRC.
-    pub open spec fn extract_level3_crc(mem: Seq<u8>, cdb: bool) -> Seq<u8>
+    pub open spec fn extract_log_crc(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
-        let pos = if cdb { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_TRUE }
-                  else { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE };
+        let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
+                  else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         extract_bytes(mem, pos as int, CRC_SIZE as int)
     }
 
-    pub open spec fn deserialize_level3_crc(mem: Seq<u8>, cdb: bool) -> u64
+    pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
     {
-        let bytes = extract_level3_crc(mem, cdb);
+        let bytes = extract_log_crc(mem, cdb);
         u64::spec_deserialize(bytes)
     }
 
@@ -465,33 +467,33 @@ verus! {
 
     // This function returns the level-1 metadata encoded as the given
     // bytes `bytes`.
-    pub open spec fn parse_level1_metadata(bytes: Seq<u8>) -> Level1Metadata
+    pub open spec fn parse_global_metadata(bytes: Seq<u8>) -> GlobalMetadata
     {
-        let program_guid = parse_u128(bytes, RELATIVE_POS_OF_LEVEL1_PROGRAM_GUID as int);
-        let version_number = parse_u64(bytes, RELATIVE_POS_OF_LEVEL1_VERSION_NUMBER as int);
-        let length_of_level2_metadata = parse_u64(bytes, RELATIVE_POS_OF_LEVEL1_LENGTH_OF_LEVEL2_METADATA as int);
-        Level1Metadata { program_guid, version_number, length_of_level2_metadata }
+        let program_guid = parse_u128(bytes, RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int);
+        let version_number = parse_u64(bytes, RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int);
+        let length_of_region_metadata = parse_u64(bytes, RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int);
+        GlobalMetadata { program_guid, version_number, length_of_region_metadata }
     }
 
     // This function returns the level-2 metadata encoded as the given
     // bytes `bytes`.
-    pub open spec fn parse_level2_metadata(bytes: Seq<u8>) -> Level2Metadata
+    pub open spec fn parse_region_metadata(bytes: Seq<u8>) -> RegionMetadata
     {
-        let region_size = parse_u64(bytes, RELATIVE_POS_OF_LEVEL2_REGION_SIZE as int);
-        let multilog_id = parse_u128(bytes, RELATIVE_POS_OF_LEVEL2_MULTILOG_ID as int);
-        let num_logs = parse_u32(bytes, RELATIVE_POS_OF_LEVEL2_NUM_LOGS as int);
-        let which_log = parse_u32(bytes, RELATIVE_POS_OF_LEVEL2_WHICH_LOG as int);
-        let log_area_len = parse_u64(bytes, RELATIVE_POS_OF_LEVEL2_LENGTH_OF_LOG_AREA as int);
-        Level2Metadata { region_size, multilog_id, num_logs, which_log, log_area_len }
+        let region_size = parse_u64(bytes, RELATIVE_POS_OF_REGION_REGION_SIZE as int);
+        let multilog_id = parse_u128(bytes, RELATIVE_POS_OF_REGION_MULTILOG_ID as int);
+        let num_logs = parse_u32(bytes, RELATIVE_POS_OF_REGION_NUM_LOGS as int);
+        let which_log = parse_u32(bytes, RELATIVE_POS_OF_REGION_WHICH_LOG as int);
+        let log_area_len = parse_u64(bytes, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int);
+        RegionMetadata { region_size, multilog_id, num_logs, which_log, log_area_len }
     }
 
     // This function returns the level-3 metadata encoded as the given
     // bytes `bytes`.
-    pub open spec fn parse_level3_metadata(bytes: Seq<u8>) -> Level3Metadata
+    pub open spec fn parse_log_metadata(bytes: Seq<u8>) -> LogMetadata
     {
-        let head = parse_u128(bytes, RELATIVE_POS_OF_LEVEL3_HEAD as int);
-        let log_length = parse_u64(bytes, RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as int);
-        Level3Metadata { head, log_length }
+        let head = parse_u128(bytes, RELATIVE_POS_OF_LOG_HEAD as int);
+        let log_length = parse_u64(bytes, RELATIVE_POS_OF_LOG_LOG_LENGTH as int);
+        LogMetadata { head, log_length }
     }
 
     /// Specification functions for extracting log data from a
@@ -631,33 +633,33 @@ verus! {
             None
         }
         else {
-            let level1_metadata = deserialize_level1_metadata(mem);
-            let level1_crc = deserialize_level1_crc(mem);
-            if level1_crc != level1_metadata.spec_crc() {
+            let global_metadata = deserialize_global_metadata(mem);
+            let global_crc = deserialize_global_crc(mem);
+            if global_crc != global_metadata.spec_crc() {
                 // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
                 // encoded as bytes.
                 None
             }
             else {
-                if level1_metadata.program_guid != MULTILOG_PROGRAM_GUID {
+                if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
                     // To be valid, the level-1 metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
                 }
-                else if level1_metadata.version_number == 1 {
+                else if global_metadata.version_number == 1 {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if level1_metadata.length_of_level2_metadata != LENGTH_OF_LEVEL2_METADATA {
+                    if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
                         // To be valid, the level-1 metadata's encoding of the level-2 metadata's
                         // length has to be what we expect. (This version of the code doesn't
                         // support any other length of level-2 metadata.)
                         None
                     }
                     else {
-                        let level2_metadata = deserialize_level2_metadata(mem);
-                        let level2_crc = deserialize_level2_crc(mem);
-                        if level2_crc != level2_metadata.spec_crc() {
+                        let region_metadata = deserialize_region_metadata(mem);
+                        let region_crc = deserialize_region_crc(mem);
+                        if region_crc != region_metadata.spec_crc() {
                             // To be valid, the level-2 CRC has to be a valid CRC of the level-2
                             // metadata encoded as bytes.
                             None
@@ -668,19 +670,19 @@ verus! {
                             // from the list of regions given to us. Finally, there has to be
                             // sufficient room for the log area.
                             if {
-                                ||| level2_metadata.region_size != mem.len()
-                                ||| level2_metadata.multilog_id != multilog_id
-                                ||| level2_metadata.num_logs != num_logs
-                                ||| level2_metadata.which_log != which_log
-                                ||| level2_metadata.log_area_len < MIN_LOG_AREA_SIZE
-                                ||| mem.len() < ABSOLUTE_POS_OF_LOG_AREA + level2_metadata.log_area_len
+                                ||| region_metadata.region_size != mem.len()
+                                ||| region_metadata.multilog_id != multilog_id
+                                ||| region_metadata.num_logs != num_logs
+                                ||| region_metadata.which_log != which_log
+                                ||| region_metadata.log_area_len < MIN_LOG_AREA_SIZE
+                                ||| mem.len() < ABSOLUTE_POS_OF_LOG_AREA + region_metadata.log_area_len
                             } {
                                 None
                             }
                             else {
-                                let level3_metadata = deserialize_level3_metadata(mem, cdb);
-                                let level3_crc = deserialize_level3_crc(mem, cdb);
-                                if level3_crc != level3_metadata.spec_crc() {
+                                let log_metadata = deserialize_log_metadata(mem, cdb);
+                                let log_crc = deserialize_log_crc(mem, cdb);
+                                if log_crc != log_metadata.spec_crc() {
                                     // To be valid, the level-3 CRC has to be a valid CRC of the
                                     // level-3 metadata encoded as bytes. (This only applies to the
                                     // "active" level-3 metadata, i.e., the level-3 metadata
@@ -689,8 +691,8 @@ verus! {
                                 }
                                 else {
                                     recover_abstract_log_from_region_given_metadata(
-                                        mem, level2_metadata.log_area_len, level3_metadata.head,
-                                        level3_metadata.log_length)
+                                        mem, region_metadata.log_area_len, log_metadata.head,
+                                        log_metadata.log_length)
                                 }
                             }
                         }
@@ -765,38 +767,38 @@ verus! {
     // `Some(cdb)` -- `cdb` is the corruption-detecting boolean
     pub open spec fn recover_cdb(mem: Seq<u8>) -> Option<bool>
     {
-        if mem.len() < ABSOLUTE_POS_OF_LEVEL2_METADATA {
+        if mem.len() < ABSOLUTE_POS_OF_REGION_METADATA {
             // If there isn't space in memory to store the level-1 metadata
             // and CRC, then this region clearly isn't a valid multilog
             // region #0.
             None
         }
         else {
-            let level1_metadata = deserialize_level1_metadata(mem);
-            let level1_crc = deserialize_level1_crc(mem);
-            if level1_crc != level1_metadata.spec_crc() {
+            let global_metadata = deserialize_global_metadata(mem);
+            let global_crc = deserialize_global_crc(mem);
+            if global_crc != global_metadata.spec_crc() {
                 // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
                 // encoded as bytes.
                 None
             }
             else {
-                if level1_metadata.program_guid != MULTILOG_PROGRAM_GUID {
+                if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
                     // To be valid, the level-1 metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
                 }
-                else if level1_metadata.version_number == 1 {
+                else if global_metadata.version_number == 1 {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if mem.len() < ABSOLUTE_POS_OF_LEVEL3_CDB + CRC_SIZE {
+                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE {
                         // If memory isn't big enough to store the CDB, then this region isn't
                         // valid.
                         None
                     }
                     else {
                         // Extract and parse the level-3 CDB
-                        deserialize_and_check_level3_cdb(mem)
+                        deserialize_and_check_log_cdb(mem)
                     }
                 }
                 else {

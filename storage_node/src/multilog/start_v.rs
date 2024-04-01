@@ -52,11 +52,11 @@ verus! {
     {
         let ghost mem = pm_regions@[0].committed();
 
-        // let level3_cdb_bytes = pm_regions.read(0, ABSOLUTE_POS_OF_LEVEL3_CDB, CRC_SIZE);
-        let level3_cdb = pm_regions.read_and_deserialize::<u64>(0, ABSOLUTE_POS_OF_LEVEL3_CDB);
-        let result = check_cdb(&level3_cdb, Ghost(mem),
+        // let log_cdb_bytes = pm_regions.read(0, ABSOLUTE_POS_OF_LOG_CDB, CRC_SIZE);
+        let log_cdb = pm_regions.read_and_deserialize::<u64>(0, ABSOLUTE_POS_OF_LOG_CDB);
+        let result = check_cdb(&log_cdb, Ghost(mem),
                                Ghost(pm_regions.constants().impervious_to_corruption),
-                               Ghost(ABSOLUTE_POS_OF_LEVEL3_CDB));
+                               Ghost(ABSOLUTE_POS_OF_LOG_CDB));
         match result {
             Some(b) => Ok(b),
             None => Err(MultiLogErr::CRCMismatch)
@@ -149,12 +149,12 @@ verus! {
         // Read the level-1 metadata and its CRC, and check that the
         // CRC matches.
 
-        let level1_metadata = pm_regions.read_and_deserialize::<Level1Metadata>(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA);
-        let level1_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_CRC);
-        if !check_crc_deserialized(level1_metadata, level1_crc,
+        let global_metadata = pm_regions.read_and_deserialize::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA);
+        let global_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC);
+        if !check_crc_deserialized(global_metadata, global_crc,
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                      Ghost(ABSOLUTE_POS_OF_LEVEL1_METADATA), Ghost(LENGTH_OF_LEVEL1_METADATA),
-                      Ghost(ABSOLUTE_POS_OF_LEVEL1_CRC)) {
+                      Ghost(ABSOLUTE_POS_OF_GLOBAL_METADATA), Ghost(LENGTH_OF_GLOBAL_METADATA),
+                      Ghost(ABSOLUTE_POS_OF_GLOBAL_CRC)) {
             proof {
                 // assert(pm_regions.constants().impervious_to_corruption);
                 // assert(!pm_regions.constants().impervious_to_corruption);
@@ -168,21 +168,21 @@ verus! {
         // error. Such invalidity can't happen if the persistent
         // memory is recoverable.
 
-        if level1_metadata.program_guid != MULTILOG_PROGRAM_GUID {
+        if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        if level1_metadata.version_number != MULTILOG_PROGRAM_VERSION_NUMBER {
+        if global_metadata.version_number != MULTILOG_PROGRAM_VERSION_NUMBER {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToProgramVersionNumberUnsupported{
                 which_log,
-                version_number: level1_metadata.version_number,
+                version_number: global_metadata.version_number,
                 max_supported: MULTILOG_PROGRAM_VERSION_NUMBER,
             })
         }
 
-        if level1_metadata.length_of_level2_metadata != LENGTH_OF_LEVEL2_METADATA {
+        if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
@@ -190,12 +190,12 @@ verus! {
         // Read the level-2 metadata and its CRC, and check that the
         // CRC matches.
 
-        let level2_metadata = pm_regions.read_and_deserialize::<Level2Metadata>(which_log as usize, ABSOLUTE_POS_OF_LEVEL2_METADATA);
-        let level2_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_LEVEL2_CRC);
-        if !check_crc_deserialized(level2_metadata, level2_crc,
+        let region_metadata = pm_regions.read_and_deserialize::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA);
+        let region_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC);
+        if !check_crc_deserialized(region_metadata, region_crc,
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                      Ghost(ABSOLUTE_POS_OF_LEVEL2_METADATA), Ghost(LENGTH_OF_LEVEL2_METADATA),
-                      Ghost(ABSOLUTE_POS_OF_LEVEL2_CRC)) {
+                      Ghost(ABSOLUTE_POS_OF_REGION_METADATA), Ghost(LENGTH_OF_REGION_METADATA),
+                      Ghost(ABSOLUTE_POS_OF_REGION_CRC)) {
             return Err(MultiLogErr::CRCMismatch);
         }
 
@@ -204,43 +204,43 @@ verus! {
         // actual region size, then return an error. Such invalidity
         // can't happen if the persistent memory is recoverable.
 
-        if level2_metadata.region_size != region_size {
+        if region_metadata.region_size != region_size {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToRegionSizeMismatch{
                 which_log,
                 region_size_expected: region_size,
-                region_size_read: level2_metadata.region_size,
+                region_size_read: region_metadata.region_size,
             })
         }
 
-        if level2_metadata.multilog_id != multilog_id {
+        if region_metadata.multilog_id != multilog_id {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToMultilogIDMismatch{
                 which_log,
                 multilog_id_expected: multilog_id,
-                multilog_id_read: level2_metadata.multilog_id,
+                multilog_id_read: region_metadata.multilog_id,
             })
         }
 
-        if level2_metadata.num_logs != num_logs {
+        if region_metadata.num_logs != num_logs {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        if level2_metadata.which_log != which_log {
+        if region_metadata.which_log != which_log {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        if level2_metadata.log_area_len > region_size {
+        if region_metadata.log_area_len > region_size {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
-        if region_size - level2_metadata.log_area_len < ABSOLUTE_POS_OF_LOG_AREA {
+        if region_size - region_metadata.log_area_len < ABSOLUTE_POS_OF_LOG_AREA {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
-        if level2_metadata.log_area_len < MIN_LOG_AREA_SIZE {
+        if region_metadata.log_area_len < MIN_LOG_AREA_SIZE {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
@@ -249,14 +249,14 @@ verus! {
         // CRC matches. The position where to find the level-3
         // metadata depend on the CDB.
 
-        let level3_metadata_pos = if cdb { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_TRUE }
-                                  else { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE };
-        let level3_crc_pos = if cdb { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_TRUE }
-                             else { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE };
-        let level3_metadata = pm_regions.read_and_deserialize::<Level3Metadata>(which_log as usize, level3_metadata_pos);
-        let level3_crc = pm_regions.read_and_deserialize::<u64>(which_log as usize, level3_crc_pos);
-        if !check_crc_deserialized(level3_metadata, level3_crc, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                                    Ghost(level3_metadata_pos), Ghost(LENGTH_OF_LEVEL3_METADATA), Ghost(level3_crc_pos)) {
+        let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
+                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
+        let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
+                             else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
+        let log_metadata = pm_regions.read_and_deserialize::<LogMetadata>(which_log as usize, log_metadata_pos);
+        let log_crc = pm_regions.read_and_deserialize::<u64>(which_log as usize, log_crc_pos);
+        if !check_crc_deserialized(log_metadata, log_crc, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
+                                    Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA), Ghost(log_crc_pos)) {
             return Err(MultiLogErr::CRCMismatch);
         }
 
@@ -265,9 +265,9 @@ verus! {
         // length, then return an error. Such invalidity can't happen
         // if the persistent memory is recoverable.
 
-        let head = level3_metadata.head;
-        let log_length = level3_metadata.log_length;
-        if log_length > level2_metadata.log_area_len {
+        let head = log_metadata.head;
+        let log_length = log_metadata.log_length;
+        if log_length > region_metadata.log_area_len {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
@@ -282,8 +282,8 @@ verus! {
         // need to invoke a math lemma saying that the result of a
         // modulo operation is always less than the divisor.
 
-        proof { lemma_mod_bound(head as int, level2_metadata.log_area_len as int); }
-        let head_log_area_offset: u64 = (head % level2_metadata.log_area_len as u128) as u64;
+        proof { lemma_mod_bound(head as int, region_metadata.log_area_len as int); }
+        let head_log_area_offset: u64 = (head % region_metadata.log_area_len as u128) as u64;
 
         // Return the log info. This necessitates computing the
         // pending tail position relative to the head, but this is
@@ -292,7 +292,7 @@ verus! {
         // of the log.
 
         Ok(LogInfo{
-            log_area_len: level2_metadata.log_area_len,
+            log_area_len: region_metadata.log_area_len,
             head,
             head_log_area_offset,
             log_length,

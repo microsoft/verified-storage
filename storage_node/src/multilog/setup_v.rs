@@ -88,14 +88,14 @@ verus! {
 
     // This helper function computes level-1 metadata and returns an
     // encoding of it.
-    fn compute_level1_metadata_encoded() -> (result: Vec<u8>)
+    fn compute_global_metadata_encoded() -> (result: Vec<u8>)
         ensures
-            result@.len() == LENGTH_OF_LEVEL1_METADATA,
+            result@.len() == LENGTH_OF_GLOBAL_METADATA,
             ({
-                let level1_metadata = parse_level1_metadata(result@);
-                &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID
-                &&& level1_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-                &&& level1_metadata.length_of_level2_metadata == LENGTH_OF_LEVEL2_METADATA
+                let global_metadata = parse_global_metadata(result@);
+                &&& global_metadata.program_guid == MULTILOG_PROGRAM_GUID
+                &&& global_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
+                &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
             })
     {
         // Initialize an empty vector.
@@ -110,12 +110,12 @@ verus! {
         result.append(&mut t);
 
         // Append the little-endian encoding of the length of our level-2 metadata.
-        let mut t = u64_to_le_bytes(LENGTH_OF_LEVEL2_METADATA);
+        let mut t = u64_to_le_bytes(LENGTH_OF_REGION_METADATA);
         result.append(&mut t);
 
         proof {
             // We want to prove that if we call
-            // `parse_level1_metadata` on `result`, we get the desired
+            // `parse_global_metadata` on `result`, we get the desired
             // level-1 metadata. The proof is in two parts.
 
             // Part 1:
@@ -124,12 +124,12 @@ verus! {
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
 
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL1_PROGRAM_GUID as int, 16)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int, 16)
                    =~= spec_u128_to_le_bytes(MULTILOG_PROGRAM_GUID));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL1_VERSION_NUMBER as int, 8)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int, 8)
                    =~= spec_u64_to_le_bytes(MULTILOG_PROGRAM_VERSION_NUMBER));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL1_LENGTH_OF_LEVEL2_METADATA as int, 8)
-                   =~= spec_u64_to_le_bytes(LENGTH_OF_LEVEL2_METADATA));
+            assert(extract_bytes(result@, RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int, 8)
+                   =~= spec_u64_to_le_bytes(LENGTH_OF_REGION_METADATA));
 
             // Part 2:
             // Prove that if we parse the various little-endian-encoded values,
@@ -152,7 +152,7 @@ verus! {
     // `multilog_id`: the GUID of the multilog it's being used for
     // `num_logs`: the number of logs in the multilog
     // `which_log`: which among those logs this region is for
-    fn compute_level2_metadata_encoded(
+    fn compute_region_metadata_encoded(
         region_size: u64,
         multilog_id: u128,
         num_logs: u32,
@@ -162,14 +162,14 @@ verus! {
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
             which_log < num_logs,
         ensures
-            result@.len() == LENGTH_OF_LEVEL2_METADATA,
+            result@.len() == LENGTH_OF_REGION_METADATA,
             ({
-                let level2_metadata = parse_level2_metadata(result@);
-                &&& level2_metadata.region_size == region_size
-                &&& level2_metadata.multilog_id == multilog_id
-                &&& level2_metadata.num_logs == num_logs
-                &&& level2_metadata.which_log == which_log
-                &&& level2_metadata.log_area_len == region_size - ABSOLUTE_POS_OF_LOG_AREA
+                let region_metadata = parse_region_metadata(result@);
+                &&& region_metadata.region_size == region_size
+                &&& region_metadata.multilog_id == multilog_id
+                &&& region_metadata.num_logs == num_logs
+                &&& region_metadata.which_log == which_log
+                &&& region_metadata.log_area_len == region_size - ABSOLUTE_POS_OF_LOG_AREA
             })
     {
         // Initialize an empty vector.
@@ -197,7 +197,7 @@ verus! {
         result.append(&mut t);
 
         proof {
-            // We want to prove that if we call `parse_level2_metadata` on `result`,
+            // We want to prove that if we call `parse_region_metadata` on `result`,
             // we get the desired level-2 metadata. The proof is in two parts.
 
             // Part 1:
@@ -206,15 +206,15 @@ verus! {
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
 
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL2_REGION_SIZE as int, 8)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_REGION_REGION_SIZE as int, 8)
                    =~= spec_u64_to_le_bytes(region_size));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL2_MULTILOG_ID as int, 16)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_REGION_MULTILOG_ID as int, 16)
                    =~= spec_u128_to_le_bytes(multilog_id));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL2_NUM_LOGS as int, 4)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_REGION_NUM_LOGS as int, 4)
                    =~= spec_u32_to_le_bytes(num_logs));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL2_WHICH_LOG as int, 4)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_REGION_WHICH_LOG as int, 4)
                    =~= spec_u32_to_le_bytes(which_log));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL2_LENGTH_OF_LOG_AREA as int, 8)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int, 8)
                    =~= spec_u64_to_le_bytes(log_area_len));
 
             // Part 2:
@@ -237,16 +237,16 @@ verus! {
     //
     // `head`: the logical position of the log's head
     // `log_length`: the number of log bytes beyond the head
-    pub fn compute_level3_metadata_encoded(
+    pub fn compute_log_metadata_encoded(
         head: u128,
         log_length: u64
     ) -> (result: Vec<u8>)
         ensures
-            result@.len() == LENGTH_OF_LEVEL3_METADATA,
+            result@.len() == LENGTH_OF_LOG_METADATA,
             ({
-                let level3_metadata = parse_level3_metadata(result@);
-                &&& level3_metadata.head == head
-                &&& level3_metadata.log_length == log_length
+                let log_metadata = parse_log_metadata(result@);
+                &&& log_metadata.head == head
+                &&& log_metadata.log_length == log_length
             })
     {
         // Initialize an empty vector.
@@ -261,7 +261,7 @@ verus! {
         result.append(&mut t);
 
         proof {
-            // We want to prove that if we call `parse_level3_metadata` on `result`,
+            // We want to prove that if we call `parse_log_metadata` on `result`,
             // we get the desired level-3 metadata. The proof is in two parts.
 
             // Part 1:
@@ -270,9 +270,9 @@ verus! {
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
 
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL3_HEAD as int, 16)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_LOG_HEAD as int, 16)
                    =~= spec_u128_to_le_bytes(head));
-            assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as int, 8)
+            assert(extract_bytes(result@, RELATIVE_POS_OF_LOG_LOG_LENGTH as int, 8)
                    =~= spec_u64_to_le_bytes(log_length));
 
             // Part 2:
@@ -309,29 +309,29 @@ verus! {
         which_log: u32,
     ) -> bool
     {
-        let level1_crc = deserialize_level1_crc(mem);
-        let level1_metadata = deserialize_level1_metadata(mem);
-        let level2_crc = deserialize_level2_crc(mem);
-        let level2_metadata = deserialize_level2_metadata(mem);
-        let level3_cdb = deserialize_and_check_level3_cdb(mem);
-        let level3_metadata = deserialize_level3_metadata(mem, false);
-        let level3_crc = deserialize_level3_crc(mem, false);
+        let global_crc = deserialize_global_crc(mem);
+        let global_metadata = deserialize_global_metadata(mem);
+        let region_crc = deserialize_region_crc(mem);
+        let region_metadata = deserialize_region_metadata(mem);
+        let log_cdb = deserialize_and_check_log_cdb(mem);
+        let log_metadata = deserialize_log_metadata(mem, false);
+        let log_crc = deserialize_log_crc(mem, false);
         &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
         &&& mem.len() == region_size
-        &&& level1_crc == level1_metadata.spec_crc()
-        &&& level2_crc == level2_metadata.spec_crc()
-        &&& level3_crc == level3_metadata.spec_crc()
-        &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID
-        &&& level1_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-        &&& level1_metadata.length_of_level2_metadata == LENGTH_OF_LEVEL2_METADATA
-        &&& level2_metadata.region_size == region_size
-        &&& level2_metadata.multilog_id == multilog_id
-        &&& level2_metadata.num_logs == num_logs
-        &&& level2_metadata.which_log == which_log
-        &&& level2_metadata.log_area_len == region_size - ABSOLUTE_POS_OF_LOG_AREA
-        &&& level3_cdb == Some(false)
-        &&& level3_metadata.head == 0
-        &&& level3_metadata.log_length == 0
+        &&& global_crc == global_metadata.spec_crc()
+        &&& region_crc == region_metadata.spec_crc()
+        &&& log_crc == log_metadata.spec_crc()
+        &&& global_metadata.program_guid == MULTILOG_PROGRAM_GUID
+        &&& global_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
+        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& region_metadata.region_size == region_size
+        &&& region_metadata.multilog_id == multilog_id
+        &&& region_metadata.num_logs == num_logs
+        &&& region_metadata.which_log == which_log
+        &&& region_metadata.log_area_len == region_size - ABSOLUTE_POS_OF_LOG_AREA
+        &&& log_cdb == Some(false)
+        &&& log_metadata.head == 0
+        &&& log_metadata.log_length == 0
     }
 
     // This executable function sets up a single region for use in a
@@ -385,48 +385,48 @@ verus! {
         // Initialize level 1 metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
         // TODO: why do we write this out for each log?
-        let level1_metadata = Level1Metadata {
+        let global_metadata = GlobalMetadata {
             program_guid: MULTILOG_PROGRAM_GUID,
             version_number: MULTILOG_PROGRAM_VERSION_NUMBER,
-            length_of_level2_metadata: LENGTH_OF_LEVEL2_METADATA
+            length_of_region_metadata: LENGTH_OF_REGION_METADATA
         };
-        let level1_crc = calculate_crc(&level1_metadata);
+        let global_crc = calculate_crc(&global_metadata);
 
         // Initialize level 2 metadata and compute its CRC
-        let level2_metadata = Level2Metadata {
+        let region_metadata = RegionMetadata {
             region_size,
             multilog_id,
             num_logs,
             which_log,
             log_area_len: region_size - ABSOLUTE_POS_OF_LOG_AREA
         };
-        let level2_crc = calculate_crc(&level2_metadata);
+        let region_crc = calculate_crc(&region_metadata);
 
         // Obtain the initial CDB value
         let cdb = CDB_FALSE;
 
         // Initialize level 3 metadata and compute its CRC
-        let level3_metadata = Level3Metadata {
+        let log_metadata = LogMetadata {
             head: 0,
             log_length: 0
         };
-        let level3_crc = calculate_crc(&level3_metadata);
+        let log_crc = calculate_crc(&log_metadata);
 
         // Write all metadata structures and their CRCs to memory
         // TODO: put these all in a serializable structure so you can write them with one line?
         proof {
             u64::lemma_auto_serialized_len();
-            Level1Metadata::lemma_auto_serialized_len();
-            Level2Metadata::lemma_auto_serialized_len();
-            Level3Metadata::lemma_auto_serialized_len();
+            GlobalMetadata::lemma_auto_serialized_len();
+            RegionMetadata::lemma_auto_serialized_len();
+            LogMetadata::lemma_auto_serialized_len();
         }
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_METADATA, &level1_metadata);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL1_CRC, &level1_crc);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL2_METADATA, &level2_metadata);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL2_CRC, &level2_crc);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL3_CDB, &cdb);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE, &level3_metadata);
-        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE, &level3_crc);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, &region_metadata);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC, &region_crc);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LOG_CDB, &cdb);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE, &log_metadata);
+        pm_regions.serialize_and_write(which_log as usize, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE, &log_crc);
 
         proof {
             // We want to prove that if we parse the result of
@@ -440,26 +440,26 @@ verus! {
             // prove this by reasoning about per-byte equivalence.
 
             u64::lemma_auto_serialize_deserialize();
-            Level1Metadata::lemma_auto_serialize_deserialize();
-            Level2Metadata::lemma_auto_serialize_deserialize();
-            Level3Metadata::lemma_auto_serialize_deserialize();
+            GlobalMetadata::lemma_auto_serialize_deserialize();
+            RegionMetadata::lemma_auto_serialize_deserialize();
+            LogMetadata::lemma_auto_serialize_deserialize();
 
             let mem = pm_regions@[which_log as int].flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_METADATA as int, LENGTH_OF_LEVEL1_METADATA as int)
-                   =~= level1_metadata.spec_serialize());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_CRC as int, CRC_SIZE as int)
-                   =~= level1_crc.spec_serialize());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_METADATA as int, LENGTH_OF_LEVEL2_METADATA as int)
-                   =~= level2_metadata.spec_serialize());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_CRC as int, CRC_SIZE as int)
-                   =~= level2_crc.spec_serialize());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL3_CDB as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+                   =~= global_metadata.spec_serialize());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+                   =~= global_crc.spec_serialize());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+                   =~= region_metadata.spec_serialize());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+                   =~= region_crc.spec_serialize());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
                    =~= CDB_FALSE.spec_serialize());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE as int,
-                                 LENGTH_OF_LEVEL3_METADATA as int)
-                   =~= level3_metadata.spec_serialize());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE as int, CRC_SIZE as int)
-                    =~= level3_crc.spec_serialize());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
+                                 LENGTH_OF_LOG_METADATA as int)
+                   =~= log_metadata.spec_serialize());
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, CRC_SIZE as int)
+                    =~= log_crc.spec_serialize());
 
             // Part 2:
             // Prove that if we parse the little-endian-encoded value

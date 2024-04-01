@@ -37,7 +37,7 @@ verus! {
     ) -> bool
     {
         forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==>
-           pm_regions_view[which_log as int].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
+           pm_regions_view[which_log as int].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                                                           ABSOLUTE_POS_OF_LOG_AREA as int)
     }
 
@@ -46,16 +46,16 @@ verus! {
     // of that area correspond to the given boolean `cdb`.
     pub open spec fn memory_matches_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
     {
-        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int,
-                                                         ABSOLUTE_POS_OF_LEVEL3_CDB + CRC_SIZE)
-        &&& extract_and_parse_level3_cdb(pm_regions_view[0].committed()) == Some(cdb)
+        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LOG_CDB as int,
+                                                         ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+        &&& extract_and_parse_log_cdb(pm_regions_view[0].committed()) == Some(cdb)
     }
 
     pub open spec fn memory_matches_deserialized_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
     {
-        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int,
-            ABSOLUTE_POS_OF_LEVEL3_CDB + CRC_SIZE)
-        &&& deserialize_and_check_level3_cdb(pm_regions_view[0].committed()) == Some(cdb)
+        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LOG_CDB as int,
+            ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+        &&& deserialize_and_check_log_cdb(pm_regions_view[0].committed()) == Some(cdb)
     }
 
     // This invariant says that there are no outstanding writes to the
@@ -89,36 +89,36 @@ verus! {
     ) -> bool
     {
         let mem = pm_region_view.committed();
-        let level1_metadata = deserialize_level1_metadata(mem);
-        let level1_crc = deserialize_level1_crc(mem);
-        let level2_metadata = deserialize_level2_metadata(mem);
-        let level2_crc = deserialize_level2_crc(mem);
-        let level3_metadata = deserialize_level3_metadata(mem, cdb);
-        let level3_crc = deserialize_level3_crc(mem, cdb);
+        let global_metadata = deserialize_global_metadata(mem);
+        let global_crc = deserialize_global_crc(mem);
+        let region_metadata = deserialize_region_metadata(mem);
+        let region_crc = deserialize_region_crc(mem);
+        let log_metadata = deserialize_log_metadata(mem, cdb);
+        let log_crc = deserialize_log_crc(mem, cdb);
 
         // No outstanding writes to level-1 metadata, level-2 metadata, or the level-3 CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
-                                                        ABSOLUTE_POS_OF_LEVEL3_CDB as int)
+        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                        ABSOLUTE_POS_OF_LOG_CDB as int)
         // Also, no outstanding writes to the level-3 metadata corresponding to the active level-3 CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(get_level3_metadata_pos(cdb) as int,
-                                                        get_level3_crc_end(cdb) as int)
+        &&& pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
+                                                        get_log_crc_end(cdb) as int)
 
         // All the CRCs match
-        &&& level1_crc == level1_metadata.spec_crc()
-        &&& level2_crc == level2_metadata.spec_crc()
-        &&& level3_crc == level3_metadata.spec_crc()
+        &&& global_crc == global_metadata.spec_crc()
+        &&& region_crc == region_metadata.spec_crc()
+        &&& log_crc == log_metadata.spec_crc()
 
         // Various fields are valid and match the parameters to this function
-        &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID
-        &&& level1_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-        &&& level1_metadata.length_of_level2_metadata == LENGTH_OF_LEVEL2_METADATA
-        &&& level2_metadata.region_size == mem.len()
-        &&& level2_metadata.multilog_id == multilog_id
-        &&& level2_metadata.num_logs == num_logs
-        &&& level2_metadata.which_log == which_log
-        &&& level2_metadata.log_area_len == info.log_area_len
-        &&& level3_metadata.head == info.head
-        &&& level3_metadata.log_length == info.log_length
+        &&& global_metadata.program_guid == MULTILOG_PROGRAM_GUID
+        &&& global_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
+        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& region_metadata.region_size == mem.len()
+        &&& region_metadata.multilog_id == multilog_id
+        &&& region_metadata.num_logs == num_logs
+        &&& region_metadata.which_log == which_log
+        &&& region_metadata.log_area_len == info.log_area_len
+        &&& log_metadata.head == info.head
+        &&& log_metadata.log_length == info.log_length
 
         // The memory region is large enough to hold the entirety of the log area
         &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
@@ -142,7 +142,7 @@ verus! {
             old_pm_region_view.no_outstanding_writes(),
             new_pm_region_view.no_outstanding_writes(),
             num_logs > 0,
-            new_pm_region_view =~= old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb_bytes).flush(),
+            new_pm_region_view =~= old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
             each_metadata_consistent_with_info(old_pm_region_view, multilog_id, num_logs, new_cdb, infos),
         ensures
             each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
@@ -488,24 +488,24 @@ verus! {
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
             is_valid_log_index(which_log, num_logs),
-            bytes_to_write.len() == LENGTH_OF_LEVEL3_METADATA,
+            bytes_to_write.len() == LENGTH_OF_LOG_METADATA,
        ensures
             ({
-                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_log_metadata_pos(!cdb) as int,
                                                              bytes_to_write);
                 &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
-        let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+        let pm_regions_view2 = pm_regions_view.write(which_log as int, get_log_metadata_pos(!cdb) as int,
                                                      bytes_to_write);
         let w = which_log as int;
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
-            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
-                   extract_level3_cdb(pm_regions_view[0].committed()));
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
         }
 
         // To show that all the metadata still matches even after the
@@ -551,7 +551,7 @@ verus! {
             ({
                 let pm_regions_view2 = pm_regions_view.write(
                     which_log as int,
-                    get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
+                    get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
                     bytes_to_write
                 );
                 &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
@@ -561,15 +561,15 @@ verus! {
     {
         let pm_regions_view2 = pm_regions_view.write(
             which_log as int,
-            get_level3_metadata_pos(!cdb) + LENGTH_OF_LEVEL3_METADATA,
+            get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
             bytes_to_write
         );
         let w = which_log as int;
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
-            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
-                   extract_level3_cdb(pm_regions_view[0].committed()));
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
         }
 
         // To show that all the metadata still matches even after the
@@ -614,8 +614,8 @@ verus! {
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
-            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
-                   extract_level3_cdb(pm_regions_view[0].committed()));
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
         }
 
         // To show that all the metadata still matches even after the
