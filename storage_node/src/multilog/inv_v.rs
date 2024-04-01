@@ -89,17 +89,12 @@ verus! {
     ) -> bool
     {
         let mem = pm_region_view.committed();
-        let level1_metadata_bytes = extract_level1_metadata(mem);
-        let level1_crc = extract_level1_crc(mem);
-        let level2_metadata_bytes = extract_level2_metadata(mem);
-        let level2_crc = extract_level2_crc(mem);
-        let level3_metadata_bytes = extract_level3_metadata(mem, cdb);
+        let level1_metadata = deserialize_level1_metadata(mem);
+        let level1_crc = deserialize_level1_crc(mem);
+        let level2_metadata = deserialize_level2_metadata(mem);
+        let level2_crc = deserialize_level2_crc(mem);
         let level3_metadata = deserialize_level3_metadata(mem, cdb);
-        let level3_crc = extract_level3_crc(mem, cdb);
-        let level3_crc_deserialized = deserialize_level3_crc(mem, cdb);
-        let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
-        let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
-        // let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
+        let level3_crc = deserialize_level3_crc(mem, cdb);
 
         // No outstanding writes to level-1 metadata, level-2 metadata, or the level-3 CDB
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
@@ -109,10 +104,9 @@ verus! {
                                                         get_level3_crc_end(cdb) as int)
 
         // All the CRCs match
-        &&& level1_crc == spec_crc_bytes(level1_metadata_bytes)
-        &&& level2_crc == spec_crc_bytes(level2_metadata_bytes)
-        // &&& level3_crc == spec_crc_bytes(level3_metadata_bytes)
-        &&& level3_crc_deserialized == level3_metadata.spec_crc()
+        &&& level1_crc == level1_metadata.spec_crc()
+        &&& level2_crc == level2_metadata.spec_crc()
+        &&& level3_crc == level3_metadata.spec_crc()
 
         // Various fields are valid and match the parameters to this function
         &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID

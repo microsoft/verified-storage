@@ -633,7 +633,7 @@ verus! {
         else {
             let level1_metadata = deserialize_level1_metadata(mem);
             let level1_crc = deserialize_level1_crc(mem);
-            if level1_crc == level1_metadata.spec_crc() {
+            if level1_crc != level1_metadata.spec_crc() {
                 // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
                 // encoded as bytes.
                 None
@@ -772,15 +772,14 @@ verus! {
             None
         }
         else {
-            let level1_metadata_bytes = extract_level1_metadata(mem);
-            let level1_crc = extract_level1_crc(mem);
-            if level1_crc != spec_crc_bytes(level1_metadata_bytes) {
+            let level1_metadata = deserialize_level1_metadata(mem);
+            let level1_crc = deserialize_level1_crc(mem);
+            if level1_crc != level1_metadata.spec_crc() {
                 // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
                 // encoded as bytes.
                 None
             }
             else {
-                let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
                 if level1_metadata.program_guid != MULTILOG_PROGRAM_GUID {
                     // To be valid, the level-1 metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.

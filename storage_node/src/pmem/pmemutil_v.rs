@@ -285,6 +285,7 @@ verus! {
         requires
             data_addr + data_length <= mem.len(),
             crc_addr + CRC_SIZE <= mem.len(),
+            data_length == S::spec_serialized_len(),
             crc_addr < crc_addr + CRC_SIZE <= data_addr || crc_addr >= data_addr + S::spec_serialized_len(),
             ({
                 let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
@@ -304,8 +305,8 @@ verus! {
                 let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
                 true_crc == true_data.spec_crc() ==>
                     if b {
-                        &&& data_c == true_data
-                        &&& crc_c == true_crc
+                        &&& *data_c =~= true_data
+                        &&& *crc_c =~= true_crc
                     }
                     else {
                         !impervious_to_corruption
