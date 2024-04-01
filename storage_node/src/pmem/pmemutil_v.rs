@@ -271,6 +271,87 @@ verus! {
         crc1 == crc2
     }
 
+    pub fn check_crc_deserialized<S>(
+        data_c: &S,
+        crc_c: &u64,
+        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(data_addr): Ghost<u64>,
+        Ghost(data_length): Ghost<u64>,
+        Ghost(crc_addr): Ghost<u64>,
+    ) -> (b: bool)
+        where
+            S: Serializable + Sized,
+        requires
+            data_addr + data_length <= mem.len(),
+            crc_addr + CRC_SIZE <= mem.len(),
+            crc_addr < crc_addr + CRC_SIZE <= data_addr || crc_addr >= data_addr + S::spec_serialized_len(),
+            ({
+                let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+                let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+                if impervious_to_corruption {
+                    &&& data_c == true_data
+                    &&& crc_c == true_crc
+                }
+                else {
+                    &&& maybe_corrupted_serialized(*data_c, true_data, data_addr as int)
+                    &&& maybe_corrupted_serialized(*crc_c, true_crc, crc_addr as int)
+                }
+            })
+        ensures
+            ({
+                let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+                let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+                true_crc == true_data.spec_crc() ==>
+                    if b {
+                        &&& data_c == true_data
+                        &&& crc_c == true_crc
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
+            })
+    {
+        // Compute the CRC of the possibly-corrupted data.
+        let computed_crc = calculate_crc(data_c);
+
+
+        proof {
+            let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+            let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+
+            // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
+            // we can conclude that the data matches as well. That axiom only applies in the case
+            // when all three of the following conditions hold: (1) the last-written CRC really is
+            // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
+            // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
+            // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
+            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
+            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
+            // detected corruption.
+            if {
+                &&& true_crc == true_data.spec_crc()
+                &&& !impervious_to_corruption
+                &&& crc_c == computed_crc
+            } {
+                axiom_serialized_val_uncorrupted(*data_c, true_data, data_addr as int, *crc_c, true_crc, crc_addr as int);
+            }
+
+            // To argue that `crc1` matches `crc2` if and only if `crc_c`
+            // matches `computed_crc`, we invoke the lemma saying that
+            // `spec_u64_to_le_bytes` is the inverse of what
+            // `u64_from_le_bytes` computes.
+
+            let read_crc_alt = spec_u64_to_le_bytes(*crc_c);
+            let computed_crc_alt = spec_u64_to_le_bytes(computed_crc);
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        // Return the comparison between the CRCs
+        *crc_c == computed_crc
+    }
+
+
     // This function converts the given encoded CDB read from persistent
     // memory into a boolean. It checks for corruption as it does so. It
     // guarantees that if it returns `Some` then there was no corruption,

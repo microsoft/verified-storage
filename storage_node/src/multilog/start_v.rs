@@ -12,7 +12,7 @@ use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE};
-use crate::pmem::pmemutil_v::{check_cdb, check_crc};
+use crate::pmem::pmemutil_v::{check_cdb, check_crc, check_crc_deserialized};
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -282,12 +282,16 @@ verus! {
                                   else { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE };
         let level3_crc_pos = if cdb { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_TRUE }
                              else { ABSOLUTE_POS_OF_LEVEL3_CRC_FOR_CDB_FALSE };
-        let level3_metadata_bytes = pm_regions.read(which_log as usize, level3_metadata_pos, LENGTH_OF_LEVEL3_METADATA);
-        let level3_crc = pm_regions.read(which_log as usize, level3_crc_pos, CRC_SIZE);
-        if !check_crc(level3_metadata_bytes.as_slice(), level3_crc.as_slice(),
-                      Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                      Ghost(level3_metadata_pos), Ghost(LENGTH_OF_LEVEL3_METADATA),
-                      Ghost(level3_crc_pos)) {
+        // let level3_metadata_bytes = pm_regions.read(which_log as usize, level3_metadata_pos, LENGTH_OF_LEVEL3_METADATA);
+        let level3_metadata = pm_regions.read_and_deserialize::<Level3Metadata>(which_log as usize, level3_metadata_pos);
+        // let level3_crc = pm_regions.read(which_log as usize, level3_crc_pos, CRC_SIZE);
+        let level3_crc = pm_regions.read_and_deserialize::<u64>(which_log as usize, level3_crc_pos);
+        // if !check_crc(level3_metadata_bytes.as_slice(), level3_crc.as_slice(),
+        //               Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
+        //               Ghost(level3_metadata_pos), Ghost(LENGTH_OF_LEVEL3_METADATA),
+        //               Ghost(level3_crc_pos)) {
+        if !check_crc_deserialized(level3_metadata, level3_crc, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
+                                    Ghost(level3_metadata_pos), Ghost(LENGTH_OF_LEVEL3_METADATA), Ghost(level3_crc_pos)) {
             return Err(MultiLogErr::CRCMismatch);
         }
 
@@ -296,14 +300,16 @@ verus! {
         // length, then return an error. Such invalidity can't happen
         // if the persistent memory is recoverable.
 
-        let head = u128_from_le_bytes(slice_subrange(
-            level3_metadata_bytes.as_slice(),
-            RELATIVE_POS_OF_LEVEL3_HEAD as usize,
-            RELATIVE_POS_OF_LEVEL3_HEAD as usize + 16));
-        let log_length = u64_from_le_bytes(slice_subrange(
-            level3_metadata_bytes.as_slice(),
-            RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as usize,
-            RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as usize + 8));
+        // let head = u128_from_le_bytes(slice_subrange(
+        //     level3_metadata_bytes.as_slice(),
+        //     RELATIVE_POS_OF_LEVEL3_HEAD as usize,
+        //     RELATIVE_POS_OF_LEVEL3_HEAD as usize + 16));
+        // let log_length = u64_from_le_bytes(slice_subrange(
+        //     level3_metadata_bytes.as_slice(),
+        //     RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as usize,
+        //     RELATIVE_POS_OF_LEVEL3_LOG_LENGTH as usize + 8));
+        let head = level3_metadata.head;
+        let log_length = level3_metadata.log_length;
         if log_length > log_area_len {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })

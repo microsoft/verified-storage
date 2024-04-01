@@ -101,13 +101,66 @@ verus! {
     pub const MULTILOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
     // These structs represent the different levels of metadata.
+    // TODO: reorganize the contents of the structs to save space, and update
+    // corresponding spec serde methods
 
+    #[repr(C)]
     pub struct Level1Metadata {
         pub program_guid: u128,
         pub version_number: u64,
         pub length_of_level2_metadata: u64,
     }
 
+    impl Serializable for Level1Metadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u128_to_le_bytes(self.program_guid) + spec_u64_to_le_bytes(self.version_number) +
+                spec_u64_to_le_bytes(self.length_of_level2_metadata)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            Self {
+                program_guid: spec_u128_from_le_bytes(bytes.subrange(0, 16)),
+                version_number: spec_u64_from_le_bytes(bytes.subrange(16, 24)),
+                length_of_level2_metadata: spec_u64_from_le_bytes(bytes.subrange(24, 32))
+            }
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
+                let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
+                let serialized_level2_len = #[trigger] spec_u64_to_le_bytes(s.length_of_level2_metadata);
+                let serialized_metadata = #[trigger] s.spec_serialize();
+                &&& serialized_metadata.subrange(0, 16) == serialized_guid
+                &&& serialized_metadata.subrange(16, 24) == serialized_version
+                &&& serialized_metadata.subrange(24, 32) == serialized_level2_len
+            });
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> u64 {
+            LENGTH_OF_LEVEL1_METADATA
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+
+        fn serialized_len() -> u64
+        {
+            LENGTH_OF_LEVEL1_METADATA
+        }
+    }
+
+    #[repr(C)]
     pub struct Level2Metadata {
         pub region_size: u64,
         pub multilog_id: u128,
@@ -116,6 +169,66 @@ verus! {
         pub log_area_len: u64,
     }
 
+    impl Serializable for Level2Metadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.region_size) + spec_u128_to_le_bytes(self.multilog_id) +
+                spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
+                spec_u64_to_le_bytes(self.log_area_len)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            Self {
+                region_size: spec_u64_from_le_bytes(bytes.subrange(0, 8)),
+                multilog_id: spec_u128_from_le_bytes(bytes.subrange(8, 24)),
+                num_logs: spec_u32_from_le_bytes(bytes.subrange(24, 28)),
+                which_log: spec_u32_from_le_bytes(bytes.subrange(28, 32)),
+                log_area_len: spec_u64_from_le_bytes(bytes.subrange(32, 40))
+            }
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
+                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.multilog_id);
+                let serialized_num_logs = #[trigger] spec_u32_to_le_bytes(s.num_logs);
+                let serialized_which_log = #[trigger] spec_u32_to_le_bytes(s.which_log);
+                let serialized_len = #[trigger] spec_u64_to_le_bytes(s.log_area_len);
+                let serialized_metadata = #[trigger] s.spec_serialize();
+                &&& serialized_metadata.subrange(0, 8) == serialized_region_size
+                &&& serialized_metadata.subrange(8, 24) == serialized_id
+                &&& serialized_metadata.subrange(24, 28) == serialized_num_logs
+                &&& serialized_metadata.subrange(28, 32) == serialized_which_log
+                &&& serialized_metadata.subrange(32, 40) == serialized_len
+            });
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> u64
+        {
+            LENGTH_OF_LEVEL2_METADATA
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+
+        fn serialized_len() -> u64
+        {
+            LENGTH_OF_LEVEL2_METADATA
+        }
+    }
+
+    #[repr(C)]
     pub struct Level3Metadata {
         pub head: u128,
         pub log_length: u64,
@@ -185,11 +298,23 @@ verus! {
         extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_METADATA as int, LENGTH_OF_LEVEL1_METADATA as int)
     }
 
+    pub open spec fn deserialize_level1_metadata(mem: Seq<u8>) -> Level1Metadata
+    {
+        let bytes = extract_level1_metadata(mem);
+        Level1Metadata::spec_deserialize(bytes)
+    }
+
     // This function extracts the CRC of the level-1 metadata from the
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_level1_crc(mem: Seq<u8>) -> Seq<u8>
     {
         extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_CRC as int, CRC_SIZE as int)
+    }
+
+    pub open spec fn deserialize_level1_crc(mem: Seq<u8>) -> u64
+    {
+        let bytes = extract_level1_crc(mem);
+        u64::spec_deserialize(bytes)
     }
 
     // This function extracts the bytes encoding level-2 metadata
@@ -199,11 +324,23 @@ verus! {
         extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_METADATA as int, LENGTH_OF_LEVEL2_METADATA as int)
     }
 
+    pub open spec fn deserialize_level2_metadata(mem: Seq<u8>) -> Level2Metadata
+    {
+        let bytes = extract_level2_metadata(mem);
+        Level2Metadata::spec_deserialize(bytes)
+    }
+
     // This function extracts the CRC of the level-2 metadata from the
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_level2_crc(mem: Seq<u8>) -> Seq<u8>
     {
         extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL2_CRC as int, CRC_SIZE as int)
+    }
+
+    pub open spec fn deserialize_level2_crc(mem: Seq<u8>) -> u64
+    {
+        let bytes = extract_level2_crc(mem);
+        u64::spec_deserialize(bytes)
     }
 
     // This function extracts the bytes encoding the level-3

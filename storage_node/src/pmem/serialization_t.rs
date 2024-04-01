@@ -42,7 +42,7 @@ verus! {
             maybe_corrupted_serialized(read_crc, true_crc, crc_addr),
             read_crc == read_val.spec_crc(),
             true_crc == true_val.spec_crc(),
-            crc_addr < val_addr || crc_addr >= val_addr + S::spec_serialized_len()
+            crc_addr < crc_addr + CRC_SIZE <= val_addr || crc_addr >= val_addr + S::spec_serialized_len()
             // TODO: is this enough to make sure the crc and read val are physically distinct?
         ensures
             read_val == true_val
