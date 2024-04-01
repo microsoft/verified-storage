@@ -631,15 +631,14 @@ verus! {
             None
         }
         else {
-            let level1_metadata_bytes = extract_level1_metadata(mem);
-            let level1_crc = extract_level1_crc(mem);
-            if level1_crc != spec_crc_bytes(level1_metadata_bytes) {
+            let level1_metadata = deserialize_level1_metadata(mem);
+            let level1_crc = deserialize_level1_crc(mem);
+            if level1_crc == level1_metadata.spec_crc() {
                 // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
                 // encoded as bytes.
                 None
             }
             else {
-                let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
                 if level1_metadata.program_guid != MULTILOG_PROGRAM_GUID {
                     // To be valid, the level-1 metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
@@ -656,15 +655,14 @@ verus! {
                         None
                     }
                     else {
-                        let level2_metadata_bytes = extract_level2_metadata(mem);
-                        let level2_crc = extract_level2_crc(mem);
-                        if level2_crc != spec_crc_bytes(level2_metadata_bytes) {
+                        let level2_metadata = deserialize_level2_metadata(mem);
+                        let level2_crc = deserialize_level2_crc(mem);
+                        if level2_crc != level2_metadata.spec_crc() {
                             // To be valid, the level-2 CRC has to be a valid CRC of the level-2
                             // metadata encoded as bytes.
                             None
                         }
                         else {
-                            let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
                             // To be valid, the level-2 region size has to match the size of the
                             // region given to us. Also, its metadata has to match what we expect
                             // from the list of regions given to us. Finally, there has to be
