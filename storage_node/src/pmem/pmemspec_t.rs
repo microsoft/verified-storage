@@ -428,6 +428,8 @@ verus! {
 
     pub trait PersistentMemoryRegion : Sized
     {
+        type RegionDesc : RegionDescriptor;
+
         spec fn view(&self) -> PersistentMemoryRegionView;
 
         spec fn inv(&self) -> bool;
@@ -441,16 +443,17 @@ verus! {
                 result == self.spec_device_id(),
                 result == self@.device_id;
 
-        fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(pm) => {
-                        &&& pm@.len() == region_size
+                        &&& pm@.len() == region_descriptor@.len
                         &&& pm.inv()
                         &&& pm@.no_outstanding_writes()
-                        &&& pm.spec_device_id() == timestamp@.device_id()
+                        &&& pm.spec_device_id() == region_descriptor@.device_id
+                        &&& pm@.current_timestamp == region_descriptor@.timestamp
                     },
-                    Err(_) => true
+                    Err(_) => false
                 };
 
         fn get_region_size(&self) -> (result: u64)
