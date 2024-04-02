@@ -266,12 +266,105 @@ verus! {
         {
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.update_region_with_timestamp(new_timestamp@));
         }
-
     }
 
     struct MappedPmRegions {
-        regions: Vec<MappedPM>,
+        pms: Vec<MappedPM>,
+        device_id: u128,
     }
 
-    // impl PersistentMemoryRegions for MappedPmRegions {}
+    impl PersistentMemoryRegions for MappedPmRegions {
+        closed spec fn view(&self) -> PersistentMemoryRegionsView
+        {
+            PersistentMemoryRegionsView {
+                regions: self.pms@.map(|_idx, pm: MappedPM| pm@),
+                current_timestamp: self.pms[0]@.current_timestamp,
+                device_id: self.device_id
+            }
+        }
+
+        closed spec fn inv(&self) -> bool
+        {
+            &&& forall |i| 0 <= i < self.pms.len() ==> #[trigger] self.pms[i].inv()
+            &&& forall |i| 0 <= i < self.pms.len() ==> #[trigger] self.pms[i].device_id == self.device_id
+        }
+
+        closed spec fn constants(&self) -> PersistentMemoryConstants
+        {
+            PersistentMemoryConstants { impervious_to_corruption: true }
+        }
+
+        closed spec fn spec_device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn get_num_regions(&self) -> usize
+        {
+            self.pms.len()
+        }
+
+        fn get_region_size(&self, index: usize) -> u64
+        {
+            self.pms[index].get_region_size()
+        }
+
+        fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        {
+            self.pms[index].read(addr, num_bytes)
+        }
+
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
+            where
+                S: Serializable + Sized
+        {
+            self.pms[index].read_and_deserialize(addr)
+        }
+
+        #[verifier::external_body]
+        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
+        {
+            self.pms[index].write(addr, bytes)
+        }
+
+        #[verifier::external_body]
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
+            where
+                S: Serializable + Sized
+        {
+            self.pms[index].serialize_and_write(addr, to_write);
+        }
+
+        #[verifier::external_body]
+        fn flush(&mut self)
+        {
+            // we only loop over PM views, since we don't want to invoke one drain for
+            // every region, since all of the regions are from the same device
+            for which_region in iter: 0..self.pms.len()
+                invariant
+                    iter.end == self.pms.len(),
+                    forall |i: int| 0 <= i < which_region ==>
+                        self.pms[which_region as int]@ == old(self).pms[which_region as int]@.flush()
+            {
+                self.pms[which_region].persistent_memory_view = Ghost(self.pms[which_region as int].persistent_memory_view@.flush())
+            }
+            pmem_drain();
+        }
+
+        #[verifier::external_body]
+        fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
+        {
+            for i in iter: 0..self.pms.len()
+                invariant
+                    iter.end == self.pms.len(),
+            {
+                self.pms[i].update_region_timestamp(new_timestamp);
+            }
+        }
+    }
 }
