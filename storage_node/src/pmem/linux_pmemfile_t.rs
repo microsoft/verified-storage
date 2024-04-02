@@ -3,19 +3,40 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use core::ffi::c_void;
-use std::convert::TryInto;
+use std::{convert::TryInto, ffi::CString};
 
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use deps_hack::{pmem_drain, pmem_flush, pmem_memcpy_nodrain, pmem_unmap};
+use deps_hack::{
+    nix::{
+        errno::{errno, from_i32},
+        Error,
+    },
+    pmem_drain, pmem_flush, pmem_map_file, pmem_memcpy_nodrain, pmem_unmap, pmemlog_errormsg,
+    rand::Rng,
+    PMEM_FILE_CREATE,
+};
 
 verus! {
+
+    // This executable method can be called to compute a random GUID.
+    // It uses the external `rand` crate.
     #[verifier::external_body]
+    pub exec fn generate_fresh_device_id() -> (out: u128)
+    {
+        deps_hack::rand::thread_rng().gen::<u128>()
+    }
+
+
+    // Must be external body because Verus does not currently support raw pointers
+    // TODO: is there a better/safer way to handle this? UnsafeCell maybe?
+    #[verifier::external_body]
+    #[derive(Clone, Copy)]
     struct PmPointer { virt_addr: *mut u8 }
 
-    struct MappedPmDesc {
+    pub struct MappedPmDesc {
         virt_addr: PmPointer,
         len: u64,
         device_id: u128,
@@ -39,6 +60,125 @@ verus! {
             self.len
         }
     }
+
+    // TODO: is this actually how we should represent this? Maybe
+    // multiple separate mmap'ings?
+    pub struct MappedPmDevice {
+        virt_addr: PmPointer,
+        len: u64,
+        device_id: u128,
+        cursor: u64
+    }
+
+    impl PmDevice for MappedPmDevice {
+        type RegionDesc = MappedPmDesc;
+
+        closed spec fn len(&self) -> u64
+        {
+            self.len
+        }
+
+        fn capacity(&self) -> u64
+        {
+            self.len
+        }
+
+        closed spec fn spec_device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        closed spec fn spec_get_cursor(&self) -> Option<u64>
+        {
+            if self.cursor >= self.len {
+                None
+            } else {
+                Some(self.cursor)
+            }
+        }
+
+        fn get_cursor(&self) -> Option<u64>
+        {
+            if self.cursor >= self.len {
+                None
+            } else {
+                Some(self.cursor)
+            }
+        }
+
+        fn inc_cursor(&mut self, len: u64)
+        {
+            self.cursor = self.cursor + len;
+        }
+
+        // Must be external body to operate on raw pointers
+        #[verifier::external_body]
+        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, ()>
+        {
+            // the precondition requires that the device has enough space for the
+            // region, so we don't have to check on that
+            self.inc_cursor(len);
+            let new_virt_addr = unsafe {
+                PmPointer {
+                    virt_addr: self.virt_addr.virt_addr.offset(self.cursor.try_into().unwrap())
+                }
+            };
+            Ok(MappedPmDesc {
+                virt_addr: new_virt_addr,
+                len,
+                current_timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
+                device_id: self.device_id()
+            })
+        }
+    }
+
+    impl MappedPmDevice {
+        #[verifier::external_body]
+        fn new(file_to_map: &str, size: usize) -> Result<Self, Error>
+            ensures
+                true // TODO
+        {
+            let mut mapped_len = 0;
+            let mut is_pm = 0;
+            let file = CString::new(file_to_map).unwrap();
+            let file = file.as_c_str();
+
+            // TODO: what does this do if the mapping fails?
+            // need to check for errors
+            let addr = unsafe {
+                pmem_map_file(
+                    file.as_ptr(),
+                    size,
+                    PMEM_FILE_CREATE.try_into().unwrap(),
+                    0666,
+                    &mut mapped_len,
+                    &mut is_pm,
+                )
+            };
+
+            if is_pm == 0 {
+                println!("{}", unsafe {
+                    CString::from_raw(pmemlog_errormsg() as *mut i8)
+                        .into_string()
+                        .unwrap()
+                });
+                return Err(from_i32(errno()));
+            }
+
+            Ok(MappedPmDevice {
+                virt_addr: PmPointer { virt_addr: addr as *mut u8 },
+                len: mapped_len.try_into().unwrap(),
+                device_id: generate_fresh_device_id(),
+                cursor: 0,
+            })
+        }
+    }
+
 
     struct MappedPM {
         virt_addr: PmPointer,

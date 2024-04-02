@@ -4,6 +4,7 @@
 
 pub use core;
 pub use crc64fast;
+pub use nix;
 pub use rand;
 // pub use winapi;
 // pub use winapi::shared::winerror::SUCCEEDED;
