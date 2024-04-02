@@ -101,7 +101,6 @@ verus! {
     }
 
     pub struct RegionDescriptorView {
-        // pub bytes: Seq<u8>,
         pub len: u64,
         pub timestamp: PmTimestamp,
         pub device_id: u128,
