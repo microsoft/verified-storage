@@ -40,8 +40,6 @@ verus! {
             ensures
                 result == self.spec_get_cursor();
 
-        // spec fn spec_inc_curspor(&mut self, len: u64);
-
         exec fn inc_cursor(&mut self, len: u64)
             requires
                 match old(self).spec_get_cursor() {
@@ -58,8 +56,8 @@ verus! {
                 };
 
         // Getting a new region returns a RegionDescriptor that we can use to construct a
-        // persistent memory region of serializable objects.
-        // `len` is in terms of BYTES, as we don't yet know the size of the object the region will store
+        // new persistent memory region that does not overlap with any other regions on the
+        // same device
         exec fn get_new_region(&mut self, len: u64) -> (result: Result<Self::RegionDesc, ()>)
             requires
                 match old(self).spec_get_cursor() {
@@ -97,7 +95,6 @@ verus! {
             ensures
                 result == self@.device_id;
 
-        // NOTE: this is the length in BYTES
         fn len(&self) -> (result: u64)
             ensures
                 result == self@.len;
