@@ -9,7 +9,7 @@
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
+    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
@@ -128,7 +128,7 @@ verus! {
             self.cursor = self.cursor + len;
         }
 
-        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, ()>
+        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
         {
             // the precondition requires that the device has enough space for the
             // region, so we don't have to check on that
@@ -159,7 +159,7 @@ verus! {
         type RegionDesc = VolatileMemoryMockingPersistentMemoryRegionDescriptor;
 
         #[verifier::external_body]
-        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, ()>)
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, PmemError>)
         {
             let region_size = region_descriptor.len();
             let device_id = region_descriptor.device_id();

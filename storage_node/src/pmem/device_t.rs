@@ -58,7 +58,7 @@ verus! {
         // Getting a new region returns a RegionDescriptor that we can use to construct a
         // new persistent memory region that does not overlap with any other regions on the
         // same device
-        exec fn get_new_region(&mut self, len: u64) -> (result: Result<Self::RegionDesc, ()>)
+        exec fn get_new_region(&mut self, len: u64) -> (result: Result<Self::RegionDesc, PmemError>)
             requires
                 match old(self).spec_get_cursor() {
                     Some(cursor) => cursor + len <= old(self).len(),

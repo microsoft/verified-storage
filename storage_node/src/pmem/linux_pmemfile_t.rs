@@ -15,7 +15,7 @@ use deps_hack::{
         Error,
     },
     pmem::pmem_memcpy_nodrain_helper,
-    pmem_drain, pmem_flush, pmem_map_file, pmem_memcpy_nodrain, pmem_unmap, pmemlog_errormsg,
+    pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file, pmem_memcpy_nodrain, pmem_unmap,
     rand::Rng,
     PMEM_FILE_CREATE,
 };
@@ -119,16 +119,16 @@ verus! {
 
         // Must be external body to operate on raw pointers
         #[verifier::external_body]
-        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, ()>
+        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
         {
             // the precondition requires that the device has enough space for the
             // region, so we don't have to check on that
-            self.inc_cursor(len);
             let new_virt_addr = unsafe {
                 PmPointer {
                     virt_addr: self.virt_addr.virt_addr.offset(self.cursor.try_into().unwrap())
                 }
             };
+            self.inc_cursor(len);
             Ok(MappedPmDesc {
                 virt_addr: new_virt_addr,
                 len,
@@ -170,15 +170,15 @@ verus! {
             };
 
             if addr.is_null() {
-                println!("{}", unsafe {
-                    CString::from_raw(pmemlog_errormsg() as *mut i8)
+                eprintln!("{}", unsafe {
+                    CString::from_raw(pmem_errormsg() as *mut i8)
                         .into_string()
                         .unwrap()
                 });
                 Err(PmemError::CannotOpenPmFile)
             } else if is_pm == 0 {
-                println!("{}", unsafe {
-                    CString::from_raw(pmemlog_errormsg() as *mut i8)
+                eprintln!("{}", unsafe {
+                    CString::from_raw(pmem_errormsg() as *mut i8)
                         .into_string()
                         .unwrap()
                 });
@@ -244,7 +244,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn new(region_descriptor: Self::RegionDesc) -> Result<Self, ()>
+        fn new(region_descriptor: Self::RegionDesc) -> Result<Self, PmemError>
         {
             // TODO: we don't actually know what the state at last flush was;
             // should this instead be represented by some unknown value?

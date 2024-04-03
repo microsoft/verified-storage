@@ -49,6 +49,7 @@ verus! {
         InvalidFileName,
         CannotOpenPmFile,
         NotPm,
+        PmdkError,
     }
 
     /// This is our model of bit corruption. It models corruption of a
@@ -450,7 +451,7 @@ verus! {
                 result == self.spec_device_id(),
                 result == self@.device_id;
 
-        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, ()>)
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, PmemError>)
             ensures
                 match result {
                     Ok(pm) => {

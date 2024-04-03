@@ -157,6 +157,7 @@ verus! {
 
     // This enumeration represents the various errors that can be
     // returned from multilog operations. They're self-explanatory.
+    // TODO: make PmemErr and MultiLogErr handling cleaner
     #[derive(Debug)]
     pub enum MultiLogErr {
         CantSetupWithFewerThanOneRegion { },
@@ -173,6 +174,7 @@ verus! {
         CantReadPastTail { tail: u128 },
         CantAdvanceHeadPositionBeforeHead { head: u128 },
         CantAdvanceHeadPositionBeyondTail { tail: u128 },
+        PmemErr { err: PmemError } // janky workaround so that callers can handle PmemErrors as MultiLogErrors
     }
 
     // This executable method can be called to compute a random GUID.
