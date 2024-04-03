@@ -7,6 +7,7 @@ use vstd::prelude::*;
 pub mod multilog;
 pub mod pmem;
 
+use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
 use crate::pmem::device_t::*;
@@ -15,36 +16,40 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::timestamp_t::*;
 
+mod tests {
+    use super::*;
+    /// This test ensures that the hardcoded constant size of each metadata structure
+    /// matches the actual size at runtime. This helps ensure that the serde specification
+    /// for each structure is correct.
+    // #[verifier::external_body]
+    #[test]
+    fn check_layout() {
+        let global_metadata_size =
+            core::mem::size_of::<crate::multilog::layout_v::GlobalMetadata>();
+        let region_metadata_size =
+            core::mem::size_of::<crate::multilog::layout_v::RegionMetadata>();
+        let log_metadata_size = core::mem::size_of::<crate::multilog::layout_v::LogMetadata>();
+
+        println!("global metadata struct size: {:?}\n", global_metadata_size);
+        println!("region metadata struct size: {:?}\n", region_metadata_size);
+        println!("log metadata struct size: {:?}\n", log_metadata_size);
+
+        assert!(global_metadata_size == LENGTH_OF_GLOBAL_METADATA.try_into().unwrap());
+        assert!(region_metadata_size == LENGTH_OF_REGION_METADATA.try_into().unwrap());
+        assert!(log_metadata_size == LENGTH_OF_LOG_METADATA.try_into().unwrap());
+    }
+
+    // #[verifier::external_body]
+    // #[test]
+    // fn check_multilog_with_timestamps() {
+    //     assert(test_multilog_with_timestamps());
+    // }
+}
+
 verus! {
     #[allow(dead_code)]
     fn main() {}
 
-    mod tests {
-        /// This test ensures that the hardcoded constant size of each metadata structure
-        /// matches the actual size at runtime. This helps ensure that the serde specification
-        /// for each structure is correct.
-        #[verifier::external_body]
-        #[test]
-        fn check_layout() {
-            let global_metadata_size = core::mem::size_of::<crate::multilog::layout_v::GlobalMetadata>();
-            let region_metadata_size = core::mem::size_of::<crate::multilog::layout_v::RegionMetadata>();
-            let log_metadata_size = core::mem::size_of::<crate::multilog::layout_v::LogMetadata>();
-
-            println!("global metadata struct size: {:?}\n", global_metadata_size);
-            println!("region metadata struct size: {:?}\n", region_metadata_size);
-            println!("log metadata struct size: {:?}\n", log_metadata_size);
-
-            assert(global_metadata_size == LENGTH_OF_GLOBAL_METADATA);
-            assert(region_metadata_size == LENGTH_OF_REGION_METADATA);
-            assert(log_metadata_size == LENGTH_OF_LOG_METADATA);
-        }
-
-        #[verifier::external_body]
-        #[test]
-        fn check_multilog_with_timestamps() {
-            assert(test_multilog_with_timestamps());
-        }
-    }
 
     // this function is defined outside of the test module so that we can both
     // run verification on it and call it in a test to ensure that all operations

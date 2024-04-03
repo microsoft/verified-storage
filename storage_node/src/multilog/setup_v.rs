@@ -197,7 +197,8 @@ verus! {
             multilog_id,
             num_logs,
             which_log,
-            log_area_len: region_size - ABSOLUTE_POS_OF_LOG_AREA
+            log_area_len: region_size - ABSOLUTE_POS_OF_LOG_AREA,
+            _padding: 0,
         };
         let region_crc = calculate_crc(&region_metadata);
 
@@ -207,6 +208,7 @@ verus! {
         // Initialize level 3 metadata and compute its CRC
         let log_metadata = LogMetadata {
             head: 0,
+            _padding: 0,
             log_length: 0
         };
         let log_crc = calculate_crc(&log_metadata);

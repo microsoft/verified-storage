@@ -83,7 +83,7 @@ verus! {
                         // based on its device ID if we want to
                         &&& region_desc@.timestamp == PmTimestamp::new(self.spec_device_id() as int)
                     }
-                    Err(()) => false
+                    Err(_) => false
                 }
             ;
     }

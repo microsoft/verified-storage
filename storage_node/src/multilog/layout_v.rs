@@ -57,6 +57,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
+use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
@@ -79,17 +80,17 @@ verus! {
     pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 8;
     pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 16;
     pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 24;
-    pub const LENGTH_OF_REGION_METADATA: u64 = 40;
-    pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 80;
-    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 88;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 96;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
+    pub const LENGTH_OF_REGION_METADATA: u64 = 48;
+    pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 88;
+    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 96;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 104;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 144;
     pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
-    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 8;
-    pub const LENGTH_OF_LOG_METADATA: u64 = 24;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 152;
-    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 160;
+    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 16;
+    pub const LENGTH_OF_LOG_METADATA: u64 = 32;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 136;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 168;
+    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 176;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     // This GUID was generated randomly and is meant to describe the
@@ -180,6 +181,7 @@ verus! {
     pub struct RegionMetadata {
         pub num_logs: u32,
         pub which_log: u32,
+        pub _padding: u64,
         pub region_size: u64,
         pub log_area_len: u64,
         pub multilog_id: u128,
@@ -200,6 +202,7 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_REGION_NUM_LOGS as int, RELATIVE_POS_OF_REGION_NUM_LOGS + 4)),
                 which_log: spec_u32_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_WHICH_LOG as int, RELATIVE_POS_OF_REGION_WHICH_LOG + 4)),
+                _padding: 0,
                 region_size: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_REGION_SIZE as int, RELATIVE_POS_OF_REGION_REGION_SIZE + 8)),
                 log_area_len: spec_u64_from_le_bytes(
@@ -267,6 +270,7 @@ verus! {
     #[repr(C)]
     pub struct LogMetadata {
         pub log_length: u64,
+        pub _padding: u64,
         pub head: u128,
     }
 
@@ -281,6 +285,7 @@ verus! {
             Self {
                 log_length: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_LOG_LENGTH as int, RELATIVE_POS_OF_LOG_LOG_LENGTH + 8)),
+                _padding: 0,
                 head: spec_u128_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_HEAD as int, RELATIVE_POS_OF_LOG_HEAD + 16)),
             }
@@ -526,7 +531,7 @@ verus! {
         let num_logs = parse_u32(bytes, RELATIVE_POS_OF_REGION_NUM_LOGS as int);
         let which_log = parse_u32(bytes, RELATIVE_POS_OF_REGION_WHICH_LOG as int);
         let log_area_len = parse_u64(bytes, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int);
-        RegionMetadata { region_size, multilog_id, num_logs, which_log, log_area_len }
+        RegionMetadata { region_size, multilog_id, _padding: 0, num_logs, which_log, log_area_len }
     }
 
     // This function returns the level-3 metadata encoded as the given
@@ -535,7 +540,7 @@ verus! {
     {
         let head = parse_u128(bytes, RELATIVE_POS_OF_LOG_HEAD as int);
         let log_length = parse_u64(bytes, RELATIVE_POS_OF_LOG_LOG_LENGTH as int);
-        LogMetadata { head, log_length }
+        LogMetadata { head, _padding: 0, log_length }
     }
 
     /// Specification functions for extracting log data from a

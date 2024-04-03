@@ -37,6 +37,7 @@ use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
+use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 

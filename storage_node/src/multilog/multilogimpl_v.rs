@@ -725,6 +725,7 @@ verus! {
                 let info = &self.infos[current_log as usize];
                 let log_metadata = LogMetadata {
                     head: info.head,
+                    _padding: 0,
                     log_length: info.log_length
                 };
                 let log_crc = calculate_crc(&log_metadata);
