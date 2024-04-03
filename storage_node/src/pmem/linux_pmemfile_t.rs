@@ -138,18 +138,24 @@ verus! {
     }
 
     impl MappedPmDevice {
+        // TODO: detailed information for error returns
         #[verifier::external_body]
-        fn new(file_to_map: &str, size: usize) -> Result<Self, Error>
+        fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, ()>)
             ensures
-                true // TODO
+                match result {
+                    Ok(device) => {
+                        &&& device.spec_get_cursor() == Some(0u64)
+                        &&& device.len() == size
+                        // TODO: check virt addr in postcondition
+                    }
+                    Err(()) => true // TODO
+                }
         {
             let mut mapped_len = 0;
             let mut is_pm = 0;
-            let file = CString::new(file_to_map).unwrap();
+            let file = CString::new(file_to_map.into_rust_str()).unwrap();
             let file = file.as_c_str();
 
-            // TODO: what does this do if the mapping fails?
-            // need to check for errors
             let addr = unsafe {
                 pmem_map_file(
                     file.as_ptr(),
@@ -161,21 +167,28 @@ verus! {
                 )
             };
 
-            if is_pm == 0 {
+            if addr.is_null() {
                 println!("{}", unsafe {
                     CString::from_raw(pmemlog_errormsg() as *mut i8)
                         .into_string()
                         .unwrap()
                 });
-                return Err(from_i32(errno()));
+                Err(())
+            } else if is_pm == 0 {
+                println!("{}", unsafe {
+                    CString::from_raw(pmemlog_errormsg() as *mut i8)
+                        .into_string()
+                        .unwrap()
+                });
+                Err(())
+            } else {
+                Ok(MappedPmDevice {
+                    virt_addr: PmPointer { virt_addr: addr as *mut u8 },
+                    len: mapped_len.try_into().unwrap(),
+                    device_id: generate_fresh_device_id(),
+                    cursor: 0,
+                })
             }
-
-            Ok(MappedPmDevice {
-                virt_addr: PmPointer { virt_addr: addr as *mut u8 },
-                len: mapped_len.try_into().unwrap(),
-                device_id: generate_fresh_device_id(),
-                cursor: 0,
-            })
         }
     }
 
@@ -334,18 +347,20 @@ verus! {
             // ordering; it makes no guarantees about durability. pmem_flush() does cache
             // line flushes but does not use an ordering primitive, so updates are still
             // not guaranteed to be durable yet
-            // TODO: these should be unsafe?
-            pmem_memcpy_nodrain(
-                addr_on_pm as *mut c_void,
-                bytes.as_ptr() as *const c_void,
-                bytes.len()
-            );
-            pmem_flush(addr_on_pm as *mut c_void, bytes.len());
+            unsafe {
+                pmem_memcpy_nodrain(
+                    addr_on_pm as *mut c_void,
+                    bytes.as_ptr() as *const c_void,
+                    bytes.len()
+                );
+                pmem_flush(addr_on_pm as *mut c_void, bytes.len());
+            }
 
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
         #[verifier::external_body]
+        #[allow(unused_variables)]
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
                 S: Serializable + Sized
@@ -376,13 +391,14 @@ verus! {
             // ordering; it makes no guarantees about durability. pmem_flush() does cache
             // line flushes but does not use an ordering primitive, so updates are still
             // not guaranteed to be durable yet
-            // TODO: these should be unsafe?
-            pmem_memcpy_nodrain(
-                addr_on_pm as *mut c_void,
-                s_pointer as *const c_void,
-                num_bytes
-            );
-            pmem_flush(addr_on_pm as *mut c_void, num_bytes);
+            unsafe {
+                pmem_memcpy_nodrain(
+                    addr_on_pm as *mut c_void,
+                    s_pointer as *const c_void,
+                    num_bytes
+                );
+                pmem_flush(addr_on_pm as *mut c_void, num_bytes);
+            }
 
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
@@ -397,8 +413,7 @@ verus! {
             // primitive are durable. This guarantees that all updates made with `write`/
             // `serialize_and_write` since the last `flush` call will be durable before
             // any new updates become durable.
-            // TODO: this should be unsafe?
-            pmem_drain();
+            unsafe { pmem_drain(); }
         }
 
         #[allow(unused_variables)]
@@ -493,7 +508,7 @@ verus! {
             {
                 self.pms[which_region].persistent_memory_view = Ghost(self.pms[which_region as int].persistent_memory_view@.flush())
             }
-            pmem_drain();
+            unsafe { pmem_drain(); }
         }
 
         #[verifier::external_body]
