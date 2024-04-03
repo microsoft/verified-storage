@@ -140,6 +140,7 @@ verus! {
     impl MappedPmDevice {
         // TODO: detailed information for error returns
         #[verifier::external_body]
+        #[allow(dead_code)]
         fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, ()>)
             ensures
                 match result {
@@ -192,7 +193,7 @@ verus! {
         }
     }
 
-
+    #[allow(dead_code)]
     struct MappedPM {
         virt_addr: PmPointer,
         mapped_len: u64,
@@ -423,7 +424,7 @@ verus! {
         }
     }
 
-    struct MappedPmRegions {
+    pub struct MappedPmRegions {
         pms: Vec<MappedPM>,
         device_id: u128,
     }

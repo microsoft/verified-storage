@@ -38,6 +38,7 @@ verus! {
         deps_hack::rand::thread_rng().gen::<u128>()
     }
 
+    #[allow(dead_code)]
     pub struct VolatileMemoryMockingPersistentMemoryRegionDescriptor
     {
         len: u64,
