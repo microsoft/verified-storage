@@ -141,7 +141,7 @@ verus! {
         // TODO: detailed information for error returns
         #[verifier::external_body]
         #[allow(dead_code)]
-        fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, ()>)
+        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, ()>)
             ensures
                 match result {
                     Ok(device) => {
@@ -194,7 +194,7 @@ verus! {
     }
 
     #[allow(dead_code)]
-    struct MappedPM {
+    pub struct MappedPM {
         virt_addr: PmPointer,
         mapped_len: u64,
         device_id: u128,
@@ -520,6 +520,39 @@ verus! {
                     iter.end == self.pms.len(),
             {
                 self.pms[i].update_region_timestamp(new_timestamp);
+            }
+        }
+    }
+
+    // TODO: make this a trait method of PersistentMemoryRegions
+    impl MappedPmRegions {
+        pub fn combine_regions(regions: Vec<MappedPM>) -> (result: Self)
+            requires
+                regions@.len() > 0,
+                forall |i| 0 <= i < regions@.len() ==> {
+                    let region = #[trigger] regions[i];
+                    &&& region.inv()
+                    &&& region@.current_timestamp == regions[0]@.current_timestamp
+                    &&& region.spec_device_id() == regions[0].spec_device_id()
+                }
+            ensures
+                result@.len() == regions@.len(),
+                result.inv(),
+                forall |i: int| 0 <= i < result@.len() ==> {
+                    let region = #[trigger] result@[i];
+                    region.current_timestamp == result@[0].current_timestamp
+                },
+                forall |i: int| 0 <= i < result@.len() ==> {
+                    let region = #[trigger] result@[i];
+                    region.device_id == result@[0].device_id
+                },
+                result@.current_timestamp == regions[0]@.current_timestamp,
+                result.spec_device_id() == regions[0].spec_device_id()
+        {
+            let device_id = regions[0].device_id();
+            Self {
+                pms: regions,
+                device_id
             }
         }
     }
