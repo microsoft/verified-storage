@@ -44,6 +44,13 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
+    #[derive(Debug)]
+    pub enum PmemError {
+        InvalidFileName,
+        CannotOpenPmFile,
+        NotPm,
+    }
+
     /// This is our model of bit corruption. It models corruption of a
     /// read byte sequence as a sequence of corruptions happening to
     /// each byte. This way, we can concatenate two read byte

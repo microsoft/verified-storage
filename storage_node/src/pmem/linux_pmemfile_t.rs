@@ -14,6 +14,7 @@ use deps_hack::{
         errno::{errno, from_i32},
         Error,
     },
+    pmem::pmem_memcpy_nodrain_helper,
     pmem_drain, pmem_flush, pmem_map_file, pmem_memcpy_nodrain, pmem_unmap, pmemlog_errormsg,
     rand::Rng,
     PMEM_FILE_CREATE,
@@ -141,7 +142,7 @@ verus! {
         // TODO: detailed information for error returns
         #[verifier::external_body]
         #[allow(dead_code)]
-        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, ()>)
+        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, PmemError>)
             ensures
                 match result {
                     Ok(device) => {
@@ -149,12 +150,12 @@ verus! {
                         &&& device.len() == size
                         // TODO: check virt addr in postcondition
                     }
-                    Err(()) => true // TODO
+                    Err(_) => true // TODO
                 }
         {
             let mut mapped_len = 0;
             let mut is_pm = 0;
-            let file = CString::new(file_to_map.into_rust_str()).unwrap();
+            let file = CString::new(file_to_map.into_rust_str()).map_err(|_| PmemError::InvalidFileName )?;
             let file = file.as_c_str();
 
             let addr = unsafe {
@@ -174,14 +175,14 @@ verus! {
                         .into_string()
                         .unwrap()
                 });
-                Err(())
+                Err(PmemError::CannotOpenPmFile)
             } else if is_pm == 0 {
                 println!("{}", unsafe {
                     CString::from_raw(pmemlog_errormsg() as *mut i8)
                         .into_string()
                         .unwrap()
                 });
-                Err(())
+                Err(PmemError::NotPm)
             } else {
                 Ok(MappedPmDevice {
                     virt_addr: PmPointer { virt_addr: addr as *mut u8 },
@@ -347,9 +348,12 @@ verus! {
             // pmem_memcpy_nodrain() does a memcpy to PM with no cache line flushes or
             // ordering; it makes no guarantees about durability. pmem_flush() does cache
             // line flushes but does not use an ordering primitive, so updates are still
-            // not guaranteed to be durable yet
+            // not guaranteed to be durable yet.
+            // Verus doesn't like calling pmem_memcpy_nodrain directly because it returns
+            // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
+            // that does not return anything and call that instead
             unsafe {
-                pmem_memcpy_nodrain(
+                pmem_memcpy_nodrain_helper(
                     addr_on_pm as *mut c_void,
                     bytes.as_ptr() as *const c_void,
                     bytes.len()
@@ -391,9 +395,12 @@ verus! {
             // pmem_memcpy_nodrain() does a memcpy to PM with no cache line flushes or
             // ordering; it makes no guarantees about durability. pmem_flush() does cache
             // line flushes but does not use an ordering primitive, so updates are still
-            // not guaranteed to be durable yet
+            // not guaranteed to be durable yet.
+            // Verus doesn't like calling pmem_memcpy_nodrain directly because it returns
+            // a raw pointer, so we define a wrapper around pmem_memcpy_nodrain in deps_hack
+            // that does not return anything and call that instead
             unsafe {
-                pmem_memcpy_nodrain(
+                pmem_memcpy_nodrain_helper(
                     addr_on_pm as *mut c_void,
                     s_pointer as *const c_void,
                     num_bytes

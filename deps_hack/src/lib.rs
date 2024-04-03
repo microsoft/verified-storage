@@ -14,4 +14,6 @@ pub use rand;
 // pub use winapi::um::winbase::CreateFileMappingA;
 // pub use winapi::um::winnt::{PAGE_READWRITE, FILE_SHARE_WRITE, FILE_SHARE_READ, FILE_SHARE_DELETE, GENERIC_READ, GENERIC_WRITE, FILE_ATTRIBUTE_NORMAL, ULARGE_INTEGER};
 
+pub mod pmem;
+
 include!("./bindings.rs");
