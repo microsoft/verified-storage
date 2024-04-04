@@ -74,23 +74,27 @@ verus! {
     pub const RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID: u64 = 16;
     pub const LENGTH_OF_GLOBAL_METADATA: u64 = 32;
     pub const ABSOLUTE_POS_OF_GLOBAL_CRC: u64 = 32;
+
     pub const ABSOLUTE_POS_OF_REGION_METADATA: u64 = 40;
     pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 0;
     pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 4;
-    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 8;
-    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 16;
-    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 24;
+    pub const RELATIVE_POS_OF_REGION_PADDING: u64 = 8;
+    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 16;
+    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 24;
+    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 32;
     pub const LENGTH_OF_REGION_METADATA: u64 = 48;
     pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 88;
+
     pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 96;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 104;
     pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 144;
     pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
+    pub const RELATIVE_POS_OF_LOG_PADDING: u64 = 8;
     pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 16;
     pub const LENGTH_OF_LOG_METADATA: u64 = 32;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 136;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 168;
-    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 176;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 176;
+    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 184;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     // This GUID was generated randomly and is meant to describe the
@@ -191,8 +195,8 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
-                spec_u64_to_le_bytes(self.region_size) + spec_u64_to_le_bytes(self.log_area_len) +
-                spec_u128_to_le_bytes(self.multilog_id)
+                spec_u64_to_le_bytes(self._padding) + spec_u64_to_le_bytes(self.region_size) +
+                spec_u64_to_le_bytes(self.log_area_len) + spec_u128_to_le_bytes(self.multilog_id)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -202,7 +206,8 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_REGION_NUM_LOGS as int, RELATIVE_POS_OF_REGION_NUM_LOGS + 4)),
                 which_log: spec_u32_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_WHICH_LOG as int, RELATIVE_POS_OF_REGION_WHICH_LOG + 4)),
-                _padding: 0,
+                _padding: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_PADDING as int, RELATIVE_POS_OF_REGION_PADDING + 8)),
                 region_size: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_REGION_SIZE as int, RELATIVE_POS_OF_REGION_REGION_SIZE + 8)),
                 log_area_len: spec_u64_from_le_bytes(
@@ -220,6 +225,7 @@ verus! {
             assert(forall |s: Self| {
                 let serialized_num_logs = #[trigger] spec_u32_to_le_bytes(s.num_logs);
                 let serialized_which_log = #[trigger] spec_u32_to_le_bytes(s.which_log);
+                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
                 let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
                 let serialized_len = #[trigger] spec_u64_to_le_bytes(s.log_area_len);
                 let serialized_id = #[trigger] spec_u128_to_le_bytes(s.multilog_id);
@@ -232,6 +238,10 @@ verus! {
                         RELATIVE_POS_OF_REGION_WHICH_LOG as int,
                         RELATIVE_POS_OF_REGION_WHICH_LOG + 4
                     ) == serialized_which_log
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_REGION_PADDING as int,
+                        RELATIVE_POS_OF_REGION_PADDING + 8,
+                    ) == serialized_padding
                 &&& serialized_metadata.subrange(
                         RELATIVE_POS_OF_REGION_REGION_SIZE as int,
                         RELATIVE_POS_OF_REGION_REGION_SIZE + 8
@@ -277,7 +287,7 @@ verus! {
     impl Serializable for LogMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
-            spec_u64_to_le_bytes(self.log_length) + spec_u128_to_le_bytes(self.head)
+            spec_u64_to_le_bytes(self.log_length) + spec_u64_to_le_bytes(self._padding) + spec_u128_to_le_bytes(self.head)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -285,7 +295,8 @@ verus! {
             Self {
                 log_length: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_LOG_LENGTH as int, RELATIVE_POS_OF_LOG_LOG_LENGTH + 8)),
-                _padding: 0,
+                _padding: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_LOG_PADDING as int, RELATIVE_POS_OF_LOG_PADDING + 8)),
                 head: spec_u128_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_HEAD as int, RELATIVE_POS_OF_LOG_HEAD + 16)),
             }
@@ -304,12 +315,17 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_log_length = #[trigger] spec_u64_to_le_bytes(s.log_length);
+                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
                 let serialized_head = #[trigger] spec_u128_to_le_bytes(s.head);
                 let serialized_metadata = #[trigger] s.spec_serialize();
                 &&& serialized_metadata.subrange(
                         RELATIVE_POS_OF_LOG_LOG_LENGTH as int,
                         RELATIVE_POS_OF_LOG_LOG_LENGTH + 8,
                     ) == serialized_log_length
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_LOG_PADDING as int,
+                        RELATIVE_POS_OF_LOG_PADDING + 8
+                    ) == serialized_padding
                 &&& serialized_metadata.subrange(
                         RELATIVE_POS_OF_LOG_HEAD as int,
                         RELATIVE_POS_OF_LOG_HEAD + 16
