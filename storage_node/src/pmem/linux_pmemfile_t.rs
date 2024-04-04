@@ -358,7 +358,8 @@ verus! {
                     bytes.as_ptr() as *const c_void,
                     bytes.len()
                 );
-                pmem_flush(addr_on_pm as *mut c_void, bytes.len());
+                // nodrain automatically flushes if necessary
+                // pmem_flush(addr_on_pm as *mut c_void, bytes.len());
             }
 
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
@@ -405,7 +406,8 @@ verus! {
                     s_pointer as *const c_void,
                     num_bytes
                 );
-                pmem_flush(addr_on_pm as *mut c_void, num_bytes);
+                // nodrain automatically flushes if necessary
+                // pmem_flush(addr_on_pm as *mut c_void, num_bytes);
             }
 
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
