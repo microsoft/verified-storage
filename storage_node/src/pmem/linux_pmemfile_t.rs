@@ -358,11 +358,7 @@ verus! {
                     bytes.as_ptr() as *const c_void,
                     bytes.len()
                 );
-                // nodrain automatically flushes if necessary
-                // pmem_flush(addr_on_pm as *mut c_void, bytes.len());
             }
-
-            self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
         #[verifier::external_body]
@@ -388,11 +384,6 @@ verus! {
             // convert the given &S to a pointer, then a slice of bytes
             let s_pointer = to_write as *const S as *const u8;
 
-            // TODO: can we remove this without messing up management of PM view?
-            let bytes = unsafe {
-                std::slice::from_raw_parts(s_pointer, num_bytes)
-            };
-
             // pmem_memcpy_nodrain() does a memcpy to PM with no cache line flushes or
             // ordering; it makes no guarantees about durability. pmem_flush() does cache
             // line flushes but does not use an ordering primitive, so updates are still
@@ -406,11 +397,7 @@ verus! {
                     s_pointer as *const c_void,
                     num_bytes
                 );
-                // nodrain automatically flushes if necessary
-                // pmem_flush(addr_on_pm as *mut c_void, num_bytes);
             }
-
-            self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
         #[verifier::external_body]
