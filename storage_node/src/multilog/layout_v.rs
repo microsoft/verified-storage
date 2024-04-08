@@ -94,7 +94,7 @@ verus! {
     pub const LENGTH_OF_LOG_METADATA: u64 = 32;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 136;
     pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 176;
-    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 184;
+    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 256;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     // This GUID was generated randomly and is meant to describe the
