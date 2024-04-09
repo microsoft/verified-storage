@@ -42,7 +42,7 @@ verus! {
     pub struct VolatileMemoryMockingPersistentMemoryRegionDescriptor
     {
         len: u64,
-        current_timestamp: Ghost<PmTimestamp>,
+        timestamp: Ghost<PmTimestamp>,
         device_id: u128,
     }
 
@@ -52,7 +52,7 @@ verus! {
         {
             RegionDescriptorView {
                 len: self.len,
-                timestamp: self.current_timestamp@,
+                timestamp: self.timestamp@,
                 device_id: self.device_id
             }
         }
@@ -135,7 +135,7 @@ verus! {
             self.inc_cursor(len);
             Ok(VolatileMemoryMockingPersistentMemoryRegionDescriptor {
                 len,
-                current_timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
+                timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
                 device_id: self.device_id()
             })
         }
@@ -169,10 +169,9 @@ verus! {
                 |i| PersistentMemoryByte {
                     state_at_last_flush: 0,
                     outstanding_write: None,
-                    write_timestamp: region_descriptor@.timestamp
                 }
             );
-            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state, device_id, current_timestamp: region_descriptor@.timestamp });
+            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state, device_id, timestamp: region_descriptor@.timestamp });
             Ok(Self { contents, persistent_memory_view, device_id })
         }
 
@@ -191,7 +190,7 @@ verus! {
             // abstract state.
             &&& self.contents@ == self.persistent_memory_view@.flush().committed()
             &&& self.device_id == self@.device_id
-            &&& self@.current_timestamp.device_id() == self.spec_device_id()
+            &&& self@.timestamp.device_id() == self.spec_device_id()
         }
 
         closed spec fn spec_device_id(&self) -> u128
@@ -304,7 +303,7 @@ verus! {
         {
             PersistentMemoryRegionsView {
                 regions: self.pms@.map(|_idx, pm: VolatileMemoryMockingPersistentMemoryRegion| pm@),
-                current_timestamp: self.pms[0]@.current_timestamp,
+                timestamp: self.pms[0]@.timestamp,
                 device_id: self.device_id
             }
         }
@@ -403,7 +402,7 @@ verus! {
                 forall |i| 0 <= i < regions@.len() ==> {
                     let region = #[trigger] regions[i];
                     &&& region.inv()
-                    &&& region@.current_timestamp == regions[0]@.current_timestamp
+                    &&& region@.timestamp == regions[0]@.timestamp
                     &&& region.spec_device_id() == regions[0].spec_device_id()
                 },
             ensures
@@ -411,13 +410,13 @@ verus! {
                 result.inv(),
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
-                    region.current_timestamp == result@[0].current_timestamp
+                    region.timestamp == result@[0].timestamp
                 },
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
                     region.device_id == result@[0].device_id
                 },
-                result@.current_timestamp == regions[0]@.current_timestamp,
+                result@.timestamp == regions[0]@.timestamp,
                 result.spec_device_id() == regions[0].spec_device_id()
         {
             let device_id = regions[0].device_id();

@@ -41,14 +41,14 @@ verus! {
         virt_addr: PmPointer,
         len: u64,
         device_id: u128,
-        current_timestamp: Ghost<PmTimestamp>,
+        timestamp: Ghost<PmTimestamp>,
     }
 
     impl RegionDescriptor for MappedPmDesc {
         closed spec fn view(&self) -> RegionDescriptorView {
             RegionDescriptorView {
                 len: self.len,
-                timestamp: self.current_timestamp@,
+                timestamp: self.timestamp@,
                 device_id: self.device_id
             }
         }
@@ -132,7 +132,7 @@ verus! {
             Ok(MappedPmDesc {
                 virt_addr: new_virt_addr,
                 len,
-                current_timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
+                timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
                 device_id: self.device_id()
             })
         }
@@ -235,7 +235,7 @@ verus! {
             &&& self.mapped_len <= u64::MAX
             &&& self.mapped_len == self@.len()
             &&& self.device_id == self@.device_id
-            &&& self@.current_timestamp.device_id() == self.spec_device_id()
+            &&& self@.timestamp.device_id() == self.spec_device_id()
         }
 
         fn get_region_size(&self) -> u64
@@ -253,14 +253,13 @@ verus! {
                 |i| PersistentMemoryByte {
                     state_at_last_flush: 0,
                     outstanding_write: None,
-                    write_timestamp: region_descriptor@.timestamp
                 }
             );
             let persistent_memory_view = Ghost(
                 PersistentMemoryRegionView {
                     state,
                     device_id: region_descriptor.device_id,
-                    current_timestamp: region_descriptor@.timestamp
+                    timestamp: region_descriptor@.timestamp
                 }
             );
             Ok(Self {
@@ -268,7 +267,7 @@ verus! {
                 mapped_len: region_descriptor.len,
                 device_id: region_descriptor.device_id,
                 persistent_memory_view,
-                timestamp: region_descriptor.current_timestamp
+                timestamp: region_descriptor.timestamp
             })
         }
 
@@ -430,7 +429,7 @@ verus! {
         {
             PersistentMemoryRegionsView {
                 regions: self.pms@.map(|_idx, pm: MappedPM| pm@),
-                current_timestamp: self.pms[0]@.current_timestamp,
+                timestamp: self.pms[0]@.timestamp,
                 device_id: self.device_id
             }
         }
@@ -528,7 +527,7 @@ verus! {
                 forall |i| 0 <= i < regions@.len() ==> {
                     let region = #[trigger] regions[i];
                     &&& region.inv()
-                    &&& region@.current_timestamp == regions[0]@.current_timestamp
+                    &&& region@.timestamp == regions[0]@.timestamp
                     &&& region.spec_device_id() == regions[0].spec_device_id()
                 }
             ensures
@@ -536,13 +535,13 @@ verus! {
                 result.inv(),
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
-                    region.current_timestamp == result@[0].current_timestamp
+                    region.timestamp == result@[0].timestamp
                 },
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
                     region.device_id == result@[0].device_id
                 },
-                result@.current_timestamp == regions[0]@.current_timestamp,
+                result@.timestamp == regions[0]@.timestamp,
                 result.spec_device_id() == regions[0].spec_device_id()
         {
             let device_id = regions[0].device_id();

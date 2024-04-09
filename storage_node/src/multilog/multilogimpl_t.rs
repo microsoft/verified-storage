@@ -213,7 +213,7 @@ verus! {
 
         closed spec fn get_timestamp(&self) -> PmTimestamp
         {
-            self.wrpm_regions@.current_timestamp
+            self.wrpm_regions@.timestamp
         }
 
         open spec fn inv(self) -> bool {
@@ -311,8 +311,8 @@ verus! {
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
                         &&& UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_regions@.current_timestamp.value() == old(pm_regions)@.current_timestamp.value() + 2
-                        &&& pm_regions@.current_timestamp.device_id() == old(pm_regions)@.current_timestamp.device_id()
+                        &&& pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 2
+                        &&& pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
@@ -360,8 +360,8 @@ verus! {
                             Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(flushed_regions.committed(),
                                                                                     multilog_id)
                             })
-                        &&& trusted_log_impl.get_timestamp().value() == pm_regions@.current_timestamp.value() + 1
-                        &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.current_timestamp.device_id()
+                        &&& trusted_log_impl.get_timestamp().value() == pm_regions@.timestamp.value() + 1
+                        &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.timestamp.device_id()
                     },
                     Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
                     _ => false

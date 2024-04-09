@@ -177,8 +177,8 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            pm_regions@.current_timestamp == old(pm_regions)@.current_timestamp,
-            pm_regions@.current_timestamp.device_id() == old(pm_regions)@.current_timestamp.device_id()
+            pm_regions@.timestamp == old(pm_regions)@.timestamp,
+            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
 
         // Initialize level 1 metadata and compute its CRC
@@ -322,8 +322,8 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            pm_regions@.current_timestamp.value() == old(pm_regions)@.current_timestamp.value() + 1,
-            pm_regions@.current_timestamp.device_id() == old(pm_regions)@.current_timestamp.device_id()
+            pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 1,
+            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -349,8 +349,8 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                pm_regions@.current_timestamp == old_pm_regions.current_timestamp,
-                pm_regions@.current_timestamp.device_id() == old_pm_regions.current_timestamp.device_id()
+                pm_regions@.timestamp == old_pm_regions.timestamp,
+                pm_regions@.timestamp.device_id() == old_pm_regions.timestamp.device_id()
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
