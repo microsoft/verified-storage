@@ -10,14 +10,8 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use deps_hack::{
-    nix::{
-        errno::{errno, from_i32},
-        Error,
-    },
-    pmem::pmem_memcpy_nodrain_helper,
-    pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file, pmem_memcpy_nodrain, pmem_unmap,
-    rand::Rng,
-    PMEM_FILE_CREATE,
+    pmem::pmem_memcpy_nodrain_helper, pmem_drain, pmem_errormsg, pmem_flush, pmem_map_file,
+    pmem_memcpy_nodrain, pmem_unmap, rand::Rng, PMEM_FILE_CREATE,
 };
 
 verus! {
