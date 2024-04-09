@@ -11,12 +11,12 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::multilog::setup_v::{
-    check_for_required_space, compute_log_capacities, write_setup_metadata_to_all_regions,
+    check_for_required_space, compute_level3_metadata_encoded, compute_log_capacities,
+    write_setup_metadata_to_all_regions,
 };
 use crate::multilog::start_v::{read_cdb, read_logs_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -95,7 +95,7 @@ verus! {
         {
             &&& wrpm_regions.inv() // whatever the persistent memory regions require as an invariant
             &&& no_outstanding_writes_to_metadata(wrpm_regions@, self.num_logs)
-            &&& memory_matches_deserialized_cdb(wrpm_regions@, self.cdb)
+            &&& memory_matches_cdb(wrpm_regions@, self.cdb)
             &&& each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, self.infos@)
             &&& each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends())
@@ -617,7 +617,7 @@ verus! {
         // after the next flush, since we're going to be doing a flush.
         // This weaker requirement allows a performance optimization: the
         // caller doesn't have to flush before calling this function.
-        exec fn update_log_metadata<PMRegions>(
+        exec fn update_level3_metadata<PMRegions>(
             &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
@@ -629,7 +629,7 @@ verus! {
                 PMRegions: PersistentMemoryRegions
             requires
                 old(wrpm_regions).inv(),
-                memory_matches_deserialized_cdb(old(wrpm_regions)@, old(self).cdb),
+                memory_matches_cdb(old(wrpm_regions)@, old(self).cdb),
                 no_outstanding_writes_to_metadata(old(wrpm_regions)@, old(self).num_logs),
                 each_metadata_consistent_with_info(old(wrpm_regions)@, multilog_id, old(self).num_logs,
                                                    old(self).cdb, prev_infos),
@@ -656,9 +656,9 @@ verus! {
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
-            let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
-                                      else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
-            assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
+            let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_FALSE }
+                                      else { ABSOLUTE_POS_OF_LEVEL3_METADATA_FOR_CDB_TRUE };
+            assert(unused_metadata_pos == get_level3_metadata_pos(!self.cdb));
             assert(is_valid_log_index(0, self.num_logs));
 
             let ghost old_timestamp = wrpm_regions@.timestamp;
@@ -670,8 +670,8 @@ verus! {
                 invariant
                     wrpm_regions.inv(),
                     wrpm_regions.constants() == old(wrpm_regions).constants(),
-                    unused_metadata_pos == get_log_metadata_pos(!self.cdb),
-                    memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
+                    unused_metadata_pos == get_level3_metadata_pos(!self.cdb),
+                    memory_matches_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
                     ({
@@ -693,7 +693,7 @@ verus! {
                         current_log <= which_log && #[trigger] is_valid_log_index(which_log, self.num_logs) ==>
                         wrpm_regions@[which_log as int].no_outstanding_writes_in_range(
                             unused_metadata_pos as int,
-                            unused_metadata_pos + LENGTH_OF_LOG_METADATA + CRC_SIZE),
+                            unused_metadata_pos + LENGTH_OF_LEVEL3_METADATA + CRC_SIZE),
                     forall |which_log: u32|
                         current_log <= which_log && #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
                         let w = which_log as int;
@@ -723,59 +723,40 @@ verus! {
                 // Encode the level-3 metadata as bytes, and compute the CRC of those bytes
 
                 let info = &self.infos[current_log as usize];
-                let log_metadata = LogMetadata {
-                    head: info.head,
-                    _padding: 0,
-                    log_length: info.log_length
-                };
-                let log_crc = calculate_crc(&log_metadata);
+                let mut t = compute_level3_metadata_encoded(info.head, info.log_length);
+                let mut c = bytes_crc(t.as_slice());
+                let ghost level3_metadata_bytes = t@;
+                let ghost level3_crc = c@;
 
-                let ghost log_metadata_bytes = log_metadata.spec_serialize();
-                let ghost log_crc_bytes = log_crc.spec_serialize();
+                // Create a buffer of bytes to write, putting in it
+                // the encoded level-3 metadata and their CRC.
 
-                // Prove that updating the inactive metadata+CRC maintains
-                // all invariants that held before. We prove this separately
-                // for metadata and CRC because they are updated in two separate
-                // writes.
+                let mut bytes_to_write = Vec::<u8>::new();
+                bytes_to_write.append(&mut t);
+                bytes_to_write.append(&mut c);
+                assert(bytes_to_write@ == level3_metadata_bytes + level3_crc) by {
+                    assert(Seq::<u8>::empty() + level3_metadata_bytes =~= level3_metadata_bytes);
+                }
+
+                // Prove that updating the inactive metadata maintains
+                // all invariants that held before.
 
                 proof {
-                    LogMetadata::lemma_auto_serialized_len();
-                    u64::lemma_auto_serialized_len();
-
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
-                        log_metadata_bytes);
-
-                    let wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, log_metadata_bytes);
-                    lemma_updating_inactive_crc_maintains_invariants(
-                        wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
-                        log_crc_bytes);
+                        bytes_to_write@);
                 }
 
                 // Use `lemma_invariants_imply_crash_recover_forall` to prove that it's OK to call
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
 
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, log_metadata_bytes);
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, bytes_to_write@);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
                 }
-
-                // Write the new metadata to the inactive header (without the CRC)
-                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos, &log_metadata, Tracked(perm));
-
-                // Now prove that the CRC is safe to update as well, and write it.
-
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LENGTH_OF_LOG_METADATA, log_crc_bytes);
-                assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
-                           implies #[trigger] perm.check_permission(crash_bytes) by {
-                    lemma_invariants_imply_crash_recover_forall(
-                        wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
-                }
-
-                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
 
                 // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
                 // be reflected in memory.
@@ -783,19 +764,20 @@ verus! {
                 let ghost flushed = wrpm_regions_new.flush();
                 assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
-                    LogMetadata::lemma_auto_serialize_deserialize();
-                    u64::lemma_auto_serialize_deserialize();
-
                     let mem1 = wrpm_regions@[cur].committed();
+                    // let (flushed_mem2, new_timestamp2) = wrpm_regions_new.flush(timestamp@);
+                    // let mem2 = flushed_mem2[cur].committed();
                     let mem2 = flushed[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
-                                                                log_metadata_bytes + log_crc_bytes);
-                    assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
-                    assert(extract_log_crc(mem2, !self.cdb) =~= log_crc_bytes);
-                    assert(deserialize_log_metadata(mem2, !self.cdb) == log_metadata);
-                    assert(deserialize_log_crc(mem2, !self.cdb) == log_crc);
+                                                                level3_metadata_bytes + level3_crc);
+                    assert(extract_level3_metadata(mem2, !self.cdb) =~= level3_metadata_bytes);
+                    assert(extract_level3_crc(mem2, !self.cdb) =~= level3_crc);
                 }
+
+                // Actually perform the write.
+
+                wrpm_regions.write(current_log as usize, unused_metadata_pos, bytes_to_write.as_slice(), Tracked(perm));
             }
 
             // Prove that after the flush we're about to do, all our
@@ -814,19 +796,16 @@ verus! {
 
             // Next, compute the new encoded CDB to write.
 
-            let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
-            let ghost new_cdb_bytes = new_cdb.spec_serialize();
+            let new_cdb = u64_to_le_bytes(if self.cdb { CDB_FALSE } else { CDB_TRUE });
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 
-            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+            let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
             let ghost flushed_mem_after_write = pm_regions_after_write.flush();
-            assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
+            assert(memory_matches_cdb(flushed_mem_after_write, !self.cdb)) by {
+                lemma_auto_spec_u64_to_from_le_bytes();
                 let flushed_regions = pm_regions_after_write.flush();
-                lemma_write_reflected_after_flush_committed(wrpm_regions@[0], ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
-                assert(deserialize_log_cdb(flushed_regions[0].committed()) == new_cdb);
+                assert(extract_level3_cdb(flushed_regions[0].committed()) =~= new_cdb@);
             }
 
             // Show that after writing and flushing, our invariants will
@@ -839,26 +818,10 @@ verus! {
                                                  !self.cdb, self.infos@[w])
                 &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
             } by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
-
-                let w = which_log as int;
                 lemma_establish_extract_bytes_equivalence(
                     wrpm_regions@[which_log as int].committed(),
                     pm_regions_after_flush[which_log as int].committed());
-
-                lemma_each_metadata_consistent_with_info_after_cdb_update(
-                    wrpm_regions@,
-                    pm_regions_after_flush,
-                    multilog_id,
-                    self.num_logs,
-                    new_cdb_bytes,
-                    !self.cdb,
-                    self.infos@
-                );
             }
-            assert(memory_matches_deserialized_cdb(pm_regions_after_flush, !self.cdb));
-            // assert(memory_matches_cdb(pm_regions_after_flush, !self.cdb));
 
             // Show that if we crash after the write and flush, we recover
             // to an abstract state corresponding to `self.state@` after
@@ -895,17 +858,15 @@ verus! {
                        #[trigger] perm.check_permission(crash_bytes) by {
                 lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
                                                             self.cdb, prev_infos, prev_state);
-                u64::lemma_auto_serialized_len();
                 lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
-                                                                   ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+                                                                   ABSOLUTE_POS_OF_LEVEL3_CDB as int, new_cdb@);
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.
             // There's no need to flip `self.cdb` atomically with the write
             // since the flip of `self.cdb` is happening in local
             // non-persistent memory so if we crash it'll be lost anyway.
-            // wrpm_regions.write(0, ABSOLUTE_POS_OF_LOG_CDB, new_cdb.as_slice(), Tracked(perm));
-            wrpm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LOG_CDB, &new_cdb, Tracked(perm));
+            wrpm_regions.write(0, ABSOLUTE_POS_OF_LEVEL3_CDB, new_cdb.as_slice(), Tracked(perm));
             wrpm_regions.flush();
             self.cdb = !self.cdb;
         }
@@ -964,7 +925,7 @@ verus! {
                     iter.end == self.num_logs, // we need to remember this since `self` is changed in the loop body
                     wrpm_regions.inv(),
 
-                    memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
+                    memory_matches_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
                     self.infos@.len() == self.state@.num_logs() == self.num_logs,
@@ -1003,7 +964,7 @@ verus! {
             // Update the inactive metadata on all regions and flush, then
             // swap the CDB to its opposite.
 
-            self.update_log_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos),
+            self.update_level3_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos),
                                         Ghost(prev_state), Tracked(perm));
 
             Ok(())
@@ -1216,7 +1177,7 @@ verus! {
             // flips which metadata is active on *all* regions. So we have
             // to update the inactive metadata on all regions.
 
-            self.update_log_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos), Ghost(prev_state),
+            self.update_level3_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos), Ghost(prev_state),
                                         Tracked(perm));
 
             Ok(())

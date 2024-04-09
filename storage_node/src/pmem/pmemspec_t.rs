@@ -33,15 +33,25 @@
 //! as showing evidence of an absence of corruption.
 
 use crate::pmem::device_t::*;
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
+use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
 use deps_hack::crc64fast::Digest;
 
 verus! {
+
+    #[derive(Debug)]
+    pub enum PmemError {
+        InvalidFileName,
+        CannotOpenPmFile,
+        NotPm,
+        PmdkError,
+    }
 
     /// This is our model of bit corruption. It models corruption of a
     /// read byte sequence as a sequence of corruptions happening to
@@ -161,16 +171,14 @@ verus! {
     pub struct PersistentMemoryByte {
         pub state_at_last_flush: u8,
         pub outstanding_write: Option<u8>,
-        pub write_timestamp: PmTimestamp,
     }
 
     impl PersistentMemoryByte {
-        pub open spec fn write(self, byte: u8, write_timestamp: PmTimestamp) -> Self
+        pub open spec fn write(self, byte: u8) -> Self
         {
             Self {
                 state_at_last_flush: self.state_at_last_flush,
                 outstanding_write: Some(byte),
-                write_timestamp,
             }
         }
 
@@ -187,19 +195,6 @@ verus! {
             Self {
                 state_at_last_flush: self.flush_byte(),
                 outstanding_write: None,
-                write_timestamp: self.write_timestamp
-            }
-        }
-
-        // If we are passed a timestamp that is greater than the write timestamp,
-        // then the device has been flushed since the write, and we can update the byte
-        // accordingly
-        pub open spec fn update_byte_with_timestamp(self, timestamp: PmTimestamp) -> Self
-        {
-            if timestamp.gt(self.write_timestamp) {
-                self.flush()
-            } else {
-                self
             }
         }
     }
@@ -213,7 +208,7 @@ verus! {
     {
         pub state: Seq<PersistentMemoryByte>,
         pub device_id: u128,
-        pub current_timestamp: PmTimestamp
+        pub timestamp: PmTimestamp
     }
 
     impl PersistentMemoryRegionView
@@ -227,10 +222,10 @@ verus! {
         {
             Self {
                 state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte|
-                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr], self.current_timestamp) }
+                                         if addr <= pos < addr + bytes.len() { pre_byte.write(bytes[pos - addr]) }
                                          else { pre_byte }),
                 device_id: self.device_id,
-                current_timestamp: self.current_timestamp
+                timestamp: self.timestamp
             }
         }
 
@@ -239,17 +234,28 @@ verus! {
             Self {
                 state: self.state.map(|_addr, b: PersistentMemoryByte| b.flush()),
                 device_id: self.device_id,
-                current_timestamp: self.current_timestamp.inc_timestamp()
+                timestamp: self.timestamp.inc_timestamp()
             }
         }
 
+        // If the provided timestamp is greater than the current one and has the same device ID,
+        // then a flush has been performed on this device but not yet reflected in this region.
+        // Flush the ghost state of each byte and update the region's timestamp to record the
+        // fact that it has now observed this flush.
+        // It doesn't actually matter if there are any outstanding writes in this region, since
+        // this operation does not perform a runtime flush.
         pub open spec fn update_region_with_timestamp(self, timestamp: PmTimestamp) -> Self
         {
-            Self {
-                state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte| pre_byte.update_byte_with_timestamp(timestamp)),
-                device_id: self.device_id,
-                current_timestamp: timestamp
+            if timestamp.gt(self.timestamp) && timestamp.device_id() == self.device_id {
+                Self {
+                    state: self.state.map(|pos: int, pre_byte: PersistentMemoryByte| pre_byte.flush()),
+                    device_id: self.device_id,
+                    timestamp
+                }
+            } else {
+                self
             }
+
         }
 
         pub open spec fn equal_except_for_timestamps(self, rhs: PersistentMemoryRegionView) -> bool
@@ -321,7 +327,7 @@ verus! {
     #[verifier::ext_equal]
     pub struct PersistentMemoryRegionsView {
         pub regions: Seq<PersistentMemoryRegionView>,
-        pub current_timestamp: PmTimestamp,
+        pub timestamp: PmTimestamp,
         pub device_id: u128,
     }
 
@@ -350,9 +356,11 @@ verus! {
 
         pub open spec fn all_timestamps_match(self) -> bool
         {
-            forall |i: int| #![auto] 0 <= i < self.len() ==> self.regions[i].current_timestamp == self.current_timestamp
+            forall |i: int| #![auto] 0 <= i < self.len() ==> self.regions[i].timestamp == self.timestamp
         }
 
+        // We do not update region timestamps during `write` because the timestamp represents
+        // the most recent flush observed by each region, and writing does not invoke a flush.
         pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self
         {
             Self {
@@ -363,7 +371,7 @@ verus! {
                         pre_view
                     }
                 ),
-                current_timestamp: self.current_timestamp,
+                timestamp: self.timestamp,
                 device_id: self.device_id
             }
         }
@@ -374,21 +382,19 @@ verus! {
             Self {
                 regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.flush()),
                 device_id: self.device_id,
-                current_timestamp: self.current_timestamp.inc_timestamp(),
+                timestamp: self.timestamp.inc_timestamp(),
             }
         }
 
-        /// Updates any bytes in the PersistentMemoryRegionsView that have a write timestamp
-        /// that is lower than the given timestamp, as the presence of the greater timestamp
-        /// indicates that a global store fence has been invoked since we wrote those bytes.
-        /// If the given timestamp does not correspond to this region view, then the view
-        /// does not change.
+        /// Updates any regions in the view that have a timestamp lower than the given one, as this
+        /// indicates that a global store fence has been invoked but not not observed by these
+        /// regions.
         pub open spec fn update_regions_with_timestamp(self, timestamp: PmTimestamp) -> Self
         {
             if self.device_id() == timestamp.device_id() {
                 Self {
                     regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.update_region_with_timestamp(timestamp)),
-                    current_timestamp: timestamp,
+                    timestamp: timestamp,
                     device_id: self.device_id
                 }
             } else {
@@ -427,6 +433,8 @@ verus! {
 
     pub trait PersistentMemoryRegion : Sized
     {
+        type RegionDesc : RegionDescriptor;
+
         spec fn view(&self) -> PersistentMemoryRegionView;
 
         spec fn inv(&self) -> bool;
@@ -440,16 +448,17 @@ verus! {
                 result == self.spec_device_id(),
                 result == self@.device_id;
 
-        fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, PmemError>)
             ensures
                 match result {
                     Ok(pm) => {
-                        &&& pm@.len() == region_size
+                        &&& pm@.len() == region_descriptor@.len
                         &&& pm.inv()
                         &&& pm@.no_outstanding_writes()
-                        &&& pm.spec_device_id() == timestamp@.device_id()
+                        &&& pm.spec_device_id() == region_descriptor@.device_id
+                        &&& pm@.timestamp == region_descriptor@.timestamp
                     },
-                    Err(_) => true
+                    Err(_) => false
                 };
 
         fn get_region_size(&self) -> (result: u64)
@@ -465,6 +474,20 @@ verus! {
             ensures
                 bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
 
+        fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
+            where
+                S: Serializable + Sized
+            requires
+                self.inv(),
+                addr + S::spec_serialized_len() <= self@.len()
+            ensures
+            ({
+                let true_val = S::spec_deserialize(
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                output == true_val
+            })
+        ;
+
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
@@ -474,8 +497,23 @@ verus! {
                 self.inv(),
                 self@ == self@.write(addr as int, bytes@),
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
-                            r.current_timestamp == self@.current_timestamp
+                            r.timestamp == self@.timestamp
                 ;
+
+
+        fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                addr + S::spec_serialized_len() <= old(self)@.len(),
+            ensures
+                ({
+                    let written = old(self)@.write(addr as int, to_write.spec_serialize());
+                    &&& written == self@
+                })
+        ;
+
 
         fn flush(&mut self)
             requires
@@ -484,15 +522,15 @@ verus! {
                 self.inv(),
                 self@ == old(self)@.flush(),
                 self@.device_id == old(self)@.device_id,
-                self@.current_timestamp.value() == old(self)@.current_timestamp.value() + 1,
-                self@.current_timestamp.device_id() == old(self)@.current_timestamp.device_id()
+                self@.timestamp.value() == old(self)@.timestamp.value() + 1,
+                self@.timestamp.device_id() == old(self)@.timestamp.device_id()
                 ;
 
         fn update_region_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                new_timestamp@.gt(old(self)@.current_timestamp),
-                old(self)@.current_timestamp.device_id() == new_timestamp@.device_id(),
+                new_timestamp@.gt(old(self)@.timestamp),
+                old(self)@.timestamp.device_id() == new_timestamp@.device_id(),
             ensures
                 self.inv(),
                 self@ == old(self)@.update_region_with_timestamp(new_timestamp@);
@@ -519,11 +557,11 @@ verus! {
         fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                new_timestamp@.gt(old(self)@.current_timestamp),
-                new_timestamp@.device_id() == old(self)@.current_timestamp.device_id()
+                new_timestamp@.gt(old(self)@.timestamp),
+                new_timestamp@.device_id() == old(self)@.timestamp.device_id()
             ensures
                 self.inv(),
-                self@.current_timestamp == new_timestamp,
+                self@.timestamp == new_timestamp,
                 self@.equal_except_for_timestamps(old(self)@),
                 forall |s| old(self)@.can_crash_as(s) <==> self@.can_crash_as(s);
 
@@ -563,6 +601,31 @@ verus! {
                     }
                 });
 
+        // TODO: should we be able to read more than one S with a single read call?
+        // Note that addr is a regular offset in terms of bytes, but the result is of type S
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (output: &S)
+            where
+                S: Serializable + Sized
+            requires
+                self.inv(),
+                index < self@.len(),
+                addr + S::spec_serialized_len() <= self@[index as int].len(),
+                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                // TODO: should require that we have previously written an S to this address
+            ensures
+            ({
+                let true_val = S::spec_deserialize(
+                    self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                if self.constants().impervious_to_corruption {
+                    output == true_val
+                } else {
+                    &&& maybe_corrupted_serialized(*output, true_val, addr as int)
+                }
+            })
+        ;
+
+        // TODO: remove and fully replace with serialize_and_write
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
@@ -570,14 +633,37 @@ verus! {
                 addr + bytes@.len() <= old(self)@[index as int].len(),
                 // Writes aren't allowed where there are already outstanding writes.
                 old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-                // old(self)@.device_id() == timestamp@.device_id()
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 ({
                     let written = old(self)@.write(index as int, addr as int, bytes@);
                     &&& self@ == written
-                    &&& self@.current_timestamp == old(self)@.current_timestamp
+                    &&& self@.timestamp == old(self)@.timestamp
+                });
+
+        // TODO: should this take a &[S] or just S?
+        // We should probably only be able to write an S to this address if we can be sure
+        // that we are not partially overwriting another structure? since a subsequent
+        // read would make that structure invalid.
+        // how to represent that though? need to map addresses to types in spec code...
+        // or something similar...
+        // Note that addr is a regular offset in terms of bytes, but to_write is type S
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                index < old(self)@.len(),
+                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                ({
+                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                    &&& self@ == written
+                    &&& self@.timestamp == old(self)@.timestamp
                 });
 
 
@@ -592,9 +678,9 @@ verus! {
                     &&& self@ == flushed
                     &&& self@.device_id == old(self)@.device_id
                     &&& self@.all_timestamps_match() // TODO: maybe invariant?
-                    &&& self@.current_timestamp.device_id() == old(self)@.current_timestamp.device_id()
+                    &&& self@.timestamp.device_id() == old(self)@.timestamp.device_id()
                 }),
-                self@.current_timestamp.value() == old(self)@.current_timestamp.value() + 1
+                self@.timestamp.value() == old(self)@.timestamp.value() + 1
             ;
     }
 
@@ -696,10 +782,38 @@ verus! {
                     let written = old(self)@.write(index as int, addr as int, bytes@);
                     &&& self@ == written
                 }),
-                self@.current_timestamp == old(self)@.current_timestamp
+                self@.timestamp == old(self)@.timestamp
 
         {
             self.pm_regions.write(index, addr, bytes)
+        }
+
+        #[allow(unused_variables)]
+        pub exec fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S, perm: Tracked<&Perm>)
+            where
+                S: Serializable + Sized
+            requires
+                old(self).inv(),
+                index < old(self)@.len(),
+                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                ({
+                    // The key thing the caller must prove is that all crash states are authorized by `perm`
+                    &&& forall |s| {
+                            let pm_state = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                            pm_state.can_crash_as(s)
+                        } ==> #[trigger] perm@.check_permission(s)
+                }),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@.timestamp == old(self)@.timestamp,
+                ({
+                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
+                    self@ == written
+                })
+        {
+            self.pm_regions.serialize_and_write(index, addr, to_write);
         }
 
         // Even though the memory is write-restricted, no restrictions are
@@ -717,8 +831,8 @@ verus! {
                     &&& self@ == flushed
                 }),
                 self.constants() == old(self).constants(),
-                self@.current_timestamp.value() == old(self)@.current_timestamp.value() + 1,
-                self@.current_timestamp.device_id() == old(self)@.current_timestamp.device_id()
+                self@.timestamp.value() == old(self)@.timestamp.value() + 1,
+                self@.timestamp.device_id() == old(self)@.timestamp.device_id()
         {
             self.pm_regions.flush()
         }
@@ -726,11 +840,11 @@ verus! {
         pub fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),
-                new_timestamp@.gt(old(self)@.current_timestamp),
-                new_timestamp@.device_id() == old(self)@.current_timestamp.device_id()
+                new_timestamp@.gt(old(self)@.timestamp),
+                new_timestamp@.device_id() == old(self)@.timestamp.device_id()
             ensures
                 self.inv(),
-                self@.current_timestamp == new_timestamp@,
+                self@.timestamp == new_timestamp@,
                 self@.equal_except_for_timestamps(old(self)@),
                 forall |s| old(self)@.can_crash_as(s) <==> self@.can_crash_as(s)
         {

@@ -57,7 +57,7 @@ verus! {
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            memory_matches_deserialized_cdb(pm_regions_view, cdb),
+            memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             ({
@@ -94,7 +94,7 @@ verus! {
                 &&& each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, new_infos)
                 // The write doesn't conflict with any outstanding writes
                 &&& pm_regions_view.no_outstanding_writes_in_range(which_log as int, write_addr, write_addr + num_bytes)
-                &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
+                &&& memory_matches_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, new_infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, new_infos, new_state)
                 &&& new_state.drop_pending_appends() == prev_state.drop_pending_appends()
@@ -138,7 +138,7 @@ verus! {
         // extracted byte sequences that match between the old and new
         // region #0, where the CDB is stored.
 
-        assert (memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
+        assert (memory_matches_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs));
             lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
         }
@@ -206,7 +206,7 @@ verus! {
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            memory_matches_deserialized_cdb(pm_regions_view, cdb),
+            memory_matches_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             ({
@@ -254,7 +254,7 @@ verus! {
                        ABSOLUTE_POS_OF_LOG_AREA + bytes_to_append_part2.len())
                 &&& each_metadata_consistent_with_info(pm_regions_view3, multilog_id, num_logs, cdb, new_infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view3, num_logs, new_infos, new_state)
-                &&& memory_matches_deserialized_cdb(pm_regions_view3, cdb)
+                &&& memory_matches_cdb(pm_regions_view3, cdb)
                 &&& new_state.drop_pending_appends() == prev_state.drop_pending_appends()
                 // After initiating the first write, any crash and recovery will enter the abstract
                 // state `prev_state.drop_pending_appends()`, so as long as that state is permitted

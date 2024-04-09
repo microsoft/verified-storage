@@ -9,8 +9,9 @@
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
+    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
+use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -25,6 +26,7 @@ verus! {
     // represent or store any bytes or physical space.
     pub struct VolatileMemoryMockingPersistentMemoryDevice {
         capacity: u64,
+        cursor: u64,
         id: u128,
     }
 
@@ -36,19 +38,55 @@ verus! {
         deps_hack::rand::thread_rng().gen::<u128>()
     }
 
+    #[allow(dead_code)]
+    pub struct VolatileMemoryMockingPersistentMemoryRegionDescriptor
+    {
+        len: u64,
+        timestamp: Ghost<PmTimestamp>,
+        device_id: u128,
+    }
+
+    impl RegionDescriptor for VolatileMemoryMockingPersistentMemoryRegionDescriptor
+    {
+        closed spec fn view(&self) -> RegionDescriptorView
+        {
+            RegionDescriptorView {
+                len: self.len,
+                timestamp: self.timestamp@,
+                device_id: self.device_id
+            }
+        }
+
+        fn device_id(&self) -> u128
+        {
+            self.device_id
+        }
+
+        fn len(&self) -> u64
+        {
+            self.len
+        }
+    }
+
     impl VolatileMemoryMockingPersistentMemoryDevice {
         pub fn new(capacity: u64) -> (result: Self)
+            requires
+                capacity > 0,
             ensures
-                result.len() == capacity
+                result.len() == capacity,
+                result.spec_get_cursor() == Some(0u64),
         {
             Self {
                 capacity,
+                cursor: 0,
                 id: generate_fresh_device_id()
             }
         }
     }
 
-    impl PmDevice<VolatileMemoryMockingPersistentMemoryRegion> for VolatileMemoryMockingPersistentMemoryDevice {
+    impl PmDevice for VolatileMemoryMockingPersistentMemoryDevice {
+        type RegionDesc = VolatileMemoryMockingPersistentMemoryRegionDescriptor;
+
         closed spec fn len(&self) -> u64 {
             self.capacity
         }
@@ -57,32 +95,49 @@ verus! {
             self.capacity
         }
 
-        /// Returns a vector of `VolatileMemoryMockingPersistentMemoryRegion`s based on the given vector of sizes.
-        /// The caller can later combine these into `VolatileMemoryMockingPersistentMemoryRegions` in whatever
-        /// configuration they want.
-        fn get_regions(self, regions: Vec<u64>) -> Result<(Vec<VolatileMemoryMockingPersistentMemoryRegion>), ()> {
-            let mut pm_regions: Vec<VolatileMemoryMockingPersistentMemoryRegion> = Vec::new();
-            let timestamp: Ghost<PmTimestamp> = Ghost(PmTimestamp::new(self.id as int));
+        closed spec fn spec_device_id(&self) -> u128
+        {
+            self.id
+        }
 
-            // This is easier to prove with a while loop than a for loop -- it's hard to establish a relationship
-            // between `idx` and the length of pm_regions in a for loop
-            let mut idx = 0;
-            while idx < regions.len()
-                invariant
-                    0 <= idx <= regions@.len(),
-                    pm_regions@.len() == idx,
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j].spec_device_id() == timestamp@.device_id(),
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.len() == regions[j]@,
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j].inv(),
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.current_timestamp == timestamp@,
-                    forall |j| #![auto] 0 <= j < idx ==> pm_regions[j]@.device_id == self.id,
-            {
-                let mock_regions = VolatileMemoryMockingPersistentMemoryRegion::new(regions[idx], self.id, timestamp)?;
-                pm_regions.push(mock_regions);
-                idx += 1;
+        fn device_id(&self) -> u128
+        {
+            self.id
+        }
+
+        closed spec fn spec_get_cursor(&self) -> Option<u64>
+        {
+            if self.cursor >= self.capacity {
+                None
+            } else {
+                Some(self.cursor)
             }
+        }
 
-            Ok(pm_regions)
+        fn get_cursor(&self) -> Option<u64>
+        {
+            if self.cursor >= self.capacity {
+                None
+            } else {
+                Some(self.cursor)
+            }
+        }
+
+        fn inc_cursor(&mut self, len: u64)
+        {
+            self.cursor = self.cursor + len;
+        }
+
+        fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
+        {
+            // the precondition requires that the device has enough space for the
+            // region, so we don't have to check on that
+            self.inc_cursor(len);
+            Ok(VolatileMemoryMockingPersistentMemoryRegionDescriptor {
+                len,
+                timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
+                device_id: self.device_id()
+            })
         }
     }
 
@@ -99,30 +154,24 @@ verus! {
         device_id: u128,
     }
 
-    impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion {
+    impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion
+    {
+        type RegionDesc = VolatileMemoryMockingPersistentMemoryRegionDescriptor;
+
         #[verifier::external_body]
-        fn new(region_size: u64, device_id: u128, timestamp: Ghost<PmTimestamp>) -> (result: Result<Self, ()>)
-            ensures
-                match result {
-                    Ok(pm) => {
-                        &&& pm@.len() == region_size
-                        &&& pm.inv()
-                        &&& pm@.no_outstanding_writes()
-                        &&& pm@.current_timestamp == timestamp@
-                        &&& pm@.device_id == device_id
-                    },
-                    Err(_) => true
-                }
+        fn new(region_descriptor: Self::RegionDesc) -> (result: Result<Self, PmemError>)
         {
+            let region_size = region_descriptor.len();
+            let device_id = region_descriptor.device_id();
             let contents: Vec<u8> = vec![0; region_size as usize];
-            let ghost state: Seq<PersistentMemoryByte> =
-                Seq::<PersistentMemoryByte>::new(region_size as nat,
-                                                 |i| PersistentMemoryByte {
-                                                     state_at_last_flush: 0,
-                                                     outstanding_write: None,
-                                                     write_timestamp: timestamp@,
-                                                 });
-            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state, device_id, current_timestamp: timestamp@ });
+            let ghost state: Seq<PersistentMemoryByte> = Seq::new(
+                region_size as nat,
+                |i| PersistentMemoryByte {
+                    state_at_last_flush: 0,
+                    outstanding_write: None,
+                }
+            );
+            let persistent_memory_view = Ghost(PersistentMemoryRegionView { state, device_id, timestamp: region_descriptor@.timestamp });
             Ok(Self { contents, persistent_memory_view, device_id })
         }
 
@@ -141,7 +190,7 @@ verus! {
             // abstract state.
             &&& self.contents@ == self.persistent_memory_view@.flush().committed()
             &&& self.device_id == self@.device_id
-            &&& self@.current_timestamp.device_id() == self.spec_device_id()
+            &&& self@.timestamp.device_id() == self.spec_device_id()
         }
 
         closed spec fn spec_device_id(&self) -> u128
@@ -168,10 +217,50 @@ verus! {
         }
 
         #[verifier::external_body]
+        fn read_and_deserialize<S>(&self, addr: u64) -> &S
+            where
+                S: Serializable + Sized
+        {
+            let addr_usize: usize = addr.try_into().unwrap();
+            let num_bytes: usize = S::serialized_len().try_into().unwrap();
+            let bytes = &self.contents[addr_usize..addr_usize+num_bytes];
+            // SAFETY: The precondition of the method ensures that we do not
+            // attempt to read out of bounds. The user of the mock is responsible
+            // for ensuring that there is a valid S at this address and checking
+            // for corruption. The function signature should (TODO: make sure)
+            // borrow check the returned value properly.
+            unsafe {
+                let bytes_pointer = bytes.as_ptr();
+                let s_pointer = bytes_pointer as *const S;
+                &(*s_pointer)
+            }
+        }
+
+        #[verifier::external_body]
         fn write(&mut self, addr: u64, bytes: &[u8])
         {
             let addr_usize: usize = addr.try_into().unwrap();
             self.contents.splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
+            self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
+        }
+
+        #[verifier::external_body]
+        fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
+            where
+                S: Serializable + Sized
+        {
+            let addr_usize: usize = addr.try_into().unwrap();
+            let num_bytes: usize = S::serialized_len().try_into().unwrap();
+            let s_pointer = to_write as *const S;
+            let bytes_pointer = s_pointer as *const u8;
+            // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
+            // bytes because it was obtained by casting a regular Rust object reference
+            // to a raw pointer. The borrow checker will ensure that `to_write` is not modified
+            // by someone else during this function.
+            let bytes = unsafe {
+                std::slice::from_raw_parts(bytes_pointer, num_bytes)
+            };
+            self.contents.splice(addr_usize..addr_usize+num_bytes, bytes.iter().cloned());
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
         }
 
@@ -180,7 +269,6 @@ verus! {
             // Because of our invariant, we don't have to do anything
             // to the actual contents. We just have to update the
             // abstract view to reflect the flush having happened.
-            let old_pm_view = self.persistent_memory_view;
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
             proof {
                 lemma_auto_timestamp_helpers();
@@ -188,6 +276,7 @@ verus! {
             assert (self.contents@ =~= self.persistent_memory_view@.flush().committed());
         }
 
+        #[allow(unused_variables)]
         fn update_region_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
         {
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.update_region_with_timestamp(new_timestamp@));
@@ -214,7 +303,7 @@ verus! {
         {
             PersistentMemoryRegionsView {
                 regions: self.pms@.map(|_idx, pm: VolatileMemoryMockingPersistentMemoryRegion| pm@),
-                current_timestamp: self.pms[0]@.current_timestamp,
+                timestamp: self.pms[0]@.timestamp,
                 device_id: self.device_id
             }
         }
@@ -270,10 +359,25 @@ verus! {
             self.pms[index].read(addr, num_bytes)
         }
 
+        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
+            where
+                S: Serializable + Sized
+        {
+            self.pms[index].read_and_deserialize(addr)
+        }
+
         #[verifier::external_body]
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
         {
             self.pms[index].write(addr, bytes)
+        }
+
+        #[verifier::external_body]
+        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
+            where
+                S: Serializable + Sized
+        {
+            self.pms[index].serialize_and_write(addr, to_write);
         }
 
         #[verifier::external_body]
@@ -298,7 +402,7 @@ verus! {
                 forall |i| 0 <= i < regions@.len() ==> {
                     let region = #[trigger] regions[i];
                     &&& region.inv()
-                    &&& region@.current_timestamp == regions[0]@.current_timestamp
+                    &&& region@.timestamp == regions[0]@.timestamp
                     &&& region.spec_device_id() == regions[0].spec_device_id()
                 },
             ensures
@@ -306,13 +410,13 @@ verus! {
                 result.inv(),
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
-                    region.current_timestamp == result@[0].current_timestamp
+                    region.timestamp == result@[0].timestamp
                 },
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
                     region.device_id == result@[0].device_id
                 },
-                result@.current_timestamp == regions[0]@.current_timestamp,
+                result@.timestamp == regions[0]@.timestamp,
                 result.spec_device_id() == regions[0].spec_device_id()
         {
             let device_id = regions[0].device_id();

@@ -1,12 +1,14 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
 pub mod kv;
 pub mod multilog;
 pub mod pmem;
 
+use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
 use crate::pmem::device_t::*;
@@ -15,9 +17,45 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::timestamp_t::*;
 
+mod tests {
+    use super::*;
+    /// This test ensures that the hardcoded constant size of each metadata structure
+    /// matches the actual size at runtime. This helps ensure that the serde specification
+    /// for each structure is correct.
+    // #[verifier::external_body]
+    #[test]
+    fn check_layout() {
+        let global_metadata_size =
+            core::mem::size_of::<crate::multilog::layout_v::GlobalMetadata>();
+        let region_metadata_size =
+            core::mem::size_of::<crate::multilog::layout_v::RegionMetadata>();
+        let log_metadata_size = core::mem::size_of::<crate::multilog::layout_v::LogMetadata>();
+
+        println!("global metadata struct size: {:?}\n", global_metadata_size);
+        println!("region metadata struct size: {:?}\n", region_metadata_size);
+        println!("log metadata struct size: {:?}\n", log_metadata_size);
+
+        assert!(global_metadata_size == LENGTH_OF_GLOBAL_METADATA.try_into().unwrap());
+        assert!(region_metadata_size == LENGTH_OF_REGION_METADATA.try_into().unwrap());
+        assert!(log_metadata_size == LENGTH_OF_LOG_METADATA.try_into().unwrap());
+    }
+
+    // #[verifier::external_body]
+    // #[test]
+    // fn check_multilog_with_timestamps() {
+    //     assert(test_multilog_with_timestamps());
+    // }
+}
+
 verus! {
+    #[allow(dead_code)]
     fn main() {}
 
+
+    // this function is defined outside of the test module so that we can both
+    // run verification on it and call it in a test to ensure that all operations
+    // succeed
+    #[allow(dead_code, unused_variables, unused_mut)]
     fn test_multilog_with_timestamps() -> bool {
         // TODO: ideally we wouldn't invoke this from trusted code, but we need it to prove the relationships
         // between different timestamps from the same region
@@ -26,82 +64,58 @@ verus! {
         // set up vectors to mock persistent memory
         let device_capacity = 1024;
         let log_capacity = 256;
-        let mut device_regions = Vec::new();
-        device_regions.push(log_capacity); device_regions.push(log_capacity);
-        device_regions.push(log_capacity); device_regions.push(log_capacity);
-        let ghost old_device_regions = device_regions@;
-
         // obtain a device abstraction with enough space for the requested regions
-        let device = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
+        let mut device = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
 
-        // Required to pass the precondition for get_regions -- we need to unroll the
-        // recursive spec fn `fold_left` enough times to calculate the sum of
-        // all of the PM regions.
-        proof { reveal_with_fuel(Seq::fold_left, 5); }
-        let result = device.get_regions(device_regions);
+        // multilog1 regions
+        let region1_desc = device.get_new_region(log_capacity).unwrap();
+        let region2_desc = device.get_new_region(log_capacity).unwrap();
+        let region1 = VolatileMemoryMockingPersistentMemoryRegion::new(region1_desc).unwrap();
+        let region2 = VolatileMemoryMockingPersistentMemoryRegion::new(region2_desc).unwrap();
 
-        let mut regions = match result {
-            Ok(regions) => regions,
-            Err(()) => return false
-        };
 
-        let mut multilog1_regions = Vec::new();
-        let mut multilog2_regions = Vec::new();
-        multilog1_regions.push(regions.pop().unwrap());
-        multilog1_regions.push(regions.pop().unwrap());
-        multilog2_regions.push(regions.pop().unwrap());
-        multilog2_regions.push(regions.pop().unwrap());
+        // multilog2 regions
+        let region3_desc = device.get_new_region(log_capacity).unwrap();
+        let region4_desc = device.get_new_region(log_capacity).unwrap();
+        let region3 = VolatileMemoryMockingPersistentMemoryRegion::new(region3_desc).unwrap();
+        let region4 = VolatileMemoryMockingPersistentMemoryRegion::new(region4_desc).unwrap();
+
+        let mut log1_vec = Vec::new();
+        log1_vec.push(region1); log1_vec.push(region2);
+        let mut log2_vec = Vec::new();
+        log2_vec.push(region3); log2_vec.push(region4);
 
         // combine individual regions into groups so we can use them to set up multilogs
-        let mut multilog1_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog1_regions);
-        let mut multilog2_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog2_regions);
+        let mut multilog1_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(log1_vec);
+        let mut multilog2_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(log2_vec);
 
         let result = MultiLogImpl::setup(&mut multilog1_regions);
-        let (log1_capacities, multilog_id1) = match result {
+        let (_log1_capacities, multilog_id1) = match result {
             Ok((log1_capacities, multilog_id)) => (log1_capacities, multilog_id),
             Err(_) => return false
         };
 
         let result = MultiLogImpl::setup(&mut multilog2_regions);
-        let (log2_capacities, multilog_id2) = match result {
+        let (_log2_capacities, multilog_id2) = match result {
             Ok((log2_capacities, multilog_id)) => (log2_capacities, multilog_id),
             Err(_) => return false
         };
 
-        // set up vectors for a second PM device (which we are pretending is separate in terms of
-        // flush/fence effects from the first device)
-        let mut device2_regions = Vec::new();
-        device2_regions.push(log_capacity); device2_regions.push(log_capacity);
-        device2_regions.push(log_capacity); device2_regions.push(log_capacity);
+        // set up a second device
+        let mut device2 = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
+        let region5_desc = device2.get_new_region(log_capacity).unwrap();
+        let region6_desc = device2.get_new_region(log_capacity).unwrap();
+        let region5 = VolatileMemoryMockingPersistentMemoryRegion::new(region5_desc).unwrap();
+        let region6 = VolatileMemoryMockingPersistentMemoryRegion::new(region6_desc).unwrap();
 
-        let device2 = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
-        let result = device2.get_regions(device2_regions);
+        let mut log3_vec = Vec::new();
+        log3_vec.push(region5); log3_vec.push(region6);
 
-        let mut regions = match result {
-            Ok(regions) => regions,
-            Err(()) => return false
-        };
-
-        let mut multilog3_regions = Vec::new();
-        let mut multilog4_regions = Vec::new();
-        multilog3_regions.push(regions.pop().unwrap());
-        multilog3_regions.push(regions.pop().unwrap());
-        multilog4_regions.push(regions.pop().unwrap());
-        multilog4_regions.push(regions.pop().unwrap());
-
-        let mut multilog3_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog3_regions);
-        let mut multilog4_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(multilog4_regions);
+        let mut multilog3_regions = VolatileMemoryMockingPersistentMemoryRegions::combine_regions(log3_vec);
 
         let result = MultiLogImpl::setup(&mut multilog3_regions);
-        let (log3_capacities, multilog_id3) = match result {
+        let (_log3_capacities, multilog_id3) = match result {
             Ok((log3_capacities, multilog_id)) => (log3_capacities, multilog_id),
-            Err(_) => return false
-        };
-
-
-        let result = MultiLogImpl::setup(&mut multilog4_regions);
-        let (log4_capacities, multilog_id4) = match result {
-            Ok((log4_capacities, multilog_id)) => (log4_capacities, multilog_id),
             Err(_) => return false
         };
 
@@ -120,12 +134,6 @@ verus! {
 
         let result = MultiLogImpl::start(multilog3_regions, multilog_id3);
         let mut multilog3 = match result {
-            Ok(multilog) => multilog,
-            Err(_) => return false
-        };
-
-        let result = MultiLogImpl::start(multilog4_regions, multilog_id4);
-        let multilog4 = match result {
             Ok(multilog) => multilog,
             Err(_) => return false
         };
