@@ -23,35 +23,34 @@ use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
 
 use std::hash::Hash;
 
 verus! {
 
-pub struct UntrustedKvStoreImpl<PM, K, I, L, D, V, E>
+pub struct UntrustedKvStoreImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-    I: Serializable + Item<K> + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + std::fmt::Debug,
+    P: Serializable<E> + LogicalRange + std::fmt::Debug,
+    D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
     id: u128,
     durable_store: D,
     volatile_index: V,
-    _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>,
+    _phantom: Ghost<core::marker::PhantomData<(PM, K, H, P, E)>>,
 }
 
-impl<PM, K, I, L, D, V, E> UntrustedKvStoreImpl<PM, K, I, L, D, V, E>
+impl<PM, K, H, P, D, V, E> UntrustedKvStoreImpl<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
+    P: Serializable<E> + LogicalRange + std::fmt::Debug,
+    D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -59,12 +58,12 @@ where
     // This function specifies how all durable contents of the KV
     // should be viewed upon recovery as an abstract paged KV state.
     // TODO: write this
-    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, H, P>>
     {
         None
     }
 
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, H, P>
     {
         AbstractKvStoreState {
             id: self.id,
@@ -77,30 +76,30 @@ where
                             match self.durable_store@[index_entry.metadata_offset] {
                                 Some(entry) => (
                                     // pages seq only includes the entries themselves, not their physical offsets
-                                    entry.item(), entry.page_entries()
+                                    entry.header(), entry.page_entries()
                                 ),
                                 None => {
                                     // This case is unreachable, because we only include indexes that exist,
-                                    // but we have to return something, so pick a random entry and return its item.
-                                    // NOTE: could return I::default() if we add Default as a trait bound on H.
-                                    let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, I, L>| e.key() == k;
-                                    ( arbitrary_entry.item(), Seq::empty() )
+                                    // but we have to return something, so pick a random entry and return its header.
+                                    // NOTE: could return H::default() if we add Default as a trait bound on H.
+                                    let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, H, P>| e.key() == k;
+                                    ( arbitrary_entry.header(), Seq::empty() )
                                 }
                             }
                         }
                         None => {
                             // This case is unreachable, because we only include indexes that exist,
-                            // but we have to return something, so pick a random entry and return its item.
-                            // NOTE: could return I::default() if we add Default as a trait bound on H.
-                            let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, I, L>| e.key() == k;
-                            ( arbitrary_entry.item(), Seq::empty() )}
+                            // but we have to return something, so pick a random entry and return its header.
+                            // NOTE: could return H::default() if we add Default as a trait bound on H.
+                            let arbitrary_entry = choose |e: DurableKvStoreViewEntry<K, H, P>| e.key() == k;
+                            ( arbitrary_entry.header(), Seq::empty() )}
                     }
                 }
             )
         }
     }
 
-    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, I, L>) -> bool
+    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, H, P>) -> bool
     {
         let kv_state = self@;
         ||| kv_state.empty() && durable_store_state.empty()
@@ -112,7 +111,7 @@ where
                             let key = durable_entry.key();
                             match kv_state[key] {
                                 Some(kv_entry) => {
-                                    &&& kv_entry.0 == durable_entry.item()
+                                    &&& kv_entry.0 == durable_entry.header()
                                     &&& kv_entry.1 == durable_entry.page_entries()
                                 }
                                 None => false
@@ -159,10 +158,10 @@ where
     // components results in the creation of the same key/header entry in
     // the abstract KV store.
     proof fn lemma_create_in_durable_and_volatile_implies_create_in_kv_view(
-        old_kv: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
-        new_kv: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
+        old_kv: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
+        new_kv: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
         k: K,
-        h: I,
+        h: H,
         offset: int,
     )
         requires
@@ -191,18 +190,18 @@ where
         // match new_kv.durable_store@[offset] {
         //     Some(durable_entry) => {
         //         assert(durable_entry.key() == k);
-        //         assert(durable_entry.item() == h);
+        //         assert(durable_entry.header() == h);
         //         assert(durable_entry.page_entries() == Seq::<P>::empty());
 
         //         // the new key in the new kv has the right associated value
         //         match new_kv@[k] {
-        //             Some((item, pages)) => {
-        //                 assert(header == durable_entry.item());
-        //                 assert(item.spec_key() == durable_entry.key());
+        //             Some((header, pages)) => {
+        //                 assert(header == durable_entry.header());
+        //                 assert(header.spec_key() == durable_entry.key());
         //                 assert(durable_entry.page_entries() == pages);
 
         //                 assert(header == h);
-        //                 assert(item.spec_key() == k);
+        //                 assert(header.spec_key() == k);
         //                 assert(pages == Seq::<P>::empty());
         //             }
         //             None => assert(false)
@@ -224,9 +223,8 @@ where
         pmem: PM,
         kvstore_id: u128,
         max_keys: usize,
-        list_node_size: usize,
-        // lower_bound_on_max_pages: usize,
-        // logical_range_gaps_policy: LogicalRangeGapsPolicy,
+        lower_bound_on_max_pages: usize,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy,
     ) -> (result: Result<Self, KvError<K, E>>)
         ensures
             match result {
@@ -236,7 +234,7 @@ where
                 Err(_) => true
             }
     {
-        let durable_store = D::new(pmem, kvstore_id, max_keys, list_node_size)?;//, lower_bound_on_max_pages, logical_range_gaps_policy)?;
+        let durable_store = D::new(pmem, kvstore_id, max_keys, lower_bound_on_max_pages, logical_range_gaps_policy)?;
         let volatile_index = V::new(kvstore_id, max_keys)?;
         let kv = Self {
             id: kvstore_id,
@@ -254,17 +252,17 @@ where
     pub fn untrusted_create(
         &mut self,
         key: &K,
-        item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
-            key == item.spec_key(),
+            key == header.spec_key(),
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.create(*key, item)
+                    &&& self@ == old(self)@.create(*key, header)
                 }
                 Err(_) => true // TODO
             }
@@ -273,28 +271,28 @@ where
 
         // `header` stores its own key, so we don't have to pass its key to the durable
         // store separately.
-        let offset = self.durable_store.create(item, perm)?;
+        let offset = self.durable_store.create(header, perm)?;
         self.volatile_index.insert(key, offset)?;
         proof {
-            Self::lemma_create_in_durable_and_volatile_implies_create_in_kv_view(old_kv, *self, *key, item, offset as int);
+            Self::lemma_create_in_durable_and_volatile_implies_create_in_kv_view(old_kv, *self, *key, header, offset as int);
             assert(self.durable_store_contents_match_kv_state(self.durable_store@));
             assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
         }
         Ok(())
     }
 
-    pub fn untrusted_read_item(&self, key: &K) -> (result: Option<&I>)
+    pub fn untrusted_read_header(&self, key: &K) -> (result: Option<&H>)
         requires
             self.valid()
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some(output_item), Some((spec_item, pages))) => {
-                    &&& spec_item == output_item
+                (Some(output_header), Some((spec_header, pages))) => {
+                    &&& spec_header == output_header
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
@@ -305,25 +303,25 @@ where
         // First, get the offset of the header in the durable store using the volatile index
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.read_item(offset),
+            Some(offset) => self.durable_store.read_header(offset),
             None => None
         }
     }
 
-    // TODO: return a Vec<&L> to save space/reduce copies
-    pub fn untrusted_read_item_and_list(&self, key: &K) -> (result: Option<(&I, &Vec<L>)>)
+    // TODO: return a Vec<&P> to save space/reduce copies
+    pub fn untrusted_read_header_and_pages(&self, key: &K) -> (result: Option<(&H, &Vec<P>)>)
         requires
             self.valid(),
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some((output_item, output_pages)), Some((spec_item, spec_pages))) => {
-                    &&& spec_item == output_item
+                (Some((output_header, output_pages)), Some((spec_header, spec_pages))) => {
+                    &&& spec_header == output_header
                     &&& spec_pages == output_pages@
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
@@ -333,23 +331,23 @@ where
         // First, get the offset of the header in the durable store using the volatile index
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.read_item_and_list(offset),
+            Some(offset) => self.durable_store.read_header_and_pages(offset),
             None => None
         }
     }
 
-    pub fn untrusted_read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
+    pub fn untrusted_read_pages(&self, key: &K) -> (result: Option<&Vec<P>>)
         requires
             self.valid(),
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some( output_pages), Some((spec_item, spec_pages))) => {
+                (Some( output_pages), Some((spec_header, spec_pages))) => {
                     &&& spec_pages == output_pages@
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
@@ -358,16 +356,16 @@ where
         assume(false);
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.read_list(offset),
+            Some(offset) => self.durable_store.read_pages(offset),
             None => None
         }
     }
 
-    pub fn untrusted_update_list(
+    pub fn untrusted_update_header(
         &mut self,
         key: &K,
-        new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
@@ -375,7 +373,7 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    self@ == old(self)@.update_list(*key, new_item)
+                    self@ == old(self)@.update_header(*key, new_header)
                 }
                 Err(KvError::KeyNotFound) => {
                     self@[*key].is_None()
@@ -386,7 +384,7 @@ where
         assume(false);
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.update_list(offset, new_item),
+            Some(offset) => self.durable_store.update_header(offset, new_header),
             None => Err(KvError::KeyNotFound)
         }
     }
@@ -394,7 +392,7 @@ where
     pub fn untrusted_delete(
         &mut self,
         key: &K,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -413,11 +411,62 @@ where
         self.durable_store.delete(offset, perm)
     }
 
-    pub fn untrusted_append_to_list(
+    pub fn untrusted_find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, KvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            match result {
+                Ok(page_idx) => {
+                    let spec_page = self@.find_page_with_logical_range_start(*key, start as int);
+                    // page_idx is an Option<usize> and spec_page is an Option<int>, so we can't directly
+                    // compare them and need to use a match statement here.
+                    match (page_idx, spec_page) {
+                        (Some(page_idx), Some(spec_idx)) => {
+                            &&& page_idx == spec_idx
+                        }
+                        (None, None) => true,
+                        _ => true // TODO
+                    }
+                }
+                Err(_) => true // TODO
+            }
+    {
+        // TODO: discuss how this will be implemented.
+        // 1. will we search in PM or in memory?
+        // 2. will the PM-resident entries be sorted?
+        Err(KvError::NotImplemented)
+    }
+
+    pub fn untrusted_find_pages_in_logical_range(
+        &self,
+        key: &K,
+        start: usize,
+        end: usize
+    ) -> (result: Result<Vec<&P>, KvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            true
+            // TODO: this match statement breaks something in Verus
+            // match result {
+            //     Ok(output_pages) =>  {
+            //         let spec_pages = self@.find_pages_in_logical_range(*key, start as int, end as int);
+            //         let spec_pages_ref = Seq::new(spec_pages.len(), |i| { &spec_pages[i] });
+            //         output_pages@ == spec_pages_ref
+            //     }
+            //     Err(_) => true // TODO
+            // }
+    {
+        // TODO: like find_page_with_logical_range_start, implementation depends on what
+        // we want to do in volatile vs. durable components
+        Err(KvError::NotImplemented)
+    }
+
+    pub fn untrusted_append_page(
         &mut self,
         key: &K,
-        new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_index: P,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -425,7 +474,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry)
+                    &&& self@ == old(self)@.append_page(*key, new_index)
                 }
                 Err(_) => true // TODO
             }
@@ -434,19 +483,19 @@ where
         let offset = self.volatile_index.get(key);
         // append a page to the list rooted at this offset
         let page_offset = match offset {
-            Some(offset) => self.durable_store.append(offset, new_list_entry, perm)?,
+            Some(offset) => self.durable_store.append(offset, new_index, perm)?,
             None => return Err(KvError::KeyNotFound)
         };
         // add the durable location of the page to the in-memory list
         self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
-    pub fn untrusted_append_to_list_and_update_list(
+    pub fn untrusted_append_page_and_update_header(
         &mut self,
         key: &K,
-        new_list_entry: L,
-        new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_index: P,
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -454,7 +503,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_list(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_page_and_update_header(*key, new_index, new_header)
                 }
                 Err(_) => true // TODO
             }
@@ -463,19 +512,19 @@ where
         let offset = self.volatile_index.get(key);
         // update the header at this offset append a page to the list rooted there
         let page_offset = match offset {
-            Some(offset) => self.durable_store.update_list_and_append(offset, new_list_entry, new_item, perm)?,
+            Some(offset) => self.durable_store.update_header_and_append(offset, new_index, new_header, perm)?,
             None => return Err(KvError::KeyNotFound)
         };
          // add the durable location of the page to the in-memory list
          self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
-    pub fn untrusted_update_list_at_index(
+    pub fn untrusted_update_page(
         &mut self,
         key: &K,
         idx: usize,
-        new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_index: P,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -483,7 +532,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_page(*key, idx, new_index)
                 }
                 Err(_) => true // TODO
             }
@@ -492,20 +541,20 @@ where
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_at_index(header_offset, entry_offset, new_list_entry, perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_page(header_offset, entry_offset, new_index, perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
         }
     }
 
-    pub fn untrusted_update_list_at_index_and_item(
+    pub fn untrusted_update_page_and_header(
         &mut self,
         key: &K,
         idx: usize,
-        new_list_entry: L,
-        new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_index: P,
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -513,7 +562,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_page_and_header(*key, idx, new_index, new_header)
                 }
                 Err(_) => true // TODO
             }
@@ -522,7 +571,7 @@ where
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_page_and_header(header_offset, entry_offset, new_header, new_index,  perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
@@ -533,7 +582,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -561,12 +610,12 @@ where
         }
     }
 
-    pub fn untrusted_trim_pages_and_update_list(
+    pub fn untrusted_trim_pages_and_update_header(
         &mut self,
         key: &K,
         trim_length: usize,
-        new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        new_header: H,
+        perm: Tracked<&TrustedKvPermission<PM, K, H, P, D, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -574,7 +623,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_list(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_header(*key, trim_length as int, new_header)
                 }
                 Err(_) => true // TODO
             }
@@ -583,7 +632,7 @@ where
         let header_offset = self.volatile_index.get(key);
         let new_list_head_offset = self.volatile_index.trim_list(key, trim_length);
         match (header_offset, new_list_head_offset) {
-            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list_and_update_list(header_offset, new_list_head_offset, trim_length, new_item, perm),
+            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list_and_update_header(header_offset, new_list_head_offset, trim_length, new_header, perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases

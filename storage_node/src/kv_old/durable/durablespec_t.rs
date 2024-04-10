@@ -1,6 +1,6 @@
 //! A `DurableKvStore` represents the durable components of a `KvStore`. It is generic
 //! to allow for different PM abstractions, persistent layouts, etc.
-//! It should refine an array where each element optionally contains a key, a item,
+//! It should refine an array where each element optionally contains a key, a header,
 //! and a list of pages. This structure encompasses all of the durable KV entries,
 //! so we aren't distinguishing between separate physical memory regions. I think
 //! we want to stay at a higher level of abstraction here to make it easier to jump
@@ -19,59 +19,60 @@ use std::hash::Hash;
 // TODO: is it safe for the fields of the structs in this file to be pub?
 
 verus! {
-    pub struct DurableKvStoreViewEntry<K, I, L>
+    pub struct DurableKvStoreViewEntry<K, H, P>
     where
         K: Hash + Eq,
-        // P: LogicalRange,
+        P: LogicalRange,
     {
         pub key: K,
-        pub item: I,
-        pub pages: Seq<(int, L)>, // (physical location, entry at that location)
+        pub header: H,
+        pub pages: Seq<(int, P)>, // (physical location, entry at that location)
     }
 
     // TODO: remove since the fields are public
-    impl<K, I, L> DurableKvStoreViewEntry<K, I, L>
+    impl<K, H, P> DurableKvStoreViewEntry<K, H, P>
     where
         K: Hash + Eq,
+        P: LogicalRange
     {
         pub open spec fn key(self) -> K
         {
             self.key
         }
 
-        pub open spec fn item(self) -> I
+        pub open spec fn header(self) -> H
         {
-            self.item
+            self.header
         }
 
-        pub open spec fn pages(self) -> Seq<(int, L)>
+        pub open spec fn pages(self) -> Seq<(int, P)>
         {
             self.pages
         }
 
         // returns a sequence of entries without their physical locations
-        pub open spec fn page_entries(self) -> Seq<L>
+        pub open spec fn page_entries(self) -> Seq<P>
         {
             Seq::new(self.pages.len(), |i| self.pages[i].1)
         }
     }
 
-    pub struct DurableKvStoreView<K, I, L>
+    pub struct DurableKvStoreView<K, H, P>
     where
         K: Hash + Eq,
-        I: Item<K>,
-        // P: LogicalRange,
+        H: Header<K>,
+        P: LogicalRange,
     {
-        pub contents: Seq<Option<DurableKvStoreViewEntry<K, I, L>>>
+        pub contents: Seq<Option<DurableKvStoreViewEntry<K, H, P>>>
     }
 
-    impl<K, I, L> DurableKvStoreView<K, I, L>
+    impl<K, H, P> DurableKvStoreView<K, H, P>
     where
         K: Hash + Eq,
-        I: Item<K>,
-        // P: LogicalRange,
+        H: Header<K>,
+        P: LogicalRange,
     {
-        pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, I, L>>
+        pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, H, P>>
         {
             self.contents[idx]
         }
@@ -87,15 +88,15 @@ verus! {
             self.contents.len()
         }
 
-        pub open spec fn create(self, offset: int, item: I) -> Self
+        pub open spec fn create(self, offset: int, header: H) -> Self
         {
             Self {
                 contents: self.contents.update(
                     offset,
                     Some(DurableKvStoreViewEntry {
-                        key: item.spec_key(),
-                        item,
-                        pages: Seq::<(int, L)>::empty()
+                        key: header.spec_key(),
+                        header,
+                        pages: Seq::<(int, P)>::empty()
                     })
                 )
             }

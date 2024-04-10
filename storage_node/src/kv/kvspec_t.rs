@@ -14,32 +14,33 @@ use crate::kv::kvimpl_t::*;
 use crate::kv::kvimpl_v::*;
 use crate::kv::volatile::volatileimpl_v::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
 
     // Since the durable part of the PagedKV is a list of PM regions,
     // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
-    pub struct TrustedKvPermission<PM, K, H, P, D, E>
+    pub struct TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + Header<K> + std::fmt::Debug,
-            P: Serializable<E> + LogicalRange + std::fmt::Debug,
-            D: DurableKvStore<PM, K, H, P, E>,
+            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
+            I: Serializable + Item<K> + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug,
+            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
-        _phantom:  Ghost<core::marker::PhantomData<(PM, K, H, P, D, E)>>
+        _phantom:  Ghost<core::marker::PhantomData<(PM, K, I, L, D, E)>>
     }
 
-    impl<PM, K, H, P, D, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, H, P, D, E>
+    impl<PM, K, I, L, D, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + Header<K> + std::fmt::Debug,
-            P: Serializable<E> + LogicalRange + std::fmt::Debug,
-            D: DurableKvStore<PM, K, H, P, E>,
+            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
+            I: Serializable + Item<K> + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug,
+            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
@@ -48,13 +49,13 @@ verus! {
         }
     }
 
-    impl<PM, K, H, P, D, E> TrustedKvPermission<PM, K, H, P, D, E>
+    impl<PM, K, I, L, D, E> TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable<E> + std::fmt::Debug,
-            H: Serializable<E> + Header<K> + std::fmt::Debug,
-            P: Serializable<E> + LogicalRange + std::fmt::Debug,
-            D: DurableKvStore<PM, K, H, P, E>,
+            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
+            I: Serializable + Item<K> + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug,
+            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures
@@ -63,7 +64,7 @@ verus! {
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given
         // abstract state `state`.
-        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, H, P>) -> (tracked perm: Self)
+        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, I, L>) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
                     D::recover_to_kv_state(s, kv_id) == Some(state)
@@ -81,8 +82,8 @@ verus! {
         // `state2`.
         pub proof fn new_two_possibilities(
             kv_id: u128,
-            state1: AbstractKvStoreState<K, H, P>,
-            state2: AbstractKvStoreState<K, H, P>
+            state1: AbstractKvStoreState<K, I, L>,
+            state2: AbstractKvStoreState<K, I, L>
         ) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
@@ -105,26 +106,22 @@ verus! {
     /// an entire `KvStoreStore`.
     /// TODO: Should this be generic over the key/header/page
     /// types used in the kv store, or over their views?
-    ///
-    /// TODO: what does this annotation mean? Required to verify but not sure why
     #[verifier::reject_recursive_types(K)]
-    pub struct AbstractKvStoreState<K, H, P>
+    pub struct AbstractKvStoreState<K, I, L>
     where
         K: Hash + Eq,
-        H: Header<K>,
-        P: LogicalRange,
+        I: Item<K>,
     {
         pub id: u128,
-        pub contents: Map<K, (H, Seq<P>)>
+        pub contents: Map<K, (I, Seq<L>)>
     }
 
-    impl<K, H, P> AbstractKvStoreState<K, H, P>
+    impl<K, I, L> AbstractKvStoreState<K, I, L>
     where
         K: Hash + Eq,
-        H: Header<K>,
-        P: LogicalRange,
+        I: Item<K>,
     {
-        pub open spec fn spec_index(self, key: K) -> Option<(H, Seq<P>)>
+        pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
         {
             if self.get_keys().contains(key) {
                 Some(self.contents[key])
@@ -138,15 +135,15 @@ verus! {
             self.contents.is_empty()
         }
 
-        pub open spec fn create(self, key: K, header: H) -> Self
+        pub open spec fn create(self, key: K, item: I) -> Self
         {
             Self {
                 id: self.id,
-                contents: self.contents.insert(key, (header, Seq::empty()))
+                contents: self.contents.insert(key, (item, Seq::empty()))
             }
         }
 
-        pub open spec fn read_header_and_pages(self, key: K) -> Option<(H, Seq<P>)>
+        pub open spec fn read_item_and_list(self, key: K) -> Option<(I, Seq<L>)>
         {
             if self.contents.contains_key(key) {
                 Some(self.contents[key])
@@ -155,14 +152,14 @@ verus! {
             }
         }
 
-        pub open spec fn update_header(self, key: K, new_header: H) -> Self
+        pub open spec fn update_list(self, key: K, new_item: I) -> Self
         {
-            let val = self.read_header_and_pages(key);
+            let val = self.read_item_and_list(key);
             match val {
-                Some((old_header, pages)) => {
+                Some((old_item, pages)) => {
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_header, pages))
+                        contents: self.contents.insert(key, (new_item, pages))
                     }
                 }
                 None => {
@@ -179,114 +176,57 @@ verus! {
             }
         }
 
-        pub open spec fn get_page_idx_with_start(pages: Seq<P>, start: int) -> Option<int>
-            decreases pages.len()
-        {
-            if pages.len() <= 0 {
-                None
-            } else if pages[0].spec_start() == start {
-                Some(0)
-            } else {
-                let result = Self::get_page_idx_with_start(pages.subrange(1, pages.len() as int), start);
-                match result {
-                    Some(val) => Some(1 + val),
-                    None => None,
-                }
-            }
-        }
-
-        pub open spec fn get_page_idx_with_end(pages: Seq<P>, end: int) -> Option<int>
-            decreases pages.len()
-        {
-            if pages.len() <= 0 {
-                None
-            } else if pages[0].spec_end() == end {
-                Some(0)
-            } else {
-                let result = Self::get_page_idx_with_end(pages.subrange(1, pages.len() as int), end);
-                match result {
-                    Some(val) => Some(1 + val),
-                    None => None,
-                }
-            }
-        }
-
-        pub open spec fn find_page_with_logical_range_start(self, key: K, start: int) -> Option<int>
-        {
-            let val = self.read_header_and_pages(key);
-            match val {
-                Some((header, pages)) => Self::get_page_idx_with_start(pages, start),
-                None => None
-            }
-        }
-
-        pub open spec fn find_pages_in_logical_range(self, key: K, start: int, end: int) -> Seq<P>
-        {
-            let val = self.read_header_and_pages(key);
-            match val {
-                Some((header, pages)) => {
-                    let start_idx = Self::get_page_idx_with_start(pages, start);
-                    let end_idx = Self::get_page_idx_with_end(pages, end);
-                    match (start_idx, end_idx) {
-                        (Some(start_idx), Some(end_idx)) => pages.subrange(start_idx, end_idx),
-                        _ => Seq::empty()
-                    }
-                }
-                None => Seq::empty()
-            }
-        }
-
-        pub open spec fn append_page(self, key: K, new_page: P) -> Self {
-            let result = self.read_header_and_pages(key);
+        pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Self {
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
+                Some((item, pages)) => {
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (header, pages.push(new_page)))
+                        contents: self.contents.insert(key, (item, pages.push(new_list_entry)))
                     }
                 }
                 None => self
             }
         }
 
-        pub open spec fn append_page_and_update_header(self, key: K, new_page: P, new_header: H) -> Self
+        pub open spec fn append_to_list_and_update_list(self, key: K, new_list_entry: L, new_item: I) -> Self
         {
-            let result = self.read_header_and_pages(key);
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
+                Some((item, pages)) => {
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_header, pages.push(new_page)))
+                        contents: self.contents.insert(key, (new_item, pages.push(new_list_entry)))
                     }
                 }
                 None => self
             }
         }
 
-        pub open spec fn update_page(self, key: K, idx: usize, new_page: P) -> Self
+        pub open spec fn update_list_at_index(self, key: K, idx: usize, new_list_entry: L) -> Self
         {
-            let result = self.read_header_and_pages(key);
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
-                    let pages = pages.update(idx as int, new_page);
+                Some((item, pages)) => {
+                    let pages = pages.update(idx as int, new_list_entry);
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (header, pages))
+                        contents: self.contents.insert(key, (item, pages))
                     }
                 }
                 None => self
             }
         }
 
-        pub open spec fn update_page_and_header(self, key: K, idx: usize, new_page: P, new_header: H) -> Self
+        pub open spec fn update_list_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I) -> Self
         {
-            let result = self.read_header_and_pages(key);
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
-                    let pages = pages.update(idx as int, new_page);
+                Some((item, pages)) => {
+                    let pages = pages.update(idx as int, new_list_entry);
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_header, pages))
+                        contents: self.contents.insert(key, (new_item, pages))
                     }
                 }
                 None => self
@@ -295,28 +235,28 @@ verus! {
 
         pub open spec fn trim_pages(self, key: K, trim_length: int) -> Self
         {
-            let result = self.read_header_and_pages(key);
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
+                Some((item, pages)) => {
                     let pages = pages.subrange(trim_length, pages.len() as int);
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (header, pages))
+                        contents: self.contents.insert(key, (item, pages))
                     }
                 }
                 None => self
             }
         }
 
-        pub open spec fn trim_pages_and_update_header(self, key: K, trim_length: int, new_header: H) -> Self
+        pub open spec fn trim_pages_and_update_list(self, key: K, trim_length: int, new_item: I) -> Self
         {
-            let result = self.read_header_and_pages(key);
+            let result = self.read_item_and_list(key);
             match result {
-                Some((header, pages)) => {
+                Some((item, pages)) => {
                     let pages = pages.subrange(trim_length, pages.len() as int);
                     Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_header, pages))
+                        contents: self.contents.insert(key, (new_item, pages))
                     }
                 }
                 None => self

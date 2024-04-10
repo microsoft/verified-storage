@@ -30,10 +30,39 @@ use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
+
+// The page type must satisfy the `LogicalRange` trait, giving it a
+// logical range with a `start` and `end`.
+pub trait LogicalRange {
+    spec fn spec_start(&self) -> int;
+    spec fn spec_end(&self) -> int;
+
+    fn start(&self) -> (out: usize)
+        ensures
+            out == self.spec_start();
+
+    fn end(&self) -> (out: usize)
+        ensures
+            out == self.spec_end();
+}
+
+// Keys, headers, and pages must satisfy the `Serializable` trait so
+// that they can be serialized to persistent memory. In particular, it
+// must specify a constant maximum size `MAX_BYTES` for such
+// serialization.
+// NOTE: eventually this will be replaced with a more complete Serializable
+// trait that is being written in a different branch. This is just a placeholder
+// for that trait right now.
+pub trait Serializable<E>: Sized {
+    // const MAX_BYTES: usize;
+    fn max_bytes(&self) -> usize; // TODO: verus does not support associated constants
+
+    fn serialize(&self, buffer: &mut [u8]) -> Result<(), E>;
+    fn deserialize(buffer: &[u8]) -> Result<Self, E>;
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum KvError<K, E>
@@ -53,9 +82,21 @@ where
     InvalidPersistentMemoryRegionProvided, // TODO: reason
     SerializationError { error: E },
     DeserializationError { error: E },
+    LogicalRangeHasBeenTrimmed,
+    LogicalRangeHasBeenPartiallyTrimmed,
+    LogicalRangePartiallyBeyondEOF,
+    LogicalRangeBeyondEOF,
+    PageOutOfLogicalRangeOrder,
+    PageLeavesLogicalRangeGap,
+    LogicalRangeUpdateNotAllowed,
 }
 
-pub trait Item<K> : Sized {
+pub enum LogicalRangeGapsPolicy {
+    LogicalRangeGapsForbidden,
+    LogicalRangeGapsPermitted,
+}
+
+pub trait Header<K> : Sized {
     spec fn spec_key(self) -> K;
 
     fn key(&self) -> (out: K)
@@ -66,18 +107,18 @@ pub trait Item<K> : Sized {
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
-pub struct KvStore<PM, K, I, L, D, V, E>
+pub struct KvStore<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
+    P: Serializable<E> + LogicalRange + std::fmt::Debug,
+    D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, H, P, D, V, E>,
 }
 
 // TODO: is there a better way to handle PhantomData?
@@ -86,17 +127,17 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-impl<PM, K, I, L, D, V, E> KvStore<PM, K, I, L, D, V, E>
+impl<PM, K, H, P, D, V, E> KvStore<PM, K, H, P, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
+    H: Serializable<E> + Header<K> + Sized + std::fmt::Debug,
+    P: Serializable<E> + LogicalRange + std::fmt::Debug,
+    D: DurableKvStore<PM, K, H, P, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, H, P>
     {
         self.untrusted_kv_impl@
     }
@@ -108,13 +149,12 @@ where
 
     /// The `KvStore` constructor calls the constructors for the durable and
     /// volatile components of the key-value store.
-    /// `list_node_size` is the number of list entries in each node (not the number
-    /// of bytes used by each node)
     fn new(
         pmem: PM,
         kvstore_id: u128,
         max_keys: usize,
-        list_node_size: usize
+        lower_bound_on_max_pages: usize,
+        logical_range_gaps_policy: LogicalRangeGapsPolicy,
     ) -> (result: Result<Self, KvError<K, E>>)
         requires
             pmem.inv(),
@@ -133,7 +173,8 @@ where
                     pmem,
                     kvstore_id,
                     max_keys,
-                    list_node_size
+                    lower_bound_on_max_pages,
+                    logical_range_gaps_policy
                 )?
             }
         )
@@ -145,7 +186,7 @@ where
         ensures
             match result {
                 Ok(restored_kv) => {
-                    let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, D, V, E>::recover(pmem@.committed(), kvstore_id);
+                    let restored_state = UntrustedKvStoreImpl::<PM, K, H, P, D, V, E>::recover(pmem@.committed(), kvstore_id);
                     match restored_state {
                         Some(restored_state) => restored_kv@ == restored_state,
                         None => false
@@ -157,98 +198,98 @@ where
         Err(KvError::NotImplemented)
     }
 
-    fn create(&mut self, key: &K, item: I) -> (result: Result<(), KvError<K, E>>)
+    fn create(&mut self, key: &K, header: H) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
-            key == item.spec_key(),
+            key == header.spec_key(),
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.create(*key, item)
+                    &&& self@ == old(self)@.create(*key, header)
                 }
                 Err(_) => true
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item));
-        self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, header));
+        self.untrusted_kv_impl.untrusted_create(key, header, Tracked(&perm))
     }
 
-    fn read_item(&self, key: &K) -> (result: Option<&I>)
+    fn read_header(&self, key: &K) -> (result: Option<&H>)
         requires
             self.valid()
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some(output_item), Some((spec_item, pages))) => {
-                    &&& spec_item == output_item
+                (Some(output_header), Some((spec_header, pages))) => {
+                    &&& spec_header == output_header
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
         })
     {
-        self.untrusted_kv_impl.untrusted_read_item(key)
+        self.untrusted_kv_impl.untrusted_read_header(key)
     }
 
-    fn read_item_and_list(&self, key: &K) -> (result: Option<(&I, &Vec<L>)>)
+    fn read_header_and_pages(&self, key: &K) -> (result: Option<(&H, &Vec<P>)>)
         requires
             self.valid(),
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some((output_item, output_pages)), Some((spec_item, spec_pages))) => {
-                    &&& spec_item == output_item
+                (Some((output_header, output_pages)), Some((spec_header, spec_pages))) => {
+                    &&& spec_header == output_header
                     &&& spec_pages == output_pages@
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
         })
     {
-        self.untrusted_kv_impl.untrusted_read_item_and_list(key)
+        self.untrusted_kv_impl.untrusted_read_header_and_pages(key)
     }
 
-    fn read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
+    fn read_pages(&self, key: &K) -> (result: Option<&Vec<P>>)
         requires
             self.valid(),
         ensures
         ({
-            let spec_result = self@.read_item_and_list(*key);
+            let spec_result = self@.read_header_and_pages(*key);
             match (result, spec_result) {
-                (Some( output_pages), Some((spec_item, spec_pages))) => {
+                (Some( output_pages), Some((spec_header, spec_pages))) => {
                     &&& spec_pages == output_pages@
                 }
                 _ => {
-                    let spec_result = self@.read_item_and_list(*key);
+                    let spec_result = self@.read_header_and_pages(*key);
                     spec_result.is_None()
                 }
             }
         })
     {
-        self.untrusted_kv_impl.untrusted_read_list(key)
+        self.untrusted_kv_impl.untrusted_read_pages(key)
     }
 
-    fn update_list(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K, E>>)
+    fn update_header(&mut self, key: &K, new_header: H) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list(*key, new_item)
+                    &&& self@ == old(self)@.update_header(*key, new_header)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list(*key, new_item));
-        self.untrusted_kv_impl.untrusted_update_list(key, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_header(*key, new_header));
+        self.untrusted_kv_impl.untrusted_update_header(key, new_header, Tracked(&perm))
     }
 
     fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K, E>>)
@@ -267,11 +308,57 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
     }
 
+    fn find_page_with_logical_range_start(&self, key: &K, start: usize) -> (result: Result<Option<usize>, KvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            match result {
+                Ok(page_idx) => {
+                    let spec_page = self@.find_page_with_logical_range_start(*key, start as int);
+                    // page_idx is an Option<usize> and spec_page is an Option<int>, so we can't directly
+                    // compare them and need to use a match statement here.
+                    match (page_idx, spec_page) {
+                        (Some(page_idx), Some(spec_idx)) => {
+                            &&& page_idx == spec_idx
+                        }
+                        (None, None) => true,
+                        _ => true // TODO
+                    }
+                }
+                Err(_) => true // TODO
+            }
+    {
+        self.untrusted_kv_impl.untrusted_find_page_with_logical_range_start(key, start)
+    }
+
+    fn find_pages_in_logical_range(
+        &self,
+        key: &K,
+        start: usize,
+        end: usize
+    ) -> (result: Result<Vec<&P>, KvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            true
+            // TODO: this match statement breaks something in verus
+            // match result {
+            //     Ok(output_pages) =>  {
+            //         let spec_pages = self@.find_pages_in_logical_range(*key, start as int, end as int);
+            //         let spec_pages_ref = Seq::new(spec_pages.len(), |i| { &spec_pages[i] });
+            //         output_pages@ == spec_pages_ref
+            //     }
+            //     Err(_) => true // TODO
+            // }
+    {
+        self.untrusted_kv_impl.untrusted_find_pages_in_logical_range(key, start, end)
+    }
+
     // TODO: remove?
-    fn append_to_list(
+    fn append_page(
         &mut self,
         key: &K,
-        new_list_entry: L
+        new_index: P
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -279,20 +366,20 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry)
+                    &&& self@ == old(self)@.append_page(*key, new_index)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list(*key, new_list_entry));
-        self.untrusted_kv_impl.untrusted_append_to_list(key, new_list_entry, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_page(*key, new_index));
+        self.untrusted_kv_impl.untrusted_append_page(key,  new_index, Tracked(&perm))
     }
 
-    fn append_to_list_and_update_item(
+    fn append_page_and_update_header(
         &mut self,
         key: &K,
-        new_list_entry: L,
-        new_item: I,
+        new_index: P,
+        new_header: H,
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -300,37 +387,37 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_list(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_page_and_update_header(*key, new_index, new_header)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list_and_update_list(*key, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_append_to_list_and_update_list(key,  new_list_entry, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_page_and_update_header(*key, new_index, new_header));
+        self.untrusted_kv_impl.untrusted_append_page_and_update_header(key,  new_index, new_header, Tracked(&perm))
     }
 
-    fn update_list_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
+    fn update_page(&mut self, key: &K, idx: usize, new_index: P) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_page(*key, idx, new_index)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list_at_index(*key, idx, new_list_entry));
-        self.untrusted_kv_impl.untrusted_update_list_at_index(key, idx, new_list_entry, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_page(*key, idx, new_index));
+        self.untrusted_kv_impl.untrusted_update_page(key, idx, new_index, Tracked(&perm))
     }
 
-    fn update_list_at_index_and_item(
+    fn update_page_and_header(
         &mut self,
         key: &K,
         idx: usize,
-        new_list_entry: L,
-        new_item: I,
+        new_index: P,
+        new_header: H,
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -338,13 +425,13 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_page_and_header(*key, idx, new_index, new_header)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_update_list_at_index_and_item(key,  idx, new_list_entry, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_page_and_header(*key, idx, new_index, new_header));
+        self.untrusted_kv_impl.untrusted_update_page_and_header(key,  idx, new_index, new_header, Tracked(&perm))
     }
 
     fn trim_pages(
@@ -367,11 +454,11 @@ where
         self.untrusted_kv_impl.untrusted_trim_pages(key, trim_length, Tracked(&perm))
     }
 
-    fn trim_pages_and_update_list(
+    fn trim_pages_and_update_header(
         &mut self,
         key: &K,
         trim_length: usize,
-        new_item: I,
+        new_header: H,
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -379,13 +466,13 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_list(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_header(*key, trim_length as int, new_header)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_list(*key, trim_length as int, new_item));
-        self.untrusted_kv_impl.untrusted_trim_pages_and_update_list(key, trim_length, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_header(*key, trim_length as int, new_header));
+        self.untrusted_kv_impl.untrusted_trim_pages_and_update_header(key, trim_length, new_header, Tracked(&perm))
     }
 
     fn get_keys(&self) -> (result: Vec<K>)

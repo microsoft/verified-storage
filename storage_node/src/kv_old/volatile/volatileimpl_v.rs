@@ -8,13 +8,12 @@ use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
 use crate::kv::volatile::volatilespec_t::*;
-use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
     pub trait VolatileKvIndex<K, E> : Sized
     where
-        K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
+        K: Hash + Eq + Clone + Serializable<E> + Sized + std::fmt::Debug,
         E: std::fmt::Debug,
     {
         spec fn view(&self) -> VolatileKvIndexView<K>;

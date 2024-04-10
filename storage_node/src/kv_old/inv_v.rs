@@ -17,11 +17,11 @@ use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
 verus! {
-    pub proof fn lemma_empty_index_matches_empty_store<K, I, L>(durable_store: DurableKvStoreView<K, I, L>, volatile_index: VolatileKvIndexView<K>)
+    pub proof fn lemma_empty_index_matches_empty_store<K, H, P>(durable_store: DurableKvStoreView<K, H, P>, volatile_index: VolatileKvIndexView<K>)
         where
             K: Hash + Eq,
-            I: Item<K>,
-            // P: LogicalRange,
+            H: Header<K>,
+            P: LogicalRange,
         requires
             durable_store.empty(),
             volatile_index.empty(),
