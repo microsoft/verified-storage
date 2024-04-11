@@ -277,6 +277,31 @@ where
         }
     }
 
+    pub fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K, E>>)
+        requires
+            self.valid()
+        ensures
+            ({
+                let spec_result = self@.read_list_entry_at_index(*key, idx as int);
+                match (result, spec_result) {
+                    (Ok(output_entry), Ok(spec_entry)) => {
+                        &&& output_entry == spec_entry
+                    }
+                    (Err(KvError::IndexOutOfRange), Err(KvError::IndexOutOfRange)) => {
+                        &&& self@.contents.contains_key(*key)
+                        &&& self@.contents[*key].1.len() <= idx
+                    }
+                    (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => {
+                        &&& !self@.contents.contains_key(*key)
+                    }
+                    (_, _) => false
+                }
+            })
+    {
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
+
     pub fn untrusted_read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
         requires
             self.valid(),

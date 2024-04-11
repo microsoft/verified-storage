@@ -160,17 +160,17 @@ verus! {
             }
         }
 
-        pub open spec fn read_list_entry_at_index(self, key: K, idx: int) -> Option<L>
+        pub open spec fn read_list_entry_at_index(self, key: K, idx: int) -> Result<L, KvError<K, E>>
         {
             if self.contents.contains_key(key) {
                 let (offset, list) = self.contents[key];
-                if list.len() < idx {
-                    Some(list[idx])
+                if list.len() > idx {
+                    Ok(list[idx])
                 } else {
-                    None
+                    Err(KvError::IndexOutOfRange)
                 }
             } else {
-                None
+                Err(KvError::KeyNotFound)
             }
         }
 
