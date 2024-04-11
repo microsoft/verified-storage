@@ -25,7 +25,7 @@ verus! {
     {
         spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
-        spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>;
+        spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>;
 
         spec fn valid(self) -> bool;
 
@@ -233,7 +233,7 @@ verus! {
                 }
         ;
 
-        fn update_item_at_index_and_item(
+        fn update_entry_at_index_and_item(
             &mut self,
             offset: u64,
             entry_offset: u64,

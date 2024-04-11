@@ -64,7 +64,7 @@ verus! {
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given
         // abstract state `state`.
-        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, I, L>) -> (tracked perm: Self)
+        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, I, L, E>) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
                     D::recover_to_kv_state(s, kv_id) == Some(state)
@@ -82,8 +82,8 @@ verus! {
         // `state2`.
         pub proof fn new_two_possibilities(
             kv_id: u128,
-            state1: AbstractKvStoreState<K, I, L>,
-            state2: AbstractKvStoreState<K, I, L>
+            state1: AbstractKvStoreState<K, I, L, E>,
+            state2: AbstractKvStoreState<K, I, L, E>
         ) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
@@ -107,19 +107,21 @@ verus! {
     /// TODO: Should this be generic over the key/header/page
     /// types used in the kv store, or over their views?
     #[verifier::reject_recursive_types(K)]
-    pub struct AbstractKvStoreState<K, I, L>
+    pub struct AbstractKvStoreState<K, I, L, E>
     where
         K: Hash + Eq,
         I: Item<K>,
     {
         pub id: u128,
-        pub contents: Map<K, (I, Seq<L>)>
+        pub contents: Map<K, (I, Seq<L>)>,
+        pub _phantom: Option<E>
     }
 
-    impl<K, I, L> AbstractKvStoreState<K, I, L>
+    impl<K, I, L, E> AbstractKvStoreState<K, I, L, E>
     where
-        K: Hash + Eq,
+        K: Hash + Eq + std::fmt::Debug,
         I: Item<K>,
+        E: std::fmt::Debug,
     {
         pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
         {
@@ -135,12 +137,18 @@ verus! {
             self.contents.is_empty()
         }
 
-        pub open spec fn create(self, key: K, item: I) -> Self
+        pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError<K, E>>
         {
-            Self {
-                id: self.id,
-                contents: self.contents.insert(key, (item, Seq::empty()))
+            if self.contents.contains_key(key) {
+                Err(KvError::KeyAlreadyExists)
+            } else {
+                Ok(Self {
+                    id: self.id,
+                    contents: self.contents.insert(key, (item, Seq::empty())),
+                    _phantom: None
+                })
             }
+
         }
 
         pub open spec fn read_item_and_list(self, key: K) -> Option<(I, Seq<L>)>
@@ -152,114 +160,141 @@ verus! {
             }
         }
 
-        pub open spec fn update_item(self, key: K, new_item: I) -> Self
+        pub open spec fn read_list_entry_at_index(self, key: K, idx: int) -> Option<L>
+        {
+            if self.contents.contains_key(key) {
+                let (offset, list) = self.contents[key];
+                if list.len() < idx {
+                    Some(list[idx])
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+
+        pub open spec fn update_item(self, key: K, new_item: I) -> Result<Self, KvError<K, E>>
         {
             let val = self.read_item_and_list(key);
             match val {
                 Some((old_item, pages)) => {
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_item, pages))
-                    }
+                        contents: self.contents.insert(key, (new_item, pages)),
+                        _phantom: None
+                    })
                 }
-                None => {
-                    self
-                }
+                None => Err(KvError::KeyNotFound)
             }
+
         }
 
-        pub open spec fn delete(self, key: K) -> Self
+        pub open spec fn delete(self, key: K) -> Result<Self, KvError<K, E>>
         {
-            Self {
-                id: self.id,
-                contents: self.contents.remove(key)
+            if self.contents.contains_key(key) {
+                Ok(Self {
+                    id: self.id,
+                    contents: self.contents.remove(key),
+                    _phantom: None
+                })
+            } else {
+                Err(KvError::KeyNotFound)
             }
+
         }
 
-        pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Self {
-            let result = self.read_item_and_list(key);
-            match result {
-                Some((item, pages)) => {
-                    Self {
-                        id: self.id,
-                        contents: self.contents.insert(key, (item, pages.push(new_list_entry)))
-                    }
-                }
-                None => self
-            }
-        }
-
-        pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I) -> Self
+        pub open spec fn append_to_list(self, key: K, new_list_entry: L) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
                 Some((item, pages)) => {
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_item, pages.push(new_list_entry)))
-                    }
+                        contents: self.contents.insert(key, (item, pages.push(new_list_entry))),
+                        _phantom: None
+                    })
                 }
-                None => self
+                None => Err(KvError::KeyNotFound)
             }
         }
 
-        pub open spec fn update_item_at_index(self, key: K, idx: usize, new_list_entry: L) -> Self
+        pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
                 Some((item, pages)) => {
-                    let pages = pages.update(idx as int, new_list_entry);
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (item, pages))
-                    }
+                        contents: self.contents.insert(key, (new_item, pages.push(new_list_entry))),
+                        _phantom: None
+                    })
                 }
-                None => self
+                None => Err(KvError::KeyNotFound)
             }
         }
 
-        pub open spec fn update_item_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I) -> Self
+        pub open spec fn update_item_at_index(self, key: K, idx: usize, new_list_entry: L) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
                 Some((item, pages)) => {
                     let pages = pages.update(idx as int, new_list_entry);
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_item, pages))
-                    }
+                        contents: self.contents.insert(key, (item, pages)),
+                        _phantom: None
+                    })
                 }
-                None => self
+                None => Err(KvError::KeyNotFound)
             }
         }
 
-        pub open spec fn trim_pages(self, key: K, trim_length: int) -> Self
+        pub open spec fn update_entry_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I) -> Result<Self, KvError<K, E>>
+        {
+            let result = self.read_item_and_list(key);
+            match result {
+                Some((item, pages)) => {
+                    let pages = pages.update(idx as int, new_list_entry);
+                    Ok(Self {
+                        id: self.id,
+                        contents: self.contents.insert(key, (new_item, pages)),
+                        _phantom: None
+                    })
+                }
+                None => Err(KvError::KeyNotFound)
+            }
+        }
+
+        pub open spec fn trim_pages(self, key: K, trim_length: int) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
                 Some((item, pages)) => {
                     let pages = pages.subrange(trim_length, pages.len() as int);
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (item, pages))
-                    }
+                        contents: self.contents.insert(key, (item, pages)),
+                        _phantom: None
+                    })
                 }
-                None => self
+                None => Err(KvError::KeyNotFound)
             }
         }
 
-        pub open spec fn trim_pages_and_update_item(self, key: K, trim_length: int, new_item: I) -> Self
+        pub open spec fn trim_pages_and_update_item(self, key: K, trim_length: int, new_item: I) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
                 Some((item, pages)) => {
                     let pages = pages.subrange(trim_length, pages.len() as int);
-                    Self {
+                    Ok(Self {
                         id: self.id,
-                        contents: self.contents.insert(key, (new_item, pages))
-                    }
+                        contents: self.contents.insert(key, (new_item, pages)),
+                        _phantom: None
+                    })
                 }
-                None => self
+                None => Err(KvError::KeyNotFound)
             }
         }
 

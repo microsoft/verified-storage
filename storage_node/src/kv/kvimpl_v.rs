@@ -59,12 +59,12 @@ where
     // This function specifies how all durable contents of the KV
     // should be viewed upon recovery as an abstract paged KV state.
     // TODO: write this
-    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>
     {
         None
     }
 
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L, E>
     {
         AbstractKvStoreState {
             id: self.id,
@@ -96,7 +96,8 @@ where
                             ( arbitrary_entry.item(), Seq::empty() )}
                     }
                 }
-            )
+            ),
+            _phantom: None,
         }
     }
 
@@ -202,21 +203,24 @@ where
             old(self).valid(),
             key == item.spec_key(),
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.create(*key, item)
+                    &&& self@ == old(self)@.create(*key, item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyAlreadyExists) => {
+                    &&& old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let ghost old_kv = *self;
+        assume(false);
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
         let offset = self.durable_store.create(item, perm)?;
         self.volatile_index.insert(key, offset)?;
-        assume(false);
         Ok(())
     }
 
@@ -230,10 +234,9 @@ where
                 (Some(output_item), Some((spec_item, pages))) => {
                     &&& spec_item == output_item
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some(output_item), None) => false,
+                (None, Some((spec_item, pages))) => false,
+                (None, None) => true,
             }
         })
     {
@@ -259,10 +262,9 @@ where
                     &&& spec_item == output_item
                     &&& spec_pages == output_pages@
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some((output_item, output_pages)), None) => false,
+                (None, Some((spec_item, spec_pages))) => false,
+                (None, None) => true,
             }
         })
     {
@@ -282,13 +284,12 @@ where
         ({
             let spec_result = self@.read_item_and_list(*key);
             match (result, spec_result) {
-                (Some( output_pages), Some((spec_item, spec_pages))) => {
+                (Some(output_pages), Some((spec_item, spec_pages))) => {
                     &&& spec_pages == output_pages@
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some(output_pages), None) => false,
+                (None, Some((spec_item, spec_pages))) => false,
+                (None, None) => true,
             }
         })
     {
@@ -312,12 +313,13 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    self@ == old(self)@.update_item(*key, new_item)
+                    &&& self@ == old(self)@.update_item(*key, new_item).unwrap()
                 }
                 Err(KvError::KeyNotFound) => {
-                    self@[*key].is_None()
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
                 }
-                Err(_) => true // TODO
+                Err(_) => false
             }
     {
         assume(false);
@@ -336,12 +338,16 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.delete(*key)
+                    &&& self@ == old(self)@.delete(*key).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
         assume(false);
@@ -359,12 +365,17 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry)
+                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                // TODO: case for if we run out of space to append to the list
+                Err(_) => false
             }
     {
         assume(false);
@@ -388,12 +399,17 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                // TODO: case for if we run out of space to append to the list
+                Err(_) => false
             }
     {
         assume(false);
@@ -417,12 +433,16 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
         assume(false);
@@ -436,7 +456,7 @@ where
         }
     }
 
-    pub fn untrusted_update_item_at_index_and_item(
+    pub fn untrusted_update_entry_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
@@ -450,16 +470,20 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_entry_at_index_and_item(*key, idx, new_list_entry, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
         assume(false);
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_item_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_entry_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
@@ -478,11 +502,15 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int)
+                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
-    {
+        {
         // use the volatile index to figure out which physical offsets should be removed
         // from the list, then use that information to trim the list on the durable side
         // TODO: trim_length is in terms of list entries, not bytes, right? Check Jay's impl
@@ -511,9 +539,13 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
         assume(false);
@@ -535,6 +567,19 @@ where
     {
         assume(false);
         self.volatile_index.get_keys()
+    }
+
+    pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
+        requires
+            self.valid(),
+        ensures
+            match result {
+                true => self@[*key] is Some,
+                false => self@[*key] is None
+            }
+    {
+        assume(false);
+        self.volatile_index.get(key).is_some()
     }
 
 }

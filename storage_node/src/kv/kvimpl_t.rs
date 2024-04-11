@@ -96,7 +96,7 @@ where
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L, E>
     {
         self.untrusted_kv_impl@
     }
@@ -162,16 +162,25 @@ where
             old(self).valid(),
             key == item.spec_key(),
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.create(*key, item)
+                    &&& self@ == old(self)@.create(*key, item).unwrap()
                 }
-                Err(_) => true
+                Err(KvError::KeyAlreadyExists) => {
+                    &&& old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item));
-        self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            Err(KvError::KeyAlreadyExists)
+        } else {
+            let tracked perm =
+            TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item).unwrap());
+            self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
+        }
     }
 
     fn read_item(&self, key: &K) -> (result: Option<&I>)
@@ -184,13 +193,13 @@ where
                 (Some(output_item), Some((spec_item, pages))) => {
                     &&& spec_item == output_item
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some(output_item), None) => false,
+                (None, Some((spec_item, pages))) => false,
+                (None, None) => true,
             }
         })
     {
+
         self.untrusted_kv_impl.untrusted_read_item(key)
     }
 
@@ -205,10 +214,9 @@ where
                     &&& spec_item == output_item
                     &&& spec_pages == output_pages@
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some((output_item, output_pages)), None) => false,
+                (None, Some((spec_item, spec_pages))) => false,
+                (None, None) => true,
             }
         })
     {
@@ -222,13 +230,12 @@ where
         ({
             let spec_result = self@.read_item_and_list(*key);
             match (result, spec_result) {
-                (Some( output_pages), Some((spec_item, spec_pages))) => {
+                (Some(output_pages), Some((spec_item, spec_pages))) => {
                     &&& spec_pages == output_pages@
                 }
-                _ => {
-                    let spec_result = self@.read_item_and_list(*key);
-                    spec_result.is_None()
-                }
+                (Some(output_pages), None) => false,
+                (None, Some((spec_item, spec_pages))) => false,
+                (None, None) => true,
             }
         })
     {
@@ -239,32 +246,49 @@ where
         requires
             old(self).valid(),
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.update_item(*key, new_item)
+                    &&& self@ == old(self)@.update_item(*key, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, new_item));
-        self.untrusted_kv_impl.untrusted_update_item(key, new_item, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_update_item(key, new_item, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
+
     }
 
     fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.delete(*key)
+                    &&& self@ == old(self)@.delete(*key).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.delete(*key));
-        self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.delete(*key).unwrap());
+            self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     // TODO: remove?
@@ -276,16 +300,25 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry)
+                    &&& self@ == old(self)@.append_to_list(*key, new_list_entry).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                // TODO: case for if we run out of space to append to the list
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list(*key, new_list_entry));
-        self.untrusted_kv_impl.untrusted_append_to_list(key, new_list_entry, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list(*key, new_list_entry).unwrap());
+            self.untrusted_kv_impl.untrusted_append_to_list(key, new_list_entry, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     fn append_to_list_and_update_item(
@@ -297,35 +330,52 @@ where
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                // TODO: case for if we run out of space to append to the list
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list_and_update_item(*key, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_append_to_list_and_update_item(key,  new_list_entry, new_item, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list_and_update_item(*key, new_list_entry, new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_append_to_list_and_update_item(key,  new_list_entry, new_item, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     fn update_item_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
+            self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self.valid()
-                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index(*key, idx, new_list_entry));
-        self.untrusted_kv_impl.untrusted_update_item_at_index(key, idx, new_list_entry, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index(*key, idx, new_list_entry).unwrap());
+            self.untrusted_kv_impl.untrusted_update_item_at_index(key, idx, new_list_entry, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
-    fn update_item_at_index_and_item(
+    fn update_entry_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
@@ -338,13 +388,21 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_entry_at_index_and_item(*key, idx, new_list_entry, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_update_item_at_index_and_item(key,  idx, new_list_entry, new_item, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_entry_at_index_and_item(*key, idx, new_list_entry, new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_update_entry_at_index_and_item(key,  idx, new_list_entry, new_item, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     fn trim_pages(
@@ -358,13 +416,21 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int)
+                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages(*key, trim_length as int));
-        self.untrusted_kv_impl.untrusted_trim_pages(key, trim_length, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages(*key, trim_length as int).unwrap());
+            self.untrusted_kv_impl.untrusted_trim_pages(key, trim_length, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     fn trim_pages_and_update_item(
@@ -379,13 +445,21 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item).unwrap()
                 }
-                Err(_) => true // TODO
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_item(*key, trim_length as int, new_item));
-        self.untrusted_kv_impl.untrusted_trim_pages_and_update_item(key, trim_length, new_item, Tracked(&perm))
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_item(*key, trim_length as int, new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_trim_pages_and_update_item(key, trim_length, new_item, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     fn get_keys(&self) -> (result: Vec<K>)
