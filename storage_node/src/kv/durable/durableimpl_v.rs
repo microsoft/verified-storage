@@ -124,7 +124,7 @@ verus! {
                 }
         ;
 
-        fn update_list(
+        fn update_item(
             &mut self,
             offset: u64,
             new_item: I,
@@ -187,7 +187,7 @@ verus! {
                 }
         ;
 
-        fn update_list_and_append(
+        fn update_item_and_append(
             &mut self,
             offset: u64,
             new_entry: L,
@@ -210,7 +210,7 @@ verus! {
                 }
         ;
 
-        fn update_list_at_index(
+        fn update_item_at_index(
             &mut self,
             header_offset: u64,
             entry_offset: u64,
@@ -233,7 +233,7 @@ verus! {
                 }
         ;
 
-        fn update_list_at_index_and_item(
+        fn update_item_at_index_and_item(
             &mut self,
             offset: u64,
             entry_offset: u64,
@@ -287,7 +287,7 @@ verus! {
                 }
         ;
 
-        fn trim_list_and_update_list(
+        fn trim_list_and_update_item(
             &mut self,
             offset: u64,
             new_list_head_offset: u64,

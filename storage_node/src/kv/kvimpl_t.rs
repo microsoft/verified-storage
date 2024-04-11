@@ -235,20 +235,20 @@ where
         self.untrusted_kv_impl.untrusted_read_list(key)
     }
 
-    fn update_list(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K, E>>)
+    fn update_item(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list(*key, new_item)
+                    &&& self@ == old(self)@.update_item(*key, new_item)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list(*key, new_item));
-        self.untrusted_kv_impl.untrusted_update_list(key, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, new_item));
+        self.untrusted_kv_impl.untrusted_update_item(key, new_item, Tracked(&perm))
     }
 
     fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K, E>>)
@@ -300,32 +300,32 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_list(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list_and_update_list(*key, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_append_to_list_and_update_list(key,  new_list_entry, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.append_to_list_and_update_item(*key, new_list_entry, new_item));
+        self.untrusted_kv_impl.untrusted_append_to_list_and_update_item(key,  new_list_entry, new_item, Tracked(&perm))
     }
 
-    fn update_list_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
+    fn update_item_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list_at_index(*key, idx, new_list_entry));
-        self.untrusted_kv_impl.untrusted_update_list_at_index(key, idx, new_list_entry, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index(*key, idx, new_list_entry));
+        self.untrusted_kv_impl.untrusted_update_item_at_index(key, idx, new_list_entry, Tracked(&perm))
     }
 
-    fn update_list_at_index_and_item(
+    fn update_item_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
@@ -338,13 +338,13 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item));
-        self.untrusted_kv_impl.untrusted_update_list_at_index_and_item(key,  idx, new_list_entry, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item));
+        self.untrusted_kv_impl.untrusted_update_item_at_index_and_item(key,  idx, new_list_entry, new_item, Tracked(&perm))
     }
 
     fn trim_pages(
@@ -367,7 +367,7 @@ where
         self.untrusted_kv_impl.untrusted_trim_pages(key, trim_length, Tracked(&perm))
     }
 
-    fn trim_pages_and_update_list(
+    fn trim_pages_and_update_item(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -379,13 +379,13 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_list(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item)
                 }
                 Err(_) => true // TODO
             }
     {
-        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_list(*key, trim_length as int, new_item));
-        self.untrusted_kv_impl.untrusted_trim_pages_and_update_list(key, trim_length, new_item, Tracked(&perm))
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_item(*key, trim_length as int, new_item));
+        self.untrusted_kv_impl.untrusted_trim_pages_and_update_item(key, trim_length, new_item, Tracked(&perm))
     }
 
     fn get_keys(&self) -> (result: Vec<K>)

@@ -155,63 +155,6 @@ where
         assume(false);
     }
 
-    // Proves that creating a new key/header pair in the durable and volatile
-    // components results in the creation of the same key/header entry in
-    // the abstract KV store.
-    proof fn lemma_create_in_durable_and_volatile_implies_create_in_kv_view(
-        old_kv: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
-        new_kv: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
-        k: K,
-        h: I,
-        offset: int,
-    )
-        requires
-            old_kv.valid(),
-            k == h.spec_key(),
-            0 <= offset < old_kv.durable_store@.len(),
-            new_kv.durable_store@ == old_kv.durable_store@.create(offset, h),
-            new_kv.durable_store@[offset].is_Some(),
-            new_kv.volatile_index@ == old_kv.volatile_index@.insert_metadata_offset(k, offset),
-        ensures
-            new_kv@ == old_kv@.create(k, h),
-            new_kv.durable_store_contents_match_kv_state(new_kv.durable_store@),
-            new_kv.durable_store@.matches_volatile_index(new_kv.volatile_index@)
-    {
-
-        // // the new kv has the same keys as the old kv plus the created key
-        // assert(old_kv@.get_keys() == old_kv.volatile_index@.keys());
-        // assert(new_kv.volatile_index@.keys() =~= old_kv.volatile_index@.keys().insert(k));
-        // assert(new_kv@.get_keys() == old_kv@.get_keys().insert(k));
-
-        // TODO: finish
-        assume(false);
-
-        // // the new key in the new kv has the right header and page values
-        // // TODO: unclear if proving this will actually help us prove the postconditions?
-        // match new_kv.durable_store@[offset] {
-        //     Some(durable_entry) => {
-        //         assert(durable_entry.key() == k);
-        //         assert(durable_entry.item() == h);
-        //         assert(durable_entry.page_entries() == Seq::<P>::empty());
-
-        //         // the new key in the new kv has the right associated value
-        //         match new_kv@[k] {
-        //             Some((item, pages)) => {
-        //                 assert(header == durable_entry.item());
-        //                 assert(item.spec_key() == durable_entry.key());
-        //                 assert(durable_entry.page_entries() == pages);
-
-        //                 assert(header == h);
-        //                 assert(item.spec_key() == k);
-        //                 assert(pages == Seq::<P>::empty());
-        //             }
-        //             None => assert(false)
-        //         }
-        //     }
-        //     None => assert(false)
-        // }
-    }
-
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
@@ -225,8 +168,6 @@ where
         kvstore_id: u128,
         max_keys: usize,
         list_node_size: usize,
-        // lower_bound_on_max_pages: usize,
-        // logical_range_gaps_policy: LogicalRangeGapsPolicy,
     ) -> (result: Result<Self, KvError<K, E>>)
         ensures
             match result {
@@ -236,7 +177,7 @@ where
                 Err(_) => true
             }
     {
-        let durable_store = D::new(pmem, kvstore_id, max_keys, list_node_size)?;//, lower_bound_on_max_pages, logical_range_gaps_policy)?;
+        let durable_store = D::new(pmem, kvstore_id, max_keys, list_node_size)?;
         let volatile_index = V::new(kvstore_id, max_keys)?;
         let kv = Self {
             id: kvstore_id,
@@ -271,15 +212,11 @@ where
     {
         let ghost old_kv = *self;
 
-        // `header` stores its own key, so we don't have to pass its key to the durable
+        // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
         let offset = self.durable_store.create(item, perm)?;
         self.volatile_index.insert(key, offset)?;
-        proof {
-            Self::lemma_create_in_durable_and_volatile_implies_create_in_kv_view(old_kv, *self, *key, item, offset as int);
-            assert(self.durable_store_contents_match_kv_state(self.durable_store@));
-            assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
-        }
+        assume(false);
         Ok(())
     }
 
@@ -363,7 +300,7 @@ where
         }
     }
 
-    pub fn untrusted_update_list(
+    pub fn untrusted_update_item(
         &mut self,
         key: &K,
         new_item: I,
@@ -375,7 +312,7 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    self@ == old(self)@.update_list(*key, new_item)
+                    self@ == old(self)@.update_item(*key, new_item)
                 }
                 Err(KvError::KeyNotFound) => {
                     self@[*key].is_None()
@@ -386,7 +323,7 @@ where
         assume(false);
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.update_list(offset, new_item),
+            Some(offset) => self.durable_store.update_item(offset, new_item),
             None => Err(KvError::KeyNotFound)
         }
     }
@@ -441,7 +378,7 @@ where
         self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
-    pub fn untrusted_append_to_list_and_update_list(
+    pub fn untrusted_append_to_list_and_update_item(
         &mut self,
         key: &K,
         new_list_entry: L,
@@ -454,7 +391,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.append_to_list_and_update_list(*key, new_list_entry, new_item)
+                    &&& self@ == old(self)@.append_to_list_and_update_item(*key, new_list_entry, new_item)
                 }
                 Err(_) => true // TODO
             }
@@ -463,14 +400,14 @@ where
         let offset = self.volatile_index.get(key);
         // update the header at this offset append a page to the list rooted there
         let page_offset = match offset {
-            Some(offset) => self.durable_store.update_list_and_append(offset, new_list_entry, new_item, perm)?,
+            Some(offset) => self.durable_store.update_item_and_append(offset, new_list_entry, new_item, perm)?,
             None => return Err(KvError::KeyNotFound)
         };
          // add the durable location of the page to the in-memory list
          self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
-    pub fn untrusted_update_list_at_index(
+    pub fn untrusted_update_item_at_index(
         &mut self,
         key: &K,
         idx: usize,
@@ -483,7 +420,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index(*key, idx, new_list_entry)
+                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry)
                 }
                 Err(_) => true // TODO
             }
@@ -492,14 +429,14 @@ where
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_at_index(header_offset, entry_offset, new_list_entry, perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_item_at_index(header_offset, entry_offset, new_list_entry, perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
         }
     }
 
-    pub fn untrusted_update_list_at_index_and_item(
+    pub fn untrusted_update_item_at_index_and_item(
         &mut self,
         key: &K,
         idx: usize,
@@ -513,7 +450,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.update_list_at_index_and_item(*key, idx, new_list_entry, new_item)
+                    &&& self@ == old(self)@.update_item_at_index_and_item(*key, idx, new_list_entry, new_item)
                 }
                 Err(_) => true // TODO
             }
@@ -522,7 +459,7 @@ where
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_item_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
@@ -561,7 +498,7 @@ where
         }
     }
 
-    pub fn untrusted_trim_pages_and_update_list(
+    pub fn untrusted_trim_pages_and_update_item(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -574,7 +511,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_list(*key, trim_length as int, new_item)
+                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item)
                 }
                 Err(_) => true // TODO
             }
@@ -583,7 +520,7 @@ where
         let header_offset = self.volatile_index.get(key);
         let new_list_head_offset = self.volatile_index.trim_list(key, trim_length);
         match (header_offset, new_list_head_offset) {
-            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list_and_update_list(header_offset, new_list_head_offset, trim_length, new_item, perm),
+            (Some(header_offset), Ok(new_list_head_offset)) => self.durable_store.trim_list_and_update_item(header_offset, new_list_head_offset, trim_length, new_item, perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases

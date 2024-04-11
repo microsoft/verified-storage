@@ -152,7 +152,7 @@ verus! {
             }
         }
 
-        pub open spec fn update_list(self, key: K, new_item: I) -> Self
+        pub open spec fn update_item(self, key: K, new_item: I) -> Self
         {
             let val = self.read_item_and_list(key);
             match val {
@@ -189,7 +189,7 @@ verus! {
             }
         }
 
-        pub open spec fn append_to_list_and_update_list(self, key: K, new_list_entry: L, new_item: I) -> Self
+        pub open spec fn append_to_list_and_update_item(self, key: K, new_list_entry: L, new_item: I) -> Self
         {
             let result = self.read_item_and_list(key);
             match result {
@@ -203,7 +203,7 @@ verus! {
             }
         }
 
-        pub open spec fn update_list_at_index(self, key: K, idx: usize, new_list_entry: L) -> Self
+        pub open spec fn update_item_at_index(self, key: K, idx: usize, new_list_entry: L) -> Self
         {
             let result = self.read_item_and_list(key);
             match result {
@@ -218,7 +218,7 @@ verus! {
             }
         }
 
-        pub open spec fn update_list_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I) -> Self
+        pub open spec fn update_item_at_index_and_item(self, key: K, idx: usize, new_list_entry: L, new_item: I) -> Self
         {
             let result = self.read_item_and_list(key);
             match result {
@@ -248,7 +248,7 @@ verus! {
             }
         }
 
-        pub open spec fn trim_pages_and_update_list(self, key: K, trim_length: int, new_item: I) -> Self
+        pub open spec fn trim_pages_and_update_item(self, key: K, trim_length: int, new_item: I) -> Self
         {
             let result = self.read_item_and_list(key);
             match result {
