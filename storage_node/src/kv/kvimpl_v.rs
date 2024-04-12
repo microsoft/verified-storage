@@ -42,6 +42,7 @@ where
     id: u128,
     durable_store: D,
     volatile_index: V,
+    entries_per_list_node: usize,
     _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>,
 }
 
@@ -77,7 +78,7 @@ where
                             match self.durable_store@[index_entry.metadata_offset] {
                                 Some(entry) => (
                                     // pages seq only includes the entries themselves, not their physical offsets
-                                    entry.item(), entry.page_entries()
+                                    entry.item(), entry.pages()
                                 ),
                                 None => {
                                     // This case is unreachable, because we only include indexes that exist,
@@ -101,7 +102,7 @@ where
         }
     }
 
-    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, I, L>) -> bool
+    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, I, L, E>) -> bool
     {
         let kv_state = self@;
         ||| kv_state.empty() && durable_store_state.empty()
@@ -114,7 +115,7 @@ where
                             match kv_state[key] {
                                 Some(kv_entry) => {
                                     &&& kv_entry.0 == durable_entry.item()
-                                    &&& kv_entry.1 == durable_entry.page_entries()
+                                    &&& kv_entry.1 == durable_entry.pages()
                                 }
                                 None => false
                             }
@@ -184,6 +185,7 @@ where
             id: kvstore_id,
             durable_store,
             volatile_index,
+            entries_per_list_node: list_node_size,
             _phantom: Ghost(spec_phantom_data()),
         };
         proof {
@@ -448,7 +450,7 @@ where
          self.volatile_index.append_offset_to_list(key, page_offset)
     }
 
-    pub fn untrusted_update_item_at_index(
+    pub fn untrusted_update_list_entry_at_index(
         &mut self,
         key: &K,
         idx: usize,
@@ -461,7 +463,7 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry).unwrap()
+                    &&& self@ == old(self)@.update_list_entry_at_index(*key, idx, new_list_entry).unwrap()
                 }
                 Err(KvError::KeyNotFound) => {
                     &&& !old(self)@.contents.contains_key(*key)
@@ -474,7 +476,7 @@ where
         let header_offset = self.volatile_index.get(key);
         let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
         match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_item_at_index(header_offset, entry_offset, new_list_entry, perm),
+            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_entry_at_index(header_offset, entry_offset, new_list_entry, perm),
             (None, _) => Err(KvError::KeyNotFound),
             (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
             (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases

@@ -23,7 +23,7 @@ verus! {
         L: Serializable + std::fmt::Debug,
         E: std::fmt::Debug,
     {
-        spec fn view(&self) -> DurableKvStoreView<K, I, L>;
+        spec fn view(&self) -> DurableKvStoreView<K, I, L, E>;
 
         spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>;
 
@@ -86,43 +86,87 @@ verus! {
         fn read_item_and_list(
             &self,
             offset: u64
-        ) -> (result: Option<(&I, &Vec<L>)>)
+        ) -> (result: Option<(&I, Vec<&L>)>)
             requires
                 self.valid()
             ensures
                 match result {
-                    Some((item, pages)) => {
+                    Some((item, list)) => {
                         match self@[offset as int] {
-                            Some(entry) => {
-                                &&& entry.item() == item
-                                &&& entry.page_entries() == pages@
+                            Some(spec_entry) => {
+                                &&& spec_entry.item() == item
                             }
-                            None => false
+                            None => false // we shouldn't return success if entry is not present in ghost state
                         }
                     }
-                    None => self@[offset as int].is_None()
-                }
-        ;
+                    None => self@.contents[offset as int] is None
+                };
 
-        fn read_list(
-            &self,
-            offset: u64
-        ) -> (result: Option<&Vec<L>>)
-            requires
-                self.valid()
-            ensures
-                match result {
-                    Some(pages) => {
-                        match self@[offset as int] {
-                            Some(entry) => {
-                                entry.page_entries() == pages@
-                            }
-                            None => false
-                        }
-                    }
-                    None => self@[offset as int].is_None()
-                }
-        ;
+        // fn read_item_and_list(
+        //     &self,
+        //     offset: u64
+        // ) -> (result: Option<(&I, &Vec<L>)>)
+        //     requires
+        //         self.valid()
+        //     ensures
+        //         match result {
+        //             Some((item, pages)) => {
+        //                 match self@[offset as int] {
+        //                     Some(entry) => {
+        //                         &&& entry.item() == item
+        //                         &&& entry.pages() == pages@
+        //                     }
+        //                     None => false
+        //                 }
+        //             }
+        //             None => self@[offset as int].is_None()
+        //         }
+        // ;
+
+        // fn read_list(
+        //     &self,
+        //     offset: u64
+        // ) -> (result: Option<&Vec<L>>)
+        //     requires
+        //         self.valid()
+        //     ensures
+        //         match result {
+        //             Some(pages) => {
+        //                 match self@[offset as int] {
+        //                     Some(entry) => {
+        //                         entry.pages() == pages@
+        //                     }
+        //                     None => false
+        //                 }
+        //             }
+        //             None => self@[offset as int].is_None()
+        //         }
+        // ;
+
+        // fn read_list_entry_at_index(
+        //     &self,
+        //     offset: u64,
+        //     idx: u64
+        // ) -> (result: Result<&L, KvError<K, E>>)
+        //     requires
+        //         self.valid()
+        //     ensures
+        //         ({
+        //             match self@[offset as int] {
+        //                 Some(spec_entry) => {
+        //                     match result {
+        //                         Ok(output_entry) => {
+        //                             spec_entry.pages()[idx as int] == output_entry
+        //                         }
+        //                         Err(KvError::IndexOutOfRange) => {
+        //                             self@[offset as int].unwrap().pages().len() <= idx
+        //                         }
+        //                         Err(_) => false
+        //                     }
+        //                 }
+        //                 None => false // we check if key doesn't exist earlier
+        //             }
+        //         });
 
         fn update_item(
             &mut self,
@@ -166,153 +210,151 @@ verus! {
                 }
         ;
 
-        fn append(
-            &mut self,
-            offset: u64,
-            new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
-        ) -> (result: Result<u64, KvError<K, E>>)
-            requires
-                old(self).valid()
-            ensures
-                self.valid(),
-                match result {
-                    Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
-                        (Some(old_entry), Some(entry)) => {
-                            entry.pages() == old_entry.pages().push((phys_offset as int, new_entry))
-                        }
-                        (_, _) => false
-                    }
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn append(
+        //     &mut self,
+        //     offset: u64,
+        //     new_entry: L,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+        // ) -> (result: Result<u64, KvError<K, E>>)
+        //     requires
+        //         old(self).valid()
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
+        //                 (Some(old_entry), Some(entry)) => {
+        //                     entry.pages() == old_entry.pages().push(new_entry)
+        //                 }
+        //                 (_, _) => false
+        //             }
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
-        fn update_item_and_append(
-            &mut self,
-            offset: u64,
-            new_entry: L,
-            new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
-        ) -> (result: Result<u64, KvError<K, E>>)
-            requires
-                old(self).valid()
-            ensures
-                self.valid(),
-                match result {
-                    Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
-                        (Some(old_entry), Some(entry)) => {
-                            &&& entry.pages() == old_entry.pages().push((phys_offset as int, new_entry))
-                            &&& entry.item() == new_item
-                        }
-                        (_, _) => false
-                    }
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn update_item_and_append(
+        //     &mut self,
+        //     offset: u64,
+        //     new_entry: L,
+        //     new_item: I,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+        // ) -> (result: Result<u64, KvError<K, E>>)
+        //     requires
+        //         old(self).valid()
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(phys_offset) => match (old(self)@[offset as int], self@[offset as int]) {
+        //                 (Some(old_entry), Some(entry)) => {
+        //                     &&& entry.pages() == old_entry.pages().push(new_entry)
+        //                     &&& entry.item() == new_item
+        //                 }
+        //                 (_, _) => false
+        //             }
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
-        fn update_item_at_index(
-            &mut self,
-            header_offset: u64,
-            entry_offset: u64,
-            new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
-        ) -> (result: Result<(), KvError<K, E>>)
-            requires
-                old(self).valid()
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => match (old(self)@[header_offset as int], self@[header_offset as int]) {
-                        (Some(old), Some(new)) => {
-                            let phys_entry_offset = old.pages()[entry_offset as int].0;
-                            new.pages() == old.pages().update(entry_offset as int, (phys_entry_offset, new_entry))
-                        }
-                        (_, _) => false
-                    }
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn update_list_entry_at_index(
+        //     &mut self,
+        //     header_offset: u64,
+        //     entry_offset: u64,
+        //     new_entry: L,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+        // ) -> (result: Result<(), KvError<K, E>>)
+        //     requires
+        //         old(self).valid()
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(()) => match (old(self)@[header_offset as int], self@[header_offset as int]) {
+        //                 (Some(old), Some(new)) => {
+        //                     new.pages() == old.pages().update(entry_offset as int, new_entry)
+        //                 }
+        //                 (_, _) => false
+        //             }
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
-        fn update_entry_at_index_and_item(
-            &mut self,
-            offset: u64,
-            entry_offset: u64,
-            new_item: I,
-            new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
-            requires
-                old(self).valid()
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => {
-                        match (old(self)@[offset as int], self@[offset as int]) {
-                            (Some(old_entry), Some(entry)) => {
-                                let phys_entry_offset = old_entry.pages()[entry_offset as int].0;
-                                &&& entry.key() == old_entry.key()
-                                &&& entry.item() == new_item
-                                &&& entry.pages() == old_entry.pages().update(entry_offset as int, (phys_entry_offset, new_entry))
-                            }
-                            (_, _) => false
-                        }
-                    }
-                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn update_entry_at_index_and_item(
+        //     &mut self,
+        //     offset: u64,
+        //     entry_offset: u64,
+        //     new_item: I,
+        //     new_entry: L,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+        // ) -> (result: Result<(), KvError<K, E>>)
+        //     requires
+        //         old(self).valid()
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(()) => {
+        //                 match (old(self)@[offset as int], self@[offset as int]) {
+        //                     (Some(old_entry), Some(entry)) => {
+        //                         &&& entry.key() == old_entry.key()
+        //                         &&& entry.item() == new_item
+        //                         &&& entry.pages() == old_entry.pages().update(entry_offset as int, new_entry)
+        //                     }
+        //                     (_, _) => false
+        //                 }
+        //             }
+        //             Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
-        fn trim_list(
-            &mut self,
-            offset: u64,
-            new_list_head_offset: u64,
-            trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => {
-                        match (old(self)@[offset as int], self@[offset as int]) {
-                            (Some(old_entry), Some(entry)) => {
-                                entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
-                            }
-                            (_,_) => false
-                        }
-                    }
-                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn trim_list(
+        //     &mut self,
+        //     offset: u64,
+        //     new_list_head_offset: u64,
+        //     trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+        // ) -> (result: Result<(), KvError<K, E>>)
+        //     requires
+        //         old(self).valid(),
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(()) => {
+        //                 match (old(self)@[offset as int], self@[offset as int]) {
+        //                     (Some(old_entry), Some(entry)) => {
+        //                         entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
+        //                     }
+        //                     (_,_) => false
+        //                 }
+        //             }
+        //             Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
-        fn trim_list_and_update_item(
-            &mut self,
-            offset: u64,
-            new_list_head_offset: u64,
-            trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
-            new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => {
-                        match (old(self)@[offset as int], self@[offset as int]) {
-                            (Some(old_entry), Some(entry)) => {
-                                &&& entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
-                                &&& entry.item() == new_item
-                            }
-                            (_,_) => false
-                        }
-                    }
-                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
-                    Err(_) => true // TODO
-                }
-        ;
+        // fn trim_list_and_update_item(
+        //     &mut self,
+        //     offset: u64,
+        //     new_list_head_offset: u64,
+        //     trim_length: usize, // TODO: make ghost if it's only used in the pre/postconditions
+        //     new_item: I,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+        // ) -> (result: Result<(), KvError<K, E>>)
+        //     requires
+        //         old(self).valid(),
+        //     ensures
+        //         self.valid(),
+        //         match result {
+        //             Ok(()) => {
+        //                 match (old(self)@[offset as int], self@[offset as int]) {
+        //                     (Some(old_entry), Some(entry)) => {
+        //                         &&& entry.pages() == old_entry.pages().subrange(trim_length as int, old_entry.pages().len() as int)
+        //                         &&& entry.item() == new_item
+        //                     }
+        //                     (_,_) => false
+        //                 }
+        //             }
+        //             Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+        //             Err(_) => true // TODO
+        //         }
+        // ;
 
     }
 }

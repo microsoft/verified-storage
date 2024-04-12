@@ -19,14 +19,60 @@ use std::hash::Hash;
 // TODO: is it safe for the fields of the structs in this file to be pub?
 
 verus! {
+
+    pub struct DurableKvStoreListNode<L>
+    {
+        list: Seq<L>,
+        offset_of_first_entry: int // TODO: what exactly does this represent...?
+    }
+
+
+    // TODO: need a way to order these
+    pub struct DurableKvStoreList<L>
+    {
+        pub list: Map<int, DurableKvStoreListNode<L>>,
+        pub num_entries: int
+    }
+
+    impl<L> DurableKvStoreList<L>
+    {
+        pub open spec fn spec_index(self, idx: int) -> Option<L>
+        {
+            if self.list.contains_key(idx) {
+                Some(self.list[idx])
+            } else {
+                None
+            }
+        }
+
+        pub open spec fn len(self) -> int
+        {
+            self.num_entries
+        }
+
+        pub open spec fn empty() -> Self
+        {
+            DurableKvStoreList {
+                list: Map::empty(),
+                num_entries: 0
+            }
+        }
+
+        pub open spec fn view_as_seq(self) -> Seq<L>
+        {
+
+        }
+
+    }
+
     pub struct DurableKvStoreViewEntry<K, I, L>
     where
         K: Hash + Eq,
-        // P: LogicalRange,
     {
         pub key: K,
         pub item: I,
-        pub pages: Seq<(int, L)>, // (physical location, entry at that location)
+        pub list: DurableKvStoreList<L>,
+
     }
 
     // TODO: remove since the fields are public
@@ -44,42 +90,40 @@ verus! {
             self.item
         }
 
-        pub open spec fn pages(self) -> Seq<(int, L)>
+        pub open spec fn pages(self) -> DurableKvStoreList<L>
         {
-            self.pages
-        }
-
-        // returns a sequence of entries without their physical locations
-        pub open spec fn page_entries(self) -> Seq<L>
-        {
-            Seq::new(self.pages.len(), |i| self.pages[i].1)
+            self.list
         }
     }
 
-    pub struct DurableKvStoreView<K, I, L>
+    pub struct DurableKvStoreView<K, I, L, E>
     where
-        K: Hash + Eq,
+        K: Hash + Eq + std::fmt::Debug,
         I: Item<K>,
-        // P: LogicalRange,
+        E: std::fmt::Debug
     {
-        pub contents: Seq<Option<DurableKvStoreViewEntry<K, I, L>>>
+        pub contents: Map<int, DurableKvStoreViewEntry<K, I, L>>,
+        pub _phantom: Option<E>
     }
 
-    impl<K, I, L> DurableKvStoreView<K, I, L>
+    impl<K, I, L, E> DurableKvStoreView<K, I, L, E>
     where
-        K: Hash + Eq,
+        K: Hash + Eq + std::fmt::Debug,
         I: Item<K>,
-        // P: LogicalRange,
+        E: std::fmt::Debug
     {
         pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, I, L>>
         {
-            self.contents[idx]
+            if self.contents.contains_key(idx) {
+                Some(self.contents[idx])
+            } else {
+                None
+            }
         }
 
         pub closed spec fn empty(self) -> bool
         {
-            forall |i| 0 <= i < self.contents.len() ==>
-                self.contents[i].is_None()
+            self.contents.is_empty()
         }
 
         pub open spec fn len(self) -> nat
@@ -87,18 +131,26 @@ verus! {
             self.contents.len()
         }
 
-        pub open spec fn create(self, offset: int, item: I) -> Self
+        pub open spec fn create(self, offset: int, item: I) -> Result<Self, KvError<K, E>>
         {
-            Self {
-                contents: self.contents.update(
-                    offset,
-                    Some(DurableKvStoreViewEntry {
-                        key: item.spec_key(),
-                        item,
-                        pages: Seq::<(int, L)>::empty()
-                    })
+            if self.contents.contains_key(offset) {
+                Err(KvError::KeyAlreadyExists)
+            } else {
+                Ok(
+                    Self {
+                        contents: self.contents.insert(
+                            offset,
+                            DurableKvStoreViewEntry {
+                                key: item.spec_key(),
+                                item,
+                                list: DurableKvStoreList::empty()
+                            }
+                        ),
+                        _phantom: None
+                    }
                 )
             }
+
         }
 
         // TODO: might be cleaner to define this elsewhere (like in the interface)
@@ -110,13 +162,13 @@ verus! {
                     let index = volatile_index[k];
                     match index {
                         Some(index) => {
-                            let entry = self.contents[index.metadata_offset];
+                            let entry = self[index.metadata_offset];
                             match entry {
                                 Some(entry) => {
                                     &&& entry.key() == k
-                                    &&& forall |i: int| #![auto] 0 <= i < entry.pages().len() ==> {
-                                            entry.pages()[i].0 == index.list_entry_offsets[i]
-                                    }
+                                    // &&& forall |i: int| #![auto] 0 <= i < entry.pages().len() ==> {
+                                    //         entry.pages()[i].0 == index.list_entry_offsets[i]
+                                    // }
                                 }
                                 None => false
                             }

@@ -234,7 +234,7 @@ verus! {
             }
         }
 
-        pub open spec fn update_item_at_index(self, key: K, idx: usize, new_list_entry: L) -> Result<Self, KvError<K, E>>
+        pub open spec fn update_list_entry_at_index(self, key: K, idx: usize, new_list_entry: L) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {

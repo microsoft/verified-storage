@@ -375,14 +375,14 @@ where
         }
     }
 
-    fn update_item_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
+    fn update_list_entry_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
         ensures
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == old(self)@.update_item_at_index(*key, idx, new_list_entry).unwrap()
+                    &&& self@ == old(self)@.update_list_entry_at_index(*key, idx, new_list_entry).unwrap()
                 }
                 Err(KvError::KeyNotFound) => {
                     &&& !old(self)@.contents.contains_key(*key)
@@ -392,8 +392,8 @@ where
             }
     {
         if self.untrusted_kv_impl.untrusted_contains_key(key) {
-            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item_at_index(*key, idx, new_list_entry).unwrap());
-            self.untrusted_kv_impl.untrusted_update_item_at_index(key, idx, new_list_entry, Tracked(&perm))
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_list_entry_at_index(*key, idx, new_list_entry).unwrap());
+            self.untrusted_kv_impl.untrusted_update_list_entry_at_index(key, idx, new_list_entry, Tracked(&perm))
         } else {
             Err(KvError::KeyNotFound)
         }
