@@ -1,3 +1,4 @@
+#![verus::trusted]
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;

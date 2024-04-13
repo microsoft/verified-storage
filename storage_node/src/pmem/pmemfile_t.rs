@@ -2,7 +2,7 @@
 //! `FileBackedPersistentMemoryRegions`, a collection of persistent
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
-
+#![verus::trusted]
 use crate::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,

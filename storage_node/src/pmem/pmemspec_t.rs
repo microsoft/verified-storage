@@ -31,7 +31,7 @@
 //! to be freed of suspicion of corruption. Both axioms require the
 //! use of CRCs to detect possible corruption, and model a CRC match
 //! as showing evidence of an absence of corruption.
-
+#![verus::trusted]
 use crate::pmem::device_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;

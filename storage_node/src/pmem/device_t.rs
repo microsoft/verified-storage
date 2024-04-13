@@ -6,7 +6,7 @@
 //! into PMRegion(s).
 //! Each `PmDevice` has a single `PmTimestamp`, which also encompasses all
 //! of its regions.
-
+#![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;

@@ -1,3 +1,4 @@
+#![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -46,15 +47,16 @@ verus! {
         }
     }
 
+    // this has to live in this file because PmTimestamp's fields are private
     pub proof fn lemma_auto_timestamp_helpers()
         ensures
-            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().value() == #[trigger] ts.value() + 1,
-            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().gt(ts),
-            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().device_id() == #[trigger] ts.device_id(),
-            forall |t1: PmTimestamp, t2, t3| t1.gt(t2) && t2.gt(t3) ==> t1.gt(t3),
-            forall |t1: PmTimestamp, t2: PmTimestamp| t1.value() == t2.value() && t1.device_id() == t2.device_id() <==> t1 == t2,
-            forall |t1: PmTimestamp, t2: PmTimestamp, x: int|
-                x > 0 && #[trigger] t1.value() == #[trigger] (t2.value() + x) ==> #[trigger] t1.gt(t2)
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().value() == #[trigger] ts.value() + 1, // $line_count$Spec$
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().gt(ts), // $line_count$Spec$
+            forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().device_id() == #[trigger] ts.device_id(), // $line_count$Spec$
+            forall |t1: PmTimestamp, t2, t3| t1.gt(t2) && t2.gt(t3) ==> t1.gt(t3), // $line_count$Spec$
+            forall |t1: PmTimestamp, t2: PmTimestamp| t1.value() == t2.value() && t1.device_id() == t2.device_id() <==> t1 == t2, // $line_count$Spec$
+            forall |t1: PmTimestamp, t2: PmTimestamp, x: int| // $line_count$Spec$
+                x > 0 && #[trigger] t1.value() == #[trigger] (t2.value() + x) ==> #[trigger] t1.gt(t2) // $line_count$Spec$
     {}
 
     /// Higher-level storage component modules (e.g., multilog) should implement this

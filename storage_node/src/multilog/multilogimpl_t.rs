@@ -37,7 +37,7 @@
 //! across invocations of its functions. This implementation will then
 //! guarantee that `inv` holds on any call to an `UntrustedLogImpl`
 //! method, and demand that the method preserve that invariant.
-
+#![verus::trusted]
 use std::fmt::Write;
 
 use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;

@@ -5,7 +5,7 @@
 //!
 //! THIS IS ONLY INTENDED FOR USE IN TESTING! In practice, one should
 //! use actually persistent memory to implement persistent memory!
-
+#![verus::trusted]
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,

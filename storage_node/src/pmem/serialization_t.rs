@@ -1,3 +1,4 @@
+#![verus::trusted]
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -88,15 +89,15 @@ verus! {
 
         proof fn lemma_auto_serialize_deserialize()
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));
+            lemma_auto_spec_u64_to_from_le_bytes();  // $line_count$Proof$
+            assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));  // $line_count$Proof$
         }
 
         proof fn lemma_auto_serialized_len()
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);
-            assert(Self::spec_serialized_len() == 8);
+            lemma_auto_spec_u64_to_from_le_bytes(); // $line_count$Proof$
+            assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);  // $line_count$Proof$
+            assert(Self::spec_serialized_len() == 8);  // $line_count$Proof$
         }
 
         open spec fn spec_serialized_len() -> u64

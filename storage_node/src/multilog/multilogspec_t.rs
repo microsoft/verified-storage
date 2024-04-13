@@ -36,13 +36,13 @@
 //! This method drops all pending appends. It's not meant to be
 //! explicitly invoked by clients; it's a model of what clients should
 //! consider to have happened during a crash.
-
+#![verus::trusted]
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    
+
     // An `AbstractLogState` is an abstraction of a single log, of
     // which an abstract multilog is composed. Its fields are:
     //
@@ -116,7 +116,7 @@ verus! {
             Self { pending: Seq::<u8>::empty(), ..self }
         }
     }
-    
+
     // An `AbstractMultiLogState` is an abstraction of a collection of
     // logs that can be atomically collectively appended to. It
     // consists of a sequence of logs of type `AbstractLogState`.
