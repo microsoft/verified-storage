@@ -11,7 +11,7 @@ verus! {
     // TODO: is this enough to prevent someone from creating an
     // S from different data and passing it off as one that was
     // read normally?
-    pub closed spec fn maybe_corrupted_serialized<S>(
+    pub open spec fn maybe_corrupted_serialized<S>(
         read_val: S,
         true_val: S,
         start_addr: int
@@ -48,27 +48,6 @@ verus! {
             read_val == true_val
     {}
 
-    // TODO: maybe use a specific type for the CDB?
-    pub proof fn axiom_corruption_detecting_boolean_serialized(
-        read_cdb: u64,
-        true_cdb: u64,
-        addr: int,
-    )
-        requires
-            maybe_corrupted_serialized(read_cdb, true_cdb, addr),
-            read_cdb == CDB_FALSE || read_cdb == CDB_TRUE,
-            true_cdb == CDB_FALSE || true_cdb == CDB_TRUE,
-        ensures
-            read_cdb == true_cdb
-    {
-        let addrs = Seq::<int>::new(u64::spec_serialized_len() as nat, |i: int| i + addr);
-        let read_cdb_bytes = read_cdb.spec_serialize();
-        let true_cdb_bytes = true_cdb.spec_serialize();
-        assert(maybe_corrupted(read_cdb_bytes, true_cdb_bytes, addrs));
-        u64::lemma_auto_serialize_deserialize();
-        axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
-    }
-
     pub trait Serializable : Sized {
         spec fn spec_serialize(self) -> Seq<u8>;
 
@@ -97,12 +76,12 @@ verus! {
     }
 
     impl Serializable for u64 {
-        closed spec fn spec_serialize(self) -> Seq<u8>
+        open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self)
         }
 
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             spec_u64_from_le_bytes(bytes)
         }

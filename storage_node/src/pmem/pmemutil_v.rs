@@ -574,4 +574,26 @@ verus! {
                bytes);
     }
 
+
+    // TODO: maybe use a specific type for the CDB?
+    pub proof fn axiom_corruption_detecting_boolean_serialized(
+        read_cdb: u64,
+        true_cdb: u64,
+        addr: int,
+    )
+        requires
+            maybe_corrupted_serialized(read_cdb, true_cdb, addr),
+            read_cdb == CDB_FALSE || read_cdb == CDB_TRUE,
+            true_cdb == CDB_FALSE || true_cdb == CDB_TRUE,
+        ensures
+            read_cdb == true_cdb
+    {
+        let addrs = Seq::<int>::new(u64::spec_serialized_len() as nat, |i: int| i + addr);
+        let read_cdb_bytes = read_cdb.spec_serialize();
+        let true_cdb_bytes = true_cdb.spec_serialize();
+        assert(maybe_corrupted(read_cdb_bytes, true_cdb_bytes, addrs));
+        u64::lemma_auto_serialize_deserialize();
+        axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
+    }
+
 }
