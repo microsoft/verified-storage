@@ -266,7 +266,7 @@ verus! {
             }
         }
 
-        pub open spec fn trim_pages(self, key: K, trim_length: int) -> Result<Self, KvError<K, E>>
+        pub open spec fn trim_list(self, key: K, trim_length: int) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {
@@ -282,7 +282,7 @@ verus! {
             }
         }
 
-        pub open spec fn trim_pages_and_update_item(self, key: K, trim_length: int, new_item: I) -> Result<Self, KvError<K, E>>
+        pub open spec fn trim_list_and_update_item(self, key: K, trim_length: int, new_item: I) -> Result<Self, KvError<K, E>>
         {
             let result = self.read_item_and_list(key);
             match result {

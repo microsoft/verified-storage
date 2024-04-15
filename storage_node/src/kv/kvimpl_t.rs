@@ -203,25 +203,25 @@ where
         self.untrusted_kv_impl.untrusted_read_item(key)
     }
 
-    fn read_item_and_list(&self, key: &K) -> (result: Option<(&I, &Vec<L>)>)
-        requires
-            self.valid(),
-        ensures
-        ({
-            let spec_result = self@.read_item_and_list(*key);
-            match (result, spec_result) {
-                (Some((output_item, output_pages)), Some((spec_item, spec_pages))) => {
-                    &&& spec_item == output_item
-                    &&& spec_pages == output_pages@
-                }
-                (Some((output_item, output_pages)), None) => false,
-                (None, Some((spec_item, spec_pages))) => false,
-                (None, None) => true,
-            }
-        })
-    {
-        self.untrusted_kv_impl.untrusted_read_item_and_list(key)
-    }
+    // fn read_item_and_list(&self, key: &K) -> (result: Option<(&I, Vec<&L>)>)
+    //     requires
+    //         self.valid(),
+    //     ensures
+    //     ({
+    //         let spec_result = self@.read_item_and_list(*key);
+    //         match (result, spec_result) {
+    //             (Some((output_item, output_pages)), Some((spec_item, spec_pages))) => {
+    //                 &&& spec_item == output_item
+    //                 &&& spec_pages == output_pages@
+    //             }
+    //             (Some((output_item, output_pages)), None) => false,
+    //             (None, Some((spec_item, spec_pages))) => false,
+    //             (None, None) => true,
+    //         }
+    //     })
+    // {
+    //     self.untrusted_kv_impl.untrusted_read_item_and_list(key)
+    // }
 
     fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K, E>>)
         requires
@@ -247,24 +247,24 @@ where
         self.untrusted_kv_impl.untrusted_read_list_entry_at_index(key, idx)
     }
 
-    fn read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
-        requires
-            self.valid(),
-        ensures
-        ({
-            let spec_result = self@.read_item_and_list(*key);
-            match (result, spec_result) {
-                (Some(output_pages), Some((spec_item, spec_pages))) => {
-                    &&& spec_pages == output_pages@
-                }
-                (Some(output_pages), None) => false,
-                (None, Some((spec_item, spec_pages))) => false,
-                (None, None) => true,
-            }
-        })
-    {
-        self.untrusted_kv_impl.untrusted_read_list(key)
-    }
+    // fn read_list(&self, key: &K) -> (result: Option<&Vec<L>>)
+    //     requires
+    //         self.valid(),
+    //     ensures
+    //     ({
+    //         let spec_result = self@.read_item_and_list(*key);
+    //         match (result, spec_result) {
+    //             (Some(output_pages), Some((spec_item, spec_pages))) => {
+    //                 &&& spec_pages == output_pages@
+    //             }
+    //             (Some(output_pages), None) => false,
+    //             (None, Some((spec_item, spec_pages))) => false,
+    //             (None, None) => true,
+    //         }
+    //     })
+    // {
+    //     self.untrusted_kv_impl.untrusted_read_list(key)
+    // }
 
     fn update_item(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K, E>>)
         requires
@@ -429,7 +429,7 @@ where
         }
     }
 
-    fn trim_pages(
+    fn trim_list(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -440,7 +440,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages(*key, trim_length as int).unwrap()
+                    &&& self@ == old(self)@.trim_list(*key, trim_length as int).unwrap()
                 }
                 Err(KvError::KeyNotFound) => {
                     &&& !old(self)@.contents.contains_key(*key)
@@ -450,14 +450,14 @@ where
             }
     {
         if self.untrusted_kv_impl.untrusted_contains_key(key) {
-            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages(*key, trim_length as int).unwrap());
-            self.untrusted_kv_impl.untrusted_trim_pages(key, trim_length, Tracked(&perm))
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_list(*key, trim_length as int).unwrap());
+            self.untrusted_kv_impl.untrusted_trim_list(key, trim_length, Tracked(&perm))
         } else {
             Err(KvError::KeyNotFound)
         }
     }
 
-    fn trim_pages_and_update_item(
+    fn trim_list_and_update_item(
         &mut self,
         key: &K,
         trim_length: usize,
@@ -469,7 +469,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.valid()
-                    &&& self@ == old(self)@.trim_pages_and_update_item(*key, trim_length as int, new_item).unwrap()
+                    &&& self@ == old(self)@.trim_list_and_update_item(*key, trim_length as int, new_item).unwrap()
                 }
                 Err(KvError::KeyNotFound) => {
                     &&& !old(self)@.contents.contains_key(*key)
@@ -479,8 +479,8 @@ where
             }
     {
         if self.untrusted_kv_impl.untrusted_contains_key(key) {
-            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_pages_and_update_item(*key, trim_length as int, new_item).unwrap());
-            self.untrusted_kv_impl.untrusted_trim_pages_and_update_item(key, trim_length, new_item, Tracked(&perm))
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.trim_list_and_update_item(*key, trim_length as int, new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_trim_list_and_update_item(key, trim_length, new_item, Tracked(&perm))
         } else {
             Err(KvError::KeyNotFound)
         }

@@ -35,7 +35,7 @@ verus! {
                 }
         ;
 
-        fn insert(
+        fn insert_item_offset(
             &mut self,
             key: &K,
             offset: u64,
@@ -46,24 +46,27 @@ verus! {
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        &&& self@ == old(self)@.insert_metadata_offset(*key, offset as int)
+                        &&& self@ == old(self)@.insert_item_offset(*key, offset as int)
                     }
                     Err(_) => true // TODO
                 }
         ;
 
-        fn append_offset_to_list(
+        fn append_to_list(
             &mut self,
             key: &K,
-            entry_offset: u64
         ) -> (result: Result<(), KvError<K, E>>)
             requires
-                old(self).valid()
+                old(self).valid(),
+                ({
+                    let (_, node_view) = old(self)@.get_node_view(*key, old(self)@.list_len(*key) - 1);
+                    node_view.has_free_space(old(self)@.list_entries_per_node)
+                })
             ensures
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        self@ == old(self)@.append_entry_offset(*key, entry_offset as int)
+                        self@ == old(self)@.append_to_list(*key)
                     }
                     Err(_) => true // TODO
                 }
@@ -78,13 +81,15 @@ verus! {
             ensures
                 match result {
                     Some(offset) => match self@[*key] {
-                            Some(val) => offset == val.metadata_offset,
+                            Some(val) => offset == val.item_offset,
                             None => false
                         }
                     None => self@[*key].is_None()
                 }
         ;
 
+        // Returns the physical location of the list entry at the specified index.
+        // Returns the address of the entry, not the address of the node that contains it
         fn get_entry_location_by_index(
             &self,
             key: &K,
@@ -95,15 +100,35 @@ verus! {
             ensures
                 match result {
                     Ok(offset) => match self@[*key] {
-                        Some(entry) => entry.list_entry_offsets[idx as int] == offset as int,
+                        Some(entry) => true, // TODO
+                        // Some(entry) => entry.list_node_offsets[idx as int] == offset as int,
                         None => false
-                    }
+                    },
                     Err(KvError::KeyNotFound) => !self@.contains_key(*key),
                     Err(KvError::IndexOutOfRange) => match self@[*key] {
-                        Some(entry) => idx >= entry.list_entry_offsets.len(),
+                        Some(entry) => idx >= entry.list_node_offsets.len(),
                         None => false
                     }
-                    Err(_) => false
+                    Err(_) => false,
+                }
+        ;
+
+        // returns a pointer to the list node that contains the specified index
+        fn get_node_offset(
+            &self,
+            key: &K,
+            idx: usize
+        ) -> (result: Result<u64, KvError<K, E>>)
+            requires
+                self.valid(),
+            ensures
+                match result {
+                    Ok(node_offset) => {
+                        node_offset as int == self@.get_node_offset(*key, idx as int)
+                    }
+                    Err(KvError::KeyNotFound) => self@[*key] is None,
+                    Err(KvError::IndexOutOfRange) => idx >= self@[*key].unwrap().list_len,
+                    _ => false,
                 }
         ;
 
@@ -119,7 +144,7 @@ verus! {
                     Ok(offset) => {
                         match old(self)@[*key] {
                             Some(entry) => {
-                                &&& entry.metadata_offset == offset as int
+                                &&& entry.item_offset == offset as int
                                 &&& self@[*key].is_None()
                             }
                             None => false
@@ -130,32 +155,23 @@ verus! {
         ;
 
         // trims the volatile index for the list associated with the key
-        // and returns the physical offset of the entry that will become the
-        // new durable head of the list
         fn trim_list(
             &mut self,
             key: &K,
             trim_length: usize
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
             ensures
                 self.valid(),
                 match result {
-                    Ok(offset) => {
-                        match (old(self)@[*key], self@[*key]) {
-                            (Some(old_entry), Some(entry)) => {
-                                &&& entry.list_entry_offsets ==
-                                    old_entry.list_entry_offsets.subrange(
-                                        trim_length as int,
-                                        old_entry.list_entry_offsets.len() as int
-                                    )
-                                &&& offset as int == old_entry.list_entry_offsets[trim_length as int]
-                            }
-                            (_, _) => true // TODO
-                        }
+                    Ok(()) => self@ == old(self)@.trim_list(*key, trim_length as int),
+                    Err(KvError::KeyNotFound) => self@[*key] is None,
+                    Err(KvError::IndexOutOfRange) => {
+                        &&& self@[*key] is Some
+                        &&& self@[*key].unwrap().list_len <= trim_length
                     }
-                    Err(_) => true // TODO
+                    _ => false,
                 }
         ;
 

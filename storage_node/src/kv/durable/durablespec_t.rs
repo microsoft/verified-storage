@@ -19,27 +19,27 @@ use std::hash::Hash;
 // TODO: is it safe for the fields of the structs in this file to be pub?
 
 verus! {
-
-    pub struct DurableKvStoreListNode<L>
-    {
-        list: Seq<L>,
-        offset_of_first_entry: int // TODO: what exactly does this represent...?
-    }
-
-
-    // TODO: need a way to order these
     pub struct DurableKvStoreList<L>
     {
-        pub list: Map<int, DurableKvStoreListNode<L>>,
-        pub num_entries: int
+        pub list: Seq<L>,
+        pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
     }
 
     impl<L> DurableKvStoreList<L>
     {
         pub open spec fn spec_index(self, idx: int) -> Option<L>
         {
-            if self.list.contains_key(idx) {
+            if idx < self.list.len() {
                 Some(self.list[idx])
+            } else {
+                None
+            }
+        }
+
+        pub open spec fn offset_index(self, offset: int) -> Option<int>
+        {
+            if self.node_offset_map.contains_key(offset) {
+                Some(self.node_offset_map[offset])
             } else {
                 None
             }
@@ -47,22 +47,16 @@ verus! {
 
         pub open spec fn len(self) -> int
         {
-            self.num_entries
+            self.list.len() as int
         }
 
         pub open spec fn empty() -> Self
         {
             DurableKvStoreList {
-                list: Map::empty(),
-                num_entries: 0
+                list: Seq::empty(),
+                node_offset_map: Map::empty(),
             }
         }
-
-        pub open spec fn view_as_seq(self) -> Seq<L>
-        {
-
-        }
-
     }
 
     pub struct DurableKvStoreViewEntry<K, I, L>
@@ -90,7 +84,7 @@ verus! {
             self.item
         }
 
-        pub open spec fn pages(self) -> DurableKvStoreList<L>
+        pub open spec fn list(self) -> DurableKvStoreList<L>
         {
             self.list
         }
@@ -162,12 +156,12 @@ verus! {
                     let index = volatile_index[k];
                     match index {
                         Some(index) => {
-                            let entry = self[index.metadata_offset];
+                            let entry = self[index.item_offset];
                             match entry {
                                 Some(entry) => {
                                     &&& entry.key() == k
                                     // &&& forall |i: int| #![auto] 0 <= i < entry.pages().len() ==> {
-                                    //         entry.pages()[i].0 == index.list_entry_offsets[i]
+                                    //         entry.pages()[i].0 == index.list_node_offsets[i]
                                     // }
                                 }
                                 None => false
