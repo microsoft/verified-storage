@@ -115,7 +115,12 @@ verus! {
             }
         }
 
-        pub closed spec fn empty(self) -> bool
+        pub open spec fn contains_key(self, idx: int) -> bool
+        {
+            self[idx] is Some
+        }
+
+        pub open spec fn empty(self) -> bool
         {
             self.contents.is_empty()
         }
@@ -150,26 +155,26 @@ verus! {
         // TODO: might be cleaner to define this elsewhere (like in the interface)
         pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
         {
-            ||| (self.empty() && volatile_index.empty())
-            ||| forall |k: K| volatile_index.contains_key(k) <==>
-                {
-                    let index = volatile_index[k];
-                    match index {
-                        Some(index) => {
-                            let entry = self[index.item_offset];
-                            match entry {
-                                Some(entry) => {
-                                    &&& entry.key() == k
-                                    // &&& forall |i: int| #![auto] 0 <= i < entry.pages().len() ==> {
-                                    //         entry.pages()[i].0 == index.list_node_offsets[i]
-                                    // }
-                                }
-                                None => false
+            &&& self.len() == volatile_index.len()
+            &&& self.contents.dom().finite()
+            &&& volatile_index.contents.dom().finite()
+            &&& {
+                    ||| (self.empty() && volatile_index.empty())
+                    ||| { &&& (forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
+                            exists |i: int| #![auto] {
+                                &&& self.contains_key(i)
+                                &&& self[i].unwrap().key() == k
+                                &&& volatile_index[k].unwrap().item_offset == i
                             }
-                        }
-                        None => false
+                        })
+                    &&& (forall |i: int| #![auto] self.contains_key(i) ==> {
+                            exists |k: K| #![auto] {
+                                &&& volatile_index.contains_key(k)
+                                &&& self[i].unwrap().key() == k
+                                &&& volatile_index[k].unwrap().item_offset == i
+                            }
+                        })
                     }
-
                 }
         }
     }

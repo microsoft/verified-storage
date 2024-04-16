@@ -196,12 +196,30 @@ where
                 Err(_) => false
             }
     {
-        assume(false);
+        // check whether the key already exists
+        if self.volatile_index.get(key).is_some() {
+            return Err(KvError::KeyAlreadyExists);
+        }
+
+        let ghost old_durable_state = self.durable_store@;
+        let ghost old_volatile_state = self.volatile_index@;
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
         let offset = self.durable_store.create(item, perm)?;
         self.volatile_index.insert_item_offset(key, offset)?;
+
+        proof {
+            lemma_volatile_matches_durable_after_create(old_durable_state, old_volatile_state, offset as int, *key, item);
+            assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
+
+            assume(false);
+
+            assert(self.valid());
+
+            assert(self@ == old(self)@.create(*key, item).unwrap());
+        }
+
         Ok(())
     }
 

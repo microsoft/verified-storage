@@ -42,13 +42,15 @@ verus! {
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
+                old(self)@[*key] is None,
             ensures
                 self.valid(),
                 match result {
                     Ok(()) => {
                         &&& self@ == old(self)@.insert_item_offset(*key, offset as int)
+                        &&& self@.len() == old(self)@.len() + 1
                     }
-                    Err(_) => true // TODO
+                    Err(_) => false // TODO
                 }
         ;
 

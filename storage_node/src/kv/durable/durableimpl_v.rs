@@ -41,6 +41,7 @@ verus! {
                     Ok(durable_store) => {
                         &&& durable_store@.empty()
                         &&& durable_store.valid()
+                        &&& durable_store@.contents.dom().finite()
                     }
                     Err(_) => true // TODO
                 };
@@ -51,17 +52,16 @@ verus! {
             perm: Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
-                old(self).valid()
+                old(self).valid(),
             ensures
                 self.valid(),
                 ({
-
                     match result {
                         Ok(offset) => {
                             let spec_result = old(self)@.create(offset as int, item);
                             match spec_result {
                                 Ok(spec_result) => {
-                                    &&& self@.len() == old(self)@.len()
+                                    &&& self@.len() == old(self)@.len() + 1
                                     &&& self@ == spec_result
                                     &&& 0 <= offset < self@.len()
                                     &&& self@[offset as int].is_Some()

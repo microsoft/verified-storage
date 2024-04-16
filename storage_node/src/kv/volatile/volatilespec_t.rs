@@ -60,9 +60,9 @@ verus! {
     where
         K: Hash + Eq,
     {
-        pub closed spec fn spec_index(&self, key: K) -> Option<VolatileKvIndexEntry>
+        pub open spec fn spec_index(&self, key: K) -> Option<VolatileKvIndexEntry>
         {
-            if self.contents.dom().contains(key) {
+            if self.contents.contains_key(key) {
                 Some(self.contents.index(key))
             } else {
                 None
@@ -71,7 +71,12 @@ verus! {
 
         pub open spec fn contains_key(&self, key: K) -> bool
         {
-            self.contents.contains_key(key)
+            self[key] is Some
+        }
+
+        pub open spec fn len(&self) -> int
+        {
+            self.contents.len() as int
         }
 
         pub open spec fn insert_item_offset(&self, key: K, item_offset: int) -> Self
