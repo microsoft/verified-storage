@@ -69,57 +69,10 @@ where
     {
         AbstractKvStoreState {
             id: self.id,
-            contents: Map::new(
-                |k| { self.volatile_index@.contains_key(k) },
-                |k| {
-                    let index_entry = self.volatile_index@[k].unwrap();
-                    let durable_entry = self.durable_store@[index_entry.item_offset].unwrap();
-                    (durable_entry.item(), durable_entry.list().list)
-                }
-            ),
+            contents: AbstractKvStoreState::construct_view_contents(
+                self.volatile_index@, self.durable_store@),
             _phantom: None,
         }
-    }
-
-    closed spec fn durable_store_contents_match_kv_state(self, durable_store_state: DurableKvStoreView<K, I, L, E>) -> bool
-    {
-        let kv_state = self@;
-        ||| kv_state.empty() && durable_store_state.empty()
-        ||| ({
-            // everything in the durable store is in the kv view
-            &&& forall |i: int| 0 <= i < durable_store_state.len() ==> {
-                    match #[trigger] durable_store_state[i] {
-                        Some(durable_entry) => {
-                            let key = durable_entry.key();
-                            match kv_state[key] {
-                                Some(kv_entry) => {
-                                    &&& kv_entry.0 == durable_entry.item()
-                                    &&& kv_entry.1 == durable_entry.list().list
-                                }
-                                None => false
-                            }
-                        }
-                        None => true
-                    }
-                }
-            // all keys in the kv view are also in the durable store
-            &&& forall |k: K| kv_state.contents.contains_key(k) ==> {
-                    match self.volatile_index@[k] {
-                        Some(index_entry) => {
-                            let durable_entry = durable_store_state[index_entry.item_offset as int];
-                            let kv_entry = kv_state[k];
-                            // we already checked that the entries match, so we just need to make sure
-                            // that there are no keys that exist in the kv view that do not exist
-                            // in the durable store here
-                            match (kv_entry, durable_entry) {
-                                (Some(_), Some(_)) => true,
-                                (_, _) => false
-                            }
-                        }
-                        None => false
-                    }
-                }
-        })
     }
 
     // Proves that if the durable store and volatile index comprising a KV are both empty,
@@ -133,13 +86,11 @@ where
     {
         lemma_empty_map_contains_no_keys(self.volatile_index@.contents);
         assert(Set::new(|k| self.volatile_index@.contains_key(k)) =~= Set::<K>::empty());
-        assume(false);
     }
 
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
-        &&& self.durable_store_contents_match_kv_state(self.durable_store@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
     }
@@ -203,6 +154,7 @@ where
 
         let ghost old_durable_state = self.durable_store@;
         let ghost old_volatile_state = self.volatile_index@;
+        let ghost old_kv_state = self@;
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
@@ -210,14 +162,12 @@ where
         self.volatile_index.insert_item_offset(key, offset)?;
 
         proof {
+            // the volatile index and durable store match after creating the new entry in both
             lemma_volatile_matches_durable_after_create(old_durable_state, old_volatile_state, offset as int, *key, item);
-            assert(self.durable_store@.matches_volatile_index(self.volatile_index@));
-
-            assume(false);
-
-            assert(self.valid());
-
-            assert(self@ == old(self)@.create(*key, item).unwrap());
+            let new_kv_state = old_kv_state.create(*key, item).unwrap();
+            // the kv state reflects the new volatile and durable store states
+            assert(new_kv_state.contents =~= AbstractKvStoreState::construct_view_contents(
+                    self.volatile_index@, self.durable_store@));
         }
 
         Ok(())

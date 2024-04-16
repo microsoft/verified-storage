@@ -10,9 +10,11 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::kv::durable::durableimpl_v::*;
+use crate::kv::durable::durablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvimpl_v::*;
 use crate::kv::volatile::volatileimpl_v::*;
+use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
@@ -125,7 +127,7 @@ verus! {
     {
         pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
         {
-            if self.get_keys().contains(key) {
+            if self.contents.contains_key(key) {
                 Some(self.contents[key])
             } else {
                 None
@@ -135,6 +137,25 @@ verus! {
         pub open spec fn empty(self) -> bool
         {
             self.contents.is_empty()
+        }
+
+        pub open spec fn contains_key(&self, key: K) -> bool
+        {
+            self.contents.contains_key(key)
+        }
+
+        pub open spec fn construct_view_contents(
+            volatile_store_state: VolatileKvIndexView<K>,
+            durable_store_state: DurableKvStoreView<K, I, L, E>
+        ) -> Map<K, (I, Seq<L>)> {
+            Map::new(
+                |k| { volatile_store_state.contains_key(k) },
+                |k| {
+                    let index_entry = volatile_store_state[k].unwrap();
+                    let durable_entry = durable_store_state[index_entry.item_offset].unwrap();
+                    (durable_entry.item(), durable_entry.list().list)
+                }
+            )
         }
 
         pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError<K, E>>
@@ -302,7 +323,6 @@ verus! {
         {
             self.contents.dom()
         }
-
     }
 
 }
