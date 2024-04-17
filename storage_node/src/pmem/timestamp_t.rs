@@ -48,7 +48,8 @@ verus! {
     }
 
     // this has to live in this file because PmTimestamp's fields are private
-    // $line_count$Spec${$
+    // Q: is this proof or spec?
+    // $line_count$Proof${$
     pub proof fn lemma_auto_timestamp_helpers()
         ensures
             forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().value() == #[trigger] ts.value() + 1,
@@ -59,7 +60,7 @@ verus! {
             forall |t1: PmTimestamp, t2: PmTimestamp, x: int|
                 x > 0 && #[trigger] t1.value() == #[trigger] (t2.value() + x) ==> #[trigger] t1.gt(t2)
     {}
-    // $line_count$Spec$}$
+    // $line_count$Proof$}$
 
     /// Higher-level storage component modules (e.g., multilog) should implement this
     /// in order to be able to update their ghost timestamp when other components on
