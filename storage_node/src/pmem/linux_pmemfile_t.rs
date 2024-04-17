@@ -122,7 +122,7 @@ verus! {
         #[verifier::external_body]
         fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
         {
-            // $line_count${$
+            // $line_count$${$
             // the precondition requires that the device has enough space for the
             // region, so we don't have to check on that
             let new_virt_addr = unsafe {
@@ -156,7 +156,7 @@ verus! {
                     Err(_) => true // TODO
                 }
         {
-            // $line_count${$
+            // $line_count$${$
             let mut mapped_len = 0;
             let mut is_pm = 0;
             let file = CString::new(file_to_map.into_rust_str()).map_err(|_| PmemError::InvalidFileName )?;
@@ -213,7 +213,7 @@ verus! {
         fn drop(&mut self)
             opens_invariants none
         {
-            // $line_count${$
+            // $line_count$${$
             unsafe { pmem_unmap(self.virt_addr.virt_addr as *mut c_void, self.mapped_len.try_into().unwrap()) };
             // $line_count$}$
         }
@@ -253,7 +253,7 @@ verus! {
         #[verifier::external_body]
         fn new(region_descriptor: Self::RegionDesc) -> Result<Self, PmemError>
         {
-            // $line_count${$
+            // $line_count$${$
             // TODO: we don't actually know what the state at last flush was;
             // should this instead be represented by some unknown value?
             let ghost state = Seq::new(
@@ -283,7 +283,7 @@ verus! {
         #[verifier::external_body]
         fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
         {
-            // $line_count${$
+            // $line_count$${$
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
 
             // SAFETY: The `offset` method is safe as long as both the start
@@ -317,7 +317,7 @@ verus! {
             where
                 S: Serializable + Sized
         {
-            // $line_count${$
+            // $line_count$${$
             // SAFETY: The `offset` method is safe as long as both the start
             // and resulting pointer are in bounds and the computed offset does
             // not overflow `isize`. `addr` and `num_bytes` are unsigned and
@@ -345,7 +345,7 @@ verus! {
         #[verifier::external_body]
         fn write(&mut self, addr: u64, bytes: &[u8])
         {
-            // $line_count${$
+            // $line_count$${$
             // SAFETY: The `offset` method is safe as long as both the start
             // and resulting pointer are in bounds and the computed offset does
             // not overflow `isize`. `addr` and `num_bytes` are unsigned and
@@ -381,7 +381,7 @@ verus! {
             where
                 S: Serializable + Sized
         {
-            // $line_count${$
+            // $line_count$${$
             let num_bytes: usize = S::serialized_len().try_into().unwrap();
 
             // SAFETY: The `offset` method is safe as long as both the start
@@ -419,7 +419,7 @@ verus! {
         #[verifier::external_body]
         fn flush(&mut self)
         {
-            // $line_count${$
+            // $line_count$${$
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
 
             // `pmem_drain()` invokes an ordering primitive to drain store buffers and
@@ -513,7 +513,7 @@ verus! {
         #[verifier::external_body]
         fn flush(&mut self)
         {
-            // $line_count${$
+            // $line_count$${$
             // we only loop over PM views, since we don't want to invoke one drain for
             // every region, since all of the regions are from the same device
             for which_region in iter: 0..self.pms.len()
@@ -531,7 +531,7 @@ verus! {
         #[verifier::external_body]
         fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
         {
-            // $line_count${$
+            // $line_count$${$
             for i in iter: 0..self.pms.len()
                 invariant
                     iter.end == self.pms.len(),
