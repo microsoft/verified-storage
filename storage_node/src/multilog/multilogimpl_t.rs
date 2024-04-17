@@ -221,9 +221,9 @@ verus! {
             self.valid()
         }
 
-        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
+        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) { // $line_count$Exec$
             proof { self.lemma_valid_implies_wrpm_inv(); } // $line_count$Proof$
-            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp);
+            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp); // $line_count$Exec$
             proof { self.lemma_untrusted_log_inv_implies_valid(); } // $line_count$Proof$
         }
     }
