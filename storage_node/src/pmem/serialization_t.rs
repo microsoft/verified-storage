@@ -54,6 +54,8 @@ verus! {
 
         spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
+        // Q: should the sigs of these proof functions be marked proof?
+        // $line_count$Proof${$
         proof fn lemma_auto_serialize_deserialize()
             ensures
                 forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize())
@@ -63,6 +65,7 @@ verus! {
             ensures
                 forall |s: Self| #![auto] s.spec_serialize().len() == Self::spec_serialized_len()
         ;
+        // $line_count$}$
 
         // TODO: this should really be a constant, but verus doesn't
         // support associated constants right now
@@ -87,10 +90,11 @@ verus! {
             spec_u64_from_le_bytes(bytes)
         }
 
+        // $line_count$Proof${$
         proof fn lemma_auto_serialize_deserialize()
         {
-            lemma_auto_spec_u64_to_from_le_bytes();  // $line_count$Proof$
-            assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));  // $line_count$Proof$
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));
         }
 
         proof fn lemma_auto_serialized_len()
@@ -99,6 +103,7 @@ verus! {
             assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);  // $line_count$Proof$
             assert(Self::spec_serialized_len() == 8);  // $line_count$Proof$
         }
+        // $line_count$}$
 
         open spec fn spec_serialized_len() -> u64
         {

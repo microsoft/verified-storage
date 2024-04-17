@@ -44,6 +44,7 @@ use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::timestamp_t::*;
+use crate::pmem::wrpm_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -221,9 +222,9 @@ verus! {
         }
 
         fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
-            proof { self.lemma_valid_implies_wrpm_inv(); }
+            proof { self.lemma_valid_implies_wrpm_inv(); } // $line_count$Proof$
             self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp);
-            proof { self.lemma_untrusted_log_inv_implies_valid(); }
+            proof { self.lemma_untrusted_log_inv_implies_valid(); } // $line_count$Proof$
         }
     }
 
@@ -265,6 +266,9 @@ verus! {
             &&& can_only_crash_as_state(self.wrpm_regions@, self.multilog_id@, self@.drop_pending_appends())
         }
 
+        // TODO: move these proofs to a _v file
+        // they currently rely on closed spec fns / private fields and are hard to move
+        // $line_count$Proof${$
         proof fn lemma_valid_implies_wrpm_inv(self)
             requires
                 self.valid()
@@ -273,7 +277,9 @@ verus! {
         {
             self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.multilog_id@);
         }
+        // $line_count$}$
 
+        // $line_count$Proof${$
         proof fn lemma_untrusted_log_inv_implies_valid(self)
             requires
                 self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
@@ -282,6 +288,7 @@ verus! {
         {
             self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.multilog_id@);
         }
+        // $line_count$}$
 
         // The `setup` method sets up persistent memory regions `pm_regions`
         // to store an initial empty multilog. It returns a vector
