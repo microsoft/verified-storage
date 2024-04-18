@@ -8,5 +8,6 @@ pub mod multilogspec_t;
 // pub mod pmemmock_t;
 // pub mod pmem::pmemspec_t;
 // pub mod pmemutil_v;
+pub mod math_v;
 pub mod setup_v;
 pub mod start_v;
