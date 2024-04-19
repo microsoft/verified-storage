@@ -60,18 +60,28 @@ verus! {
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
+                // The caller has to prove that 1) the key exists and 2) the node we will add to has free
+                // space. This function should be called only after a successful durable append,
+                // which they can use to prove this.
+                old(self)@.contains_key(*key),
                 ({
-                    let (_, node_view) = old(self)@.get_node_view(*key, old(self)@.list_len(*key) - 1);
-                    node_view.has_free_space(old(self)@.list_entries_per_node)
+                    let (_, node_view) = old(self)@.get_node_view::<E>(*key, old(self)@.list_len(*key) - 1).unwrap();
+                    node_view.has_free_space()
                 })
             ensures
                 self.valid(),
-                match result {
-                    Ok(()) => {
-                        self@ == old(self)@.append_to_list(*key)
+                ({
+                    let spec_result = old(self)@.append_to_list::<E>(*key);
+                    match (result, spec_result) {
+                        (Ok(()), Ok(new_state)) => self@ == new_state,
+                        (Ok(()), Err(_)) => false,
+                        (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => {
+                            &&& !old(self)@.contains_key(*key)
+                            &&& self@ == old(self)@
+                        }
+                        _ => false
                     }
-                    Err(_) => true // TODO
-                }
+                })
         ;
 
         fn get(
@@ -124,14 +134,15 @@ verus! {
             requires
                 self.valid(),
             ensures
-                match result {
-                    Ok(node_offset) => {
-                        node_offset as int == self@.get_node_offset(*key, idx as int)
+                ({
+                    let spec_result = self@.get_node_offset::<E>(*key, idx as int);
+                    match (result, spec_result) {
+                        (Ok(node_offset), Ok(spec_offset)) => node_offset as int == spec_offset,
+                        (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => !self@.contains_key(*key),
+                        (Err(KvError::IndexOutOfRange), Err(KvError::IndexOutOfRange)) => idx >= self@[*key].unwrap().list_len,
+                        _ => false
                     }
-                    Err(KvError::KeyNotFound) => self@[*key] is None,
-                    Err(KvError::IndexOutOfRange) => idx >= self@[*key].unwrap().list_len,
-                    _ => false,
-                }
+                })
         ;
 
         fn remove(
@@ -166,15 +177,22 @@ verus! {
                 old(self).valid(),
             ensures
                 self.valid(),
-                match result {
-                    Ok(()) => self@ == old(self)@.trim_list(*key, trim_length as int),
-                    Err(KvError::KeyNotFound) => self@[*key] is None,
-                    Err(KvError::IndexOutOfRange) => {
-                        &&& self@[*key] is Some
-                        &&& self@[*key].unwrap().list_len <= trim_length
+                ({
+                    let spec_result = old(self)@.trim_list::<E>(*key, trim_length as int);
+                    match (result, spec_result) {
+                        (Ok(()), Ok(spec_self)) => self@ == spec_self,
+                        (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => {
+                            &&& !old(self)@.contains_key(*key)
+                            &&& self@ == old(self)@
+                        }
+                        (Err(KvError::IndexOutOfRange), Err(KvError::IndexOutOfRange)) => {
+                            &&& old(self)@.contains_key(*key)
+                            &&& old(self)@[*key].unwrap().list_len <= trim_length
+                            &&& self@ == old(self)@
+                        }
+                        _ => false
                     }
-                    _ => false,
-                }
+                })
         ;
 
         fn get_keys(
