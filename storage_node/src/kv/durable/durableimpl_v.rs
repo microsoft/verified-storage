@@ -6,17 +6,20 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::durablelist::durablelistimpl_v::*;
+use crate::itemtable::itemtableimpl_v::*;
 use crate::kv::durable::durablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
+use crate::multilog::multilogimpl_v::*;
 use crate::pmem::pmemspec_t::*;
+
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
-    // TODO: this should just be a struct, the interface is going to be very
-    // specific to the structure
+    // TODO: should this just be a struct?
     pub trait DurableKvStore<PM, K, I, L, E> : Sized
     where
         PM: PersistentMemoryRegions,
@@ -352,4 +355,22 @@ verus! {
                 }
         ;
     }
+
+    pub struct UntrustedDurableStoreImpl<PM, K, I, L, E>
+        where
+            PM: PersistentMemoryRegions,
+            K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
+            I: Serializable + Item<K> + Sized + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug,
+            E: std::fmt::Debug,
+    {
+        item_table: DurableItemTable<PM, K, I, E>,
+        list_nodes: DurableList<PM, L, E>,
+        update_log: UntrustedMultiLogImpl,
+        // TODO: the log should be structured a bit differently for this
+        // to all work the same way
+    }
+
+    impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E> for UntrustedDurableStoreImpl<PM, K, I, L, E>
+    {}
 }

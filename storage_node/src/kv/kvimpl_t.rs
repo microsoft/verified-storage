@@ -178,7 +178,7 @@ where
             Err(KvError::KeyAlreadyExists)
         } else {
             let tracked perm =
-            TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item).unwrap());
+                TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item).unwrap());
             self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
         }
     }
