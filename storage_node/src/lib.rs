@@ -40,11 +40,10 @@ mod tests {
         assert!(log_metadata_size == LENGTH_OF_LOG_METADATA.try_into().unwrap());
     }
 
-    // #[verifier::external_body]
-    // #[test]
-    // fn check_multilog_with_timestamps() {
-    //     assert(test_multilog_with_timestamps());
-    // }
+    #[test]
+    fn check_multilog_with_timestamps() {
+        assert!(test_multilog_with_timestamps());
+    }
 }
 
 verus! {
@@ -62,8 +61,8 @@ verus! {
         proof { lemma_auto_timestamp_helpers(); }
 
         // set up vectors to mock persistent memory
-        let device_capacity = 1024;
-        let log_capacity = 256;
+        let device_capacity = 4096;
+        let log_capacity = 512;
         // obtain a device abstraction with enough space for the requested regions
         let mut device = VolatileMemoryMockingPersistentMemoryDevice::new(device_capacity);
 
