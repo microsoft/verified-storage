@@ -4,6 +4,8 @@ use builtin_macros::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
+pub mod durablelist;
+pub mod itemtable;
 pub mod kv;
 pub mod multilog;
 pub mod pmem;

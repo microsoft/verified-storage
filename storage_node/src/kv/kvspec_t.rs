@@ -25,26 +25,24 @@ verus! {
 
     // Since the durable part of the PagedKV is a list of PM regions,
     // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
-    pub struct TrustedKvPermission<PM, K, I, L, D, E>
+    pub struct TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
-            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
-        _phantom:  Ghost<core::marker::PhantomData<(PM, K, I, L, D, E)>>
+        _phantom:  Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>
     }
 
-    impl<PM, K, I, L, D, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, D, E>
+    impl<PM, K, I, L, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
-            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
@@ -53,13 +51,12 @@ verus! {
         }
     }
 
-    impl<PM, K, I, L, D, E> TrustedKvPermission<PM, K, I, L, D, E>
+    impl<PM, K, I, L, E> TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegions,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
-            D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures
@@ -71,10 +68,10 @@ verus! {
         pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, I, L, E>) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
-                    D::recover_to_kv_state(s, kv_id) == Some(state)
+                    DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state)
         {
             Self {
-                is_state_allowable: |s| D::recover_to_kv_state(s, kv_id) == Some(state),
+                is_state_allowable: |s| DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state),
                 _phantom: Ghost(spec_phantom_data())
             }
         }
@@ -91,14 +88,14 @@ verus! {
         ) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| D::recover_to_kv_state(s, kv_id) == Some(state1)
-                    ||| D::recover_to_kv_state(s, kv_id) == Some(state2)
+                    ||| DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state1)
+                    ||| DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state2)
                 }
         {
             Self {
                 is_state_allowable: |s| {
-                    ||| D::recover_to_kv_state(s, kv_id) == Some(state1)
-                    ||| D::recover_to_kv_state(s, kv_id) == Some(state2)
+                    ||| DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state1)
+                    ||| DurableKvStore::<PM, K, I, L, E>::recover_to_kv_state(s, kv_id) == Some(state2)
                 },
                 _phantom: Ghost(spec_phantom_data())
             }

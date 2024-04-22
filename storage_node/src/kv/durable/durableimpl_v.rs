@@ -7,20 +7,23 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::durablelist::durablelistimpl_v::*;
+use crate::durablelist::durablelistspec_t::*;
 use crate::itemtable::itemtableimpl_v::*;
+use crate::itemtable::itemtablespec_t::*;
 use crate::kv::durable::durablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
+use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::wrpm_v::*;
 
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
-    // TODO: should this just be a struct?
-    pub trait DurableKvStore<PM, K, I, L, E> : Sized
+    pub struct DurableKvStore<PM, K, I, L, E>
     where
         PM: PersistentMemoryRegions,
         K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
@@ -28,13 +31,44 @@ verus! {
         L: Serializable + std::fmt::Debug,
         E: std::fmt::Debug,
     {
-        spec fn view(&self) -> DurableKvStoreView<K, I, L, E>;
+        item_table: DurableItemTable<K, I, E>,
+        durable_list: DurableList<L, E>,
+        log: UntrustedMultiLogImpl,
+        table_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+        list_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+        log_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PM>,
+    }
 
-        spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>;
+    impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E>
+        where
+            PM: PersistentMemoryRegions,
+            K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
+            I: Serializable + Item<K> + Sized + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug,
+            E: std::fmt::Debug,
+    {
+        // TODO: write this based on specs of the other structures
+        pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L, E>;
+        // {}
 
-        spec fn valid(self) -> bool;
+        // Proving crash consistency here will come down to proving that each update
+        // to an individual component results in a valid AbstractKvStoreState either with 0
+        // log entries replayed or all of the log entries replayed, I think
+        pub closed spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>
+        {
+            // TODO
+            None
+        }
 
-        fn new(pmem: PM,
+        pub closed spec fn valid(self) -> bool
+        {
+            // TODO
+            true
+        }
+
+        // This function doesn't take a perm because it performs initial setup
+        // for each structure, which we don't guarantee will be crash consistent
+        pub fn new(pmem: PM,
             kvstore_id: u128,
             max_keys: usize,
             lower_bound_on_max_pages: usize,
@@ -48,12 +82,16 @@ verus! {
                         &&& durable_store@.contents.dom().finite()
                     }
                     Err(_) => true // TODO
-                };
+                }
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn create(
+        pub fn create(
             &mut self,
             item: I,
-            perm: Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+            perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -76,9 +114,12 @@ verus! {
                         Err(_) => false
                     }
                 })
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn read_item(
+        pub fn read_item(
             &self,
             offset: u64
         ) -> (result: Option<&I>)
@@ -94,9 +135,12 @@ verus! {
                     }
                     None => self@[offset as int].is_None()
                 }
-        ;
+        {
+            assume(false);
+            None
+        }
 
-        fn read_list_entry_at_index(
+        pub fn read_list_entry_at_index(
             &self,
             offset: u64,
             idx: u64
@@ -118,9 +162,12 @@ verus! {
                     (Ok(output_list_entry), None) => false,
                     (_, _) => false
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn update_item(
+        pub fn update_item(
             &mut self,
             offset: u64,
             new_item: I,
@@ -143,12 +190,15 @@ verus! {
                     Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
                     Err(_) => true // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn delete(
+        pub fn delete(
             &mut self,
             offset: u64,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid()
@@ -160,13 +210,16 @@ verus! {
                     }
                     Err(_) => true // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn append(
+        pub fn append(
             &mut self,
             offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -181,13 +234,16 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn alloc_list_node_and_append(
+        pub fn alloc_list_node_and_append(
             &mut self,
             offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -203,14 +259,17 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn update_item_and_append(
+        pub fn update_item_and_append(
             &mut self,
             offset: u64,
             new_entry: L,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid()
@@ -226,14 +285,17 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn alloc_list_node_update_item_and_append(
+        pub fn alloc_list_node_update_item_and_append(
             &mut self,
             offset: u64,
             new_entry: L,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid()
@@ -250,14 +312,17 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn update_list_entry_at_index(
+        pub fn update_list_entry_at_index(
             &mut self,
             item_offset: u64, // TODO: is this necessary? maybe just as ghost state
             entry_offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -274,15 +339,18 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn update_entry_at_index_and_item(
+        pub fn update_entry_at_index_and_item(
             &mut self,
             item_offset: u64,
             entry_offset: u64,
             new_item: I,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -300,15 +368,18 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn trim_list(
+        pub fn trim_list(
             &mut self,
             item_offset: u64,
             old_head_node_offset: u64,
             new_head_node_offset: u64,
             trim_length: usize,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -326,16 +397,19 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
 
-        fn trim_list_and_update_item(
+        pub fn trim_list_and_update_item(
             &mut self,
             item_offset: u64,
             old_head_node_offset: u64,
             new_head_node_offset: u64,
             trim_length: usize,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, Self, E>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         ) -> (result: Result<(), KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -353,24 +427,9 @@ verus! {
                     }
                     Err(_) => false // TODO
                 }
-        ;
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
     }
-
-    pub struct UntrustedDurableStoreImpl<PM, K, I, L, E>
-        where
-            PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-            I: Serializable + Item<K> + Sized + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug,
-            E: std::fmt::Debug,
-    {
-        item_table: DurableItemTable<PM, K, I, E>,
-        list_nodes: DurableList<PM, L, E>,
-        update_log: UntrustedMultiLogImpl,
-        // TODO: the log should be structured a bit differently for this
-        // to all work the same way
-    }
-
-    impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E> for UntrustedDurableStoreImpl<PM, K, I, L, E>
-    {}
 }

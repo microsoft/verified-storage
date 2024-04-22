@@ -29,34 +29,31 @@ use std::hash::Hash;
 
 verus! {
 
-pub struct UntrustedKvStoreImpl<PM, K, I, L, D, V, E>
+pub struct UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
     I: Serializable + Item<K> + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
     id: u128,
-    durable_store: D,
+    durable_store: DurableKvStore<PM, K, I, L, E>,
     volatile_index: V,
     entries_per_list_node: usize,
     _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>,
 }
 
-impl<PM, K, I, L, D, V, E> UntrustedKvStoreImpl<PM, K, I, L, D, V, E>
+impl<PM, K, I, L, V, E> UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
-
     // This function specifies how all durable contents of the KV
     // should be viewed upon recovery as an abstract paged KV state.
     // TODO: write this
@@ -109,7 +106,7 @@ where
                 Err(_) => true
             }
     {
-        let durable_store = D::new(pmem, kvstore_id, max_keys, list_node_size)?;
+        let durable_store = DurableKvStore::new(pmem, kvstore_id, max_keys, list_node_size)?;
         let volatile_index = V::new(kvstore_id, max_keys)?;
         let kv = Self {
             id: kvstore_id,
@@ -129,7 +126,7 @@ where
         &mut self,
         key: &K,
         item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
@@ -279,7 +276,7 @@ where
         &mut self,
         key: &K,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
@@ -307,7 +304,7 @@ where
     pub fn untrusted_delete(
         &mut self,
         key: &K,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -334,7 +331,7 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -369,7 +366,7 @@ where
         key: &K,
         new_list_entry: L,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -404,7 +401,7 @@ where
         key: &K,
         idx: usize,
         new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -438,7 +435,7 @@ where
         idx: usize,
         new_list_entry: L,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -470,7 +467,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()
@@ -510,7 +507,7 @@ where
         key: &K,
         trim_length: usize,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, D, E>>
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid()

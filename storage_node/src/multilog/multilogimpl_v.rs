@@ -285,9 +285,9 @@ verus! {
         // how we can write `wrpm_regions`. This is moot, though,
         // because we don't ever write to the memory.
         pub exec fn start<PMRegions>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             multilog_id: u128,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
             Ghost(state): Ghost<AbstractMultiLogState>,
         ) -> (result: Result<Self, MultiLogErr>)
             where
@@ -380,11 +380,11 @@ verus! {
         // abstract state with all pending appends dropped.
         pub exec fn tentatively_append<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             which_log: u32,
             bytes_to_append: &[u8],
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<u128, MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -620,11 +620,11 @@ verus! {
         // caller doesn't have to flush before calling this function.
         exec fn update_log_metadata<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
             Ghost(prev_infos): Ghost<Seq<LogInfo>>,
             Ghost(prev_state): Ghost<AbstractMultiLogState>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         )
             where
                 PMRegions: PersistentMemoryRegions
@@ -926,9 +926,9 @@ verus! {
         // committed.
         pub exec fn commit<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -1027,11 +1027,11 @@ verus! {
         // advancing the head and then dropping all pending appends.
         pub exec fn advance_head<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             which_log: u32,
             new_head: u128,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions

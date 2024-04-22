@@ -7,13 +7,12 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    pub struct DurableList<PM, L, E>
+    pub struct DurableList<L, E>
         where
-            PM: PersistentMemoryRegions,
             L: Serializable + std::fmt::Debug,
             E: std::fmt::Debug
     {
-        wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+        _phantom: Ghost<core::marker::PhantomData<(L, E)>>,
     }
 
 }

@@ -66,18 +66,18 @@ pub trait Item<K> : Sized {
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
-pub struct KvStore<PM, K, I, L, D, V, E>
+pub struct KvStore<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    // D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, D, V, E>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V, E>,
 }
 
 // TODO: is there a better way to handle PhantomData?
@@ -86,13 +86,13 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-impl<PM, K, I, L, D, V, E> KvStore<PM, K, I, L, D, V, E>
+impl<PM, K, I, L, V, E> KvStore<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    D: DurableKvStore<PM, K, I, L, E>,
+    // D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -145,7 +145,7 @@ where
         ensures
             match result {
                 Ok(restored_kv) => {
-                    let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, D, V, E>::recover(pmem@.committed(), kvstore_id);
+                    let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, V, E>::recover(pmem@.committed(), kvstore_id);
                     match restored_state {
                         Some(restored_state) => restored_kv@ == restored_state,
                         None => false
