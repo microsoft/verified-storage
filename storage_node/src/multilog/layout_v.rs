@@ -21,26 +21,30 @@
 //! corruption-detecting boolean on all other regions is ignored.
 //!
 //! Global metadata (absolute offsets):
-//!   bytes 0..16:    Program GUID for this program
-//!   bytes 16..24:   Version number of the program that created this metadata
-//!   bytes 24..32:   Length of level-2 metadata, not including CRC (i.e., 60 + length of multilog ID)
+//!   bytes 0..8:     Version number of the program that created this metadata
+//!   bytes 8..16:    Length of regional metadata, not includign CRC
+//!   bytes 16..32:   Program GUID for this program  
 //!   bytes 32..40:   CRC of the above 32 bytes
 //!
 //! Region metadata (absolute offsets):
-//!   bytes 40..48:   This region's size
-//!   bytes 48..64:   Multilog ID
-//!   bytes 64..68:   Number of logs in the multilog
-//!   bytes 68..72:   Index of this log in the multlog (0 = first)
-//!   bytes 72..80:   Length of log area (LoLA)
-//!   bytes 80..88:   CRC of the above 40 bytes
+//!   bytes 40..44:   Number of logs in the multilog
+//!   bytes 44..48:   Index of this log in the multilog
+//!   bytes 48..56:   Unused padding bytes
+//!   bytes 56..64:   This region's size
+//!   bytes 64..72:   Length of log area (LoLA)
+//!   bytes 72..88:   Multilog ID
+//!   bytes 88..96:   CRC of the above 48 bytes
 //!
 //! Log metadata (relative offsets):
-//!   bytes 0..16:    Log head virtual position
-//!   bytes 16..24:   Log length
-//!   bytes 24..32:   CRC of the above 24 bytes
+//!   bytes 0..8:     Log length
+//!   bytes 8..16:    Unused padding bytes
+//!   bytes 16..32:   Log head virtual position
+//!   bytes 32..40:   CRC of the above 32 bytes
 //!
 //! Log area (relative offsets):
 //!   bytes 0..LoLA:   Byte #n is the one whose virtual log position modulo LoLA is n
+//!
+//! The log area starts at absolute offset 256 to improve Intel Optane DC PMM performance.
 //!
 //! The way the corruption-detecting boolean (CDB) detects corruption
 //! is as follows. To write a CDB to persistent memory, we store one
