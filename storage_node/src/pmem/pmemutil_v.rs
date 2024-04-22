@@ -5,9 +5,11 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::serialization_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
-use crate::pmemspec_t::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
@@ -102,19 +104,32 @@ verus! {
     // memory regions has no outstanding writes anywhere, then a flush
     // of them does nothing.
     pub proof fn lemma_if_no_outstanding_writes_then_flush_is_idempotent(
-        regions_view: PersistentMemoryRegionsView
+        regions_view: PersistentMemoryRegionsView,
     )
         requires
             regions_view.no_outstanding_writes()
         ensures
-            regions_view.flush() == regions_view
+            ({
+                let flushed = regions_view.flush();
+                // the timestamps are allowed to differ
+                flushed.equal_except_for_timestamps(regions_view)
+            })
+    {}
+
+    // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
+    pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
+        ensures
+            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> {
+                let flushed = #[trigger] r.flush();
+                flushed.equal_except_for_timestamps(r)
+            }
     {
-        assert forall |i: int| 0 <= i < regions_view.len() implies
-            regions_view.flush().regions[i] == #[trigger] regions_view.regions[i] by {
-            assert(regions_view.flush()[i] =~= regions_view[i]);
-            assert(regions_view.flush().regions[i] =~= regions_view.regions[i]);
-        }
-        assert(regions_view.flush().regions =~= regions_view.regions);
+        assert forall |r: PersistentMemoryRegionsView, | r.no_outstanding_writes() implies {
+            let flushed = #[trigger] r.flush();
+            flushed.equal_except_for_timestamps(r)
+        } by {
+            lemma_if_no_outstanding_writes_then_flush_is_idempotent(r);
+        };
     }
 
     // This executable function returns a vector containing the sizes
@@ -218,7 +233,7 @@ verus! {
         // computed into `u64`s to make it easy to compare them.
         let crc1 = u64_from_le_bytes(crc_c);
         let crc2 = u64_from_le_bytes(computed_crc.as_slice());
-        
+
         proof {
             let true_data = mem.subrange(data_addr as int, data_addr + data_length);
             let true_crc = mem.subrange(crc_addr as int, crc_addr + CRC_SIZE);
@@ -251,10 +266,92 @@ verus! {
             let crc2_alt = spec_u64_to_le_bytes(crc2);
             lemma_auto_spec_u64_to_from_le_bytes();
         }
-        
+
         // Return the comparison between the CRCs
         crc1 == crc2
     }
+
+    pub fn check_crc_deserialized<S>(
+        data_c: &S,
+        crc_c: &u64,
+        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(data_addr): Ghost<u64>,
+        Ghost(data_length): Ghost<u64>,
+        Ghost(crc_addr): Ghost<u64>,
+    ) -> (b: bool)
+        where
+            S: Serializable + Sized,
+        requires
+            data_addr + data_length <= mem.len(),
+            crc_addr + CRC_SIZE <= mem.len(),
+            data_length == S::spec_serialized_len(),
+            crc_addr < crc_addr + CRC_SIZE <= data_addr || crc_addr >= data_addr + S::spec_serialized_len(),
+            ({
+                let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+                let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+                if impervious_to_corruption {
+                    &&& data_c == true_data
+                    &&& crc_c == true_crc
+                }
+                else {
+                    &&& maybe_corrupted_serialized(*data_c, true_data, data_addr as int)
+                    &&& maybe_corrupted_serialized(*crc_c, true_crc, crc_addr as int)
+                }
+            })
+        ensures
+            ({
+                let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+                let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+                true_crc == true_data.spec_crc() ==>
+                    if b {
+                        &&& *data_c =~= true_data
+                        &&& *crc_c =~= true_crc
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
+            })
+    {
+        // Compute the CRC of the possibly-corrupted data.
+        let computed_crc = calculate_crc(data_c);
+
+
+        proof {
+            let true_data = S::spec_deserialize(mem.subrange(data_addr as int, data_addr + data_length));
+            let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
+
+            // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
+            // we can conclude that the data matches as well. That axiom only applies in the case
+            // when all three of the following conditions hold: (1) the last-written CRC really is
+            // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
+            // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
+            // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
+            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
+            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
+            // detected corruption.
+            if {
+                &&& true_crc == true_data.spec_crc()
+                &&& !impervious_to_corruption
+                &&& crc_c == computed_crc
+            } {
+                axiom_serialized_val_uncorrupted(*data_c, true_data, data_addr as int, *crc_c, true_crc, crc_addr as int);
+            }
+
+            // To argue that `crc1` matches `crc2` if and only if `crc_c`
+            // matches `computed_crc`, we invoke the lemma saying that
+            // `spec_u64_to_le_bytes` is the inverse of what
+            // `u64_from_le_bytes` computes.
+
+            let read_crc_alt = spec_u64_to_le_bytes(*crc_c);
+            let computed_crc_alt = spec_u64_to_le_bytes(computed_crc);
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        // Return the comparison between the CRCs
+        *crc_c == computed_crc
+    }
+
 
     // This function converts the given encoded CDB read from persistent
     // memory into a boolean. It checks for corruption as it does so. It
@@ -281,7 +378,7 @@ verus! {
     // `None` -- corruption was detected, so the persistent memory regions
     // can't be impervious to corruption
     pub fn check_cdb(
-        cdb_c: &[u8],
+        cdb_c: &u64,
         Ghost(mem): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
         Ghost(cdb_addr): Ghost<u64>,
@@ -289,42 +386,38 @@ verus! {
         requires
             cdb_addr + CRC_SIZE <= mem.len(),
             ({
-                let true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
-                &&& spec_u64_from_le_bytes(true_cdb) == CDB_FALSE || spec_u64_from_le_bytes(true_cdb) == CDB_TRUE
-                &&& if impervious_to_corruption { cdb_c@ == true_cdb }
-                   else { maybe_corrupted(cdb_c@, true_cdb, Seq::<int>::new(CRC_SIZE as nat, |i: int| i + cdb_addr)) }
+                let true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
+                &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
+                &&& if impervious_to_corruption { cdb_c == true_cdb }
+                        else { maybe_corrupted_serialized::<u64>(*cdb_c, true_cdb, cdb_addr as int) }
             })
         ensures
             ({
-                let true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
+                let true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
                 match result {
-                    Some(b) => if b { spec_u64_from_le_bytes(true_cdb) == CDB_TRUE }
-                               else { spec_u64_from_le_bytes(true_cdb) == CDB_FALSE },
+                    Some(b) => if b { true_cdb == CDB_TRUE }
+                               else { true_cdb == CDB_FALSE },
                     None => !impervious_to_corruption,
                 }
             })
     {
-        // Convert the read encoded CDB into a `u64` to facilitate
-        // comparing it to `CDB_TRUE` and `CDB_FALSE`.
-        let cdb_val = u64_from_le_bytes(cdb_c);
-        
-        proof {
+        let cdb_val = *cdb_c;
 
+        proof {
             // We may need to invoke the axiom
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            
-            if !impervious_to_corruption && (cdb_val == CDB_FALSE || cdb_val == CDB_TRUE) {
-                let ghost true_cdb = mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE);
-                let ghost addrs = Seq::<int>::new(CRC_SIZE as nat, |i: int| i + cdb_addr);
-                axiom_corruption_detecting_boolean(cdb_c@, true_cdb, addrs);
+
+            if !impervious_to_corruption && (cdb_c == CDB_FALSE || cdb_c == CDB_TRUE) {
+                let ghost true_cdb = u64::spec_deserialize(mem.subrange(cdb_addr as int, cdb_addr + CRC_SIZE));
+                axiom_corruption_detecting_boolean_serialized(cdb_val, true_cdb, cdb_addr as int);
             }
         }
 
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
-        
+
         if cdb_val == CDB_FALSE {
             Some(false)
         }
@@ -339,7 +432,7 @@ verus! {
     /// If the only outstanding write is `PERSISTENCE_CHUNK_SIZE`-sized and
     /// -aligned, then there are only two possible resulting crash states,
     /// one with the write and one without.
-    
+
     // This lemma establishes that, if there are no outstanding writes and
     // we write a `PERSISTENCE_CHUNK_SIZE`-aligned segment of length
     // `PERSISTENCE_CHUNK_SIZE`, then there are only two possible crash
@@ -349,7 +442,7 @@ verus! {
     pub proof fn lemma_single_write_crash_effect_on_pm_region_view(
         pm_region_view: PersistentMemoryRegionView,
         write_addr: int,
-        bytes_to_write: Seq<u8>
+        bytes_to_write: Seq<u8>,
     )
         requires
             bytes_to_write.len() == PERSISTENCE_CHUNK_SIZE,
@@ -403,7 +496,7 @@ verus! {
         pm_regions_view: PersistentMemoryRegionsView,
         index: int,
         write_addr: int,
-        bytes_to_write: Seq<u8>
+        bytes_to_write: Seq<u8>,
     )
         requires
             0 <= index < pm_regions_view.len(),
@@ -412,19 +505,22 @@ verus! {
             0 <= write_addr,
             write_addr + PERSISTENCE_CHUNK_SIZE <= pm_regions_view[index as int].len(),
             pm_regions_view.no_outstanding_writes(),
+
         ensures
             ({
                 let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+                let flushed_pm_regions_view = new_pm_regions_view.flush();
                 forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) ==> {
                     ||| crash_bytes == pm_regions_view.committed()
-                    ||| crash_bytes == new_pm_regions_view.flush().committed()
+                    ||| crash_bytes == flushed_pm_regions_view.committed()
                 }
             })
     {
         let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+        let flushed_pm_regions_view = new_pm_regions_view.flush();
         assert forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) implies {
             ||| crash_bytes == pm_regions_view.committed()
-            ||| crash_bytes == new_pm_regions_view.flush().committed()
+            ||| crash_bytes == flushed_pm_regions_view.committed()
         } by {
             // All other regions other than the written-to one can only
             // crash into their `committed` state, since they have no outstanding writes.
@@ -451,9 +547,11 @@ verus! {
                 assert(crash_bytes =~= pm_regions_view.committed());
             }
             if crash_bytes[index] == pm_regions_view[index].write(write_addr, bytes_to_write).flush().committed() {
+                let new_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
+                let flushed_regions_view = new_regions_view.flush();
                 assert(forall |any| 0 <= any < pm_regions_view.len() ==> #[trigger] crash_bytes[any] =~=
-                          pm_regions_view.write(index, write_addr, bytes_to_write).flush().committed()[any]);
-                assert(crash_bytes =~= pm_regions_view.write(index, write_addr, bytes_to_write).flush().committed());
+                    flushed_regions_view.committed()[any]);
+                assert(crash_bytes =~= flushed_regions_view.committed());
             }
         }
     }
@@ -463,7 +561,7 @@ verus! {
     pub proof fn lemma_write_reflected_after_flush_committed(
         pm_region_view: PersistentMemoryRegionView,
         addr: int,
-        bytes: Seq<u8>
+        bytes: Seq<u8>,
     )
         requires
             0 <= addr,

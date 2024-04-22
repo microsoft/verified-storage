@@ -1,5 +1,5 @@
 [package]
-name = "pmemlog"
+name = "storage_node"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,4 +9,7 @@ edition = "2021"
 builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
 builtin = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
 vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
-crc64fast = "1.0.0"
+deps_hack = { path = "../deps_hack" }
+
+[package.metadata.verus.ide]
+extra_args = "--crate-type=lib --expand-errors -L dependency=../deps_hack/target/release/deps --extern=deps_hack=../deps_hack/target/release/libdeps_hack.rlib"

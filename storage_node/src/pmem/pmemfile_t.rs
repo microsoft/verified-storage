@@ -3,16 +3,21 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
+use crate::pmemspec_t::{
+    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
+    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
+};
 use builtin::*;
 use builtin_macros::*;
-use crate::pmemspec_t::{PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-                        PersistentMemoryRegions, PersistentMemoryRegionView, PersistentMemoryRegionsView};
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
 use deps_hack::winapi::um::fileapi::{CreateFileA, DeleteFileA, CREATE_NEW, OPEN_EXISTING};
 use deps_hack::winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use deps_hack::winapi::um::memoryapi::{MapViewOfFile, FILE_MAP_ALL_ACCESS};
 use deps_hack::winapi::um::winbase::CreateFileMappingA;
-use deps_hack::winapi::um::winnt::{PAGE_READWRITE, FILE_SHARE_WRITE, FILE_SHARE_READ, FILE_SHARE_DELETE, GENERIC_READ, GENERIC_WRITE, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, ULARGE_INTEGER};
+use deps_hack::winapi::um::winnt::{
+    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, PAGE_READWRITE, ULARGE_INTEGER,
+};
 use std::convert::*;
 use std::ffi::CString;
 use std::slice;
@@ -58,12 +63,12 @@ verus! {
         h_map_addr: deps_hack::winapi::um::winnt::HANDLE,  // address where file is mapped
         slice: &'static mut [u8],                          // above address viewed as a Rust slice
     }
-    
+
     impl MemoryMappedFile {
 
         // The function `from_file` memory-maps a file and returns a
         // `MemoryMappedFile` to represent it.
-    
+
         #[verifier::external_body]
         pub fn from_file(path: &StrSlice, size: usize, media_type: MemoryMappedFileMediaType,
                          open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior) -> Self {
@@ -88,20 +93,20 @@ verus! {
                     create_or_open,
                     attributes,
                     core::ptr::null_mut());
-                
+
                 let error_code = deps_hack::winapi::um::errhandlingapi::GetLastError();
-    
+
                 if h_file.is_null() {
                     panic!("Could not open file {}. err={}", path, error_code);
                 }
-    
+
                 if h_file == INVALID_HANDLE_VALUE {
                     panic!("Could not find file {}. err={}", path, error_code);
                 }
-    
+
                 let mut li : ULARGE_INTEGER = std::mem::zeroed();
                 *li.QuadPart_mut() = size as u64;
-    
+
                 // Create a file mapping object backed by the system paging file
                 let h_map_file = CreateFileMappingA(
                     h_file,
@@ -111,7 +116,7 @@ verus! {
                     li.u().LowPart,
                     core::ptr::null_mut()
                 );
-    
+
                 if h_map_file.is_null() {
                     panic!("Could not create file mapping object for {}.", path);
                 }
@@ -121,7 +126,7 @@ verus! {
                     // Obviously, we should only do this during testing!
                     deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr.as_ptr());
                 }
-    
+
                 // Map a view of the file mapping into the address space of the process
                 let h_map_addr = MapViewOfFile(
                     h_map_file,
@@ -130,39 +135,39 @@ verus! {
                     0,
                     size
                 );
-    
+
                 if h_map_addr.is_null() {
                     panic!("Could not map view of file {}.", path);
                 }
 
                 // Convert the address into a static Rust slice.
                 let slice = core::slice::from_raw_parts_mut(h_map_addr as *mut u8, size);
-    
+
                 MemoryMappedFile { media_type, size, h_file, h_map_file, h_map_addr, slice }
             }
-    
+
         }
 
         // The function `update_region` updates part of a
         // memory-mapped a file. Specifically, it overwrites the
         // contents starting at offset `offset` with the data in
         // slice `data`.
-    
+
         #[inline(always)]
         #[verifier::external_body]
         pub fn update_region(&mut self, offset: usize, data: &[u8]) -> Result<(), ()> {
             if offset + data.len() > self.size {
                 return Err(())
             }
-    
+
             self.slice[offset .. offset + data.len()].copy_from_slice(data);
-    
+
             Ok(())
         }
 
         // The function `read_region` reads part of a memory-mapped a
         // file into a returned vector.
-    
+
         #[inline(always)]
         #[verifier::external_body]
         pub fn read_region(&self, offset: usize, num_bytes: usize) -> Vec<u8>
@@ -172,7 +177,7 @@ verus! {
 
         // The function `flush` flushes updated parts of the
         // memory-mapped file back to the media.
-    
+
         #[verifier::external_body]
         pub fn flush(&mut self) {
             unsafe {
@@ -189,7 +194,7 @@ verus! {
                             self.h_map_addr as *const deps_hack::winapi::ctypes::c_void,
                             self.size
                         );
-    
+
                         if !SUCCEEDED(hr) {
                             panic!("Failed to flush view of file. err={}", hr);
                         }
@@ -198,7 +203,7 @@ verus! {
             }
         }
     }
-    
+
     impl Drop for MemoryMappedFile {
         #[verifier::external_body]
         fn drop(&mut self)
@@ -208,7 +213,7 @@ verus! {
                 // Don't forget to unmap the view and close the handle when done
                 deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr);
                 deps_hack::winapi::um::handleapi::CloseHandle(self.h_map_file);
-    
+
                 if !self.h_file.is_null() {
                     deps_hack::winapi::um::handleapi::CloseHandle(self.h_file);
                 }
@@ -217,8 +222,8 @@ verus! {
     }
 }
 
-    unsafe impl Send for MemoryMappedFile {}
-    unsafe impl Sync for MemoryMappedFile {}
+unsafe impl Send for MemoryMappedFile {}
+unsafe impl Sync for MemoryMappedFile {}
 
 verus! {
 
@@ -236,7 +241,7 @@ verus! {
     impl FileBackedPersistentMemoryRegion {
         // The static function `new` creates the file with the given path,
         // maps it into memory, and returns a `FileBackedPersistentMemoryRegion`.
-        
+
         #[verifier::external_body]
         pub fn new(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64,
                    close_behavior: FileCloseBehavior)
@@ -269,7 +274,7 @@ verus! {
 
         // The static function `restore` maps the existing file with the given path
         // into memory and returns a `FileBackedPersistentMemoryRegion`.
-        
+
         #[verifier::external_body]
         pub fn restore(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64)
                       -> (result: Result<Self, ()>)
@@ -343,7 +348,7 @@ verus! {
     // The `FileBackedPersistentMemoryRegions` struct contains a
     // vector of volatile memory regions. It implements the trait
     // `PersistentMemoryRegions` so that it can be used by a multilog.
-    
+
     pub struct FileBackedPersistentMemoryRegions
     {
         media_type: MemoryMappedFileMediaType,       // common media file type used

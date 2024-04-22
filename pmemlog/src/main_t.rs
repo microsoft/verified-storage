@@ -1,14 +1,14 @@
 use std::fmt::Write;
 
 use crate::infinitelog_t::*;
+use crate::logimpl_v::*;
 use crate::pmemspec_t::*;
+use crate::sccf::CheckPermission;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::set::*;
 use vstd::slice::*;
-use crate::sccf::CheckPermission;
-use crate::logimpl_v::*;
 
 verus! {
 
@@ -36,7 +36,7 @@ verus! {
     /// created outside of this file. As a further defense against one
     /// being created outside this file, its fields aren't public, and
     /// the constructor `TrustedPermission::new` isn't public.
-    
+
     struct TrustedPermission {
         ghost is_state_allowable: FnSpec(Seq<u8>) -> bool
     }
@@ -67,6 +67,7 @@ verus! {
         wrpm: WriteRestrictedPersistentMemory<TrustedPermission, PM>,
     }
 
+    #[derive(Debug)]
     pub enum InfiniteLogErr {
         InsufficientSpaceForSetup { required_space: u64 },
         CantReadBeforeHead { head: u64 },

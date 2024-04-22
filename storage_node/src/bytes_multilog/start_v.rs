@@ -6,15 +6,15 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::multilog::inv_v::*;
+use crate::multilog::layout_v::*;
+use crate::multilog::multilogimpl_t::MultiLogErr;
+use crate::multilog::multilogimpl_v::LogInfo;
+use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE};
+use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use builtin::*;
 use builtin_macros::*;
-use crate::inv_v::*;
-use crate::layout_v::*;
-use crate::multilogimpl_t::MultiLogErr;
-use crate::multilogimpl_v::LogInfo;
-use crate::multilogspec_t::AbstractMultiLogState;
-use crate::pmemspec_t::{CRC_SIZE, PersistentMemoryRegions};
-use crate::pmemutil_v::{check_cdb, check_crc};
 use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
@@ -143,7 +143,7 @@ verus! {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
- 
+
         // Read the level-1 metadata and its CRC, and check that the
         // CRC matches.
 
@@ -170,7 +170,7 @@ verus! {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
-        
+
         let version_number_read = u64_from_le_bytes(slice_subrange(
             level1_metadata_bytes.as_slice(),
             RELATIVE_POS_OF_LEVEL1_VERSION_NUMBER as usize,
@@ -183,7 +183,7 @@ verus! {
                 max_supported: MULTILOG_PROGRAM_VERSION_NUMBER,
             })
         }
-        
+
         let length_of_level2_metadata_read = u64_from_le_bytes(slice_subrange(
             level1_metadata_bytes.as_slice(),
             RELATIVE_POS_OF_LEVEL1_LENGTH_OF_LEVEL2_METADATA as usize,
@@ -396,7 +396,7 @@ verus! {
             // because the postcondition of `read_log_variables`
             // doesn't let one draw many conclusions unless one knows
             // the region is recoverable.
-            
+
             let ghost region_state = recover_abstract_log_from_region_given_cdb(
                 pm_regions@[which_log as int].committed(), multilog_id, num_regions as int, which_log as int, cdb);
             assert (region_state.is_Some()) by {

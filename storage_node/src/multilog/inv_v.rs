@@ -6,13 +6,15 @@
 //! of the system's correctness.
 //!
 
+use crate::multilog::layout_v::*;
+use crate::multilog::multilogimpl_v::LogInfo;
+use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
+use crate::pmem::serialization_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
-use crate::layout_v::*;
-use crate::multilogimpl_v::LogInfo;
-use crate::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
-use crate::pmemspec_t::*;
-use crate::pmemutil_v::*;
 use vstd::prelude::*;
 
 verus! {
@@ -35,7 +37,7 @@ verus! {
     ) -> bool
     {
         forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==>
-           pm_regions_view[which_log as int].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
+           pm_regions_view[which_log as int].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                                                           ABSOLUTE_POS_OF_LOG_AREA as int)
     }
 
@@ -44,9 +46,16 @@ verus! {
     // of that area correspond to the given boolean `cdb`.
     pub open spec fn memory_matches_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
     {
-        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LEVEL3_CDB as int,
-                                                         ABSOLUTE_POS_OF_LEVEL3_CDB + CRC_SIZE)
-        &&& extract_and_parse_level3_cdb(pm_regions_view[0].committed()) == Some(cdb)
+        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LOG_CDB as int,
+                                                         ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+        &&& extract_and_parse_log_cdb(pm_regions_view[0].committed()) == Some(cdb)
+    }
+
+    pub open spec fn memory_matches_deserialized_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
+    {
+        &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LOG_CDB as int,
+            ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+        &&& deserialize_and_check_log_cdb(pm_regions_view[0].committed()) == Some(cdb)
     }
 
     // This invariant says that there are no outstanding writes to the
@@ -80,42 +89,83 @@ verus! {
     ) -> bool
     {
         let mem = pm_region_view.committed();
-        let level1_metadata_bytes = extract_level1_metadata(mem);
-        let level1_crc = extract_level1_crc(mem);
-        let level2_metadata_bytes = extract_level2_metadata(mem);
-        let level2_crc = extract_level2_crc(mem);
-        let level3_metadata_bytes = extract_level3_metadata(mem, cdb);
-        let level3_crc = extract_level3_crc(mem, cdb);
-        let level1_metadata = parse_level1_metadata(level1_metadata_bytes);
-        let level2_metadata = parse_level2_metadata(level2_metadata_bytes);
-        let level3_metadata = parse_level3_metadata(level3_metadata_bytes);
+        let global_metadata = deserialize_global_metadata(mem);
+        let global_crc = deserialize_global_crc(mem);
+        let region_metadata = deserialize_region_metadata(mem);
+        let region_crc = deserialize_region_crc(mem);
+        let log_metadata = deserialize_log_metadata(mem, cdb);
+        let log_crc = deserialize_log_crc(mem, cdb);
 
         // No outstanding writes to level-1 metadata, level-2 metadata, or the level-3 CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LEVEL1_METADATA as int,
-                                                        ABSOLUTE_POS_OF_LEVEL3_CDB as int)
+        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                        ABSOLUTE_POS_OF_LOG_CDB as int)
         // Also, no outstanding writes to the level-3 metadata corresponding to the active level-3 CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(get_level3_metadata_pos(cdb) as int,
-                                                        get_level3_crc_end(cdb) as int)
+        &&& pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
+                                                        get_log_crc_end(cdb) as int)
 
         // All the CRCs match
-        &&& level1_crc == spec_crc_bytes(level1_metadata_bytes)
-        &&& level2_crc == spec_crc_bytes(level2_metadata_bytes)
-        &&& level3_crc == spec_crc_bytes(level3_metadata_bytes)
+        &&& global_crc == global_metadata.spec_crc()
+        &&& region_crc == region_metadata.spec_crc()
+        &&& log_crc == log_metadata.spec_crc()
 
         // Various fields are valid and match the parameters to this function
-        &&& level1_metadata.program_guid == MULTILOG_PROGRAM_GUID
-        &&& level1_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-        &&& level1_metadata.length_of_level2_metadata == LENGTH_OF_LEVEL2_METADATA
-        &&& level2_metadata.region_size == mem.len()
-        &&& level2_metadata.multilog_id == multilog_id
-        &&& level2_metadata.num_logs == num_logs
-        &&& level2_metadata.which_log == which_log
-        &&& level2_metadata.log_area_len == info.log_area_len
-        &&& level3_metadata.head == info.head
-        &&& level3_metadata.log_length == info.log_length
+        &&& global_metadata.program_guid == MULTILOG_PROGRAM_GUID
+        &&& global_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
+        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& region_metadata.region_size == mem.len()
+        &&& region_metadata.multilog_id == multilog_id
+        &&& region_metadata.num_logs == num_logs
+        &&& region_metadata.which_log == which_log
+        &&& region_metadata.log_area_len == info.log_area_len
+        &&& log_metadata.head == info.head
+        &&& log_metadata.log_length == info.log_length
 
         // The memory region is large enough to hold the entirety of the log area
         &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
+    }
+
+    // This lemma proves that, if all regions are consistent wrt a new CDB, and then we
+    // write and flush that CDB, the regions stay consistent with info.
+    pub proof fn lemma_each_metadata_consistent_with_info_after_cdb_update(
+        old_pm_region_view: PersistentMemoryRegionsView,
+        new_pm_region_view: PersistentMemoryRegionsView,
+        multilog_id: u128,
+        num_logs: u32,
+        new_cdb_bytes: Seq<u8>,
+        new_cdb: bool,
+        infos: Seq<LogInfo>,
+    )
+        requires
+            new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_serialize(),
+            new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_serialize(),
+            new_cdb_bytes.len() == CRC_SIZE,
+            old_pm_region_view.no_outstanding_writes(),
+            new_pm_region_view.no_outstanding_writes(),
+            num_logs > 0,
+            new_pm_region_view =~= old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
+            each_metadata_consistent_with_info(old_pm_region_view, multilog_id, num_logs, new_cdb, infos),
+        ensures
+            each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
+    {
+        // The bytes in non-updated regions are unchanged and remain consistent after updating the CDB.
+        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+            old_pm_region_view[w as int].committed() =~= new_pm_region_view[w as int].committed()
+        );
+        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+            metadata_consistent_with_info(new_pm_region_view[w as int], multilog_id, num_logs, w, new_cdb, infos[w as int])
+        );
+
+        // The 0th old region (where the CDB is stored) is consistent with the new CDB; this follows from
+        // the precondition.
+        assert(is_valid_log_index(0, num_logs));
+        assert(metadata_consistent_with_info(old_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int]));
+
+        // The metadata in the updated region is also consistent
+        assert(metadata_consistent_with_info(new_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int])) by {
+            let old_mem = old_pm_region_view[0int].committed();
+            let new_mem = new_pm_region_view[0int].committed();
+            lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+        }
     }
 
     // This invariant says that `metadata_consistent_with_info` holds
@@ -328,7 +378,7 @@ verus! {
     )
         requires
             pm_regions_view.can_crash_as(mems),
-            memory_matches_cdb(pm_regions_view, cdb),
+            memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
         ensures
@@ -395,7 +445,7 @@ verus! {
         state: AbstractMultiLogState,
     )
         requires
-            memory_matches_cdb(pm_regions_view, cdb),
+            memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
         ensures
@@ -410,9 +460,9 @@ verus! {
     }
 
     // This lemma establishes that, if one updates the inactive
-    // level-3 metadata+CRC in a region, this will maintain various
-    // invariants. The "inactive" level-3 metadata+CRC is the
-    // metadata+CRC corresponding to the negation of the current
+    // level-3 metadata in a region, this will maintain various
+    // invariants. The "inactive" level-3 metadata is the
+    // metadata corresponding to the negation of the current
     // corruption-detecting boolean.
     //
     // `pm_regions_view` -- the persistent memory regions view
@@ -421,8 +471,8 @@ verus! {
     // `cdb` -- the current value of the corruption-detecting boolean
     // `infos` -- the log information
     // `state` -- the abstract multilog state
-    // `which_log` -- region on which the inactive level-3 metadata+CRC will be overwritten
-    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata+CRC area
+    // `which_log` -- region on which the inactive level-3 metadata will be overwritten
+    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
     pub proof fn lemma_updating_inactive_metadata_maintains_invariants(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,
@@ -434,28 +484,92 @@ verus! {
         bytes_to_write: Seq<u8>,
     )
         requires
-            memory_matches_cdb(pm_regions_view, cdb),
+            memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
             is_valid_log_index(which_log, num_logs),
-            bytes_to_write.len() <= LENGTH_OF_LEVEL3_METADATA + CRC_SIZE,
+            bytes_to_write.len() == LENGTH_OF_LOG_METADATA,
        ensures
             ({
-                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+                let pm_regions_view2 = pm_regions_view.write(which_log as int, get_log_metadata_pos(!cdb) as int,
                                                              bytes_to_write);
-                &&& memory_matches_cdb(pm_regions_view2, cdb)
+                &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
-        let pm_regions_view2 = pm_regions_view.write(which_log as int, get_level3_metadata_pos(!cdb) as int,
+        let pm_regions_view2 = pm_regions_view.write(which_log as int, get_log_metadata_pos(!cdb) as int,
                                                      bytes_to_write);
         let w = which_log as int;
 
-        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
-            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
-                   extract_level3_cdb(pm_regions_view[0].committed()));
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
+        }
+
+        // To show that all the metadata still matches even after the
+        // write, observe that everywhere the bytes match, any call to
+        // `extract_bytes` will also match.
+
+        assert(each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)) by {
+            lemma_establish_extract_bytes_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
+        }
+    }
+
+    // This lemma establishes that, if one updates the inactive
+    // level-3 metadata in a region, this will maintain various
+    // invariants. The "inactive" level-3 metadata is the
+    // metadata corresponding to the negation of the current
+    // corruption-detecting boolean.
+    //
+    // `pm_regions_view` -- the persistent memory regions view
+    // `multilog_id` -- the ID of the multilog
+    // `num_logs` -- the number of logs
+    // `cdb` -- the current value of the corruption-detecting boolean
+    // `infos` -- the log information
+    // `state` -- the abstract multilog state
+    // `which_log` -- region on which the inactive level-3 metadata will be overwritten
+    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
+    pub proof fn lemma_updating_inactive_crc_maintains_invariants(
+        pm_regions_view: PersistentMemoryRegionsView,
+        multilog_id: u128,
+        num_logs: u32,
+        cdb: bool,
+        infos: Seq<LogInfo>,
+        state: AbstractMultiLogState,
+        which_log: u32,
+        bytes_to_write: Seq<u8>,
+    )
+        requires
+            memory_matches_deserialized_cdb(pm_regions_view, cdb),
+            each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
+            each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
+            is_valid_log_index(which_log, num_logs),
+            bytes_to_write.len() == CRC_SIZE,
+        ensures
+            ({
+                let pm_regions_view2 = pm_regions_view.write(
+                    which_log as int,
+                    get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
+                    bytes_to_write
+                );
+                &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
+                &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
+                &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
+            })
+    {
+        let pm_regions_view2 = pm_regions_view.write(
+            which_log as int,
+            get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
+            bytes_to_write
+        );
+        let w = which_log as int;
+
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
+            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
         }
 
         // To show that all the metadata still matches even after the
@@ -485,23 +599,23 @@ verus! {
         state: AbstractMultiLogState,
     )
         requires
-            memory_matches_cdb(pm_regions_view, cdb),
+            memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view,  multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
        ensures
             ({
                 let pm_regions_view2 = pm_regions_view.flush();
-                &&& memory_matches_cdb(pm_regions_view2, cdb)
+                &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
                 &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
         let pm_regions_view2 = pm_regions_view.flush();
 
-        assert(memory_matches_cdb(pm_regions_view2, cdb)) by {
+        assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
-            assert(extract_level3_cdb(pm_regions_view2[0].committed()) =~=
-                   extract_level3_cdb(pm_regions_view[0].committed()));
+            assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
+                   extract_log_cdb(pm_regions_view[0].committed()));
         }
 
         // To show that all the metadata still matches even after the

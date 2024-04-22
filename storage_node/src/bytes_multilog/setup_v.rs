@@ -5,12 +5,13 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::multilog::layout_v::*;
+use crate::multilog::multilogimpl_t::MultiLogErr;
+use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
-use crate::layout_v::*;
-use crate::multilogimpl_t::MultiLogErr;
-use crate::multilogspec_t::AbstractMultiLogState;
-use crate::pmemspec_t::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
@@ -23,7 +24,7 @@ verus! {
     // `num_regions` -- the number of regions (equal to the length of the `region_sizes` array)
     //
     // The return value is a `Result<(), MultiLogErr>`, meaning the following:
-    // 
+    //
     // `Ok(())` -- there's enough space on each region
     // `Err(err)` -- there isn't enough space, so the caller should return the error `err`.
     pub fn check_for_required_space(region_sizes: &Vec<u64>, num_regions: u32) -> (result: Result<(), MultiLogErr>)
@@ -110,7 +111,7 @@ verus! {
         // Append the little-endian encoding of the length of our level-2 metadata.
         let mut t = u64_to_le_bytes(LENGTH_OF_LEVEL2_METADATA);
         result.append(&mut t);
-        
+
         proof {
             // We want to prove that if we call
             // `parse_level1_metadata` on `result`, we get the desired
@@ -121,7 +122,7 @@ verus! {
             // little-endian encodings of the desired level-1
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
-            
+
             assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL1_PROGRAM_GUID as int, 16)
                    =~= spec_u128_to_le_bytes(MULTILOG_PROGRAM_GUID));
             assert(extract_bytes(result@, RELATIVE_POS_OF_LEVEL1_VERSION_NUMBER as int, 8)
@@ -172,7 +173,7 @@ verus! {
     {
         // Initialize an empty vector.
         let mut result = Vec::<u8>::new();
-        
+
         // Append the little-endian encoding of this region's size.
         let mut t = u64_to_le_bytes(region_size);
         result.append(&mut t);
@@ -188,7 +189,7 @@ verus! {
         // Append the little-endian encoding of which log this is.
         let mut t = u32_to_le_bytes(which_log);
         result.append(&mut t);
-        
+
         // Append the little-endian encoding of this log's log area length.
         let log_area_len: u64 = (region_size - ABSOLUTE_POS_OF_LOG_AREA) as u64;
         let mut t = u64_to_le_bytes(log_area_len);
@@ -249,7 +250,7 @@ verus! {
     {
         // Initialize an empty vector.
         let mut result = Vec::<u8>::new();
-        
+
         // Append the little-endian encoding of the head.
         let mut t = u128_to_le_bytes(head);
         result.append(&mut t);
@@ -258,7 +259,7 @@ verus! {
         let mut t = u64_to_le_bytes(log_length);
         result.append(&mut t);
 
-        proof {        
+        proof {
             // We want to prove that if we call `parse_level3_metadata` on `result`,
             // we get the desired level-3 metadata. The proof is in two parts.
 
@@ -277,7 +278,7 @@ verus! {
             // Prove that if we parse the various little-endian-encoded values,
             // we get the values that were encoded. This involves invoking the
             // lemmas that say the `to` and `from` functions are inverses.
-    
+
             lemma_auto_spec_u64_to_from_le_bytes();
             lemma_auto_spec_u128_to_from_le_bytes();
         }
@@ -379,6 +380,8 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
+            pm_regions@.timestamp == old(pm_regions)@.timestamp,
+            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
         // Initialize an empty vector.
         let mut bytes_to_write = Vec::<u8>::new();
@@ -428,7 +431,7 @@ verus! {
             // we get the little-endian encodings of the desired
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
-            
+
             let mem = pm_regions@[which_log as int].flush().committed();
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LEVEL1_METADATA as int, LENGTH_OF_LEVEL1_METADATA as int)
                    =~= level1_metadata);
@@ -486,7 +489,7 @@ verus! {
         pm_regions: &mut PMRegions,
         region_sizes: &Vec<u64>,
         Ghost(log_capacities): Ghost<Seq<u64>>,
-        multilog_id: u128
+        multilog_id: u128,
     )
         requires
             old(pm_regions).inv(),
@@ -498,17 +501,21 @@ verus! {
             forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
                 #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
+
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
             pm_regions@.len() == old(pm_regions)@.len(),
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
-            recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities))
+            recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
+            pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 1,
+            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
 
+        let ghost old_pm_regions = pm_regions@;
         let num_logs = region_sizes.len() as u32;
         for which_log in 0..num_logs
             invariant
@@ -528,7 +535,9 @@ verus! {
                 // The key invariant is that every region less than `which_log` has been set up correctly.
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
-                                                             region_sizes@[i as int], multilog_id, num_logs, i)
+                                                             region_sizes@[i as int], multilog_id, num_logs, i),
+                pm_regions@.timestamp == old_pm_regions.timestamp,
+                pm_regions@.timestamp.device_id() == old_pm_regions.timestamp.device_id()
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
@@ -540,7 +549,8 @@ verus! {
             // abstract state
             // `AbstractMultiLogState::initialize(log_capacities)`.
 
-            let pm_regions_committed = pm_regions@.flush().committed();
+            let flushed_regions = pm_regions@.flush();
+            let pm_regions_committed = flushed_regions.committed();
             assert(recover_all(pm_regions_committed, multilog_id)
                    =~= Some(AbstractMultiLogState::initialize(log_capacities))) by {
                 assert(forall |i: int| 0 <= i < pm_regions_committed.len() ==>
@@ -554,10 +564,12 @@ verus! {
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] pm_regions@.flush()[i].len());
+            assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
+
+            lemma_auto_timestamp_helpers();
         }
 
-        pm_regions.flush();
+        pm_regions.flush()
     }
 
 }

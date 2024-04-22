@@ -5,13 +5,14 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::multilog::inv_v::*;
+use crate::multilog::layout_v::*;
+use crate::multilog::multilogimpl_v::LogInfo;
+use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::pmem::pmemspec_t::PersistentMemoryRegionsView;
+use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
-use crate::inv_v::*;
-use crate::layout_v::*;
-use crate::multilogimpl_v::LogInfo;
-use crate::multilogspec_t::AbstractMultiLogState;
-use crate::pmemspec_t::PersistentMemoryRegionsView;
 use vstd::prelude::*;
 
 verus! {
@@ -136,7 +137,7 @@ verus! {
         // pre-write CDB, we have to reason about the equivalence of
         // extracted byte sequences that match between the old and new
         // region #0, where the CDB is stored.
-        
+
         assert (memory_matches_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs));
             lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
@@ -303,7 +304,7 @@ verus! {
         // Use extensional equality to prove the equivalence of the
         // intermediate abstract state between writes and the previous
         // state, if both drop pending appends.
-        
+
         assert(intermediate_state.drop_pending_appends() =~= prev_state.drop_pending_appends());
 
         // Use extensional equality to prove the equivalence of the new

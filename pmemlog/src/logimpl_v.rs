@@ -2,17 +2,17 @@ use crate::infinitelog_t::*;
 use crate::main_t::*;
 use crate::math::*;
 use crate::pmemspec_t::*;
+use crate::sccf::CheckPermission;
 use builtin::*;
 use builtin_macros::*;
+use core::convert::TryInto;
+use std::f32::consts::E;
+use std::fmt::Write;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::seq::*;
 use vstd::set::*;
 use vstd::slice::*;
-use core::convert::TryInto;
-use std::f32::consts::E;
-use std::fmt::Write;
-use crate::sccf::CheckPermission;
 
 verus! {
 
@@ -41,7 +41,7 @@ verus! {
 
     /// Converts the view of a PM region into its incorruptible Boolean, a view of its header,
     /// and a data region.
-    pub open spec fn pm_to_views(pm: Seq<u8>) -> (u64, HeaderView, Seq<u8>) 
+    pub open spec fn pm_to_views(pm: Seq<u8>) -> (u64, HeaderView, Seq<u8>)
     {
         let incorruptible_bool = spec_u64_from_le_bytes(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
         // read the CRC, then read the rest of the metadata, then combine them
@@ -68,7 +68,7 @@ verus! {
         )
     }
 
-    pub open spec fn spec_get_live_header(pm: Seq<u8>) -> PersistentHeader 
+    pub open spec fn spec_get_live_header(pm: Seq<u8>) -> PersistentHeader
     {
         let (ib, headers, _) = pm_to_views(pm);
         if ib == cdb0_val {
@@ -84,23 +84,23 @@ verus! {
     }
 
     pub proof fn lemma_same_permissions<Perm: CheckPermission<Seq<u8>>>(pm1: Seq<u8>, pm2: Seq<u8>, perm: &Perm)
-        requires 
+        requires
             recovery_view()(pm1) =~= recovery_view()(pm2),
             perm.check_permission(pm1),
             permissions_depend_only_on_recovery_view(perm)
-        ensures 
+        ensures
             perm.check_permission(pm2)
-    {}     
+    {}
 
-    /// Proves that a PM region has the given header at the given position. Useful for 
-    /// associating a region with a header structure when the struct will be used later 
+    /// Proves that a PM region has the given header at the given position. Useful for
+    /// associating a region with a header structure when the struct will be used later
     /// in a proof.
-    pub proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader) 
-        requires 
+    pub proof fn lemma_header_match(pm: Seq<u8>, header_pos: int, header: PersistentHeader)
+        requires
             pm.len() > contents_offset,
             header_pos == header1_pos || header_pos == header2_pos,
             spec_bytes_to_header(pm.subrange(header_pos as int, header_pos + header_size)) == header,
-        ensures 
+        ensures
             ({
                 let (_, headers, _) = pm_to_views(pm);
                 &&& header_pos == header1_pos ==>
@@ -114,20 +114,20 @@ verus! {
                 pm.subrange(header_pos + header_head_offset, header_pos + header_size)
             );
         lemma_bytes_combine_into_header(
-            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8), 
-            pm.subrange(header_pos + header_head_offset, header_pos + header_size), 
+            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8),
+            pm.subrange(header_pos + header_head_offset, header_pos + header_size),
             header
         );
     }
 
-    /// Proves that a given header structure consists of a CRC given in bytes as `crc_bytes` and a metadata structure 
+    /// Proves that a given header structure consists of a CRC given in bytes as `crc_bytes` and a metadata structure
     /// given in bytes as `metadata_bytes`.
     pub proof fn lemma_bytes_combine_into_header(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header: PersistentHeader)
-        requires 
+        requires
             crc_bytes.len() == 8,
             metadata_bytes.len() == header_size - 8,
             spec_bytes_to_header((crc_bytes + metadata_bytes)) == header,
-        ensures 
+        ensures
             ({
                 let combined_header = PersistentHeader { crc: spec_u64_from_le_bytes(crc_bytes), metadata: spec_bytes_to_metadata(metadata_bytes) };
                 header == combined_header
@@ -143,10 +143,10 @@ verus! {
         assert(combined_header.metadata == metadata);
     }
 
-    /// Converse of lemma_bytes_combine_into_header; proves that the byte representation of a header consists of 
+    /// Converse of lemma_bytes_combine_into_header; proves that the byte representation of a header consists of
     /// the byte representations of its CRC and metadata
     pub proof fn lemma_header_split_into_bytes(crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>, header_bytes: Seq<u8>)
-        requires 
+        requires
             crc_bytes.len() == 8,
             metadata_bytes.len() == header_size - 8,
             header_bytes.len() == header_size,
@@ -167,11 +167,11 @@ verus! {
         assert(header.metadata == spec_bytes_to_metadata(header_bytes.subrange(header_head_offset as int, header_size as int)));
         lemma_metadata_bytes_eq(metadata_bytes, header_bytes.subrange(header_head_offset as int, header_size as int), header.metadata);
         assert(header_bytes.subrange(header_head_offset as int, header_size as int) =~= metadata_bytes);
-        
+
     }
 
     pub proof fn lemma_seq_addition(bytes1: Seq<u8>, bytes2: Seq<u8>)
-        ensures 
+        ensures
             ({
                 let i = bytes1.len() as int;
                 let j = bytes2.len() as int;
@@ -203,13 +203,13 @@ verus! {
     }
 
     /// Spec code only converts byte representations to structures and does not go the other way
-    /// to simplify reasoning about persistent structures (although the opposite direction is 
+    /// to simplify reasoning about persistent structures (although the opposite direction is
     /// implemented in exec code).
 
     exec fn bytes_to_header(bytes: &[u8]) -> (out: PersistentHeader)
-        requires 
+        requires
             bytes@.len() == header_size
-        ensures 
+        ensures
             out == spec_bytes_to_header(bytes@)
     {
         let crc_bytes = slice_subrange(bytes, header_crc_offset as usize, (header_crc_offset + 8) as usize);
@@ -218,13 +218,13 @@ verus! {
         PersistentHeader {
             crc: u64_from_le_bytes(crc_bytes),
             metadata: bytes_to_metadata(metadata_bytes),
-        } 
+        }
     }
 
     exec fn header_to_bytes(header: &PersistentHeader) -> (out: Vec<u8>)
-        ensures 
+        ensures
             header == spec_bytes_to_header(out@),
-            spec_u64_from_le_bytes(out@.subrange(header_crc_offset as int, header_crc_offset + 8)) == header.crc, 
+            spec_u64_from_le_bytes(out@.subrange(header_crc_offset as int, header_crc_offset + 8)) == header.crc,
             spec_bytes_to_metadata(out@.subrange(header_head_offset as int, header_size as int)) == header.metadata,
             out@.len() == header_size
     {
@@ -236,7 +236,7 @@ verus! {
         let ghost old_crc_bytes = crc_bytes@;
         crc_bytes.append(&mut metadata_bytes);
         proof {
-            lemma_auto_spec_u64_to_from_le_bytes(); 
+            lemma_auto_spec_u64_to_from_le_bytes();
             assert(old_crc_bytes =~= crc_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8));
             assert(old_metadata_bytes =~= crc_bytes@.subrange(header_head_offset as int, header_size as int));
         }
@@ -244,24 +244,24 @@ verus! {
     }
 
     exec fn bytes_to_metadata(bytes: &[u8]) -> (out: PersistentHeaderMetadata)
-        requires 
+        requires
             bytes@.len() == header_size - 8
-        ensures 
+        ensures
             out == spec_bytes_to_metadata(bytes@)
     {
         let head_bytes = slice_subrange(bytes, (header_head_offset - 8) as usize, (header_head_offset - 8 + 8) as usize);
         let tail_bytes = slice_subrange(bytes, (header_tail_offset - 8) as usize, (header_tail_offset - 8+ 8) as usize);
         let log_size_bytes = slice_subrange(bytes, (header_log_size_offset - 8) as usize, (header_log_size_offset - 8 + 8) as usize);
 
-        PersistentHeaderMetadata { 
-            head: u64_from_le_bytes(head_bytes), 
-            tail: u64_from_le_bytes(tail_bytes), 
+        PersistentHeaderMetadata {
+            head: u64_from_le_bytes(head_bytes),
+            tail: u64_from_le_bytes(tail_bytes),
             log_size: u64_from_le_bytes(log_size_bytes),
         }
     }
 
     exec fn metadata_to_bytes(metadata: &PersistentHeaderMetadata) -> (out: Vec<u8>)
-        ensures 
+        ensures
             metadata == spec_bytes_to_metadata(out@),
             out@.len() == header_size - 8,
     {
@@ -290,29 +290,29 @@ verus! {
     }
 
     exec fn crc_and_metadata_bytes_to_header(crc_bytes: &[u8], header_bytes: &[u8]) -> (out: PersistentHeader)
-        requires 
+        requires
             crc_bytes@.len() == 8,
             header_bytes@.len() == header_size - 8
-        ensures 
+        ensures
             out.crc == spec_u64_from_le_bytes(crc_bytes@),
             out.metadata == spec_bytes_to_metadata(header_bytes@)
     {
         let head_bytes = slice_subrange(header_bytes, (header_head_offset - 8) as usize, (header_head_offset + 8 - 8) as usize);
         let tail_bytes = slice_subrange(header_bytes, (header_tail_offset - 8) as usize, (header_tail_offset + 8 - 8) as usize);
         let log_size_bytes = slice_subrange(header_bytes, (header_log_size_offset - 8) as usize, (header_log_size_offset + 8 - 8) as usize);
-    
+
         PersistentHeader {
             crc: u64_from_le_bytes(crc_bytes),
             metadata: PersistentHeaderMetadata {
                 head: u64_from_le_bytes(head_bytes),
                 tail: u64_from_le_bytes(tail_bytes),
                 log_size: u64_from_le_bytes(log_size_bytes)
-            } 
+            }
         }
     }
 
-    pub open spec(checked) fn spec_bytes_to_metadata(header_seq: Seq<u8>) -> PersistentHeaderMetadata 
-        recommends 
+    pub open spec(checked) fn spec_bytes_to_metadata(header_seq: Seq<u8>) -> PersistentHeaderMetadata
+        recommends
             header_seq.len() == 3*8
     {
         let head = spec_u64_from_le_bytes(header_seq.subrange(header_head_offset - 8, header_head_offset - 8 + 8));
@@ -325,16 +325,16 @@ verus! {
         }
     }
 
-    /// Proves that two sequences of bytes (assumed to be the subrange of a persistent memory device containing 
-    /// the PersistentHeaderMetadata) are equivalent if their PersistentHeaderMetadata representations are equivalent 
+    /// Proves that two sequences of bytes (assumed to be the subrange of a persistent memory device containing
+    /// the PersistentHeaderMetadata) are equivalent if their PersistentHeaderMetadata representations are equivalent
     pub proof fn lemma_metadata_bytes_eq(bytes1: Seq<u8>, bytes2: Seq<u8>, metadata: PersistentHeaderMetadata)
-        requires 
+        requires
             bytes1.len() == header_size - 8,
             bytes2.len() == header_size - 8,
             metadata == spec_bytes_to_metadata(bytes1),
             metadata == spec_bytes_to_metadata(bytes2),
         ensures
-            bytes1 =~= bytes2 
+            bytes1 =~= bytes2
     {
         let metadata1 = spec_bytes_to_metadata(bytes1);
         let metadata2 = spec_bytes_to_metadata(bytes2);
@@ -356,14 +356,14 @@ verus! {
         assert(metadata2.log_size == spec_u64_from_le_bytes(bytes2.subrange(header_log_size_offset - 8, header_log_size_offset - 8 + 8)));
         assert(bytes1.subrange(header_log_size_offset - 8, header_log_size_offset - 8 + 8) =~= bytes2.subrange(header_log_size_offset - 8, header_log_size_offset - 8 + 8));
 
-        assert(bytes1 =~= bytes1.subrange(header_head_offset - 8, header_head_offset - 8 + 8) + 
+        assert(bytes1 =~= bytes1.subrange(header_head_offset - 8, header_head_offset - 8 + 8) +
                             bytes1.subrange(header_tail_offset - 8, header_tail_offset - 8 + 8) +
                             bytes1.subrange(header_log_size_offset - 8, header_log_size_offset - 8 + 8));
     }
 
     pub open spec(checked) fn spec_bytes_to_header(header_seq: Seq<u8>) -> PersistentHeader
-        recommends 
-            header_seq.len() == header_size 
+        recommends
+            header_seq.len() == header_size
     {
         let crc_val = spec_u64_from_le_bytes(header_seq.subrange(header_crc_offset as int, header_crc_offset +8));
         let metadata = spec_bytes_to_metadata(header_seq.subrange(header_head_offset as int, header_size as int));
@@ -374,10 +374,10 @@ verus! {
     }
 
     /// Proves that a write to data that does not touch any metadata is crash safe.
-    pub proof fn lemma_data_write_is_safe<Perm>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &Perm) 
-        where 
+    pub proof fn lemma_data_write_is_safe<Perm>(pm: Seq<u8>, bytes: Seq<u8>, write_addr: int, perm: &Perm)
+        where
             Perm: CheckPermission<Seq<u8>>,
-        requires 
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
@@ -394,10 +394,10 @@ verus! {
                     &&& (physical_tail <= write_addr || write_addr < physical_head)
                 }
                 &&& physical_tail < physical_head ==> {
-                    &&& physical_tail <= write_addr <= write_addr + bytes.len() < physical_head 
+                    &&& physical_tail <= write_addr <= write_addr + bytes.len() < physical_head
                 }
             }),
-        ensures 
+        ensures
             UntrustedLogImpl::recover(pm).is_Some(),
             forall |chunks_flushed| {
                 let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
@@ -436,11 +436,11 @@ verus! {
         let physical_head = spec_addr_logical_to_physical(live_header.metadata.head as int, live_header.metadata.log_size as int);
         let physical_tail = spec_addr_logical_to_physical(live_header.metadata.tail as int, live_header.metadata.log_size as int);
         &&& old_ib == new_ib
-        &&& old_headers == new_headers 
+        &&& old_headers == new_headers
         &&& new_data.len() == old_data.len()
         &&& new_data.subrange(write_addr - contents_offset, write_addr - contents_offset + new_bytes.len()) =~= new_bytes
         &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
-        &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~= 
+        &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~=
                 old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
         &&& UntrustedLogImpl::recover(new_pm).is_Some()
 
@@ -453,8 +453,8 @@ verus! {
     }
 
     /// Proves that a non-crashing data write updates data bytes but no log metadata.
-    pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int) 
-        requires 
+    pub proof fn lemma_append_data_update_view(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int)
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
@@ -469,10 +469,10 @@ verus! {
                         &&& (physical_tail <= write_addr || write_addr < physical_head)
                 }
                 &&& physical_tail < physical_head ==> {
-                        &&& physical_tail <= write_addr <= write_addr + new_bytes.len() < physical_head 
+                        &&& physical_tail <= write_addr <= write_addr + new_bytes.len() < physical_head
                 }
             }),
-        ensures 
+        ensures
             UntrustedLogImpl::recover(pm).is_Some(),
             update_data_view_postcond(pm, new_bytes, write_addr),
     {
@@ -489,12 +489,12 @@ verus! {
         lemma_subrange_equality_implies_subsubrange_equality(pm, new_pm, write_addr + new_bytes.len(), new_pm.len() as int);
         if physical_head < physical_tail {
             assert(new_pm.subrange(physical_head as int, physical_tail as int) =~= pm.subrange(physical_head as int, physical_tail as int));
-        } 
+        }
     }
 
-    /// Proves that a crashing data write updates data bytes but no log metadata. 
-    pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>) 
-        requires 
+    /// Proves that a crashing data write updates data bytes but no log metadata.
+    pub proof fn lemma_append_data_update_view_crash(pm: Seq<u8>, new_bytes: Seq<u8>, write_addr: int, chunks_flushed: Set<int>)
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             pm.len() > contents_offset,
             contents_offset <= write_addr < pm.len(),
@@ -504,19 +504,19 @@ verus! {
                 let physical_head = spec_addr_logical_to_physical(live_header.metadata.head as int, live_header.metadata.log_size as int);
                 let physical_tail = spec_addr_logical_to_physical(live_header.metadata.tail as int, live_header.metadata.log_size as int);
                 &&& physical_head <= physical_tail ==> write_addr + new_bytes.len() <= live_header.metadata.log_size + contents_offset
-                &&& physical_tail < physical_head ==> write_addr + new_bytes.len() < physical_head 
+                &&& physical_tail < physical_head ==> write_addr + new_bytes.len() < physical_head
             })
-        ensures 
+        ensures
             UntrustedLogImpl::recover(pm).is_Some(),
             ({
                 let new_pm = update_contents_to_reflect_partially_flushed_write(pm, write_addr, new_bytes, chunks_flushed);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
                 &&& old_ib == new_ib
-                &&& old_headers == new_headers 
+                &&& old_headers == new_headers
                 &&& new_data.len() == old_data.len()
                 &&& new_data.subrange(0, write_addr - contents_offset) =~= old_data.subrange(0, write_addr - contents_offset)
-                &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~= 
+                &&& new_data.subrange(write_addr - contents_offset + new_bytes.len(), new_data.len() as int) =~=
                         old_data.subrange(write_addr - contents_offset + new_bytes.len(), old_data.len() as int)
                 &&& UntrustedLogImpl::recover(new_pm).is_Some()
             })
@@ -533,25 +533,25 @@ verus! {
 
     /// Proves that a non-crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int)
-        requires 
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
-                &&& old_ib == cdb0_val ==> header_pos == header2_pos 
+                &&& old_ib == cdb0_val ==> header_pos == header2_pos
                 &&& old_ib == cdb1_val ==> header_pos == header1_pos
             }),
             new_header_bytes.len() == header_size,
             pm.len() > contents_offset,
-        ensures 
+        ensures
             ({
                 let new_pm = update_contents_to_reflect_write(pm, header_pos, new_header_bytes);
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
                 &&& old_ib == new_ib
                 &&& old_data =~= old_data
-                &&& header_pos == header1_pos ==> 
+                &&& header_pos == header1_pos ==>
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
@@ -563,35 +563,35 @@ verus! {
         assert(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
         if header_pos == header1_pos {
             // we wrote to header1, so header2 should have stayed the same
-            assert(pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~= 
+            assert(pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~=
                 new_pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8));
 
-            assert(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size) =~= 
+            assert(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size) =~=
                 new_pm.subrange(header2_pos + header_head_offset, header2_pos + header_size));
         } else {
             // we wrote to header2, so header1 should have stayed the same
-            assert(pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~= 
+            assert(pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~=
                 new_pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8));
 
-            assert(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size) =~= 
+            assert(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size) =~=
                 new_pm.subrange(header1_pos + header_head_offset, header1_pos + header_size));
         }
     }
 
     /// Proves that a crashing update to the inactive header does not change any visible PM state.
     pub proof fn lemma_inactive_header_update_view_crash(pm: Seq<u8>, new_header_bytes: Seq<u8>, header_pos: int, chunks_flushed: Set<int>)
-        requires 
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             header_pos == header1_pos || header_pos == header2_pos,
             ({
                 // the new bytes must be written to the inactive header
                 let (old_ib, old_headers, old_data) = pm_to_views(pm);
-                &&& old_ib == cdb0_val ==> header_pos == header2_pos 
+                &&& old_ib == cdb0_val ==> header_pos == header2_pos
                 &&& old_ib == cdb1_val ==> header_pos == header1_pos
             }),
             new_header_bytes.len() == header_size,
             pm.len() > contents_offset,
-        ensures 
+        ensures
             ({
                 let new_pm = update_contents_to_reflect_partially_flushed_write(
                     pm, header_pos, new_header_bytes, chunks_flushed);
@@ -599,7 +599,7 @@ verus! {
                 let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
                 &&& old_ib == new_ib
                 &&& old_data =~= old_data
-                &&& header_pos == header1_pos ==> 
+                &&& header_pos == header1_pos ==>
                     old_headers.header2 == new_headers.header2
                 &&& header_pos == header2_pos ==>
                     old_headers.header1 == new_headers.header1
@@ -611,46 +611,46 @@ verus! {
         assert(pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8));
         if header_pos == header1_pos {
             // we wrote to header1, so header2 should have stayed the same
-            assert(pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~= 
+            assert(pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~=
                 new_pm.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8));
 
-            assert(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size) =~= 
+            assert(pm.subrange(header2_pos + header_head_offset, header2_pos + header_size) =~=
                 new_pm.subrange(header2_pos + header_head_offset, header2_pos + header_size));
         } else {
             // we wrote to header2, so header1 should have stayed the same
-            assert(pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~= 
+            assert(pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~=
                 new_pm.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8));
 
-            assert(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size) =~= 
+            assert(pm.subrange(header1_pos + header_head_offset, header1_pos + header_size) =~=
                 new_pm.subrange(header1_pos + header_head_offset, header1_pos + header_size));
         }
     }
 
     /// Proves that an update to the incorruptible boolean is crash-safe and switches the log's
-    /// active header. This lemma does most of the work to prove that untrusted_append is 
+    /// active header. This lemma does most of the work to prove that untrusted_append is
     /// implemented correctly.
     pub proof fn lemma_append_ib_update<Perm: CheckPermission<Seq<u8>>>(
-        pm: Seq<u8>, 
-        new_ib: u64, 
-        bytes_to_append: Seq<u8>, 
-        new_header_bytes: Seq<u8>, 
+        pm: Seq<u8>,
+        new_ib: u64,
+        bytes_to_append: Seq<u8>,
+        new_header_bytes: Seq<u8>,
         perm: &Perm
     )
-        requires 
+        requires
             pm.len() > contents_offset,
             UntrustedLogImpl::recover(pm).is_Some(),
             new_ib == cdb0_val || new_ib == cdb1_val,
-            new_ib == cdb0_val ==> 
+            new_ib == cdb0_val ==>
                 pm.subrange(header1_pos as int, header1_pos + header_size) == new_header_bytes,
             new_ib == cdb1_val ==>
                 pm.subrange(header2_pos as int, header2_pos + header_size) == new_header_bytes,
-            new_header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) == 
+            new_header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) ==
                 spec_crc_bytes(new_header_bytes.subrange(header_head_offset as int, header_size as int)),
             ({
                 let new_header = spec_bytes_to_header(new_header_bytes);
                 let live_header = spec_get_live_header(pm);
                 &&& new_header.metadata.tail == live_header.metadata.tail + bytes_to_append.len()
-                &&& new_header.metadata.head == live_header.metadata.head 
+                &&& new_header.metadata.head == live_header.metadata.head
                 &&& new_header.metadata.log_size == live_header.metadata.log_size
                 &&& new_header.metadata.tail - new_header.metadata.head < new_header.metadata.log_size
             }),
@@ -720,9 +720,9 @@ verus! {
         assert(perm.check_permission(pm));
 
         let new_pm = update_contents_to_reflect_write(pm, incorruptible_bool_pos as int, ib_bytes);
-        lemma_headers_unchanged(pm, new_pm); 
+        lemma_headers_unchanged(pm, new_pm);
         assert(new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= ib_bytes);
-    
+
         let new_header = spec_bytes_to_header(new_header_bytes);
         let (ib, headers, data) = pm_to_views(new_pm);
         let header_pos = if new_ib == cdb0_val {
@@ -733,7 +733,7 @@ verus! {
         assert(new_pm.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes);
         lemma_header_match(new_pm, header_pos as int, new_header);
         lemma_header_correct(new_pm, new_header_bytes, header_pos as int);
-        
+
         // prove that new pm has the append update
         let new_log_state = UntrustedLogImpl::recover(new_pm);
         let old_log_state = UntrustedLogImpl::recover(pm);
@@ -746,7 +746,7 @@ verus! {
                 let old_header = spec_get_live_header(pm);
                 let live_header = spec_get_live_header(new_pm);
                 assert(live_header == new_header);
-                
+
                 assert(live_header.metadata.head == old_header.metadata.head);
                 assert(live_header.metadata.tail == old_header.metadata.tail + bytes_to_append.len());
 
@@ -760,22 +760,22 @@ verus! {
 
                 if physical_head <= old_physical_tail {
                     if old_physical_tail + append_size >= contents_end {
-                        assert(new_log_state.log =~= new_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) + 
-                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) + 
+                        assert(new_log_state.log =~= new_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) +
+                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
                                                     new_data.subrange(0, new_physical_tail - contents_offset));
-                        assert(new_log_state.log =~= old_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) + 
-                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) + 
+                        assert(new_log_state.log =~= old_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) +
+                                                    new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
                                                     new_data.subrange(0, new_physical_tail - contents_offset));
                         let len1 = (contents_end - old_physical_tail);
                         let len2 = bytes_to_append.len() - len1;
-                        assert(bytes_to_append =~= new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) + 
+                        assert(bytes_to_append =~= new_data.subrange(old_physical_tail - contents_offset, contents_end - contents_offset) +
                                                     new_data.subrange(0, new_physical_tail - contents_offset));
                         assert(new_log_state.log =~= old_data.subrange(physical_head - contents_offset, old_physical_tail - contents_offset) + bytes_to_append);
                     } else {
                         assert(old_data.subrange(0, old_physical_tail - contents_offset) =~= new_data.subrange(0, old_physical_tail - contents_offset));
                         assert(new_data.subrange(old_physical_tail - contents_offset, old_physical_tail - contents_offset + append_size) =~= bytes_to_append);
                     }
-                } else { // physical_tail < physical_head 
+                } else { // physical_tail < physical_head
                     assert(old_physical_tail + append_size < physical_head);
                 }
                 assert(new_log_state =~= old_log_state.append(bytes_to_append));
@@ -785,7 +785,7 @@ verus! {
         }
     }
 
-    pub open spec fn live_data_view_eq(old_pm: Seq<u8>, new_pm: Seq<u8>) -> bool 
+    pub open spec fn live_data_view_eq(old_pm: Seq<u8>, new_pm: Seq<u8>) -> bool
     {
         let (old_ib, old_headers, old_data) = pm_to_views(old_pm);
         let (new_ib, new_headers, new_data) = pm_to_views(new_pm);
@@ -797,19 +797,19 @@ verus! {
         let physical_data_head = physical_head - contents_offset;
         let physical_data_tail = physical_tail - contents_offset;
 
-        &&& new_live_header == old_live_header 
-        &&& physical_head < physical_tail ==> 
+        &&& new_live_header == old_live_header
+        &&& physical_head < physical_tail ==>
                 old_data.subrange(physical_data_head, physical_data_tail) =~= new_data.subrange(physical_data_head, physical_data_tail)
         &&& physical_tail < physical_head ==> {
                 &&& old_data.subrange(physical_data_head as int, log_size as int) =~= new_data.subrange(physical_data_head as int, log_size as int)
                 &&& old_data.subrange(0, physical_data_tail as int) =~= new_data.subrange(0, physical_data_tail as int)
-        }  
-        &&& physical_tail == physical_head ==> 
+        }
+        &&& physical_tail == physical_head ==>
                 physical_data_head == physical_data_tail
     }
 
     pub proof fn lemma_same_log_state(old_pm: Seq<u8>, new_pm: Seq<u8>)
-        requires 
+        requires
             UntrustedLogImpl::recover(old_pm).is_Some(),
             UntrustedLogImpl::recover(new_pm).is_Some(),
             live_data_view_eq(old_pm, new_pm),
@@ -825,8 +825,8 @@ verus! {
                     &&& old_headers.header2 == new_headers.header2
                 }
             })
-        ensures 
-            UntrustedLogImpl::recover(old_pm) =~= 
+        ensures
+            UntrustedLogImpl::recover(old_pm) =~=
                 UntrustedLogImpl::recover(new_pm)
     {
         let old_state = UntrustedLogImpl::recover(old_pm);
@@ -864,7 +864,7 @@ verus! {
                     assert(old_state.log.len() == 0);
                     assert(new_state.log.len() == 0);
                 }
-            }   
+            }
             _ => assert(false),
         }
     }
@@ -921,43 +921,43 @@ verus! {
         }
     }
 
-    pub proof fn lemma_headers_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>) 
+    pub proof fn lemma_headers_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
         requires
             old_pm.len() == new_pm.len(),
             old_pm.len() >= contents_offset,
             old_pm.subrange(header1_pos as int, header1_pos + header_size) =~= new_pm.subrange(header1_pos as int, header1_pos + header_size),
             old_pm.subrange(header2_pos as int, header2_pos + header_size) =~= new_pm.subrange(header2_pos as int, header2_pos + header_size),
-        ensures 
+        ensures
             ({
                 let (_, old_headers, _) = pm_to_views(old_pm);
                 let (_, new_headers, _) = pm_to_views(new_pm);
-                old_headers == new_headers 
+                old_headers == new_headers
             })
     {
         lemma_subrange_equality_implies_subsubrange_equality_forall::<u8>();
     }
 
     pub proof fn lemma_incorruptible_bool_unchanged(old_pm: Seq<u8>, new_pm: Seq<u8>)
-        requires 
+        requires
             old_pm.len() == new_pm.len(),
             old_pm.len() >= contents_offset,
             old_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8)
-        ensures 
+        ensures
             ({
                 let (old_ib, _, _) = pm_to_views(old_pm);
                 let (new_ib, _, _) = pm_to_views(new_pm);
-                old_ib == new_ib 
+                old_ib == new_ib
             })
     {}
 
-    pub proof fn lemma_header_crc_correct(header_bytes: Seq<u8>, crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>) 
+    pub proof fn lemma_header_crc_correct(header_bytes: Seq<u8>, crc_bytes: Seq<u8>, metadata_bytes: Seq<u8>)
         requires
             header_bytes.len() == header_size,
             crc_bytes.len() == 8,
             metadata_bytes.len() == header_size - 8,
             crc_bytes =~= spec_crc_bytes(metadata_bytes),
-            header_bytes =~= crc_bytes + metadata_bytes 
-        ensures 
+            header_bytes =~= crc_bytes + metadata_bytes
+        ensures
             header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) =~= crc_bytes,
             header_bytes.subrange(header_head_offset as int, header_size as int) =~= metadata_bytes,
             header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) =~=
@@ -968,38 +968,38 @@ verus! {
     }
 
     pub proof fn lemma_header_correct(pm: Seq<u8>, header_bytes: Seq<u8>, header_pos: int)
-        requires 
+        requires
             pm.len() > contents_offset,
             header_bytes.len() == header_size,
             header_pos == header1_pos || header_pos == header2_pos,
-            header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) =~= 
+            header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8) =~=
                 spec_crc_bytes(header_bytes.subrange(header_head_offset as int, header_size as int)),
-            pm.subrange(header_pos, header_pos + header_size) =~= header_bytes            
-        ensures 
-            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~= 
+            pm.subrange(header_pos, header_pos + header_size) =~= header_bytes
+        ensures
+            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~=
                 header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8),
-            pm.subrange(header_pos + header_head_offset, header_pos + header_size) =~= 
+            pm.subrange(header_pos + header_head_offset, header_pos + header_size) =~=
                 header_bytes.subrange(header_head_offset as int, header_size as int),
-            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~= 
+            pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~=
                 spec_crc_bytes(pm.subrange(header_pos + header_head_offset, header_pos + header_size))
     {
-        assert(pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~= 
+        assert(pm.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8) =~=
             header_bytes.subrange(header_crc_offset as int, header_crc_offset + 8));
-        assert(pm.subrange(header_pos + header_head_offset, header_pos + header_size) =~= 
+        assert(pm.subrange(header_pos + header_head_offset, header_pos + header_size) =~=
             header_bytes.subrange(header_head_offset as int, header_size as int));
     }
-    
-    pub proof fn lemma_u64_bytes_eq(val1: u64, val2: u64) 
-        requires 
+
+    pub proof fn lemma_u64_bytes_eq(val1: u64, val2: u64)
+        requires
             val1 == val2
-        ensures 
+        ensures
             spec_u64_to_le_bytes(val1) =~= spec_u64_to_le_bytes(val2)
     {}
 
     pub proof fn lemma_subrange_eq<T>(bytes1: Seq<T>, bytes2: Seq<T>)
-        requires 
+        requires
             bytes1 =~= bytes2
-        ensures 
+        ensures
             forall |i: int, j: int| 0 <= i < j < bytes1.len() ==> bytes1.subrange(i, j) =~= bytes2.subrange(i, j)
     {}
 
@@ -1023,13 +1023,13 @@ verus! {
     {}
 
     pub proof fn lemma_pm_state_header(pm: Seq<u8>)
-        requires 
+        requires
             UntrustedLogImpl::recover(pm).is_Some(),
             ({
                 let header = spec_get_live_header(pm);
                 header.metadata.tail - header.metadata.head < header.metadata.log_size
             })
-        ensures 
+        ensures
             ({
                 let pm_state = UntrustedLogImpl::recover(pm);
                 let header = spec_get_live_header(pm);
@@ -1038,7 +1038,7 @@ verus! {
                         &&& header.metadata.head == pm_state.head
                         &&& pm_state.log.len() == header.metadata.tail - header.metadata.head
                     }
-                    None => false 
+                    None => false
                 }
             })
     {
@@ -1054,10 +1054,10 @@ verus! {
         match pm_state {
             Some(pm_state) => {
                 if physical_head < physical_tail {
-                    // log does not wrap 
+                    // log does not wrap
                     lemma_mod_difference_equal(head, tail, log_size);
                 } else if physical_tail < physical_head {
-                    // log wraps 
+                    // log wraps
                     lemma_mod_wrapped_len(head, tail, log_size);
                 } else {
                     // size is 0
@@ -1101,7 +1101,7 @@ verus! {
         pub open spec fn log_state_is_valid(pm: Seq<u8>) -> bool {
             let (ib, headers, data) = pm_to_views(pm);
             let live_header = if ib == cdb0_val {
-                headers.header1 
+                headers.header1
             } else {
                 headers.header2
             };
@@ -1126,14 +1126,14 @@ verus! {
             &&& head <= tail
         }
 
-        pub open spec fn recover(pm: Seq<u8>) -> Option<AbstractInfiniteLogState> 
+        pub open spec fn recover(pm: Seq<u8>) -> Option<AbstractInfiniteLogState>
         {
             let (ib, headers, data) = pm_to_views(pm);
             if !Self::log_state_is_valid(pm) {
                 None
             } else {
                 let live_header = if ib == cdb0_val {
-                    headers.header1 
+                    headers.header1
                 } else {
                     headers.header2
                 };
@@ -1144,13 +1144,13 @@ verus! {
                 let contents_end = log_size + contents_offset;
                 let physical_head = spec_addr_logical_to_physical(head, log_size);
                 let physical_tail = spec_addr_logical_to_physical(tail, log_size);
-                
+
                 let abstract_log = if physical_head < physical_tail {
                     pm.subrange(physical_head, physical_tail)
                 } else if physical_tail < physical_head {
                     let range1 = pm.subrange(physical_head, contents_end);
                     let range2 = pm.subrange(contents_offset as int, physical_tail);
-                    range1 + range2 
+                    range1 + range2
                 } else {
                     Seq::empty()
                 };
@@ -1170,16 +1170,16 @@ verus! {
             let head = header.metadata.head;
             let tail = header.metadata.tail;
             let log_size = header.metadata.log_size;
-            &&& ib == cdb0_val || ib == cdb1_val 
-            &&& spec_crc_bytes(contents.subrange(header_pos + header_head_offset, header_pos + header_size)) == 
+            &&& ib == cdb0_val || ib == cdb1_val
+            &&& spec_crc_bytes(contents.subrange(header_pos + header_head_offset, header_pos + header_size)) ==
                   contents.subrange(header_pos + header_crc_offset, header_pos + header_crc_offset + 8)
-            &&& log_size + contents_offset <= u64::MAX 
+            &&& log_size + contents_offset <= u64::MAX
             &&& tail - head < log_size
             &&& log_size + contents_offset == contents.len()
             &&& self.header_crc == header.crc
-            &&& self.head == head 
-            &&& self.tail == tail 
-            &&& self.log_size == log_size 
+            &&& self.head == head
+            &&& self.tail == tail
+            &&& self.log_size == log_size
             &&& self.incorruptible_bool == ib
             &&& match Self::recover(contents) {
                    Some(inf_log) => tail == head + inf_log.log.len(),
@@ -1200,11 +1200,11 @@ verus! {
         }
 
         pub exec fn read_incorruptible_boolean<PM: PersistentMemory>(pm: &PM) -> (result: Result<u64, InfiniteLogErr>)
-            requires 
+            requires
                 Self::recover(pm@).is_Some(),
                 pm.inv(),
-                pm@.len() > contents_offset 
-            ensures 
+                pm@.len() > contents_offset
+            ensures
                 match result {
                     Ok(ib) => {
                         let (spec_ib, _, _) = pm_to_views(pm@);
@@ -1241,19 +1241,19 @@ verus! {
             where
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
-            requires 
+            requires
                 permissions_depend_only_on_recovery_view(perm),
                 contents_offset < old(wrpm)@.len(),
                 old(self).inv(&*old(wrpm)),
                 Self::recover(old(wrpm)@).is_Some(),
-                new_header_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8) =~= 
+                new_header_bytes@.subrange(header_crc_offset as int, header_crc_offset + 8) =~=
                     spec_crc_bytes(new_header_bytes@.subrange(header_head_offset as int, header_size as int)),
                 new_header_bytes.len() == header_size,
                 match Self::recover(old(wrpm)@) {
                     Some(log_state) => perm.check_permission(old(wrpm)@),
                     None => false
                 }
-            ensures 
+            ensures
                 self.inv(wrpm),
                 Self::recover(wrpm@).is_Some(),
                 wrpm.constants() == old(wrpm).constants(),
@@ -1265,32 +1265,32 @@ verus! {
                     let (old_pm_ib, old_metadata, old_data) = pm_to_views(old(wrpm)@);
                     let (new_pm_ib, new_metadata, new_data) = pm_to_views(wrpm@);
                     let new_header = spec_bytes_to_header(new_header_bytes@);
-                    &&& old_pm_ib == new_pm_ib 
+                    &&& old_pm_ib == new_pm_ib
                     &&& old_pm_ib == cdb0_val ==> {
                         &&& new_metadata.header1 == old_metadata.header1
                         &&& new_metadata.header2 == new_header
-                        &&& wrpm@.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~= 
+                        &&& wrpm@.subrange(header2_pos + header_crc_offset, header2_pos + header_crc_offset + 8) =~=
                                 spec_crc_bytes(wrpm@.subrange(header2_pos + header_head_offset, header2_pos + header_size))
                         &&& wrpm@.subrange(header2_pos as int, header2_pos + header_size) =~= new_header_bytes@
                     }
                     &&& old_pm_ib == cdb1_val ==> {
                         &&& new_metadata.header1 == new_header
                         &&& new_metadata.header2 == old_metadata.header2
-                        &&& wrpm@.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~= 
+                        &&& wrpm@.subrange(header1_pos + header_crc_offset, header1_pos + header_crc_offset + 8) =~=
                                 spec_crc_bytes(wrpm@.subrange(header1_pos + header_head_offset, header1_pos + header_size))
                         &&& wrpm@.subrange(header1_pos as int, header1_pos + header_size) =~= new_header_bytes@
                     }
                     &&& old_data =~= new_data
                 }),
-                
+
         {
             let ghost original_wrpm = wrpm@;
 
             // write to the header that is NOT pointed to by the IB
             let header_pos = if self.incorruptible_bool == cdb0_val {
-                header2_pos 
+                header2_pos
             } else {
-                header1_pos 
+                header1_pos
             };
 
             // TODO: we could probably roll all of this into a single lemma that contains all of the proofs
@@ -1299,7 +1299,7 @@ verus! {
                 lemma_inactive_header_update_view(wrpm@, new_header_bytes@, header_pos as int);
                 lemma_same_log_state(wrpm@, new_pm);
                 assert(Self::recover(wrpm@) =~= Self::recover(new_pm));
-                
+
                 // prove crash consistency
                 assert forall |chunks_flushed| {
                     let new_pm = #[trigger] update_contents_to_reflect_partially_flushed_write(
@@ -1322,7 +1322,7 @@ verus! {
                 assert(wrpm@.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes@);
                 lemma_header_correct(wrpm@, new_header_bytes@, header_pos as int);
 
-                // live header is unchanged 
+                // live header is unchanged
                 let live_header_pos = if header_pos == header1_pos {
                     header2_pos
                 } else {
@@ -1331,16 +1331,16 @@ verus! {
                 };
 
                 // TODO: refactor into a lemma (ideally lemma_header_correct)
-                assert(old(wrpm)@.subrange(live_header_pos as int, live_header_pos + header_size) =~= 
+                assert(old(wrpm)@.subrange(live_header_pos as int, live_header_pos + header_size) =~=
                         wrpm@.subrange(live_header_pos as int, live_header_pos + header_size));
-                assert(old(wrpm)@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~= 
+                assert(old(wrpm)@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~=
                     spec_crc_bytes(old(wrpm)@.subrange(live_header_pos + header_head_offset, live_header_pos + header_size)));
-                assert(old(wrpm)@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~= 
+                assert(old(wrpm)@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~=
                     wrpm@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8));
-                assert(old(wrpm)@.subrange(live_header_pos + header_head_offset, live_header_pos + header_size) =~= 
+                assert(old(wrpm)@.subrange(live_header_pos + header_head_offset, live_header_pos + header_size) =~=
                     wrpm@.subrange(live_header_pos + header_head_offset, live_header_pos + header_size));
 
-                assert(wrpm@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~= 
+                assert(wrpm@.subrange(live_header_pos + header_crc_offset, live_header_pos + header_crc_offset + 8) =~=
                     spec_crc_bytes(wrpm@.subrange(live_header_pos + header_head_offset, live_header_pos + header_size)));
             }
         }
@@ -1369,7 +1369,7 @@ verus! {
             }
 
             let log_size = device_size - contents_offset;
-            
+
             let log_header_metadata = PersistentHeaderMetadata {
                 head: 0,
                 tail: 0,
@@ -1382,7 +1382,7 @@ verus! {
                 metadata: log_header_metadata,
             };
             let header_bytes = header_to_bytes(&log_header);
-            
+
             let initial_ib_bytes = u64_to_le_bytes(cdb0_val);
             pm.write(header1_pos, header_bytes.as_slice());
             pm.write(incorruptible_bool_pos, initial_ib_bytes.as_slice());
@@ -1454,8 +1454,8 @@ verus! {
             let ghost crc_addrs = Seq::<int>::new(8, |i: int| i + header_pos + header_crc_offset);
             let header_bytes = pm.read(header_pos + header_head_offset, header_size - header_head_offset);
             let ghost header_addrs = Seq::<int>::new((header_size - header_head_offset) as nat, |i: int| i + header_pos + header_head_offset);
-            
-            let header = if u64_from_le_bytes(bytes_crc(&header_bytes).as_slice()) == u64_from_le_bytes(crc_bytes.as_slice()) { 
+
+            let header = if u64_from_le_bytes(bytes_crc(&header_bytes).as_slice()) == u64_from_le_bytes(crc_bytes.as_slice()) {
                 proof {
                     lemma_auto_spec_u64_to_from_le_bytes();
                     lemma_u64_bytes_eq(spec_u64_from_le_bytes(spec_crc_bytes(header_bytes@)), spec_u64_from_le_bytes(crc_bytes@));
@@ -1584,7 +1584,7 @@ verus! {
                 let ghost old_metadata_bytes = metadata_bytes@;
                 let mut new_header_bytes = new_crc_bytes;
                 new_header_bytes.append(&mut metadata_bytes);
-                
+
                 proof { lemma_header_crc_correct(new_header_bytes@, new_crc_bytes@, old_metadata_bytes); }
 
                 self.update_header(wrpm, Tracked(perm), &new_header_bytes);
@@ -1592,7 +1592,7 @@ verus! {
                 // update incorruptible boolean
                 let old_ib = self.incorruptible_bool;
                 let new_ib = if old_ib == cdb0_val {
-                    cdb1_val 
+                    cdb1_val
                 } else {
                     assert(old_ib == cdb1_val);
                     cdb0_val
@@ -1618,11 +1618,11 @@ verus! {
             bytes_to_append: &Vec<u8>,
             old_header: &PersistentHeaderMetadata,
             Tracked(perm): Tracked<&Perm>
-        ) 
-            where 
+        )
+            where
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
-            requires 
+            requires
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
@@ -1638,9 +1638,9 @@ verus! {
                     let physical_tail = spec_addr_logical_to_physical(old_header.tail as int, old_header.log_size as int);
                     let contents_end = old_header.log_size + contents_offset;
                     &&& physical_head <= physical_tail ==> physical_tail + bytes_to_append@.len() < contents_end
-                    &&& physical_tail < physical_head ==> physical_tail <= physical_tail + bytes_to_append@.len() < physical_head 
+                    &&& physical_tail < physical_head ==> physical_tail <= physical_tail + bytes_to_append@.len() < physical_head
                 })
-            ensures 
+            ensures
                 self.inv(wrpm),
                 wrpm.constants() == old(wrpm).constants(),
                 Self::recover(wrpm@).is_Some(),
@@ -1652,11 +1652,11 @@ verus! {
                     let (old_ib, old_headers, old_data) = pm_to_views(old(wrpm)@);
                     let (new_ib, new_headers, new_data) = pm_to_views(wrpm@);
                     let physical_tail = spec_addr_logical_to_physical(old_header.tail as int, old_header.log_size as int);
-                    &&& old_ib == new_ib 
+                    &&& old_ib == new_ib
                     &&& old_headers == new_headers
                     &&& new_data.subrange(physical_tail - contents_offset, physical_tail - contents_offset + bytes_to_append@.len() as int) =~= bytes_to_append@
                     &&& new_data.subrange(0, physical_tail - contents_offset) =~= old_data.subrange(0, physical_tail - contents_offset)
-                    &&& new_data.subrange(physical_tail - contents_offset + bytes_to_append@.len(), new_data.len() as int) =~= 
+                    &&& new_data.subrange(physical_tail - contents_offset + bytes_to_append@.len(), new_data.len() as int) =~=
                             old_data.subrange(physical_tail - contents_offset + bytes_to_append@.len(), old_data.len() as int)
                 })
         {
@@ -1666,7 +1666,7 @@ verus! {
             proof {
                 assert(wrpm@.subrange(0, physical_tail as int) =~= old(wrpm)@.subrange(0, physical_tail as int));
                 lemma_subrange_equality_implies_subsubrange_equality(wrpm@, old(wrpm)@, 0, physical_tail as int);
-            }   
+            }
         }
 
         pub exec fn append_wrap<Perm, PM>(
@@ -1676,10 +1676,10 @@ verus! {
             old_header: &PersistentHeaderMetadata,
             Tracked(perm): Tracked<&Perm>
         )
-            where 
+            where
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemory
-            requires 
+            requires
                 permissions_depend_only_on_recovery_view(perm),
                 perm.check_permission(old(wrpm)@),
                 old(self).inv(&*old(wrpm)),
@@ -1694,7 +1694,7 @@ verus! {
                     &&& physical_head <= physical_tail
                     &&& bytes_to_append@.len() <= old_header.log_size - (old_header.tail - old_header.head)
                 }),
-            ensures 
+            ensures
                 self.inv(wrpm),
                 Self::recover(wrpm@).is_Some(),
                 wrpm.constants() == old(wrpm).constants(),
@@ -1709,7 +1709,7 @@ verus! {
                     let physical_tail = spec_addr_logical_to_physical(old_header.tail as int, old_header.log_size as int);
                     let len1 = (contents_end - physical_tail);
                     let len2 = bytes_to_append@.len() - len1;
-                    &&& old_ib == new_ib 
+                    &&& old_ib == new_ib
                     &&& old_headers == new_headers
                     &&& new_data.subrange(physical_tail - contents_offset, contents_end - contents_offset) =~= bytes_to_append@.subrange(0, len1)
                     &&& new_data.subrange(0, len2 as int) =~= bytes_to_append@.subrange(len1 as int, bytes_to_append@.len() as int)
@@ -1756,7 +1756,7 @@ verus! {
                     let old_log_state = Self::recover(old(wrpm)@);
                     forall |pm_state| #[trigger] perm.check_permission(pm_state) <==> {
                         let log_state = Self::recover(pm_state);
-                        ||| log_state == old_log_state 
+                        ||| log_state == old_log_state
                         ||| log_state == Some(old_log_state.unwrap().advance_head(new_head as int))
                     }
                 })
@@ -1803,7 +1803,7 @@ verus! {
                 return Err(InfiniteLogErr::CantAdvanceHeadPositionBeyondTail{ tail: live_header.metadata.tail });
             }
 
-            // copy the header and update it 
+            // copy the header and update it
             let mut new_header = live_header;
             new_header.metadata.head = new_head;
             let mut metadata_bytes = metadata_to_bytes(&new_header.metadata);
@@ -1812,15 +1812,15 @@ verus! {
             let ghost old_metadata_bytes = metadata_bytes@;
             let mut new_header_bytes = new_crc_bytes;
             new_header_bytes.append(&mut metadata_bytes);
-            
+
             proof { lemma_header_crc_correct(new_header_bytes@, new_crc_bytes@, old_metadata_bytes); }
-            
+
             self.update_header(wrpm, Tracked(perm), &new_header_bytes);
 
             // TODO: put ib update in a lemma
             let old_ib = self.incorruptible_bool;
             let new_ib = if old_ib == cdb0_val {
-                cdb1_val 
+                cdb1_val
             } else {
                 assert(old_ib == cdb1_val);
                 cdb0_val
@@ -1832,9 +1832,9 @@ verus! {
                 lemma_single_write_crash(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
                 assert(perm.check_permission(old(wrpm)@));
                 let new_pm = update_contents_to_reflect_write(wrpm@, incorruptible_bool_pos as int, new_ib_bytes@);
-                lemma_headers_unchanged(wrpm@, new_pm); 
+                lemma_headers_unchanged(wrpm@, new_pm);
                 assert(new_pm.subrange(incorruptible_bool_pos as int, incorruptible_bool_pos + 8) =~= new_ib_bytes@);
-                
+
                 let new_header = spec_bytes_to_header(new_header_bytes@);
                 let (ib, headers, data) = pm_to_views(new_pm);
                 let header_pos = if new_ib == cdb0_val {
@@ -1845,7 +1845,7 @@ verus! {
                 assert(new_pm.subrange(header_pos as int, header_pos + header_size) =~= new_header_bytes@);
                 lemma_header_match(new_pm, header_pos as int, new_header);
                 lemma_header_correct(new_pm, new_header_bytes@, header_pos as int);
-                
+
                 // prove that new pm has the advance head update
                 let new_log_state = Self::recover(new_pm);
                 let old_log_state = Self::recover(old(wrpm)@);
@@ -1857,7 +1857,7 @@ verus! {
                         assert(perm.check_permission(new_pm));
                     }
                     _ => assert(false),
-                }                
+                }
             }
 
             wrpm.write(incorruptible_bool_pos, new_ib_bytes.as_slice(), Tracked(perm));
@@ -1922,11 +1922,11 @@ verus! {
                         lemma_mod_equal(self.head as int, self.tail as int, self.log_size as int);
                         assert(len == 0);
                     } else if physical_head < physical_tail {
-                        // read cannot wrap around 
+                        // read cannot wrap around
                         lemma_mod_between(self.log_size as int, self.head as int, self.tail as int, pos as int);
                         lemma_mod_difference_equal(self.head as int, pos as int, self.log_size as int);
                     } else {
-                        // read may wrap around 
+                        // read may wrap around
                         lemma_mod_not_between(self.log_size as int, self.head as int, self.tail as int, pos as int);
                         if physical_pos <= physical_tail {
                             lemma_mod_wrapped_len(self.head as int, pos as int, self.log_size as int);
@@ -1938,7 +1938,7 @@ verus! {
 
                 let physical_head = Self::addr_logical_to_physical(self.head, self.log_size);
                 let physical_tail = Self::addr_logical_to_physical(self.tail, self.log_size);
-                
+
                 let ghost log = Self::recover(pm@).unwrap();
                 let ghost true_bytes = log.log.subrange(pos - log.head, pos + len - log.head);
                 if physical_head == physical_tail {
