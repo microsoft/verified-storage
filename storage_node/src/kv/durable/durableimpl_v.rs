@@ -41,6 +41,7 @@ verus! {
                     Ok(durable_store) => {
                         &&& durable_store@.empty()
                         &&& durable_store.valid()
+                        &&& durable_store@.valid()
                         &&& durable_store@.contents.dom().finite()
                     }
                     Err(_) => true // TODO

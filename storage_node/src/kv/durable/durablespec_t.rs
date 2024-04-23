@@ -97,6 +97,7 @@ verus! {
         E: std::fmt::Debug
     {
         pub contents: Map<int, DurableKvStoreViewEntry<K, I, L>>,
+        pub index_to_key_map: Map<int, K>,
         pub _phantom: Option<E>
     }
 
@@ -145,11 +146,21 @@ verus! {
                                 list: DurableKvStoreList::empty()
                             }
                         ),
+                        index_to_key_map: self.index_to_key_map.insert(offset, item.spec_key()),
                         _phantom: None
                     }
                 )
             }
+        }
 
+        // Returns true if the keys in the durable store match the keys in the ghost index_to_key_map
+        pub open spec fn valid(self) -> bool
+        {
+            &&& forall |i: int| #![auto] self.contains_key(i) <==> self.index_to_key_map.contains_key(i)
+            &&& forall |i: int| #![auto] self.index_to_key_map.contains_key(i) ==> {
+                    &&& self[i] is Some
+                    &&& self[i].unwrap().key() == self.index_to_key_map[i]
+                }
         }
 
         // TODO: might be cleaner to define this elsewhere (like in the interface)
@@ -158,24 +169,19 @@ verus! {
             &&& self.len() == volatile_index.len()
             &&& self.contents.dom().finite()
             &&& volatile_index.contents.dom().finite()
-            &&& {
-                    ||| (self.empty() && volatile_index.empty())
-                    ||| { &&& (forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
-                            exists |i: int| #![auto] {
-                                &&& self.contains_key(i)
-                                &&& self[i].unwrap().key() == k
-                                &&& volatile_index[k].unwrap().item_offset == i
-                            }
-                        })
-                    &&& (forall |i: int| #![auto] self.contains_key(i) ==> {
-                            exists |k: K| #![auto] {
-                                &&& volatile_index.contains_key(k)
-                                &&& self[i].unwrap().key() == k
-                                &&& volatile_index[k].unwrap().item_offset == i
-                            }
-                        })
-                    }
+            &&& self.valid()
+            // all keys in the volatile index are stored at the indexed offset in the durable store
+            &&& forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
+                    let indexed_offset = volatile_index[k].unwrap().item_offset;
+                    &&& self.index_to_key_map.contains_key(indexed_offset)
+                    // self.valid() then implies that durable contains the corresponding entry
                 }
+            // all offsets in the durable store have a corresponding entry in the volatile index
+            &&& forall |i: int| #![auto] self.contains_key(i) ==> {
+                &&& self.index_to_key_map.contains_key(i)
+                &&& volatile_index.contains_key(self.index_to_key_map[i])
+                &&& volatile_index[self.index_to_key_map[i]].unwrap().item_offset == i
+            }
         }
     }
 }
