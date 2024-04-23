@@ -1,4 +1,4 @@
-use crate::durablelist::durablelistspec_t::*;
+use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::wrpm_v::*;

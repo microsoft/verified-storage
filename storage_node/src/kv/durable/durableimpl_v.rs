@@ -6,11 +6,11 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::durablelist::durablelistimpl_v::*;
-use crate::durablelist::durablelistspec_t::*;
-use crate::itemtable::itemtableimpl_v::*;
-use crate::itemtable::itemtablespec_t::*;
+use crate::kv::durable::durablelist::durablelistimpl_v::*;
+use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablespec_t::*;
+use crate::kv::durable::itemtable::itemtableimpl_v::*;
+use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;

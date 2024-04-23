@@ -1,4 +1,4 @@
-use crate::itemtable::itemtablespec_t::*;
+use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
