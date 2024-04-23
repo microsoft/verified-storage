@@ -17,33 +17,6 @@ that the implementation read your data from the same place on
 persistent memory where it was stored, but the data still might
 have gotten corrupted on that memory.
 
-## Verifying, building, and running the code
-
-To verify, build, and run the code, follow the following steps.
-
-1. Install [Verus](https://github.com/verus-lang/verus) if you don't already
-   have it.
-
-2. Build the `deps_hack` crate if you haven't yet done so, with:
-```
-cd deps_hack
-cargo build
-```
-
-3. Verify the code with:
-```
-cd multilog
-verus  --crate-type=lib -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib src/lib.rs
-```
-
-It should report 0 verification errors.
-
-4. Run the driver with:
-```
-cd ../unverified/multilog_test
-cargo run
-```
-
 ## Using the library
 
 To create a `MultiLogImpl`, you need an object satisfying the
@@ -218,19 +191,19 @@ multilog should operate) that must be audited and read to understand the
 semantics being proven. Files ending in `_v.rs` are verified and untrusted and
 so do not have to be read to have confidence in the correctness of the code.
 
-* `lib.rs` packages this crate as a library
+<!-- * `lib.rs` packages this crate as a library -->
 * `multilogspec_t.rs` specifies the correct behavior of an abstract multilog,
   e.g., what should happen during a call to `tentatively_append`
 * `multilogimpl_t.rs` implements `MultiLogImpl`, the main type used by
   clients of this library
 * `multilogimpl_v.rs` implements `UntrustedMultiLogImpl`, verified for
   correctness and invoked by `MultiLogImpl` methods
-* `pmemspec_t.rs` specifies how persistent memory is assumed to behave, including
+<!-- * `pmemspec_t.rs` specifies how persistent memory is assumed to behave, including
   both normal operation and exceptional cases like crashes and bit corruption
 * `pmemfile_t.rs` implements `FileBackedPersistentMemoryRegions`, which
   lets one use a directory in a persistent-memory file system as multilog storage
 * `pmemmock_t.rs` mocks persistent memory using volatile memory, in a way only
-  intended for use in testing
+  intended for use in testing -->
 * `pmemutil_v.rs` provides utility functions and proofs about persistent
   memory
 * `inv_v.rs` provides invariants of the multilog code and proofs about those
