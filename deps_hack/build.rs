@@ -1,8 +1,12 @@
+#[cfg(target_os = "linux")]
 extern crate bindgen;
 
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
-fn main() {
+#[cfg(target_os = "linux")]
+fn setup_linux()
+{
     println!("cargo:rustc-link-search=libpmemlog1");
     println!("cargo:rustc-link-lib=pmemlog");
     println!("cargo:rustc-link-lib=pmem");
@@ -16,4 +20,9 @@ fn main() {
     bindings
         .write_to_file(out_path.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn main() {
+    #[cfg(target_os = "linux")]
+    setup_linux();
 }

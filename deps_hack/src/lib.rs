@@ -4,6 +4,7 @@
 
 pub use core;
 pub use crc64fast;
+#[cfg(target_os = "linux")]
 pub use nix;
 pub use rand;
 #[cfg(target_os = "windows")]
@@ -24,6 +25,7 @@ pub use winapi::um::winnt::{
     GENERIC_WRITE, PAGE_READWRITE, ULARGE_INTEGER,
 };
 
+#[cfg(target_os = "linux")]
 pub mod pmem;
 
 #[cfg(target_os = "linux")]
