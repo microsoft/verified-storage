@@ -174,7 +174,7 @@ verus! {
             &&& forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
                     let indexed_offset = volatile_index[k].unwrap().item_offset;
                     &&& self.index_to_key_map.contains_key(indexed_offset)
-                    // self.valid() then implies that durable contains the corresponding entry
+                    &&& self.index_to_key_map[indexed_offset] == k
                 }
             // all offsets in the durable store have a corresponding entry in the volatile index
             &&& forall |i: int| #![auto] self.contains_key(i) ==> {

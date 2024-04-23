@@ -78,7 +78,8 @@ verus! {
 
         assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {
             let indexed_offset = new_volatile_state[k].unwrap().item_offset;
-            new_durable_state.index_to_key_map.contains_key(indexed_offset)
+            &&& new_durable_state.index_to_key_map.contains_key(indexed_offset)
+            &&& new_durable_state.index_to_key_map[indexed_offset] == k
         } by {
             if k != key {
                 assert(old_volatile_state.contains_key(k));
