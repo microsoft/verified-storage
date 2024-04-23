@@ -12,7 +12,7 @@ Currently, this project contains two crates:
   also handles bit corruption, detecting if metadata read from persistent
   memory is corrupted.
 
-* [`multilog`](https://github.com/microsoft/verified-storage/tree/main/multilog/README.md)
+* [`multilog`](https://github.com/microsoft/verified-storage/tree/main/storage_node/src/multilog)
   is like `pmemlog` except it implements a collection of append-only logs
   instead of just one. It supports atomically appending to multiple of those
   logs at once.
