@@ -14,6 +14,7 @@ This project contains the following crates:
 * `storage_node` is an in-progress persistent memory key-value store. Its structure 
   is further described in its [README](storage_node/README.md).
 * `unverified` contains unverified mocks and tests related to the `storage_node` key value store. 
+* `deps_hack` contains unverified dependencies that are imported by `storage_node`.
 
 ## Contributing
 
