@@ -22,14 +22,6 @@
 //!     bytes 8..<item size>:   The item stored in this entry. Size is set at
 //!                             setup time but is not known at compile time.
 //!
-//! Table entries are not valid, and not considered part of the table's view,
-//! unless their CRC matches the item stored in that entry. Thus, the CRC can be
-//! used both to detect corruption and to atomically validate or invalidate
-//! a given table entry. This saves us a little bit of time and space over
-//! using a separate valid bit.
-//! To ensure that a corrupted item is not accidentally marked valid when replaying
-//! the log after a crash, we should log the CRC of the item we want to mark valid,
-//! so that we can confirm that the item is correct before validating it.
 
 use builtin::*;
 use builtin_macros::*;
