@@ -185,20 +185,20 @@ impl MemoryMappedFileSection {
             offset + len <= mmf.size,
     {
         // Map a view of the file mapping into the address space of the process
-        let h_map_addr = MapViewOfFile(
+        let h_map_addr = unsafe { MapViewOfFile(
             mmf.h_map_file.h,
             FILE_MAP_ALL_ACCESS,
             (offset / 0x100000000).try_into().unwrap(),
             (offset % 0x100000000).try_into().unwrap(),
             len.try_into().unwrap(),
-        );
+        ) };
 
         if h_map_addr.is_null() {
             panic!("Could not map view of file");
         }
 
         // Convert the address into a static Rust slice.
-        let slice = core::slice::from_raw_parts_mut(h_map_addr as *mut u8, len);
+        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr as *mut u8, len) };
 
         Self {
             mmf: mmf.clone(),
