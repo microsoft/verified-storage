@@ -17,4 +17,17 @@ verus! {
             (self.is_state_allowable)(state)
         }
     }
+
+    pub struct DurableListElementView<L>
+    {
+        crc: u64,
+        list_element: L
+    }
+
+    // TODO: think about what this should actually be, might need a few layers
+    #[verifier::reject_recursive_types(K)]
+    pub struct DurableListView<K, L>
+    {
+        list: Map<K, Seq<DurableListElementView<L>>>,
+    }
 }

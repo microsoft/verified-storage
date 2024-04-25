@@ -70,44 +70,46 @@ verus! {
             Err(KvError::NotImplemented)
         }
 
-        // this function should obtain a free entry from the free list
-        // but does NOT update a durable allocator -- that should only
-        // happen after the allocation has been logged
-        pub exec fn get_free_table_entry(
-            item_table_id: u128,
-        ) -> (result: Result<u64, KvError<K, E>>)
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
+        // // this function should obtain a free entry from the free list
+        // // but does NOT update a durable allocator -- that should only
+        // // happen after the allocation has been logged
+        // pub exec fn get_free_table_entry(
+        //     item_table_id: u128,
+        // ) -> (result: Result<u64, KvError<K, E>>)
+        // {
+        //     assume(false);
+        //     Err(KvError::NotImplemented)
+        // }
 
-        // given a table slot whose allocation has been logged, this function
-        // updates the durable allocator to reflect that the slot has been
-        // allocated
-        pub exec fn alloc_table_entry<PM>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
-            item_table_id: u128,
-            table_index: u64,
-            Tracked(perm): Tracked<&TrustedItemTablePermission>,
-        ) -> (result: Result<u64, KvError<K, E>>)
-            where
-                PM: PersistentMemoryRegions
-            requires
-                old(wrpm_regions).inv(),
-                // TODO: given index should be allocated but invalid
-                // or should we check that at runtime?
-            ensures
-                wrpm_regions.inv()
-                // TODO
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
+        // // given a table slot whose allocation has been logged, this function
+        // // updates the durable allocator to reflect that the slot has been
+        // // allocated
+        // pub exec fn alloc_table_entry<PM>(
+        //     wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+        //     item_table_id: u128,
+        //     table_index: u64,
+        //     Tracked(perm): Tracked<&TrustedItemTablePermission>,
+        // ) -> (result: Result<u64, KvError<K, E>>)
+        //     where
+        //         PM: PersistentMemoryRegions
+        //     requires
+        //         old(wrpm_regions).inv(),
+        //         // TODO: given index should be allocated but invalid
+        //         // or should we check that at runtime?
+        //     ensures
+        //         wrpm_regions.inv()
+        //         // TODO
+        // {
+        //     assume(false);
+        //     Err(KvError::NotImplemented)
+        // }
 
         // this function can be used to both create new items and do COW updates to existing items.
         // must always write to an invalid slot
         // this operation is NOT directly logged
+        // what does this return....?????????
         pub exec fn tentatively_write_item<PM>(
+            &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             item: &I,
@@ -130,6 +132,7 @@ verus! {
         // makes a slot valid by setting its valid bit.
         // must log the operation before calling this function
         pub exec fn commit_item<PM>(
+            &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             offset: u64,
@@ -151,6 +154,7 @@ verus! {
         // clears the valid bit for an entry. this should also
         // deallocate it
         pub exec fn invalidate_item<PM>(
+            &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             offset: u64,

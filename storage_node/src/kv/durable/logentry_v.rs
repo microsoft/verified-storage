@@ -34,21 +34,17 @@ verus! {
     // for a valid entry -- because the log guarantees that we
     // only read entries that have been appended to it and no
     // old or garbage data.
-    // We don't use an enum for these values so that we can represent
-    // them in only 1 byte (enum variants are larger)
 
-    pub const ALLOCATE_ITEM_TABLE_ENTRY: u8 = 0;
-    pub const COMMIT_ITEM_TABLE_ENTRY: u8 = 1;
-    pub const INVALIDATE_ITEM_TABLE_ENTRY: u8 = 2; // also implies deallocation
+    // These don't need to be u64s, but using 8 bytes makes it easier to
+    // structure the log entries with a predicable layout
 
-    // pub const VALIDATE_ITEM_ENTRY: u8 = 0; // TODO: this is unclear
-    // pub const INVALIDATE_ITEM_ENTRY: u8 = 1;
-    // pub const DELETE_ITEM_ENTRY: u8 = 2; // TODO: you don't need this -- invalid items are free
-    // pub const UPDATE_LIST_ENTRY: u8 = 3;
-    // pub const APPEND_TO_EXISTING_NODE_ENTRY: u8 = 4;
-    // pub const APPEND_NODE_ENTRY: u8 = 5;
-    // pub const SET_NEW_HEAD_ENTRY: u8 = 6;
-    // pub const DELETE_NODES_ENTRY: u8 = 7; // TODO: you don't need this either -- unreachable nodes are free
-    // // TODO: log entries for allocating/deallocating resources? avoid the need for big scans at startup -- could use bitmaps to record allocation information
+    // Item table update log entry types
+    pub const COMMIT_ITEM_TABLE_ENTRY: u64 = 0;
+    pub const INVALIDATE_ITEM_TABLE_ENTRY: u64 = 1;
 
+    // List update log entry types
+    pub const APPEND_LIST_NODE_ENTRY: u64 = 2;
+    pub const INSERT_LIST_ELEMENT_ENTRY: u64 = 3;
+    pub const UPDATE_LIST_LEN_ENTRY: u64 = 4; // for new (appended) or in-place element updates
+    pub const TRIM_LIST_METADATA_UPDATE_ENTRY: u64 = 5; // updates head, len, and start index during trim
 }

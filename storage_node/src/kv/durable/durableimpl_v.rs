@@ -23,6 +23,7 @@ use crate::pmem::serialization_t::*;
 use std::hash::Hash;
 
 verus! {
+    #[verifier::reject_recursive_types(K)]
     pub struct DurableKvStore<PM, K, I, L, E>
     where
         PM: PersistentMemoryRegions,
@@ -32,7 +33,7 @@ verus! {
         E: std::fmt::Debug,
     {
         item_table: DurableItemTable<K, I, E>,
-        durable_list: DurableList<L, E>,
+        durable_list: DurableList<K, L, E>,
         log: UntrustedMultiLogImpl,
         table_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
         list_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,

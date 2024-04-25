@@ -54,4 +54,12 @@ verus! {
     // this program can read, is the following:
 
     pub const ITEM_TABLE_VERSION_NUMBER: u64 = 1;
+
+    #[repr(C)]
+    pub struct ItemTableMetadata
+    {
+        pub version_number: u64,
+        pub item_size: u64,
+        pub program_guid: u128,
+    }
 }

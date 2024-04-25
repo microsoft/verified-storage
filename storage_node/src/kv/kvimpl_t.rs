@@ -66,6 +66,7 @@ pub trait Item<K> : Sized {
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
+#[verifier::reject_recursive_types(K)]
 pub struct KvStore<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,

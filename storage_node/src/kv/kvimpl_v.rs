@@ -29,6 +29,7 @@ use std::hash::Hash;
 
 verus! {
 
+#[verifier::reject_recursive_types(K)]
 pub struct UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegions,
