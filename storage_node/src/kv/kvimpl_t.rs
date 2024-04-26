@@ -49,10 +49,14 @@ where
     InvalidKey{ key: K },
     IndexOutOfRange,
     RegionTooSmall { required: usize, actual: usize },
+    TooFewRegions { required: usize, actual: usize },
+    TooManyRegions { required: usize, actual: usize},
     OutOfSpace,
     InvalidPersistentMemoryRegionProvided, // TODO: reason
+    CRCMismatch,
     SerializationError { error: E },
     DeserializationError { error: E },
+    InvalidItemTableHeader,
 }
 
 pub trait Item<K> : Sized {
