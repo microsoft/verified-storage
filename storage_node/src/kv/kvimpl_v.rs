@@ -495,7 +495,7 @@ where
         let item_offset = self.volatile_index.get(key);
         let old_list_head_offset = self.volatile_index.get_node_offset(key, 0);
         let new_list_head_offset = self.volatile_index.get_node_offset(key, trim_length);
-        self.volatile_index.trim_list(key, trim_length);
+        self.volatile_index.trim_list(key, trim_length)?;
         match (item_offset, old_list_head_offset, new_list_head_offset) {
             (Some(item_offset), Ok(old_list_head_offset), Ok(new_list_head_offset)) =>
                 self.durable_store.trim_list(item_offset, old_list_head_offset, new_list_head_offset, trim_length, perm),
@@ -531,7 +531,7 @@ where
         let item_offset = self.volatile_index.get(key);
         let old_list_head_offset = self.volatile_index.get_node_offset(key, 0);
         let new_list_head_offset = self.volatile_index.get_node_offset(key, trim_length);
-        self.volatile_index.trim_list(key, trim_length);
+        self.volatile_index.trim_list(key, trim_length)?;
         match (item_offset, old_list_head_offset, new_list_head_offset) {
             (Some(item_offset), Ok(old_list_head_offset), Ok(new_list_head_offset)) =>
                 self.durable_store.trim_list_and_update_item(item_offset, old_list_head_offset, new_list_head_offset, trim_length, new_item, perm),
