@@ -12,6 +12,8 @@ pub use winapi;
 #[cfg(target_os = "windows")]
 pub use winapi::shared::winerror::SUCCEEDED;
 #[cfg(target_os = "windows")]
+pub use winapi::um::errhandlingapi::GetLastError;
+#[cfg(target_os = "windows")]
 pub use winapi::um::fileapi::{CreateFileA, OPEN_ALWAYS};
 #[cfg(target_os = "windows")]
 pub use winapi::um::handleapi::INVALID_HANDLE_VALUE;

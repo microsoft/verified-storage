@@ -16,6 +16,7 @@ use builtin::*;
 use builtin_macros::*;
 use deps_hack::rand::Rng;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
+use deps_hack::winapi::um::errhandlingapi::GetLastError;
 use deps_hack::winapi::um::fileapi::{CreateFileA, DeleteFileA, CREATE_NEW, OPEN_EXISTING};
 use deps_hack::winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use deps_hack::winapi::um::memoryapi::{MapViewOfFile, FILE_MAP_ALL_ACCESS};
@@ -79,6 +80,7 @@ pub struct MemoryMappedFile {
     pub size: usize,                            // number of bytes in the file
     pub h_file: WindowsHandle,                  // handle to the file
     pub h_map_file: WindowsHandle,              // handle to the mapping
+    pub h_map_addr: WindowsHandle,              // address of the first byte of the mapping
 }
 
 impl MemoryMappedFile {
@@ -111,7 +113,7 @@ impl MemoryMappedFile {
                 attributes,
                 core::ptr::null_mut());
 
-            let error_code = deps_hack::winapi::um::errhandlingapi::GetLastError();
+            let error_code = GetLastError();
 
             if h_file.is_null() {
                 panic!("Could not open file {}. err={}", path, error_code);
@@ -138,6 +140,20 @@ impl MemoryMappedFile {
                 panic!("Could not create file mapping object for {}.", path);
             }
 
+            // Map a view of the file mapping into the address space of the process
+            let h_map_addr = MapViewOfFile(
+                h_map_file,
+                FILE_MAP_ALL_ACCESS,
+                0,
+                0,
+                size.try_into().unwrap(),
+            );
+
+            if h_map_addr.is_null() {
+                let err = GetLastError();
+                panic!("Could not map view of file, got error {}", err);
+            }
+
             if let FileCloseBehavior::TestingSoDeleteOnClose = close_behavior {
                 // After opening the file, mark it for deletion when the file is closed.
                 // Obviously, we should only do this during testing!
@@ -149,6 +165,7 @@ impl MemoryMappedFile {
                 size,
                 h_file: WindowsHandle{ h: h_file },
                 h_map_file: WindowsHandle{ h: h_map_file },
+                h_map_addr: WindowsHandle{ h: h_map_addr },
             }
         }
     }
@@ -160,6 +177,7 @@ impl Drop for MemoryMappedFile {
         opens_invariants none
     {
         unsafe {
+            deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr.h);
             deps_hack::winapi::um::handleapi::CloseHandle(self.h_map_file.h);
 
             if !self.h_file.h.is_null() {
@@ -184,26 +202,14 @@ impl MemoryMappedFileSection {
         requires
             offset + len <= mmf.size,
     {
-        // Map a view of the file mapping into the address space of the process
-        let h_map_addr = unsafe { MapViewOfFile(
-            mmf.h_map_file.h,
-            FILE_MAP_ALL_ACCESS,
-            (offset / 0x100000000).try_into().unwrap(),
-            (offset % 0x100000000).try_into().unwrap(),
-            len.try_into().unwrap(),
-        ) };
-
-        if h_map_addr.is_null() {
-            panic!("Could not map view of file");
-        }
-
+        let h_map_addr = unsafe { (mmf.h_map_addr.h as *mut u8).offset(offset.try_into().unwrap()) };
         // Convert the address into a static Rust slice.
-        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr as *mut u8, len) };
+        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr, len) };
 
         Self {
             mmf: mmf.clone(),
             size: len,
-            h_map_addr: WindowsHandle{ h: h_map_addr },
+            h_map_addr: WindowsHandle{ h: h_map_addr as deps_hack::winapi::um::winnt::HANDLE },
             slice: ByteSlice{ slice: slice },
         }
     }
@@ -260,17 +266,6 @@ impl MemoryMappedFileSection {
                     }
                 },
             }
-        }
-    }
-}
-
-impl Drop for MemoryMappedFileSection {
-    #[verifier::external_body]
-    fn drop(&mut self)
-        opens_invariants none
-    {
-        unsafe {
-            deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr.h);
         }
     }
 }
