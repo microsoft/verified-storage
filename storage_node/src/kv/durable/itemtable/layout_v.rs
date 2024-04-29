@@ -78,8 +78,18 @@ verus! {
 
     pub const VALID_BYTES_SIZE: u64 = 8;
 
-    impl Deserializable for ItemTableMetadata
+    // TODO: should this be trusted?
+    impl Serializable for ItemTableMetadata
     {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.version_number) +
+            spec_u64_to_le_bytes(self.item_size) +
+            spec_u64_to_le_bytes(self.num_keys) +
+            spec_u64_to_le_bytes(self._padding) +
+            spec_u128_to_le_bytes(self.program_guid)
+        }
+
         closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -97,19 +107,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    // TODO: should this be trusted?
-    impl Serializable for ItemTableMetadata
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.version_number) +
-            spec_u64_to_le_bytes(self.item_size) +
-            spec_u64_to_le_bytes(self.num_keys) +
-            spec_u64_to_le_bytes(self._padding) +
-            spec_u128_to_le_bytes(self.program_guid)
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {

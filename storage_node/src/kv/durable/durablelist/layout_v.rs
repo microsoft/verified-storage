@@ -54,8 +54,19 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Deserializable for GlobalListMetadata
+    // TODO: should this be trusted?
+    impl Serializable for GlobalListMetadata
     {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u32_to_le_bytes(self.element_size) +
+            spec_u32_to_le_bytes(self.node_size) +
+            spec_u64_to_le_bytes(self.num_keys) +
+            spec_u64_to_le_bytes(self.version_number) +
+            spec_u64_to_le_bytes(self._padding) +
+            spec_u128_to_le_bytes(self.program_guid)
+        }
+
         closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
             Self {
                 element_size: spec_u32_from_le_bytes(
@@ -74,20 +85,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    // TODO: should this be trusted?
-    impl Serializable for GlobalListMetadata
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u32_to_le_bytes(self.element_size) +
-            spec_u32_to_le_bytes(self.node_size) +
-            spec_u64_to_le_bytes(self.num_keys) +
-            spec_u64_to_le_bytes(self.version_number) +
-            spec_u64_to_le_bytes(self._padding) +
-            spec_u128_to_le_bytes(self.program_guid)
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {
@@ -165,73 +162,17 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 32;
     pub const LENGTH_OF_ENTRY_METADATA_MINUS_KEY: u64 = 32;
 
-    // ListEntry is not Serializable because we never write it as a single
-    // structure to avoid copying overheads, but we can read both fields
-    // as a single structure (since they are both Deserializable)
-    #[repr(C)]
-    pub struct ListEntry<K>
-        where
-            K: Serializable
-    {
-        pub metadata: ListEntryMetadata,
-        pub key: K,
-    }
-
-    impl<K> Deserializable for ListEntry<K>
-        where
-            K: Serializable
-    {
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                metadata: ListEntryMetadata::spec_deserialize(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD as int,
-                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD + LENGTH_OF_ENTRY_METADATA_MINUS_KEY
-                    )
-                ),
-                key: K::spec_deserialize(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_ENTRY_KEY as int,
-                        RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len()
-                    )
-                )
-            }
-        }
-
-        closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl<K> ListEntry<K>
-        where
-            K: Serializable
-    {
-        pub fn calculate_crc(&self) -> (output: u64)
-            ensures
-                output == CrcDigest::spec_sum64(self.metadata.spec_serialize() + self.key.spec_serialize())
-        {
-            let mut digest = CrcDigest::new();
-            digest.write(&self.metadata);
-            digest.write(&self.key);
-
-            proof {
-                let bytes_in_digest = digest.bytes_in_digest();
-                let flattened_bytes = bytes_in_digest.flatten();
-                assert(bytes_in_digest ==
-                    seq![self.metadata.spec_serialize(), self.key.spec_serialize()]);
-                // `flatten` is recursive, so we need to unroll it for Verus to prove the equivalence
-                reveal_with_fuel(Seq::flatten, 3);
-                assert(flattened_bytes =~= self.metadata.spec_serialize() + self.key.spec_serialize());
-
-            }
-
-
-            digest.sum64()
-        }
-    }
-
-
-
+    // // ListEntry is not Serializable because we never write it as a single
+    // // structure to avoid copying overheads, but we can read both fields
+    // // as a single structure (since they are both Deserializable)
+    // #[repr(C)]
+    // pub struct ListEntry<K>
+    //     where
+    //         K: Serializable
+    // {
+    //     pub metadata: ListEntryMetadata,
+    //     pub key: K,
+    // }
 
     #[repr(C)]
     pub struct ListEntryMetadata
@@ -242,8 +183,16 @@ verus! {
         first_entry_offset: u64, // offset of the first live entry in the head node
     }
 
-    impl Deserializable for ListEntryMetadata
+    impl Serializable for ListEntryMetadata
     {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.head) +
+            spec_u64_to_le_bytes(self.tail) +
+            spec_u64_to_le_bytes(self.length) +
+            spec_u64_to_le_bytes(self.first_entry_offset)
+        }
+
         closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -259,17 +208,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl Serializable for ListEntryMetadata
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.head) +
-            spec_u64_to_le_bytes(self.tail) +
-            spec_u64_to_le_bytes(self.length) +
-            spec_u64_to_le_bytes(self.first_entry_offset)
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {

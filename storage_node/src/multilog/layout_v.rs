@@ -122,8 +122,15 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Deserializable for GlobalMetadata
-    {
+    impl Serializable for GlobalMetadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.version_number) +
+                spec_u64_to_le_bytes(self.length_of_region_metadata) +
+                spec_u128_to_le_bytes(self.program_guid)
+
+        }
+
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -137,16 +144,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl Serializable for GlobalMetadata {
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.version_number) +
-                spec_u64_to_le_bytes(self.length_of_region_metadata) +
-                spec_u128_to_le_bytes(self.program_guid)
-
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {
@@ -199,8 +196,14 @@ verus! {
         pub multilog_id: u128,
     }
 
-    impl Deserializable for RegionMetadata
-    {
+    impl Serializable for RegionMetadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
+                spec_u64_to_le_bytes(self._padding) + spec_u64_to_le_bytes(self.region_size) +
+                spec_u64_to_le_bytes(self.log_area_len) + spec_u128_to_le_bytes(self.multilog_id)
+        }
+
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -220,15 +223,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl Serializable for RegionMetadata {
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
-                spec_u64_to_le_bytes(self._padding) + spec_u64_to_le_bytes(self.region_size) +
-                spec_u64_to_le_bytes(self.log_area_len) + spec_u128_to_le_bytes(self.multilog_id)
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {
@@ -295,8 +289,12 @@ verus! {
         pub head: u128,
     }
 
-    impl Deserializable for LogMetadata
-    {
+    impl Serializable for LogMetadata {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.log_length) + spec_u64_to_le_bytes(self._padding) + spec_u128_to_le_bytes(self.head)
+        }
+
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -310,13 +308,6 @@ verus! {
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl Serializable for LogMetadata {
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.log_length) + spec_u64_to_le_bytes(self._padding) + spec_u128_to_le_bytes(self.head)
-        }
 
         open spec fn spec_serialized_len() -> int
         {

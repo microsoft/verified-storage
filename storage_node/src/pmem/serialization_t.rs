@@ -69,16 +69,14 @@ verus! {
         axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
     }
 
-    pub trait Deserializable : Sized {
+    // Serializable is a subtrait of Deserializable; there are
+    // some structures that are Deserializable but not Serializable
+    pub trait Serializable : Sized {
+        spec fn spec_serialize(self) -> Seq<u8>;
+
         spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
         spec fn spec_crc(self) -> u64;
-    }
-
-    // Serializable is a subtrait of Deserializable; there are
-    // some structures that are Deserializable but not Serializable
-    pub trait Serializable : Deserializable + Sized {
-        spec fn spec_serialize(self) -> Seq<u8>;
 
         proof fn lemma_auto_serialize_deserialize()
             ensures
@@ -100,21 +98,18 @@ verus! {
         ;
     }
 
-    impl Deserializable for u64
-    {
+    impl Serializable for u64 {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self)
+        }
+
         closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             spec_u64_from_le_bytes(bytes)
         }
 
         closed spec fn spec_crc(self) -> u64;
-    }
-
-    impl Serializable for u64 {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self)
-        }
 
         proof fn lemma_auto_serialize_deserialize()
         {
