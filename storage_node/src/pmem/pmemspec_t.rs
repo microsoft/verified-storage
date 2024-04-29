@@ -152,11 +152,11 @@ verus! {
     {}
 
     /// We model the persistent memory as getting flushed in chunks,
-    /// where each chunk has `PERSISTENCE_CHUNK_SIZE` bytes. We refer
+    /// where each chunk has `const_persistence_chunk_size()` bytes. We refer
     /// to chunk number `c` as the set of addresses `addr` such that
-    /// `addr / PERSISTENCE_CHUNK_SIZE == c`.
+    /// `addr / const_persistence_chunk_size() == c`.
 
-    pub spec const PERSISTENCE_CHUNK_SIZE: int = 8;
+    pub open spec fn const_persistence_chunk_size() -> int { 8 }
 
     /// We model the state of each byte of persistent memory as
     /// follows. `state_at_last_flush` contains the contents
@@ -286,7 +286,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / PERSISTENCE_CHUNK_SIZE == chunk
+                &&& addr / const_persistence_chunk_size() == chunk
             } ==> #[trigger] bytes[addr] == self.state[addr].state_at_last_flush
         }
 
@@ -298,7 +298,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / PERSISTENCE_CHUNK_SIZE == chunk
+                &&& addr / const_persistence_chunk_size() == chunk
             } ==> #[trigger] bytes[addr] == self.state[addr].flush_byte()
         }
 
