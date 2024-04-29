@@ -78,18 +78,8 @@ verus! {
 
     pub const VALID_BYTES_SIZE: u64 = 8;
 
-
-    impl Serializable for ItemTableMetadata
+    impl Deserializable for ItemTableMetadata
     {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.version_number) +
-            spec_u64_to_le_bytes(self.item_size) +
-            spec_u64_to_le_bytes(self.num_keys) +
-            spec_u64_to_le_bytes(self._padding) +
-            spec_u128_to_le_bytes(self.program_guid)
-        }
-
         closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
@@ -104,6 +94,21 @@ verus! {
                 program_guid: spec_u128_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_PROGRAM_GUID as int, RELATIVE_POS_OF_PROGRAM_GUID + 16))
             }
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+    }
+
+    // TODO: should this be trusted?
+    impl Serializable for ItemTableMetadata
+    {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.version_number) +
+            spec_u64_to_le_bytes(self.item_size) +
+            spec_u64_to_le_bytes(self.num_keys) +
+            spec_u64_to_le_bytes(self._padding) +
+            spec_u128_to_le_bytes(self.program_guid)
         }
 
         proof fn lemma_auto_serialize_deserialize()
@@ -146,17 +151,15 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
         }
 
-        open spec fn spec_serialized_len() -> u64
+        open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_METADATA_HEADER
+            LENGTH_OF_METADATA_HEADER as int
         }
 
         fn serialized_len() -> u64
         {
             LENGTH_OF_METADATA_HEADER
         }
-
-        closed spec fn spec_crc(self) -> u64;
     }
 
 }

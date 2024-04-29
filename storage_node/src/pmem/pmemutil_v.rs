@@ -5,6 +5,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;

@@ -1,6 +1,8 @@
 use crate::kv::durable::durablelist::durablelistspec_t::*;
+use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::wrpm_v::*;
 use builtin::*;
@@ -41,6 +43,8 @@ verus! {
         pub exec fn setup<PM>(
             pm_regions: &mut PM,
             list_id: u128,
+            num_keys: u64,
+            elements_per_node: u64,
         ) -> (result: Result<(), KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions
@@ -52,8 +56,28 @@ verus! {
                 pm_regions@.no_outstanding_writes(),
                 // TODO
         {
-            assume(false);
-            Err(KvError::NotImplemented)
+            // ensure that there are no outstanding writes
+            pm_regions.flush();
+
+            // check that the caller passed in two regions
+            // one for the metadata table and one for the node region
+            let region_sizes = get_region_sizes(pm_regions);
+            let num_regions = region_sizes.len();
+            if num_regions < 2 {
+                return Err(KvError::TooFewRegions{ required: 2, actual: num_regions });
+            } else if num_regions > 2 {
+                return Err(KvError::TooManyRegions{ required: 2, actual: num_regions });
+            }
+
+            // check that the regions the caller passed in are sufficiently large
+            let table_region_size = region_sizes[0];
+            let node_region_sizes = region_sizes[1];
+            // let metadata_size = ListEntryMetadata::<K>::serialized_len();
+            let list_element_size = L::serialized_len();
+
+            Ok(())
+            // assume(false);
+            // Err(KvError::NotImplemented)
         }
 
         pub exec fn start<PM>(

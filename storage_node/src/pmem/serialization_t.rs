@@ -69,10 +69,16 @@ verus! {
         axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
     }
 
-    pub trait Serializable : Sized {
-        spec fn spec_serialize(self) -> Seq<u8>;
-
+    pub trait Deserializable : Sized {
         spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
+
+        spec fn spec_crc(self) -> u64;
+    }
+
+    // Serializable is a subtrait of Deserializable; there are
+    // some structures that are Deserializable but not Serializable
+    pub trait Serializable : Deserializable + Sized {
+        spec fn spec_serialize(self) -> Seq<u8>;
 
         proof fn lemma_auto_serialize_deserialize()
             ensures
@@ -86,9 +92,7 @@ verus! {
 
         // TODO: this should really be a constant, but verus doesn't
         // support associated constants right now
-        spec fn spec_serialized_len() -> u64;
-
-        spec fn spec_crc(self) -> u64;
+        spec fn spec_serialized_len() -> int;
 
         fn serialized_len() -> (out: u64)
             ensures
@@ -96,15 +100,20 @@ verus! {
         ;
     }
 
+    impl Deserializable for u64
+    {
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            spec_u64_from_le_bytes(bytes)
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+    }
+
     impl Serializable for u64 {
         closed spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self)
-        }
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            spec_u64_from_le_bytes(bytes)
         }
 
         proof fn lemma_auto_serialize_deserialize()
@@ -120,38 +129,14 @@ verus! {
             assert(Self::spec_serialized_len() == 8);
         }
 
-        open spec fn spec_serialized_len() -> u64
+        open spec fn spec_serialized_len() -> int
         {
             8
         }
-
-        closed spec fn spec_crc(self) -> u64;
 
         fn serialized_len() -> u64
         {
             8
         }
-    }
-
-    #[verifier::external_body]
-    pub fn calculate_crc<S>(val: &S) -> (out: u64)
-        where
-            S: Serializable + Sized
-        ensures
-            val.spec_crc() == out@
-    {
-        let num_bytes: usize = S::serialized_len().try_into().unwrap();
-        let s_pointer = val as *const S;
-        let bytes_pointer = s_pointer as *const u8;
-        // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
-        // bytes because it was obtained by casting a regular Rust object reference
-        // to a raw pointer.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(bytes_pointer, num_bytes)
-        };
-
-        let mut digest = Digest::new();
-        digest.write(bytes);
-        digest.sum64()
     }
 }

@@ -8,9 +8,12 @@
 //!
 //!
 
+use crate::pmem::crc_t::*;
+use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
+use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
@@ -25,10 +28,12 @@ verus! {
     pub const ABSOLUTE_POS_OF_METADATA_HEADER: u64 = 0;
     pub const RELATIVE_POS_OF_ELEMENT_SIZE: u64 = 0;
     pub const RELATIVE_POS_OF_NODE_SIZE: u64 = 4;
-    pub const RELATIVE_POS_OF_VERSION_NUMBER: u64: 8;
-    pub const RELATIVE_POS_OF_PROGRAM_GUID: u64 = 16;
-    pub const LENGTH_OF_METADATA_HEADER: u64 = 32;
-    pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 32;
+    pub const RELATIVE_POS_OF_NUM_KEYS: u64 = 8;
+    pub const RELATIVE_POS_OF_VERSION_NUMBER: u64 = 16;
+    pub const RELATIVE_POS_OF_PADDING: u64 = 24;
+    pub const RELATIVE_POS_OF_PROGRAM_GUID: u64 = 32;
+    pub const LENGTH_OF_METADATA_HEADER: u64 = 48;
+    pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 48;
 
     // The current version number, and the only one whose contents
     // this program can read, is the following:
@@ -43,8 +48,103 @@ verus! {
     {
         pub element_size: u32,
         pub node_size: u32,
+        pub num_keys: u64,
         pub version_number: u64,
+        pub _padding: u64,
         pub program_guid: u128,
+    }
+
+    impl Deserializable for GlobalListMetadata
+    {
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
+            Self {
+                element_size: spec_u32_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ELEMENT_SIZE as int, RELATIVE_POS_OF_ELEMENT_SIZE + 4)),
+                node_size: spec_u32_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_NODE_SIZE as int, RELATIVE_POS_OF_NODE_SIZE + 4)),
+                num_keys: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_NUM_KEYS as int, RELATIVE_POS_OF_NUM_KEYS + 8)),
+                version_number: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_VERSION_NUMBER as int, RELATIVE_POS_OF_VERSION_NUMBER + 8)),
+                _padding: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PADDING as int, RELATIVE_POS_OF_PADDING + 8)),
+                program_guid: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PROGRAM_GUID as int, RELATIVE_POS_OF_PROGRAM_GUID + 16))
+            }
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+    }
+
+    // TODO: should this be trusted?
+    impl Serializable for GlobalListMetadata
+    {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u32_to_le_bytes(self.element_size) +
+            spec_u32_to_le_bytes(self.node_size) +
+            spec_u64_to_le_bytes(self.num_keys) +
+            spec_u64_to_le_bytes(self.version_number) +
+            spec_u64_to_le_bytes(self._padding) +
+            spec_u128_to_le_bytes(self.program_guid)
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_element_size = #[trigger] spec_u32_to_le_bytes(s.element_size);
+                let serialized_node_size = #[trigger] spec_u32_to_le_bytes(s.node_size);
+                let serialized_num_keys = #[trigger] spec_u64_to_le_bytes(s.num_keys);
+                let serialized_version_number = #[trigger] spec_u64_to_le_bytes(s.version_number);
+                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
+                let serialized_program_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
+                let serialized_metadata = #[trigger] s.spec_serialize();
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_ELEMENT_SIZE as int,
+                        RELATIVE_POS_OF_ELEMENT_SIZE + 4
+                    ) == serialized_element_size
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_NODE_SIZE as int,
+                        RELATIVE_POS_OF_NODE_SIZE + 4
+                    ) == serialized_node_size
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_NUM_KEYS as int,
+                        RELATIVE_POS_OF_NUM_KEYS + 8
+                    ) == serialized_num_keys
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_VERSION_NUMBER as int,
+                        RELATIVE_POS_OF_VERSION_NUMBER + 8
+                    ) == serialized_version_number
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_PADDING as int,
+                        RELATIVE_POS_OF_PADDING + 8
+                    ) == serialized_padding
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_PROGRAM_GUID as int,
+                        RELATIVE_POS_OF_PROGRAM_GUID + 16
+                    ) == serialized_program_guid
+            });
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> int
+        {
+            LENGTH_OF_METADATA_HEADER as int
+        }
+
+        fn serialized_len() -> u64
+        {
+            LENGTH_OF_METADATA_HEADER
+        }
     }
 
     // Per-entry relative offsets for list entry metadata
@@ -52,26 +152,167 @@ verus! {
     // structures, each of which contains metadata about the list
     // associated with a given key of type K. K must be Sized,
     // but we need to be generic over any K, so the key is the last
-    // field of the structure to avoid layout weirdness
+    // field of the structure to avoid layout weirdness.
+    // This means it is easiest to put the CRC *before* the corresponding
+    // ListEntryMetadata structure, so the constants here are a bit weird
 
     pub const RELATIVE_POS_OF_ENTRY_METADATA_CRC: u64 = 0;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_HEAD: u64 = 8;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_TAIL: u64 = 16;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_LENGTH: u64 = 24;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 32;
-    pub const RELATIVE_POS_OF_ENTRY_METADATA_KEY: 40;
+    pub const RELATIVE_POS_OF_ENTRY_METADATA: u64 = 8; // pos of the ListEntryMetadata structure to its slot's offset
+    pub const RELATIVE_POS_OF_ENTRY_METADATA_HEAD: u64 = 0; // pos of head field relative to ListEntryMetadata structure pos
+    pub const RELATIVE_POS_OF_ENTRY_METADATA_TAIL: u64 = 8;
+    pub const RELATIVE_POS_OF_ENTRY_METADATA_LENGTH: u64 = 16;
+    pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 24;
+    pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 32;
+    pub const LENGTH_OF_ENTRY_METADATA_MINUS_KEY: u64 = 32;
+
+    // ListEntry is not Serializable because we never write it as a single
+    // structure to avoid copying overheads, but we can read both fields
+    // as a single structure (since they are both Deserializable)
+    #[repr(C)]
+    pub struct ListEntry<K>
+        where
+            K: Serializable
+    {
+        pub metadata: ListEntryMetadata,
+        pub key: K,
+    }
+
+    impl<K> Deserializable for ListEntry<K>
+        where
+            K: Serializable
+    {
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            Self {
+                metadata: ListEntryMetadata::spec_deserialize(
+                    bytes.subrange(
+                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD as int,
+                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD + LENGTH_OF_ENTRY_METADATA_MINUS_KEY
+                    )
+                ),
+                key: K::spec_deserialize(
+                    bytes.subrange(
+                        RELATIVE_POS_OF_ENTRY_KEY as int,
+                        RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len()
+                    )
+                )
+            }
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+    }
+
+    impl<K> ListEntry<K>
+        where
+            K: Serializable
+    {
+        pub fn calculate_crc(&self) -> (output: u64)
+            ensures
+                output == CrcDigest::spec_sum64(self.metadata.spec_serialize() + self.key.spec_serialize())
+        {
+            let mut digest = CrcDigest::new();
+            digest.write(&self.metadata);
+            digest.write(&self.key);
+
+            proof {
+                let bytes_in_digest = digest.bytes_in_digest();
+                let flattened_bytes = bytes_in_digest.flatten();
+                assert(bytes_in_digest ==
+                    seq![self.metadata.spec_serialize(), self.key.spec_serialize()]);
+                // `flatten` is recursive, so we need to unroll it for Verus to prove the equivalence
+                reveal_with_fuel(Seq::flatten, 3);
+                assert(flattened_bytes =~= self.metadata.spec_serialize() + self.key.spec_serialize());
+
+            }
+
+
+            digest.sum64()
+        }
+    }
+
+
 
 
     #[repr(C)]
-    pub struct ListEntryMetadata<K>
-        where
-            K: Sized
+    pub struct ListEntryMetadata
     {
         head: u64,
         tail: u64,
         length: u64,
         first_entry_offset: u64, // offset of the first live entry in the head node
-        key: K,
+    }
+
+    impl Deserializable for ListEntryMetadata
+    {
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
+        {
+            Self {
+                head: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_HEAD as int, RELATIVE_POS_OF_ENTRY_METADATA_HEAD + 8)),
+                tail: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_TAIL as int, RELATIVE_POS_OF_ENTRY_METADATA_TAIL + 8)),
+                length: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_LENGTH as int, RELATIVE_POS_OF_ENTRY_METADATA_LENGTH + 8)),
+                first_entry_offset: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET as int, RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET + 8)),
+            }
+        }
+
+        closed spec fn spec_crc(self) -> u64;
+    }
+
+    impl Serializable for ListEntryMetadata
+    {
+        closed spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.head) +
+            spec_u64_to_le_bytes(self.tail) +
+            spec_u64_to_le_bytes(self.length) +
+            spec_u64_to_le_bytes(self.first_entry_offset)
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_head = #[trigger] spec_u64_to_le_bytes(s.head);
+                let serialized_tail = #[trigger] spec_u64_to_le_bytes(s.tail);
+                let serialized_length = #[trigger] spec_u64_to_le_bytes(s.length);
+                let serialized_first_entry_offset = #[trigger] spec_u64_to_le_bytes(s.first_entry_offset);
+                let serialized_metadata = #[trigger] s.spec_serialize();
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD as int,
+                        RELATIVE_POS_OF_ENTRY_METADATA_HEAD + 8
+                    ) == serialized_head
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_ENTRY_METADATA_TAIL as int,
+                        RELATIVE_POS_OF_ENTRY_METADATA_TAIL + 8
+                    ) == serialized_tail
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_ENTRY_METADATA_LENGTH as int,
+                        RELATIVE_POS_OF_ENTRY_METADATA_LENGTH + 8
+                    ) == serialized_length
+                &&& serialized_metadata.subrange(
+                        RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET as int,
+                        RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET + 8
+                    ) == serialized_first_entry_offset
+            });
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> int
+        {
+            LENGTH_OF_ENTRY_METADATA_MINUS_KEY as int
+        }
+
+        fn serialized_len() -> u64
+        {
+            LENGTH_OF_ENTRY_METADATA_MINUS_KEY
+        }
     }
 
     // Per-node relative offsets for unrolled linked list nodes
