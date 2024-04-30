@@ -495,7 +495,7 @@ verus! {
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == self@.write(addr as int, bytes@),
+                self@ == old(self)@.write(addr as int, bytes@),
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
                             r.timestamp == self@.timestamp
                 ;
