@@ -209,7 +209,7 @@ verus! {
     }
 
     #[cfg(target_os = "windows")]
-    fn windows_create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
+    fn create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
         ensures
             match multilog {
                 Some(multilog) => {
@@ -245,7 +245,7 @@ verus! {
     }
 
     #[cfg(target_os = "linux")]
-    fn linux_create_multilog() -> (multilog: Option<MultiLogImpl<MappedPmRegions>>)
+    fn create_multilog() -> (multilog: Option<MultiLogImpl<MappedPmRegions>>)
         ensures
             match multilog {
                 Some(multilog) => {
@@ -293,10 +293,7 @@ verus! {
 
     fn test_multilog_on_memory_mapped_file() -> Option<()>
     {
-        #[cfg(target_os = "windows")]
-        let mut multilog = windows_create_multilog()?;
-        #[cfg(target_os = "linux")]
-        let mut multilog = linux_create_multilog()?;
+        let mut multilog = create_multilog()?;
 
         // Tentatively append [30, 42, 100] to log #0 of the multilog.
         let mut v: Vec<u8> = Vec::<u8>::new();
