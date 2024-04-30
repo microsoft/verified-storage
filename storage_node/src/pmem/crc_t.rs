@@ -100,13 +100,13 @@ verus! {
                 ({
                     let all_bytes_seq = self.bytes_in_digest().flatten();
                     &&& output == spec_u64_from_le_bytes(spec_crc_bytes(all_bytes_seq))
-                    &&& output == Self::spec_sum64(all_bytes_seq)
+                    // &&& output == Self::spec_sum64(all_bytes_seq)
                 })
 
         {
             self.digest.digest.sum64()
         }
 
-        pub closed spec fn spec_sum64(bytes: Seq<u8>) -> u64;
+        // pub closed spec fn spec_sum64(bytes: Seq<u8>) -> u64;
     }
 }

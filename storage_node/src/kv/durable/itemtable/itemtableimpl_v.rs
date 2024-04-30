@@ -67,10 +67,9 @@ verus! {
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
                 ({
                     let item_slot_size = I::spec_serialized_len() + VALID_BYTES_SIZE + CRC_SIZE;
-                    let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * num_keys < usize::MAX
-                    &&& 0 <= metadata_header_size + (item_slot_size * num_keys) < usize::MAX
+                    &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
                 })
             ensures
                 pm_regions.inv(),

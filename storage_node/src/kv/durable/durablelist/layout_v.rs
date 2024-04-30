@@ -35,6 +35,8 @@ verus! {
     pub const LENGTH_OF_METADATA_HEADER: u64 = 48;
     pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 48;
 
+    pub const ABSOLUTE_POS_OF_METADATA_TABLE: u64 = 56;
+
     // The current version number, and the only one whose contents
     // this program can read, is the following:
     pub const LIST_VERISON_NUMBER: u64 = 1;
@@ -161,18 +163,6 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 24;
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 32;
     pub const LENGTH_OF_ENTRY_METADATA_MINUS_KEY: u64 = 32;
-
-    // // ListEntry is not Serializable because we never write it as a single
-    // // structure to avoid copying overheads, but we can read both fields
-    // // as a single structure (since they are both Deserializable)
-    // #[repr(C)]
-    // pub struct ListEntry<K>
-    //     where
-    //         K: Serializable
-    // {
-    //     pub metadata: ListEntryMetadata,
-    //     pub key: K,
-    // }
 
     #[repr(C)]
     pub struct ListEntryMetadata

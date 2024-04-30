@@ -50,7 +50,16 @@ verus! {
                 PM: PersistentMemoryRegions
             requires
                 old(pm_regions).inv(),
-                old(pm_regions)@.len() == NUM_DURABLE_LIST_REGIONS
+                old(pm_regions)@.len() == NUM_DURABLE_LIST_REGIONS,
+                ({
+                    let metadata_size = ListEntryMetadata::spec_serialized_len();
+                    let key_size = K::spec_serialized_len();
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size;
+                    let list_element_size = L::spec_serialized_len();
+                    &&& metadata_size + CRC_SIZE + key_size <= u64::MAX
+                    &&& list_element_size + CRC_SIZE <= u64::MAX
+                    &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                })
             ensures
                 pm_regions.inv(),
                 pm_regions@.no_outstanding_writes(),
@@ -72,8 +81,22 @@ verus! {
             // check that the regions the caller passed in are sufficiently large
             let table_region_size = region_sizes[0];
             let node_region_sizes = region_sizes[1];
-            // let metadata_size = ListEntryMetadata::<K>::serialized_len();
+            let metadata_size = ListEntryMetadata::serialized_len();
+            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len();
+
             let list_element_size = L::serialized_len();
+            let list_element_slot_size = list_element_size + CRC_SIZE;
+
+            // check that the table region is large enough -- needs at least as many slots as keys
+            if ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) > table_region_size {
+                let required = (ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys)) as usize;
+                let actual = table_region_size as usize;
+                return Err(KvError::RegionTooSmall{required, actual});
+            }
+
+            // check that the table region is large enough -- needs to fit at least one node
+            // TODO
+
 
             Ok(())
             // assume(false);

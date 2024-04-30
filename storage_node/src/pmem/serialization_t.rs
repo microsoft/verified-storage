@@ -69,8 +69,6 @@ verus! {
         axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
     }
 
-    // Serializable is a subtrait of Deserializable; there are
-    // some structures that are Deserializable but not Serializable
     pub trait Serializable : Sized {
         spec fn spec_serialize(self) -> Seq<u8>;
 
