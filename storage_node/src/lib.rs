@@ -245,11 +245,13 @@ verus! {
     }
 
     #[cfg(target_os = "linux")]
-    fn linux_create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
+    fn linux_create_multilog() -> (multilog: Option<MultiLogImpl<MappedPmRegions>>)
         ensures
             match multilog {
                 Some(multilog) => {
                     &&& multilog@.num_logs() == 2
+                    &&& multilog@[0] == AbstractLogState::initialize(multilog@[0].capacity)
+                    &&& multilog@[1] == AbstractLogState::initialize(multilog@[1].capacity)
                     &&& multilog.valid()
                 },
                 None => true,
@@ -286,7 +288,7 @@ verus! {
         runtime_assert(capacities[1] <= 1024);
 
         // Start accessing the multilog.
-        let mut multilog = MultiLogImpl::start(pm_regions, multilog_id).ok()?;
+        MultiLogImpl::start(pm_regions, multilog_id).ok()
     }
 
     fn test_multilog_on_memory_mapped_file() -> Option<()>
