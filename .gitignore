@@ -398,3 +398,9 @@ FodyWeavers.xsd
 *.sln.iml
 
 */target/
+
+deps_hack/src/bindings.rs
+storage_node/lib
+storage_node/test_multilog
+storage_node/lib.exe
+storage_node/liblib.rlib
