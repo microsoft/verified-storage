@@ -23,7 +23,7 @@ verus! {
     {
         _phantom: Ghost<core::marker::PhantomData<(K, L, E)>>,
         metadata_table_free_list: Vec<u64>,
-        node_area_free_list: Vec<u64>,
+        list_node_region_free_list: Vec<u64>,
         state: Ghost<DurableListView<K, L>>
     }
 
@@ -70,6 +70,11 @@ verus! {
                 pm_regions@.no_outstanding_writes(),
                 // TODO
         {
+            // TODO: we should generate an ID to write to both regions that will
+            // remain constant and indicate that the two regions are associated
+            // with each other to prevent mismatched metadata and list contents
+            // from being used together
+
             // ensure that there are no outstanding writes
             pm_regions.flush();
 
@@ -126,11 +131,94 @@ verus! {
             where
                 PM: PersistentMemoryRegions
             requires
-                old(wrpm_regions).inv()
+                old(wrpm_regions).inv(),
+                ({
+                    let metadata_size = ListEntryMetadata::spec_serialized_len();
+                    let key_size = K::spec_serialized_len();
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                    let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+                    &&& metadata_slot_size <= u64::MAX
+                    &&& list_element_slot_size <= u64::MAX
+                })
             ensures
                 wrpm_regions.inv()
                 // TODO
         {
+            // We assume that the caller set up the regions with `setup`, which checks that we got the
+            // correct number of regions and that they are large enough, but we check again here
+            // in case they didn't.
+            let pm_regions = wrpm_regions.get_pm_regions_ref();
+            let region_sizes = get_region_sizes(pm_regions);
+            let num_regions = region_sizes.len();
+            if num_regions < 2 {
+                return Err(KvError::TooFewRegions{ required: 2, actual: num_regions });
+            } else if num_regions > 2 {
+                return Err(KvError::TooManyRegions{ required: 2, actual: num_regions });
+            }
+            // TODO: check that the regions are large enough to store metadata before we
+            // attempt to read them
+
+            // Read the metadata headers for both regions
+            let list_metadata_table = Self::read_table_metadata(pm_regions, list_id)?;
+            let list_region_metadata = Self::read_list_region_header(pm_regions, list_id)?;
+
+            // check that the regions the caller passed in are sufficiently large
+            let table_region_size = region_sizes[0];
+            let node_region_size = region_sizes[1];
+            let metadata_size = ListEntryMetadata::serialized_len();
+            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + VALID_BYTES_SIZE;
+
+            let list_element_size = L::serialized_len();
+            let list_element_slot_size = list_element_size + CRC_SIZE;
+
+            // check that the table region is large enough -- needs at least as many slots as keys
+            if ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * list_metadata_table.num_keys) > table_region_size {
+                let required = (ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * list_metadata_table.num_keys)) as usize;
+                let actual = table_region_size as usize;
+                return Err(KvError::RegionTooSmall{required, actual});
+            }
+
+            // check that the table region is large enough -- needs to fit at least one node
+            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + list_metadata_table.node_size as u64;
+            if required_node_region_size > node_region_size {
+                let required = required_node_region_size as usize;
+                let actual = node_region_size as usize;
+                return Err(KvError::RegionTooSmall{required, actual});
+            }
+
+            let ghost mem = pm_regions@[0].committed();
+
+            let mut metadata_table_free_list: Vec<u64> = Vec::with_capacity(list_metadata_table.num_keys as usize);
+            let mut list_node_region_free_list: Vec<u64> = Vec::new();
+
+            // construct the allocators for the metadata table and the list node region
+            for index in 0..list_metadata_table.num_keys {
+                assume(false);
+                let metadata_slot_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * metadata_slot_size;
+                let cdb_addr = metadata_slot_offset + RELATIVE_POS_OF_VALID_CDB;
+                let val: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + cdb_addr);
+                match check_cdb(&val, Ghost(mem),
+                        Ghost(pm_regions.constants().impervious_to_corruption),
+                        Ghost(cdb_addr)) {
+                    Some(false) => metadata_table_free_list.push(index),
+                    Some(true) => {
+                        // We construct the list node region allocator and return metadata
+                        // about list structures to the caller for indexing at the same time
+                        // TODO: construct info to send to the volatile index once you have a better
+                        // idea of what it will need
+                        let entry_crc: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC);
+                        let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA);
+                        let key: &K = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY);
+
+                    },
+                    None => return Err(KvError::CRCMismatch)
+                }
+            }
+
+
+
+
+
             assume(false);
             Err(KvError::NotImplemented)
         }
@@ -338,6 +426,94 @@ verus! {
             // reachable within a list, so its fine if they contain garbage while theyre not in use
 
             return Ok(());
+        }
+
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&GlobalListMetadata, KvError<K, E>>)
+            where
+                PM: PersistentMemoryRegions
+            requires
+                pm_regions.inv(),
+                // TODO
+            ensures
+                match result {
+                    Ok(output_metadata) => {
+                        let metadata_size = ListEntryMetadata::spec_serialized_len();
+                        let key_size = K::spec_serialized_len();
+                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                        &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
+                        &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
+                    }
+                    Err(_) => true // TODO
+                }
+                // TODO
+        {
+            assume(false);
+
+            let ghost mem = pm_regions@[0].committed();
+
+            // read in the header and its CRC, check for corruption
+            let metadata: &GlobalListMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
+            let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
+
+            if !check_crc_deserialized(metadata, metadata_crc, Ghost(mem),
+                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
+                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
+                return Err(KvError::CRCMismatch);
+            }
+
+            // Since we've already checked for corruption, this condition will only fail
+            // if the caller tries to use an L with a different size than the one
+            // the list was originally set up with
+            if {
+                ||| metadata.element_size != (L::serialized_len() + CRC_SIZE) as u32
+                ||| metadata.version_number != LIST_METADATA_VERSION_NUMBER
+                ||| metadata.program_guid != DURABLE_LIST_METADATA_TABLE_PROGRAM_GUID
+            } {
+                return Err(KvError::InvalidListMetadata);
+            }
+
+            Ok(metadata)
+        }
+
+        fn read_list_region_header<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&ListRegionHeader, KvError<K,E>>)
+            where
+                PM: PersistentMemoryRegions
+            requires
+                pm_regions.inv(),
+            ensures
+                match result {
+                    Ok(output_header) => {
+                        true
+                        // TODO
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            assume(false);
+
+            let ghost mem = pm_regions@[1].committed();
+
+            // Read the list region header and its CRC and check for corruption
+            let region_header: &ListRegionHeader = pm_regions.read_and_deserialize(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER);
+            let region_header_crc = pm_regions.read_and_deserialize(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC);
+
+            if !check_crc_deserialized(region_header, region_header_crc, Ghost(mem),
+                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER), Ghost(LENGTH_OF_LIST_REGION_HEADER),
+                    Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC))
+            {
+                return Err(KvError::CRCMismatch);
+            }
+
+            if {
+                ||| region_header.version_number != DURABLE_LIST_REGION_VERSION_NUMBER
+                ||| region_header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID
+            } {
+                return Err(KvError::InvalidListRegionMetadata);
+            }
+
+            Ok(region_header)
         }
     }
 }

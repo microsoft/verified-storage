@@ -57,6 +57,8 @@ where
     SerializationError { error: E },
     DeserializationError { error: E },
     InvalidItemTableHeader,
+    InvalidListMetadata,
+    InvalidListRegionMetadata,
 }
 
 pub trait Item<K> : Sized {

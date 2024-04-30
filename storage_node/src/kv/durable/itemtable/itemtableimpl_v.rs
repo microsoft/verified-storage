@@ -160,6 +160,8 @@ verus! {
             } else if num_regions > 1 {
                 return Err(KvError::TooManyRegions {required: 1, actual: num_regions});
             }
+            // TODO: check that the region is large enough to store the table metadata before
+            // we attempt to read it
 
             // read and check the header metadata
             let table_metadata = Self::read_table_metadata(pm_regions, item_table_id)?;
@@ -189,8 +191,8 @@ verus! {
                 match check_cdb(&val, Ghost(mem),
                             Ghost(pm_regions.constants().impervious_to_corruption),
                             Ghost(cdb_addr)) {
-                    Some(true) => item_table_allocator.push(index),
-                    Some(false) => {}
+                    Some(false) => item_table_allocator.push(index),
+                    Some(true) => {}
                     None => return Err(KvError::CRCMismatch)
                 }
             }
