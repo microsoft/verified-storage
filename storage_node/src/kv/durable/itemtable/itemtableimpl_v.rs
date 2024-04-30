@@ -105,7 +105,7 @@ verus! {
 
             // we also have to set all of the valid bits of the item table slots
             // to 0 so they are not accidentally interpreted as being in use
-
+            // TODO: move this into setup...
             // TODO: these invariants are tricky, probably because they involve nonlinear arithmetic?
             for index in 0..num_keys
                 // invariant

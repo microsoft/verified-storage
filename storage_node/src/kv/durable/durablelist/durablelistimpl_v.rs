@@ -1,6 +1,7 @@
 use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::kvimpl_t::*;
+use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
@@ -44,7 +45,7 @@ verus! {
             pm_regions: &mut PM,
             list_id: u128,
             num_keys: u64,
-            elements_per_node: u64,
+            node_size: u64,
         ) -> (result: Result<(), KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions
@@ -54,12 +55,16 @@ verus! {
                 ({
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
                     let key_size = K::spec_serialized_len();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size;
-                    let list_element_size = L::spec_serialized_len();
-                    &&& metadata_size + CRC_SIZE + key_size <= u64::MAX
-                    &&& list_element_size + CRC_SIZE <= u64::MAX
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                    let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+                    &&& metadata_slot_size <= u64::MAX
+                    &&& list_element_slot_size <= u64::MAX
                     &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-                })
+                    &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+                }),
+                L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+                // TODO: just pass it in as a u32
+                node_size < u32::MAX
             ensures
                 pm_regions.inv(),
                 pm_regions@.no_outstanding_writes(),
@@ -80,9 +85,9 @@ verus! {
 
             // check that the regions the caller passed in are sufficiently large
             let table_region_size = region_sizes[0];
-            let node_region_sizes = region_sizes[1];
+            let node_region_size = region_sizes[1];
             let metadata_size = ListEntryMetadata::serialized_len();
-            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len();
+            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + VALID_BYTES_SIZE;
 
             let list_element_size = L::serialized_len();
             let list_element_slot_size = list_element_size + CRC_SIZE;
@@ -95,12 +100,21 @@ verus! {
             }
 
             // check that the table region is large enough -- needs to fit at least one node
-            // TODO
+            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size;
+            if required_node_region_size > node_region_size {
+                let required = required_node_region_size as usize;
+                let actual = node_region_size as usize;
+                return Err(KvError::RegionTooSmall{required, actual});
+            }
 
+            let result = Self::write_setup_metadata(pm_regions, num_keys, node_size);
 
-            Ok(())
-            // assume(false);
-            // Err(KvError::NotImplemented)
+            pm_regions.flush();
+
+            match result {
+                Ok(()) => Ok(()),
+                Err(e) => Err(e)
+            }
         }
 
         pub exec fn start<PM>(
@@ -250,6 +264,80 @@ verus! {
         {
             assume(false);
             Err(KvError::NotImplemented)
+        }
+
+        // TODO: maybe change Serializable to return a u32 as the serialized len; can always cast up if necessary
+        pub fn write_setup_metadata<PM>(
+            pm_regions: &mut PM,
+            num_keys: u64,
+            node_size: u64,
+        ) -> (result: Result<(), KvError<K,E>>)
+            where
+                PM: PersistentMemoryRegions
+            requires
+                old(pm_regions).inv(),
+                old(pm_regions)@.no_outstanding_writes(),
+                old(pm_regions)@.len() == 2,
+                L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+                ({
+                    // the first region is large enough to be the metadata table
+                    let metadata_size = ListEntryMetadata::spec_serialized_len();
+                    let metadata_slot_size = metadata_size + CRC_SIZE + K::spec_serialized_len() + VALID_BYTES_SIZE;
+                    old(pm_regions)@[0].len() >= ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys)
+                }),
+                // the second region is large enough for at least one node
+                old(pm_regions)@[1].len() >= ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size,
+                node_size <= u32::MAX,
+            ensures
+                pm_regions.inv(),
+                // TODO
+        {
+            // 1) Handle metadata table
+            // Initialize metadata table header and compute its CRC
+            let element_size = L::serialized_len() + CRC_SIZE;
+            let metadata_table_header = GlobalListMetadata {
+                element_size: (L::serialized_len() + CRC_SIZE) as u32,
+                node_size: node_size as u32,
+                num_keys,
+                version_number: LIST_METADATA_VERSION_NUMBER,
+                _padding: 0,
+                program_guid: DURABLE_LIST_METADATA_TABLE_PROGRAM_GUID
+            };
+            let metadata_table_header_crc = calculate_crc(&metadata_table_header);
+
+            assume(false);
+
+            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_table_header);
+            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_HEADER_CRC, &metadata_table_header_crc);
+
+            let metadata_header_entry_slot_size = VALID_BYTES_SIZE + CRC_SIZE + LENGTH_OF_ENTRY_METADATA_MINUS_KEY + K::serialized_len();
+            // invalidate all metadata table entries so that we can scan it and build the allocator
+            for index in 0..num_keys
+                // TODO: invariant
+            {
+                assume(false);
+                let entry_slot_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * metadata_header_entry_slot_size;
+                pm_regions.serialize_and_write(0, entry_slot_offset, &CDB_FALSE);
+            }
+
+            // 2) Handle list node region
+            // Initialize list region header and compute its CRC
+            let region_sizes = get_region_sizes(pm_regions);
+            let num_nodes = (region_sizes[1] - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size;
+            let list_node_region_header = ListRegionHeader {
+                num_nodes,
+                version_number: DURABLE_LIST_REGION_VERSION_NUMBER,
+                program_guid: DURABLE_LIST_REGION_PROGRAM_GUID
+            };
+            let list_node_region_header_crc = calculate_crc(&list_node_region_header);
+
+            pm_regions.serialize_and_write(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER, &list_node_region_header);
+            pm_regions.serialize_and_write(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC, &list_node_region_header_crc);
+
+            // we don't need to do any further setup here; we only count nodes as in-use if they are
+            // reachable within a list, so its fine if they contain garbage while theyre not in use
+
+            return Ok(());
         }
     }
 }
