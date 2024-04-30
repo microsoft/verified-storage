@@ -505,6 +505,7 @@ verus! {
                 old(self).inv(),
                 addr + S::spec_serialized_len() <= old(self)@.len(),
             ensures
+                self.inv(),
                 self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
         ;
 
