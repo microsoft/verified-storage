@@ -265,7 +265,7 @@ verus! {
 
         // Create the multipersistent memory out of the two regions.
         let file_name = vstd::string::new_strlit("test_multilog");
-        let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new(
+        let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
             file_name,
             (region_sizes[0] + region_sizes[1]) as usize,
         ).ok()?;
