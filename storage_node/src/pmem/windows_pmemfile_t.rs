@@ -460,6 +460,11 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         &&& self@.timestamp.device_id() == self.spec_device_id()
     }
 
+    closed spec fn constants(&self) -> PersistentMemoryConstants
+    {
+        PersistentMemoryConstants { impervious_to_corruption: true }
+    }
+
     fn device_id(&self) -> u128
     {
         self.device_id

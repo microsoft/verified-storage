@@ -1,47 +1,46 @@
-//! This file contains the trusted implementation of a `MultiLogImpl`.
+//! This file contains the trusted implementation of a `LogImpl`.
 //! Although the verifier is run on this file, it needs to be
 //! carefully read and audited to be confident of the correctness of
-//! this multilog implementation.
+//! this log implementation.
 //!
 //! Fortunately, it delegates most of its work to an untrusted struct
-//! `UntrustedMultiLogImpl`, which doesn't need to be read or audited.
-//! It forces the `UntrustedMultiLogImpl` to satisfy certain
-//! postconditions, and also places restrictions on what
-//! `UntrustedMultiLogImpl` can do to persistent memory. These
-//! restrictions ensure that even if the system or process crashes in
-//! the middle of an operation, the system will still recover to a
-//! consistent state.
+//! `UntrustedLogImpl`, which doesn't need to be read or audited. It
+//! forces the `UntrustedLogImpl` to satisfy certain postconditions,
+//! and also places restrictions on what `UntrustedLogImpl` can do to
+//! persistent memory. These restrictions ensure that even if the
+//! system or process crashes in the middle of an operation, the
+//! system will still recover to a consistent state.
 //!
-//! It requires `UntrustedMultiLogImpl` to implement routines that do the
-//! various multilog operations like read and commit.
+//! It requires `UntrustedLogImpl` to implement routines that do the
+//! various log operations like read and commit.
 //!
-//! It also requires `UntrustedMultiLogImpl` to provide a function
-//! `UntrustedMultiLogImpl::recover`, which specifies what its `start`
+//! It also requires `UntrustedLogImpl` to provide a function
+//! `UntrustedLogImpl::recover`, which specifies what its `start`
 //! routine will do to recover after a crash. It requires its `start`
 //! routine to satisfy that specification. It also uses it to limit
-//! how `UntrustedMultiLogImpl` writes to memory: It can only perform
+//! how `UntrustedLogImpl` writes to memory: It can only perform
 //! updates that, if incompletely performed before a crash, still
 //! leave the system in a valid state. The `recover` function takes a
-//! second parameter, the `multilog_id` which is passed to the start
+//! second parameter, the `log_id` which is passed to the start
 //! routine.
 //!
-//! It also requires `UntrustedMultiLogImpl` to provide a function `view`
-//! that converts the current state into an abstract log. It requires that
-//! performing a certain operation on the `UntrustedMultiLogImpl` causes a
-//! corresponding update to its abstract view. For instance, calling
-//! the `u.commit()` method should cause the resulting `u.view()` to
-//! become `old(u).view().commit()`.
+//! It also requires `UntrustedLogImpl` to provide a function `view`
+//! that converts the current state into an abstract log. It requires
+//! that performing a certain operation on the `UntrustedLogImpl`
+//! causes a corresponding update to its abstract view. For instance,
+//! calling the `u.commit()` method should cause the resulting
+//! `u.view()` to become `old(u).view().commit()`.
 //!
-//! It also permits `UntrustedMultiLogImpl` to provide a function `inv`
-//! that encodes any invariants `UntrustedMultiLogImpl` wants maintained
+//! It also permits `UntrustedLogImpl` to provide a function `inv`
+//! that encodes any invariants `UntrustedLogImpl` wants maintained
 //! across invocations of its functions. This implementation will then
-//! guarantee that `inv` holds on any call to an `UntrustedMultiLogImpl`
+//! guarantee that `inv` holds on any call to an `UntrustedLogImpl`
 //! method, and demand that the method preserve that invariant.
 
 use std::fmt::Write;
 
-use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::log::logimpl_v::UntrustedLogImpl;
+use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::timestamp_t::*;
 use crate::pmem::wrpm_v::*;
@@ -53,7 +52,7 @@ use deps_hack::rand::Rng;
 
 verus! {
 
-    // This is the specification that `MultiLogImpl` provides for data
+    // This is the specification that `LogImpl` provides for data
     // bytes it reads. It says that those bytes are correct unless
     // there was corruption on the persistent memory between the last
     // write and this read.
@@ -86,13 +85,13 @@ verus! {
     // memory can only crash in a way that, after recovery, leads to a
     // certain abstract state.
     pub open spec fn can_only_crash_as_state(
-        pm_regions_view: PersistentMemoryRegionsView,
-        multilog_id: u128,
-        state: AbstractMultiLogState,
+        pm_region_view: PersistentMemoryRegionView,
+        log_id: u128,
+        state: AbstractLogState,
     ) -> bool
     {
-        forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==>
-            UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state)
+        forall |s| #[trigger] pm_region_view.can_crash_as(s) ==>
+            UntrustedLogImpl::recover(s, log_id) == Some(state)
     }
 
     // A `TrustedPermission` is the type of a tracked object
@@ -106,11 +105,11 @@ verus! {
     // rely on it to restrict access to persistent memory.
     #[allow(dead_code)]
     pub struct TrustedPermission {
-        ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
+        ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
     }
 
-    impl CheckPermission<Seq<Seq<u8>>> for TrustedPermission {
-        closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool {
+    impl CheckPermission<Seq<u8>> for TrustedPermission {
+        closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
@@ -121,13 +120,13 @@ verus! {
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given
         // abstract state `state`.
-        proof fn new_one_possibility(multilog_id: u128, state: AbstractMultiLogState) -> (tracked perm: Self)
+        proof fn new_one_possibility(log_id: u128, state: AbstractLogState) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
-                    UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state)
+                    UntrustedLogImpl::recover(s, log_id) == Some(state)
         {
             Self {
-                is_state_allowable: |s| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state)
+                is_state_allowable: |s| UntrustedLogImpl::recover(s, log_id) == Some(state)
             }
         }
 
@@ -137,79 +136,74 @@ verus! {
         // lead to one of two given abstract states `state1` and
         // `state2`.
         proof fn new_two_possibilities(
-            multilog_id: u128,
-            state1: AbstractMultiLogState,
-            state2: AbstractMultiLogState
+            log_id: u128,
+            state1: AbstractLogState,
+            state2: AbstractLogState
         ) -> (tracked perm: Self)
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state1)
-                    ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state2)
+                    ||| UntrustedLogImpl::recover(s, log_id) == Some(state1)
+                    ||| UntrustedLogImpl::recover(s, log_id) == Some(state2)
                 }
         {
             Self {
                 is_state_allowable: |s| {
-                    ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state1)
-                    ||| UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state2)
+                    ||| UntrustedLogImpl::recover(s, log_id) == Some(state1)
+                    ||| UntrustedLogImpl::recover(s, log_id) == Some(state2)
                 }
             }
         }
     }
 
     // This enumeration represents the various errors that can be
-    // returned from multilog operations. They're self-explanatory.
-    // TODO: make `PmemErr` and `MultiLogErr` handling cleaner
+    // returned from log operations. They're self-explanatory.
+    // TODO: make `PmemErr` and `LogErr` handling cleaner
     #[derive(Debug)]
-    pub enum MultiLogErr {
-        CantSetupWithFewerThanOneRegion { },
-        CantSetupWithMoreThanU32MaxRegions { },
-        InsufficientSpaceForSetup { which_log: u32, required_space: u64 },
-        StartFailedDueToMultilogIDMismatch { which_log: u32, multilog_id_expected: u128, multilog_id_read: u128 },
-        StartFailedDueToRegionSizeMismatch { which_log: u32, region_size_expected: u64, region_size_read: u64 },
-        StartFailedDueToProgramVersionNumberUnsupported { which_log: u32, version_number: u64, max_supported: u64 },
-        StartFailedDueToInvalidMemoryContents { which_log: u32 },
+    pub enum LogErr {
+        InsufficientSpaceForSetup { required_space: u64 },
+        StartFailedDueToLogIDMismatch { log_id_expected: u128, log_id_read: u128 },
+        StartFailedDueToRegionSizeMismatch { region_size_expected: u64, region_size_read: u64 },
+        StartFailedDueToProgramVersionNumberUnsupported { version_number: u64, max_supported: u64 },
+        StartFailedDueToInvalidMemoryContents,
         CRCMismatch,
-        InvalidLogIndex { },
         InsufficientSpaceForAppend { available_space: u64 },
         CantReadBeforeHead { head: u128 },
         CantReadPastTail { tail: u128 },
         CantAdvanceHeadPositionBeforeHead { head: u128 },
         CantAdvanceHeadPositionBeyondTail { tail: u128 },
-        PmemErr { err: PmemError } // janky workaround so that callers can handle PmemErrors as MultiLogErrors
+        PmemErr { err: PmemError } // janky workaround so that callers can handle PmemErrors as LogErrors
     }
 
     // This executable method can be called to compute a random GUID.
     // It uses the external `rand` crate.
     #[verifier::external_body]
-    pub exec fn generate_fresh_multilog_id() -> (out: u128)
+    pub exec fn generate_fresh_log_id() -> (out: u128)
     {
         deps_hack::rand::thread_rng().gen::<u128>()
     }
 
-    /// A `MultiLogImpl` wraps one `UntrustedMultiLogImpl` and a
-    /// collection of persistent memory regions to provide the
-    /// executable interface that turns the persistent memory regions
-    /// into a set of logs in which any subset of logs can be updated
-    /// atomically.
+    /// A `LogImpl` wraps one `UntrustedLogImpl` and one persistent
+    /// memory region to provide the executable interface that turns
+    /// the persistent memory region into a log.
     ///
     /// The `untrusted_log_impl` field is the wrapped
-    /// `UntrustedMultiLogImpl`.
+    /// `UntrustedLogImpl`.
     ///
-    /// The `multilog_id` field is the multilog ID. It's ghost.
+    /// The `log_id` field is the log ID. It's ghost.
     ///
-    /// The `wrpm_regions` field contains the write-restricted persistent
+    /// The `wrpm_region` field contains the write-restricted persistent
     /// memory. This memory will only allow updates allowed by a
-    /// tracked `TrustedPermission`. So we can pass `wrpm_regions` to an
+    /// tracked `TrustedPermission`. So we can pass `wrpm_region` to an
     /// untrusted method, along with a restricting
     /// `TrustedPermission`, to limit what it's allowed to do.
 
-    pub struct MultiLogImpl<PMRegions: PersistentMemoryRegions> {
-        untrusted_log_impl: UntrustedMultiLogImpl,
-        multilog_id: Ghost<u128>,
-        wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>
+    pub struct LogImpl<PMRegion: PersistentMemoryRegion> {
+        untrusted_log_impl: UntrustedLogImpl,
+        log_id: Ghost<u128>,
+        wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>
     }
 
-    impl<PMRegions: PersistentMemoryRegions> TimestampedModule for MultiLogImpl<PMRegions> {
+    impl<PMRegions: PersistentMemoryRegions> TimestampedModule for LogImpl<PMRegions> {
         type RegionsView = PersistentMemoryRegionsView;
 
         closed spec fn get_timestamp(&self) -> PmTimestamp
@@ -223,20 +217,20 @@ verus! {
 
         fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
             proof { self.lemma_valid_implies_wrpm_inv(); }
-            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp);
+            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.log_id, new_timestamp);
             proof { self.lemma_untrusted_log_inv_implies_valid(); }
         }
     }
 
-    impl <PMRegions: PersistentMemoryRegions> MultiLogImpl<PMRegions> {
-        // The view of a `MultiLogImpl` is whatever the
-        // `UntrustedMultiLogImpl` it wraps says it is.
-        pub closed spec fn view(self) -> AbstractMultiLogState
+    impl <PMRegions: PersistentMemoryRegions> LogImpl<PMRegions> {
+        // The view of a `LogImpl` is whatever the
+        // `UntrustedLogImpl` it wraps says it is.
+        pub closed spec fn view(self) -> AbstractLogState
         {
             self.untrusted_log_impl@
         }
 
-        // The constants of a `MultiLogImpl` are whatever the
+        // The constants of a `LogImpl` are whatever the
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
             self.wrpm_regions.constants()
@@ -262,8 +256,8 @@ verus! {
         // if it crashes and recovers, must represent the current
         // abstract state with pending tentative appends dropped.
         pub closed spec fn valid(self) -> bool {
-            &&& self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
-            &&& can_only_crash_as_state(self.wrpm_regions@, self.multilog_id@, self@.drop_pending_appends())
+            &&& self.untrusted_log_impl.inv(&self.wrpm_regions, self.log_id@)
+            &&& can_only_crash_as_state(self.wrpm_regions@, self.log_id@, self@.drop_pending_appends())
         }
 
         proof fn lemma_valid_implies_wrpm_inv(self)
@@ -272,32 +266,32 @@ verus! {
             ensures
                 self.wrpm_regions.inv()
         {
-            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.multilog_id@);
+            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.log_id@);
         }
 
         proof fn lemma_untrusted_log_inv_implies_valid(self)
             requires
-                self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
+                self.untrusted_log_impl.inv(&self.wrpm_regions, self.log_id@)
             ensures
                 self.valid()
         {
-            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.multilog_id@);
+            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.log_id@);
         }
 
-        // The `setup` method sets up persistent memory regions `pm_regions`
-        // to store an initial empty multilog. It returns a vector
-        // listing the capacities of the logs as well as a fresh
-        // multilog ID to uniquely identify it. See `main.rs` for more
-        // documentation.
-        pub exec fn setup(pm_regions: &mut PMRegions) -> (result: Result<(Vec<u64>, u128), MultiLogErr>)
+        // The `setup` method sets up persistent memory regions
+        // `pm_regions` to store an initial empty log. It returns a
+        // vector listing the capacity of the log as well as a
+        // fresh log ID to uniquely identify it. See `main.rs`
+        // for more documentation.
+        pub exec fn setup(pm_regions: &mut PMRegions) -> (result: Result<u64, u128), LogErr>)
             requires
                 old(pm_regions).inv(),
             ensures
                 pm_regions.inv(),
                 pm_regions@.no_outstanding_writes(),
                 match result {
-                    Ok((log_capacities, multilog_id)) => {
-                        let state = AbstractMultiLogState::initialize(log_capacities@);
+                    Ok((log_capacities, log_id)) => {
+                        let state = AbstractLogState::initialize(log_capacities@);
                         &&& pm_regions@.len() == old(pm_regions)@.len()
                         &&& pm_regions@.len() >= 1
                         &&& pm_regions@.len() <= u32::MAX
@@ -306,26 +300,26 @@ verus! {
                                #[trigger] log_capacities@[i] <= pm_regions@[i].len()
                         &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
                                #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
-                        &&& can_only_crash_as_state(pm_regions@, multilog_id, state)
-                        &&& UntrustedMultiLogImpl::recover(pm_regions@.committed(), multilog_id) == Some(state)
+                        &&& can_only_crash_as_state(pm_regions@, log_id, state)
+                        &&& UntrustedLogImpl::recover(pm_regions@.committed(), log_id) == Some(state)
                         // Required by the `start` function's precondition. Putting this in the
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
-                        &&& UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
+                        &&& UntrustedLogImpl::recover(pm_regions@.flush().committed(), log_id) == Some(state)
                         &&& state == state.drop_pending_appends()
                         &&& pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 2
                         &&& pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
                     },
-                    Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
+                    Err(LogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
                         &&& pm_regions@ == flushed_regions
                         &&& pm_regions@[which_log as int].len() < required_space
                     },
-                    Err(MultiLogErr::CantSetupWithFewerThanOneRegion { }) => {
+                    Err(LogErr::CantSetupWithFewerThanOneRegion { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
                         &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() < 1
                     },
-                    Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
+                    Err(LogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
                         let flushed_regions = old(pm_regions)@.flush();
                         &&& pm_regions@ == flushed_regions
                         &&& pm_regions@.len() > u32::MAX
@@ -333,23 +327,23 @@ verus! {
                     _ => false
                 }
         {
-            let multilog_id = generate_fresh_multilog_id();
-            let capacities = UntrustedMultiLogImpl::setup(pm_regions, multilog_id)?;
-            Ok((capacities, multilog_id))
+            let log_id = generate_fresh_log_id();
+            let capacities = UntrustedLogImpl::setup(pm_regions, log_id)?;
+            Ok((capacities, log_id))
         }
 
-        // The `start` method creates an `UntrustedMultiLogImpl` out
-        // of a set of persistent memory regions. It's assumed that
-        // those regions were initialized with `setup` and then only
-        // multilog operations were allowed to mutate them. See
-        // `main.rs` for more documentation and an example of use.
-        pub exec fn start(pm_regions: PMRegions, multilog_id: u128)
-                          -> (result: Result<MultiLogImpl<PMRegions>, MultiLogErr>)
+        // The `start` method creates an `UntrustedLogImpl` out of a
+        // set of persistent memory regions. It's assumed that those
+        // regions were initialized with `setup` and then only log
+        // operations were allowed to mutate them. See `main.rs` for
+        // more documentation and an example of use.
+        pub exec fn start(pm_regions: PMRegions, log_id: u128)
+                          -> (result: Result<LogImpl<PMRegions>, LogErr>)
             requires
                 pm_regions.inv(),
                 ({
                     let flushed_regions = pm_regions@.flush();
-                    UntrustedMultiLogImpl::recover(flushed_regions.committed(), multilog_id).is_Some()
+                    UntrustedLogImpl::recover(flushed_regions.committed(), log_id).is_Some()
                 }),
             ensures
                 match result {
@@ -358,13 +352,13 @@ verus! {
                         &&& trusted_log_impl.constants() == pm_regions.constants()
                         &&& ({
                             let flushed_regions = pm_regions@.flush();
-                            Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(flushed_regions.committed(),
-                                                                                    multilog_id)
+                            Some(trusted_log_impl@) == UntrustedLogImpl::recover(flushed_regions.committed(),
+                                                                                    log_id)
                             })
                         &&& trusted_log_impl.get_timestamp().value() == pm_regions@.timestamp.value() + 1
                         &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.timestamp.device_id()
                     },
-                    Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
                     _ => false
                 }
         {
@@ -375,15 +369,15 @@ verus! {
             // it write such that, if a crash happens in the middle,
             // it doesn't change the persistent state.
 
-            let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
+            let ghost state = UntrustedLogImpl::recover(pm_regions@.flush().committed(), log_id).get_Some_0();
             let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
-            let tracked perm = TrustedPermission::new_one_possibility(multilog_id, state);
+            let tracked perm = TrustedPermission::new_one_possibility(log_id, state);
             let untrusted_log_impl =
-                UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
+                UntrustedLogImpl::start(&mut wrpm_regions, log_id, Tracked(&perm), Ghost(state))?;
             Ok(
-                MultiLogImpl {
+                LogImpl {
                     untrusted_log_impl,
-                    multilog_id:  Ghost(multilog_id),
+                    log_id:  Ghost(log_id),
                     wrpm_regions
                 },
             )
@@ -391,12 +385,12 @@ verus! {
 
         // The `tentatively_append` method tentatively appends
         // `bytes_to_append` to the end of log number `which_log` in
-        // the multilog. It's tentative in that crashes will undo the
+        // the log. It's tentative in that crashes will undo the
         // appends, and reads aren't allowed in the tentative part of
         // the log. See `main.rs` for more documentation and examples
         // of use.
         pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8])
-                                       -> (result: Result<u128, MultiLogErr>)
+                                       -> (result: Result<u128, LogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -410,11 +404,11 @@ verus! {
                         &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
                         &&& self.get_timestamp() == old(self).get_timestamp()
                     },
-                    Err(MultiLogErr::InvalidLogIndex { }) => {
+                    Err(LogErr::InvalidLogIndex { }) => {
                         &&& which_log >= self@.num_logs()
                         &&& self@ == old(self)@
                     },
-                    Err(MultiLogErr::InsufficientSpaceForAppend { available_space }) => {
+                    Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                         &&& self@ == old(self)@
                         &&& which_log < self@.num_logs()
                         &&& available_space < bytes_to_append@.len()
@@ -433,9 +427,9 @@ verus! {
             // the view of the persistent state is either the current
             // state or the current state with `bytes_to_append`
             // appended.
-            let tracked perm = TrustedPermission::new_one_possibility(self.multilog_id@, self@.drop_pending_appends());
+            let tracked perm = TrustedPermission::new_one_possibility(self.log_id@, self@.drop_pending_appends());
             self.untrusted_log_impl.tentatively_append(&mut self.wrpm_regions, which_log, bytes_to_append,
-                                                       self.multilog_id, Tracked(&perm))
+                                                       self.log_id, Tracked(&perm))
         }
 
         // The `commit` method atomically commits all tentative
@@ -444,7 +438,7 @@ verus! {
         // crash in the middle, the recovered-to state either reflects
         // all those tentative appends or none of them. See `main.rs`
         // for more documentation and examples of use.
-        pub exec fn commit(&mut self) -> (result: Result<(), MultiLogErr>)
+        pub exec fn commit(&mut self) -> (result: Result<(), LogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -465,9 +459,9 @@ verus! {
             // the view of the persistent state is either the current
             // state or the current state with all uncommitted appends
             // committed.
-            let tracked perm = TrustedPermission::new_two_possibilities(self.multilog_id@, self@.drop_pending_appends(),
+            let tracked perm = TrustedPermission::new_two_possibilities(self.log_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
-            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.multilog_id, Tracked(&perm))
+            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.log_id, Tracked(&perm))
         }
 
         // The `advance_head` method advances the head of log number
@@ -477,7 +471,7 @@ verus! {
         // appends; to do that, you need a separate call to
         // `commit`. See `main.rs` for more documentation and examples
         // of use.
-        pub exec fn advance_head(&mut self, which_log: u32, new_head: u128) -> (result: Result<(), MultiLogErr>)
+        pub exec fn advance_head(&mut self, which_log: u32, new_head: u128) -> (result: Result<(), LogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -492,17 +486,17 @@ verus! {
                         &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
                         &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
                     },
-                    Err(MultiLogErr::InvalidLogIndex{ }) => {
+                    Err(LogErr::InvalidLogIndex{ }) => {
                         &&& which_log >= self@.num_logs()
                         &&& self@ == old(self)@
                     },
-                    Err(MultiLogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
+                    Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
                         &&& self@ == old(self)@
                         &&& which_log < self@.num_logs()
                         &&& head == self@[which_log as int].head
                         &&& new_head < head
                     },
-                    Err(MultiLogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
+                    Err(LogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
                         &&& self@ == old(self)@
                         &&& which_log < self@.num_logs()
                         &&& tail == self@[which_log as int].head + self@[which_log as int].log.len()
@@ -517,12 +511,12 @@ verus! {
             // the view of the persistent state is either the current
             // state or the current state with the head advanced.
             let tracked perm = TrustedPermission::new_two_possibilities(
-                self.multilog_id@,
+                self.log_id@,
                 self@.drop_pending_appends(),
                 self@.advance_head(which_log as int, new_head as int).drop_pending_appends()
             );
             self.untrusted_log_impl.advance_head(&mut self.wrpm_regions, which_log, new_head,
-                                                 self.multilog_id, Tracked(&perm))
+                                                 self.log_id, Tracked(&perm))
         }
 
         // The `read` method reads `len` bytes from log number
@@ -530,7 +524,7 @@ verus! {
         // allowed to read earlier than the head or past the committed
         // tail. See `main.rs` for more documentation and examples of
         // use.
-        pub exec fn read(&self, which_log: u32, pos: u128, len: u64) -> (result: Result<Vec<u8>, MultiLogErr>)
+        pub exec fn read(&self, which_log: u32, pos: u128, len: u64) -> (result: Result<Vec<u8>, LogErr>)
             requires
                 self.valid(),
                 pos + len <= u128::MAX,
@@ -548,15 +542,15 @@ verus! {
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
                                                              self.constants().impervious_to_corruption)
                         },
-                        Err(MultiLogErr::InvalidLogIndex { }) => {
+                        Err(LogErr::InvalidLogIndex { }) => {
                             which_log >= self@.num_logs()
                         },
-                        Err(MultiLogErr::CantReadBeforeHead{ head: head_pos }) => {
+                        Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                             &&& which_log < self@.num_logs()
                             &&& pos < head
                             &&& head_pos == head
                         },
-                        Err(MultiLogErr::CantReadPastTail{ tail }) => {
+                        Err(LogErr::CantReadPastTail{ tail }) => {
                             &&& which_log < self@.num_logs()
                             &&& pos + len > tail
                             &&& tail == head + log.len()
@@ -565,7 +559,7 @@ verus! {
                     }
                 })
         {
-            self.untrusted_log_impl.read(&self.wrpm_regions, which_log, pos, len, self.multilog_id)
+            self.untrusted_log_impl.read(&self.wrpm_regions, which_log, pos, len, self.log_id)
         }
 
         // The `get_head_tail_and_capacity` method returns three
@@ -575,7 +569,7 @@ verus! {
         // can be in the log past the head, including bytes in
         // tentative appends that haven't been committed yet. See
         // `main.rs` for more documentation and examples of use.
-        pub exec fn get_head_tail_and_capacity(&self, which_log: u32) -> (result: Result<(u128, u128, u64), MultiLogErr>)
+        pub exec fn get_head_tail_and_capacity(&self, which_log: u32) -> (result: Result<(u128, u128, u64), LogErr>)
             requires
                 self.valid()
             ensures
@@ -587,13 +581,13 @@ verus! {
                         &&& result_tail == inf_log.head + inf_log.log.len()
                         &&& result_capacity == inf_log.capacity
                     },
-                    Err(MultiLogErr::InvalidLogIndex{ }) => {
+                    Err(LogErr::InvalidLogIndex{ }) => {
                         which_log >= self@.num_logs()
                     },
                     _ => false
                 }
         {
-            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.multilog_id)
+            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.log_id)
         }
     }
 

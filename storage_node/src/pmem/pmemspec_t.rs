@@ -439,6 +439,8 @@ verus! {
 
         spec fn inv(&self) -> bool;
 
+        spec fn constants(&self) -> PersistentMemoryConstants;
+
         spec fn spec_device_id(&self) -> u128;
 
         fn device_id(&self) -> (result: u128)
@@ -481,11 +483,8 @@ verus! {
                 self.inv(),
                 addr + S::spec_serialized_len() <= self@.len()
             ensures
-            ({
-                let true_val = S::spec_deserialize(
-                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                output == true_val
-            })
+                output == S::spec_deserialize(
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len())),
         ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
@@ -495,11 +494,11 @@ verus! {
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == self@.write(addr as int, bytes@),
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.write(addr as int, bytes@),
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
                             r.timestamp == self@.timestamp
                 ;
-
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
@@ -508,10 +507,8 @@ verus! {
                 old(self).inv(),
                 addr + S::spec_serialized_len() <= old(self)@.len(),
             ensures
-                ({
-                    let written = old(self)@.write(addr as int, to_write.spec_serialize());
-                    &&& written == self@
-                })
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
         ;
 
 
@@ -520,6 +517,7 @@ verus! {
                 old(self).inv()
             ensures
                 self.inv(),
+                self.constants() == old(self).constants(),
                 self@ == old(self)@.flush(),
                 self@.device_id == old(self)@.device_id,
                 self@.timestamp.value() == old(self)@.timestamp.value() + 1,
@@ -533,6 +531,7 @@ verus! {
                 old(self)@.timestamp.device_id() == new_timestamp@.device_id(),
             ensures
                 self.inv(),
+                self.constants() == old(self).constants(),
                 self@ == old(self)@.update_region_with_timestamp(new_timestamp@);
     }
 

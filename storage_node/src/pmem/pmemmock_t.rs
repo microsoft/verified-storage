@@ -193,6 +193,11 @@ verus! {
             &&& self@.timestamp.device_id() == self.spec_device_id()
         }
 
+        closed spec fn constants(&self) -> PersistentMemoryConstants
+        {
+            PersistentMemoryConstants { impervious_to_corruption: true }
+        }
+
         closed spec fn spec_device_id(&self) -> u128
         {
             self.device_id

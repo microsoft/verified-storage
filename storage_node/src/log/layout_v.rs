@@ -1,25 +1,23 @@
 //! This file describes the persistent-memory layout used by the
-//! multilog implementation.
+//! log implementation.
 //!
 //! The code in this file is verified and untrusted (as indicated by
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 //!
-//! Each persistent-memory region used to store a log will have the following layout.
+//! The persistent-memory region used to store a log will have the following layout.
 //!
 //! Global metadata:   Metadata whose length is constant across all versions and
 //!                    the same for each region/log
-//! Region metadata:   Per-region metadata that does not change over the course
-//!                    of execution.
-//! Log metadata:      Per-log metadata that changes as the data changes, so it
+//! Region metadata:   Metadata that does not change over the course of
+//!                    execution.
+//! Log metadata:      Metadata that changes as the data changes, so it
 //!                    has two versions and a corruption-detecting boolean
 //!                    distinguishing which of those two versions is active
 //! Log area:          Area where log is written
 //!
-//! Only the first region's corruption-detecting boolean is used, and
-//! it dictates which of the two instances of log metadata is used on
-//! *all* regions. The corruption-detecting boolean on all other
-//! regions is ignored.
+//! The corruption-detecting boolean dictates which of the two instances of
+//! log metadata is used.
 //!
 //! Global metadata (absolute offsets):
 //!   bytes 0..8:     Version number of the program that created this metadata
