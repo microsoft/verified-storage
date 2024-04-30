@@ -535,6 +535,10 @@ verus! {
                     let region = #[trigger] result@[i];
                     region.device_id == result@[0].device_id
                 },
+                forall |i: int| 0 <= i < result@.len() ==> {
+                    let region = #[trigger] result@[i];
+                    region.len() == regions@[i]@.len()
+                },
                 result@.timestamp == regions[0]@.timestamp,
                 result.spec_device_id() == regions[0].spec_device_id()
         {
