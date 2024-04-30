@@ -11,6 +11,7 @@ pub mod pmem;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
+use crate::multilog::multilogspec_t::*;
 use crate::pmem::device_t::*;
 #[cfg(target_os = "linux")]
 use crate::pmem::linux_pmemfile_t::*;
@@ -208,7 +209,17 @@ verus! {
     }
 
     #[cfg(target_os = "windows")]
-    fn test_multilog_on_windows_memory_mapped_file() -> Option<()>
+    fn windows_create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
+        ensures
+            match multilog {
+                Some(multilog) => {
+                    &&& multilog@.num_logs() == 2
+                    &&& multilog@[0] == AbstractLogState::initialize(multilog@[0].capacity)
+                    &&& multilog@[1] == AbstractLogState::initialize(multilog@[1].capacity)
+                    &&& multilog.valid()
+                },
+                None => true,
+            }
     {
         // To test the multilog, we use files in the current directory that mock persistent-memory
         // regions. Here we use such regions, one of size 4096 and one of size 1024.
@@ -230,85 +241,19 @@ verus! {
         runtime_assert(capacities[1] <= 1024);
 
         // Start accessing the multilog.
-        let mut multilog = MultiLogImpl::start(pm_regions, multilog_id).ok()?;
-
-        // Tentatively append [30, 42, 100] to log #0 of the multilog.
-        let mut v: Vec<u8> = Vec::<u8>::new();
-        v.push(30); v.push(42); v.push(100);
-        let pos = multilog.tentatively_append(0, v.as_slice()).ok()?;
-        runtime_assert(pos == 0);
-
-        // Note that a tentative append doesn't actually advance the tail. That
-        // doesn't happen until the next commit.
-        let (head, tail, _capacity) = multilog.get_head_tail_and_capacity(0).ok()?;
-        runtime_assert(head == 0);
-        runtime_assert(tail == 0);
-
-        // Also tentatively append [30, 42, 100, 152] to log #1. This still doesn't
-        // commit anything to the log.
-        v.push(152);
-        let pos = multilog.tentatively_append(1, v.as_slice()).ok()?;
-        runtime_assert(pos == 0);
-
-        // Now commit the tentative appends. This causes log #0 to have tail 3
-        // and log #1 to have tail 4.
-        if multilog.commit().is_err() {
-            runtime_assert(false); // can't fail
-        }
-        match multilog.get_head_tail_and_capacity(0) {
-            Ok((head, tail, capacity)) => {
-                runtime_assert(head == 0);
-                runtime_assert(tail == 3);
-            },
-            _ => runtime_assert(false) // can't fail
-        }
-        match multilog.get_head_tail_and_capacity(1) {
-            Ok((head, tail, capacity)) => {
-                runtime_assert(head == 0);
-                runtime_assert(tail == 4);
-            },
-            _ => runtime_assert(false) // can't fail
-        }
-
-        // We read the 2 bytes starting at position 1 of log #0. We should
-        // read bytes [42, 100]. This is only guaranteed if the memory
-        // wasn't corrupted.
-        if let Ok(bytes) = multilog.read(0, 1, 2) {
-            runtime_assert(bytes.len() == 2);
-            assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 42);
-        }
-
-        // We now advance the head of log #0 to position 2. This causes the
-        // head to become 2 and the tail stays at 3.
-        match multilog.advance_head(0, 2) {
-            Ok(()) => runtime_assert(true),
-            _ => runtime_assert(false) // can't fail
-        }
-        match multilog.get_head_tail_and_capacity(0) {
-            Ok((head, tail, capacity)) => {
-                runtime_assert(head == 2);
-                runtime_assert(tail == 3);
-            },
-            _ => runtime_assert(false) // can't fail
-        }
-
-        // If we read from position 2 of log #0, we get the same thing we
-        // would have gotten before the advance-head operation.
-        if let Ok(bytes) = multilog.read(0, 2, 1) {
-            assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 100);
-        }
-
-        // But if we try to read from position 0 of log #0, we get an
-        // error because we're not allowed to read from before the head.
-        match multilog.read(0, 0, 1) {
-            Err(MultiLogErr::CantReadBeforeHead{head}) => runtime_assert(head == 2),
-            _ => runtime_assert(false) // can't succeed, and can't fail with any other error
-        }
-        Some(())
+        MultiLogImpl::start(pm_regions, multilog_id).ok()
     }
 
     #[cfg(target_os = "linux")]
-    fn test_multilog_on_linux_memory_mapped_file() -> Option<()>
+    fn linux_create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
+        ensures
+            match multilog {
+                Some(multilog) => {
+                    &&& multilog@.num_logs() == 2
+                    &&& multilog.valid()
+                },
+                None => true,
+            }
     {
         // To test the multilog, we use files in the current directory that mock persistent-memory
         // regions. Here we use such regions, one of size 4096 and one of size 1024.
@@ -342,6 +287,14 @@ verus! {
 
         // Start accessing the multilog.
         let mut multilog = MultiLogImpl::start(pm_regions, multilog_id).ok()?;
+    }
+
+    fn test_multilog_on_memory_mapped_file() -> Option<()>
+    {
+        #[cfg(target_os = "windows")]
+        let mut multilog = windows_create_multilog()?;
+        #[cfg(target_os = "linux")]
+        let mut multilog = linux_create_multilog()?;
 
         // Tentatively append [30, 42, 100] to log #0 of the multilog.
         let mut v: Vec<u8> = Vec::<u8>::new();
@@ -386,7 +339,7 @@ verus! {
         // wasn't corrupted.
         if let Ok(bytes) = multilog.read(0, 1, 2) {
             runtime_assert(bytes.len() == 2);
-            assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 42);
+            assert(multilog.constants().impervious_to_corruption ==> bytes[0] == 42);
         }
 
         // We now advance the head of log #0 to position 2. This causes the
@@ -406,7 +359,7 @@ verus! {
         // If we read from position 2 of log #0, we get the same thing we
         // would have gotten before the advance-head operation.
         if let Ok(bytes) = multilog.read(0, 2, 1) {
-            assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 100);
+            assert(multilog.constants().impervious_to_corruption ==> bytes[0] == 100);
         }
 
         // But if we try to read from position 0 of log #0, we get an
@@ -422,9 +375,6 @@ verus! {
     fn main()
     {
         test_multilog_with_timestamps();
-        #[cfg(target_os = "windows")]
-        test_multilog_on_windows_memory_mapped_file();
-        #[cfg(target_os = "linux")]
-        test_multilog_on_linux_memory_mapped_file();
+        test_multilog_on_memory_mapped_file();
     }
 }
