@@ -86,12 +86,14 @@ verus! {
 
     pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
 
+    pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
+
     // This executable method can be called to compute the CRC of a
     // sequence of bytes. It uses the `crc` crate.
     #[verifier::external_body]
     pub exec fn bytes_crc(bytes: &[u8]) -> (out: Vec<u8>)
         ensures
-            spec_crc_bytes(bytes@) == out@,
+            spec_u64_to_le_bytes(spec_crc_u64(bytes@)) == out@,
             out@.len() == CRC_SIZE
     {
         let mut digest = Digest::new();
@@ -111,16 +113,30 @@ verus! {
     /// `y_c` is the CRC of `x_c`, then we can conclude that `x` wasn't
     /// corrupted, i.e., that `x_c == x`.
 
+    // #[verifier(external_body)]
+    // pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+    //                                      y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+    //     requires
+    //         maybe_corrupted(x_c, x, x_addrs),
+    //         maybe_corrupted(y_c, y, y_addrs),
+    //         y == spec_crc_bytes(x),
+    //         y_c == spec_crc_bytes(x_c),
+    //         all_elements_unique(x_addrs),
+    //         all_elements_unique(y_addrs),
+    //     ensures
+    //         x == x_c
+    // {}
+
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+                                         y_c: u64, y: u64, y_addr: int)
         requires
             maybe_corrupted(x_c, x, x_addrs),
-            maybe_corrupted(y_c, y, y_addrs),
-            y == spec_crc_bytes(x),
-            y_c == spec_crc_bytes(x_c),
+            maybe_corrupted_serialized(y_c, y, y_addr),
+            y == spec_crc_u64(x),
+            y_c == spec_crc_u64(x_c),
             all_elements_unique(x_addrs),
-            all_elements_unique(y_addrs),
+            // all_elements_unique(y_addrs),
         ensures
             x == x_c
     {}

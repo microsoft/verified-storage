@@ -9,6 +9,7 @@
 //!
 
 use crate::pmem::crc_t::*;
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -88,8 +89,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u32_to_from_le_bytes();
@@ -128,6 +127,14 @@ verus! {
                         RELATIVE_POS_OF_PROGRAM_GUID + 16
                     ) == serialized_program_guid
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()
@@ -201,8 +208,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
@@ -229,6 +234,12 @@ verus! {
                         RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET + 8
                     ) == serialized_first_entry_offset
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()
@@ -288,8 +299,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
@@ -312,6 +321,13 @@ verus! {
                         RELATIVE_POS_OF_LIST_PROGRAM_GUID + 16
                     ) == serialized_guid
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()

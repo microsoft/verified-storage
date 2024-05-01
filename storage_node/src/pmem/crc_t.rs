@@ -9,30 +9,6 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
-    // Calculates the CRC for a single `Serializable` object.
-    #[verifier::external_body]
-    pub fn calculate_crc<S>(val: &S) -> (out: u64)
-        where
-            S: Serializable + Sized
-        ensures
-            val.spec_crc() == out,
-            spec_u64_from_le_bytes(spec_crc_bytes(val.spec_serialize())) == out,
-    {
-        let num_bytes: usize = S::serialized_len().try_into().unwrap();
-        let s_pointer = val as *const S;
-        let bytes_pointer = s_pointer as *const u8;
-        // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
-        // bytes because it was obtained by casting a regular Rust object reference
-        // to a raw pointer.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(bytes_pointer, num_bytes)
-        };
-
-        let mut digest = Digest::new();
-        digest.write(bytes);
-        digest.sum64()
-    }
-
     // Helper struct to hide the external crc64fast Digest type
     // from Verus while still keeping ghost state associated with it
     #[verifier::external_body]
@@ -96,17 +72,16 @@ verus! {
         // Compute and return the CRC for all bytes in the digest.
         #[verifier::external_body]
         pub fn sum64(&self) -> (output: u64)
+            requires
+                self.bytes_in_digest().len() != 0
             ensures
                 ({
                     let all_bytes_seq = self.bytes_in_digest().flatten();
-                    &&& output == spec_u64_from_le_bytes(spec_crc_bytes(all_bytes_seq))
-                    // &&& output == Self::spec_sum64(all_bytes_seq)
+                    output == spec_crc_u64(all_bytes_seq)
                 })
 
         {
             self.digest.digest.sum64()
         }
-
-        // pub closed spec fn spec_sum64(bytes: Seq<u8>) -> u64;
     }
 }

@@ -143,8 +143,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
@@ -167,6 +165,13 @@ verus! {
                         RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID + 16
                     ) == serialized_guid
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()
@@ -222,8 +227,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u32_to_from_le_bytes();
@@ -262,6 +265,14 @@ verus! {
                         RELATIVE_POS_OF_REGION_MULTILOG_ID + 16
                     ) == serialized_id
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u32_to_from_le_bytes();
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()
@@ -307,8 +318,6 @@ verus! {
             }
         }
 
-        closed spec fn spec_crc(self) -> u64;
-
         open spec fn spec_serialized_len() -> int
         {
             LENGTH_OF_LOG_METADATA as int
@@ -336,6 +345,13 @@ verus! {
                         RELATIVE_POS_OF_LOG_HEAD + 16
                     ) == serialized_head
             });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
 
         proof fn lemma_auto_serialized_len()

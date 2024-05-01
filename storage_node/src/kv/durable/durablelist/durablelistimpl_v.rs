@@ -209,7 +209,10 @@ verus! {
                         let entry_crc: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC);
                         let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA);
                         let key: &K = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY);
-
+                        let mut digest = CrcDigest::new();
+                        digest.write(entry);
+                        digest.write(key);
+                        let calc_entry_crc = digest.sum64();
                     },
                     None => return Err(KvError::CRCMismatch)
                 }
