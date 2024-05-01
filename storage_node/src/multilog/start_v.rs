@@ -146,7 +146,7 @@ verus! {
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        // Read the level-1 metadata and its CRC, and check that the
+        // Read the global metadata and its CRC, and check that the
         // CRC matches.
 
         let global_metadata = pm_regions.read_and_deserialize::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA);
@@ -163,7 +163,7 @@ verus! {
             return Err(MultiLogErr::CRCMismatch);
         }
 
-        // Check the level-1 metadata for validity. If it isn't valid,
+        // Check the global metadata for validity. If it isn't valid,
         // e.g., due to the program GUID not matching, then return an
         // error. Such invalidity can't happen if the persistent
         // memory is recoverable.
@@ -187,7 +187,7 @@ verus! {
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        // Read the level-2 metadata and its CRC, and check that the
+        // Read the region metadata and its CRC, and check that the
         // CRC matches.
 
         let region_metadata = pm_regions.read_and_deserialize::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA);
@@ -199,7 +199,7 @@ verus! {
             return Err(MultiLogErr::CRCMismatch);
         }
 
-        // Check the level-2 metadata for validity. If it isn't valid,
+        // Check the region metadata for validity. If it isn't valid,
         // e.g., due to the encoded region size not matching the
         // actual region size, then return an error. Such invalidity
         // can't happen if the persistent memory is recoverable.
@@ -245,8 +245,8 @@ verus! {
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
 
-        // Read the level-3 metadata and its CRC, and check that the
-        // CRC matches. The position where to find the level-3
+        // Read the log metadata and its CRC, and check that the
+        // CRC matches. The position where to find the log
         // metadata depend on the CDB.
 
         let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
@@ -260,7 +260,7 @@ verus! {
             return Err(MultiLogErr::CRCMismatch);
         }
 
-        // Check the level-3 metadata for validity. If it isn't valid,
+        // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area
         // length, then return an error. Such invalidity can't happen
         // if the persistent memory is recoverable.

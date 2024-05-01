@@ -17,9 +17,8 @@
 //! Log area:          Area where log is written
 //!
 //! Only the first region's corruption-detecting boolean is used, and
-//! it dictates which of the two instances of log metadata is used on
-//! *all* regions. The corruption-detecting boolean on all other
-//! regions is ignored.
+//! it dictates which log metadata is used on *all* regions. The
+//! corruption-detecting boolean on all other regions is ignored.
 //!
 //! Global metadata (absolute offsets):
 //!   bytes 0..8:     Version number of the program that created this metadata
@@ -361,7 +360,7 @@ verus! {
         bytes.subrange(pos, pos + len)
     }
 
-    // This function extracts the bytes encoding level-1 metadata from
+    // This function extracts the bytes encoding global metadata from
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
@@ -374,7 +373,7 @@ verus! {
         GlobalMetadata::spec_deserialize(bytes)
     }
 
-    // This function extracts the CRC of the level-1 metadata from the
+    // This function extracts the CRC of the global metadata from the
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
@@ -387,7 +386,7 @@ verus! {
         u64::spec_deserialize(bytes)
     }
 
-    // This function extracts the bytes encoding level-2 metadata
+    // This function extracts the bytes encoding region metadata
     // from the contents `mem` of a persistent memory region.
     pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
@@ -400,7 +399,7 @@ verus! {
         RegionMetadata::spec_deserialize(bytes)
     }
 
-    // This function extracts the CRC of the level-2 metadata from the
+    // This function extracts the CRC of the region metadata from the
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
@@ -413,7 +412,7 @@ verus! {
         u64::spec_deserialize(bytes)
     }
 
-    // This function extracts the bytes encoding the level-3
+    // This function extracts the bytes encoding the log metadata's
     // corruption-detecting boolean (i.e., CDB) from the contents
     // `mem` of a persistent memory region.
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
@@ -421,7 +420,7 @@ verus! {
         extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
     }
 
-    // This function extracts the level-3 corruption-detecting boolean
+    // This function extracts the log metadata's corruption-detecting boolean
     // (i.e., CDB) from the contents `mem` of a persistent memory
     // region. It returns an Option<bool> with the following meanings:
     //
@@ -461,7 +460,7 @@ verus! {
         }
     }
 
-    // This function computes where the level-3 metadata will be in a
+    // This function computes where the log metadata will be in a
     // persistent-memory region given the current boolean value `cdb`
     // of the corruption-detecting boolean.
     pub open spec fn get_log_metadata_pos(cdb: bool) -> u64
@@ -469,16 +468,16 @@ verus! {
         if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
     }
 
-    // This function computes where the level-3 metadata ends in a
+    // This function computes where the log metadata ends in a
     // persistent-memory region (i.e., the index of the byte just past
-    // the end of the level-3 metadata) given the current boolean
+    // the end of the log metadata) given the current boolean
     // value `cdb` of the corruption-detecting boolean.
     pub open spec fn get_log_crc_end(cdb: bool) -> u64
     {
         (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
     }
 
-    // This function extracts the bytes encoding level-3 metadata from
+    // This function extracts the bytes encoding log metadata from
     // the contents `mem` of a persistent memory region. It needs to
     // know the current boolean value `cdb` of the
     // corruption-detecting boolean because there are two possible
@@ -495,7 +494,7 @@ verus! {
         LogMetadata::spec_deserialize(bytes)
     }
 
-    // This function extracts the CRC of the level-3 metadata from the
+    // This function extracts the CRC of the log metadata from the
     // contents `mem` of a persistent memory region. It needs to know
     // the current boolean value `cdb` of the corruption-detecting
     // boolean because there are two possible places for that CRC.
@@ -533,7 +532,7 @@ verus! {
         spec_u128_from_le_bytes(extract_bytes(bytes, pos, 16))
     }
 
-    // This function returns the level-1 metadata encoded as the given
+    // This function returns the global metadata encoded as the given
     // bytes `bytes`.
     pub open spec fn parse_global_metadata(bytes: Seq<u8>) -> GlobalMetadata
     {
@@ -543,7 +542,7 @@ verus! {
         GlobalMetadata { program_guid, version_number, length_of_region_metadata }
     }
 
-    // This function returns the level-2 metadata encoded as the given
+    // This function returns the region metadata encoded as the given
     // bytes `bytes`.
     pub open spec fn parse_region_metadata(bytes: Seq<u8>) -> RegionMetadata
     {
@@ -555,7 +554,7 @@ verus! {
         RegionMetadata { region_size, multilog_id, _padding: 0, num_logs, which_log, log_area_len }
     }
 
-    // This function returns the level-3 metadata encoded as the given
+    // This function returns the log metadata encoded as the given
     // bytes `bytes`.
     pub open spec fn parse_log_metadata(bytes: Seq<u8>) -> LogMetadata
     {
@@ -704,13 +703,13 @@ verus! {
             let global_metadata = deserialize_global_metadata(mem);
             let global_crc = deserialize_global_crc(mem);
             if global_crc != global_metadata.spec_crc() {
-                // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
+                // To be valid, the global metadata CRC has to be a valid CRC of the global metadata
                 // encoded as bytes.
                 None
             }
             else {
                 if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
-                    // To be valid, the level-1 metadata has to refer to this program's GUID.
+                    // To be valid, the global metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
                 }
@@ -719,21 +718,21 @@ verus! {
                     // interpret it:
 
                     if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
-                        // To be valid, the level-1 metadata's encoding of the level-2 metadata's
+                        // To be valid, the global metadata's encoding of the region metadata's
                         // length has to be what we expect. (This version of the code doesn't
-                        // support any other length of level-2 metadata.)
+                        // support any other length of region metadata.)
                         None
                     }
                     else {
                         let region_metadata = deserialize_region_metadata(mem);
                         let region_crc = deserialize_region_crc(mem);
                         if region_crc != region_metadata.spec_crc() {
-                            // To be valid, the level-2 CRC has to be a valid CRC of the level-2
+                            // To be valid, the region metadata CRC has to be a valid CRC of the region
                             // metadata encoded as bytes.
                             None
                         }
                         else {
-                            // To be valid, the level-2 region size has to match the size of the
+                            // To be valid, the region metadata's region size has to match the size of the
                             // region given to us. Also, its metadata has to match what we expect
                             // from the list of regions given to us. Finally, there has to be
                             // sufficient room for the log area.
@@ -751,9 +750,9 @@ verus! {
                                 let log_metadata = deserialize_log_metadata(mem, cdb);
                                 let log_crc = deserialize_log_crc(mem, cdb);
                                 if log_crc != log_metadata.spec_crc() {
-                                    // To be valid, the level-3 CRC has to be a valid CRC of the
-                                    // level-3 metadata encoded as bytes. (This only applies to the
-                                    // "active" level-3 metadata, i.e., the level-3 metadata
+                                    // To be valid, the log metadata CRC has to be a valid CRC of the
+                                    // log metadata encoded as bytes. (This only applies to the
+                                    // "active" log metadata, i.e., the log metadata
                                     // corresponding to the current CDB.)
                                     None
                                 }
@@ -836,7 +835,7 @@ verus! {
     pub open spec fn recover_cdb(mem: Seq<u8>) -> Option<bool>
     {
         if mem.len() < ABSOLUTE_POS_OF_REGION_METADATA {
-            // If there isn't space in memory to store the level-1 metadata
+            // If there isn't space in memory to store the global metadata
             // and CRC, then this region clearly isn't a valid multilog
             // region #0.
             None
@@ -845,13 +844,13 @@ verus! {
             let global_metadata = deserialize_global_metadata(mem);
             let global_crc = deserialize_global_crc(mem);
             if global_crc != global_metadata.spec_crc() {
-                // To be valid, the level-1 CRC has to be a valid CRC of the level-1 metadata
+                // To be valid, the global metadata CRC has to be a valid CRC of the global metadata
                 // encoded as bytes.
                 None
             }
             else {
                 if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
-                    // To be valid, the level-1 metadata has to refer to this program's GUID.
+                    // To be valid, the global metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
                 }
@@ -865,7 +864,7 @@ verus! {
                         None
                     }
                     else {
-                        // Extract and parse the level-3 CDB
+                        // Extract and parse the log metadata CDB
                         deserialize_and_check_log_cdb(mem)
                     }
                 }

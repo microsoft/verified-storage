@@ -67,7 +67,7 @@ verus! {
     // This lemma establishes that if there are no outstanding writes
     // anywhere in a persistent memory region's view, then it can only
     // crash in one state, which is the same as its committed state.
-    proof fn lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
+    pub proof fn lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
         pm_region_view: PersistentMemoryRegionView
     )
         requires

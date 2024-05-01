@@ -507,6 +507,7 @@ verus! {
                 old(self).inv(),
                 addr + S::spec_serialized_len() <= old(self)@.len(),
             ensures
+                self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
         ;
@@ -665,7 +666,7 @@ verus! {
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
                 self@.timestamp == old(self)@.timestamp,
-            ;
+        ;
 
         fn flush(&mut self)
             requires
@@ -678,6 +679,6 @@ verus! {
                 self@.all_timestamps_match(), // TODO: maybe invariant?
                 self@.timestamp.device_id() == old(self)@.timestamp.device_id(),
                 self@.timestamp.value() == old(self)@.timestamp.value() + 1,
-            ;
+        ;
     }
 }

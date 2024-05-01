@@ -243,11 +243,15 @@ verus! {
                 return Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { });
             }
             let num_logs = num_regions as u32;
-            check_for_required_space(&region_sizes, num_logs)?;
+            if region_size < ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE {
+                return Err(MultiLogErr::InsufficientSpaceForSetup{
+                    required_space: ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
+                });
+            }
 
             // Compute log capacities so we can return them.
 
-            let log_capacities = compute_log_capacities(&region_sizes);
+            let log_capacity = region_size - ABSOLUTE_POS_OF_LOG_AREA;
 
             // Write setup metadata to all regions.
 

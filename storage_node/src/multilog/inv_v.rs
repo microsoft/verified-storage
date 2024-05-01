@@ -60,7 +60,7 @@ verus! {
 
     // This invariant says that there are no outstanding writes to the
     // activate metadata subregion of the persistent-memory region
-    // (i.e., everything but the log area and the level-3 metadata
+    // (i.e., everything but the log area and the log metadata
     // corresponding to `!cdb`). It also says that that metadata is
     // consistent with the log information in `info` and various other
     // in-memory variables given in parameters. The parameters to this
@@ -96,10 +96,10 @@ verus! {
         let log_metadata = deserialize_log_metadata(mem, cdb);
         let log_crc = deserialize_log_crc(mem, cdb);
 
-        // No outstanding writes to level-1 metadata, level-2 metadata, or the level-3 CDB
+        // No outstanding writes to global metadata, region metadata, or the log metadata CDB
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                                         ABSOLUTE_POS_OF_LOG_CDB as int)
-        // Also, no outstanding writes to the level-3 metadata corresponding to the active level-3 CDB
+        // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
         &&& pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
                                                         get_log_crc_end(cdb) as int)
 
@@ -460,8 +460,8 @@ verus! {
     }
 
     // This lemma establishes that, if one updates the inactive
-    // level-3 metadata in a region, this will maintain various
-    // invariants. The "inactive" level-3 metadata is the
+    // log metadata in a region, this will maintain various
+    // invariants. The "inactive" log metadata is the
     // metadata corresponding to the negation of the current
     // corruption-detecting boolean.
     //
@@ -472,7 +472,7 @@ verus! {
     // `infos` -- the log information
     // `state` -- the abstract multilog state
     // `which_log` -- region on which the inactive level-3 metadata will be overwritten
-    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
+    // `bytes_to_write` -- bytes to be written to the inactive log metadata area
     pub proof fn lemma_updating_inactive_metadata_maintains_invariants(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,
@@ -518,8 +518,8 @@ verus! {
     }
 
     // This lemma establishes that, if one updates the inactive
-    // level-3 metadata in a region, this will maintain various
-    // invariants. The "inactive" level-3 metadata is the
+    // log metadata in a region, this will maintain various
+    // invariants. The "inactive" log metadata is the
     // metadata corresponding to the negation of the current
     // corruption-detecting boolean.
     //
@@ -529,8 +529,8 @@ verus! {
     // `cdb` -- the current value of the corruption-detecting boolean
     // `infos` -- the log information
     // `state` -- the abstract multilog state
-    // `which_log` -- region on which the inactive level-3 metadata will be overwritten
-    // `bytes_to_write` -- bytes to be written to the inactive level-3 metadata area
+    // `which_log` -- region on which the inactive log metadata will be overwritten
+    // `bytes_to_write` -- bytes to be written to the inactive log metadata area
     pub proof fn lemma_updating_inactive_crc_maintains_invariants(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,

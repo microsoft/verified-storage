@@ -1,15 +1,14 @@
-//! This file contains lemmas about tentatively appending to a
-//! multilog.
+//! This file contains lemmas about tentatively appending to a log.
 //!
 //! The code in this file is verified and untrusted (as indicated by
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
-use crate::multilog::inv_v::*;
-use crate::multilog::layout_v::*;
-use crate::multilog::multilogimpl_v::LogInfo;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
-use crate::pmem::pmemspec_t::PersistentMemoryRegionsView;
+use crate::log::inv_v::*;
+use crate::log::layout_v::*;
+use crate::log::logimpl_v::LogInfo;
+use crate::log::logspec_t::AbstractMultiLogState;
+use crate::pmem::pmemspec_t::PersistentMemoryRegionView;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -28,38 +27,31 @@ verus! {
     //
     // Parameters:
     //
-    // `pm_regions_view` -- the view of the persistent memory regions
+    // `pm_region_view` -- the view of the persistent memory region
     // before the write
     //
-    // `multilog_id` -- the ID of the multilog stored on that memory
-    //
-    // `num_logs` -- the number of logs in the multilog
-    //
-    // `which_log` -- which log among the logs is being tentatively
-    // appended to
+    // `log_id` -- the ID of the log stored on that memory
     //
     // `bytes_to_append` -- what bytes are being tentatively appended
     //
     // `cdb` -- the current corruption-detecting boolean value
     //
-    // `prev_infos` -- the pre-append `infos` value
+    // `prev_info` -- the pre-append `info` value
     //
     // `prev_state` -- the pre-append abstract state
     pub proof fn lemma_tentatively_append(
-        pm_regions_view: PersistentMemoryRegionsView,
-        multilog_id: u128,
-        num_logs: u32,
-        which_log: u32,
+        pm_region_view: PersistentMemoryRegionView,
+        log_id: u128,
         bytes_to_append: Seq<u8>,
         cdb: bool,
-        prev_infos: Seq<LogInfo>,
-        prev_state: AbstractMultiLogState,
+        prev_info: LogInfo,
+        prev_state: AbstractLogState,
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            memory_matches_deserialized_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            memory_matches_deserialized_cdb(pm_region_view, cdb),
+            each_metadata_consistent_with_info(pm_region_view, log_id, num_logs, cdb, prev_infos),
+            each_info_consistent_with_log_area(pm_region_view, num_logs, prev_infos, prev_state),
             ({
                 let prev_info = prev_infos[which_log as int];
                 let log_area_len = prev_info.log_area_len;
@@ -90,19 +82,19 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
-                &&& each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, new_infos)
+                let pm_region_view2 = pm_region_view.write(which_log as int, write_addr, bytes_to_append);
+                &&& each_metadata_consistent_with_info(pm_region_view, log_id, num_logs, cdb, new_infos)
                 // The write doesn't conflict with any outstanding writes
-                &&& pm_regions_view.no_outstanding_writes_in_range(which_log as int, write_addr, write_addr + num_bytes)
-                &&& memory_matches_deserialized_cdb(pm_regions_view2, cdb)
-                &&& each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, new_infos)
-                &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, new_infos, new_state)
+                &&& pm_region_view.no_outstanding_writes_in_range(which_log as int, write_addr, write_addr + num_bytes)
+                &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
+                &&& each_metadata_consistent_with_info(pm_region_view2, log_id, num_logs, cdb, new_infos)
+                &&& each_info_consistent_with_log_area(pm_region_view2, num_logs, new_infos, new_state)
                 &&& new_state.drop_pending_appends() == prev_state.drop_pending_appends()
                 // After initiating the write, any crash and recovery will enter the abstract state
                 // `new_state.drop_pending_appends()`, so as long as that state is permitted the
                 // write will be.
-                &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
-                      recover_all(mem, multilog_id) == Some(new_state.drop_pending_appends())
+                &&& forall |mem| pm_region_view2.can_crash_as(mem) ==>
+                      recover_all(mem, log_id) == Some(new_state.drop_pending_appends())
             }),
     {
         let w = which_log as int;
@@ -117,7 +109,7 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
+        let pm_region_view2 = pm_region_view.write(which_log as int, write_addr, bytes_to_append);
         let new_state = prev_state.tentatively_append(w, bytes_to_append);
 
         // To prove that the post-write metadata is consistent with
@@ -127,10 +119,10 @@ verus! {
 
         assert forall |any_log: u32| #[trigger] is_valid_log_index(any_log, num_logs) implies {
             let a = any_log as int;
-            metadata_consistent_with_info(pm_regions_view2[a], multilog_id, num_logs, any_log, cdb, new_infos[a])
+            metadata_consistent_with_info(pm_region_view2[a], log_id, num_logs, any_log, cdb, new_infos[a])
         } by {
             let a = any_log as int;
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
+            lemma_establish_extract_bytes_equivalence(pm_region_view[a].committed(), pm_region_view2[a].committed());
         }
 
         // To prove that the post-write CDB is the same as the
@@ -138,9 +130,9 @@ verus! {
         // extracted byte sequences that match between the old and new
         // region #0, where the CDB is stored.
 
-        assert (memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
+        assert (memory_matches_deserialized_cdb(pm_region_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs));
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
+            lemma_establish_extract_bytes_equivalence(pm_region_view[0].committed(), pm_region_view2[0].committed());
         }
 
         // We need extensional equality to reason that the old and new
@@ -152,7 +144,7 @@ verus! {
         // are OK, we just have to invoke the following lemma, which
         // requires that our invariants hold.
 
-        lemma_invariants_imply_crash_recover_forall(pm_regions_view2, multilog_id, num_logs, cdb, new_infos, new_state);
+        lemma_invariants_imply_crash_recover_forall(pm_region_view2, log_id, num_logs, cdb, new_infos, new_state);
 
         // To prove that there are no outstanding writes in the range
         // where we plan to write, we need to reason about how
@@ -162,7 +154,7 @@ verus! {
         // about addresses in the log area (that there are no
         // outstanding writes to certain of them).
 
-        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_regions_view[w], prev_info);
+        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view[w], prev_info);
     }
 
     // This lemma establishes useful facts about performing two
@@ -177,12 +169,12 @@ verus! {
     //
     // Parameters:
     //
-    // `pm_regions_view` -- the view of the persistent memory regions
+    // `pm_region_view` -- the view of the persistent memory regions
     // before the write
     //
-    // `multilog_id` -- the ID of the multilog stored on that memory
+    // `log_id` -- the ID of the log stored on that memory
     //
-    // `num_logs` -- the number of logs in the multilog
+    // `num_logs` -- the number of logs in the log
     //
     // `which_log` -- which log among the logs is being tentatively
     // appended to
@@ -195,20 +187,20 @@ verus! {
     //
     // `prev_state` -- the pre-append abstract state
     pub proof fn lemma_tentatively_append_wrapping(
-        pm_regions_view: PersistentMemoryRegionsView,
-        multilog_id: u128,
+        pm_region_view: PersistentMemoryRegionView,
+        log_id: u128,
         num_logs: u32,
         which_log: u32,
         bytes_to_append: Seq<u8>,
         cdb: bool,
         prev_infos: Seq<LogInfo>,
-        prev_state: AbstractMultiLogState,
+        prev_state: AbstractLogState,
     )
         requires
             is_valid_log_index(which_log, num_logs),
-            memory_matches_deserialized_cdb(pm_regions_view, cdb),
-            each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
-            each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            memory_matches_deserialized_cdb(pm_region_view, cdb),
+            each_metadata_consistent_with_info(pm_region_view, log_id, num_logs, cdb, prev_infos),
+            each_info_consistent_with_log_area(pm_region_view, num_logs, prev_infos, prev_state),
             ({
                 let w = which_log as int;
                 let prev_info = prev_infos[w];
@@ -241,31 +233,31 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
-                let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
-                &&& each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, new_infos)
+                let pm_region_view2 = pm_region_view.write(w, write_addr, bytes_to_append_part1);
+                let pm_region_view3 = pm_region_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
+                &&& each_metadata_consistent_with_info(pm_region_view, log_id, num_logs, cdb, new_infos)
                 // The first write doesn't conflict with any outstanding writes
-                &&& pm_regions_view.no_outstanding_writes_in_range(w, write_addr,
+                &&& pm_region_view.no_outstanding_writes_in_range(w, write_addr,
                                                                  write_addr + bytes_to_append_part1.len())
                 // The second write also doesn't conflict with any outstanding writes
-                &&& pm_regions_view2.no_outstanding_writes_in_range(
+                &&& pm_region_view2.no_outstanding_writes_in_range(
                        w,
                        ABSOLUTE_POS_OF_LOG_AREA as int,
                        ABSOLUTE_POS_OF_LOG_AREA + bytes_to_append_part2.len())
-                &&& each_metadata_consistent_with_info(pm_regions_view3, multilog_id, num_logs, cdb, new_infos)
-                &&& each_info_consistent_with_log_area(pm_regions_view3, num_logs, new_infos, new_state)
-                &&& memory_matches_deserialized_cdb(pm_regions_view3, cdb)
+                &&& each_metadata_consistent_with_info(pm_region_view3, log_id, num_logs, cdb, new_infos)
+                &&& each_info_consistent_with_log_area(pm_region_view3, num_logs, new_infos, new_state)
+                &&& memory_matches_deserialized_cdb(pm_region_view3, cdb)
                 &&& new_state.drop_pending_appends() == prev_state.drop_pending_appends()
                 // After initiating the first write, any crash and recovery will enter the abstract
                 // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
                 // the write will be.
-                &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
-                       recover_all(mem, multilog_id) == Some(prev_state.drop_pending_appends())
+                &&& forall |mem| pm_region_view2.can_crash_as(mem) ==>
+                       recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
                 // After initiating the second write, any crash and recovery will enter the abstract
                 // state `prev_state.drop_pending_appends()`, so as long as that state is permitted
                 // the write will be.
-                &&& forall |mem| pm_regions_view3.can_crash_as(mem) ==>
-                       recover_all(mem, multilog_id) == Some(prev_state.drop_pending_appends())
+                &&& forall |mem| pm_region_view3.can_crash_as(mem) ==>
+                       recover_all(mem, log_id) == Some(prev_state.drop_pending_appends())
             }),
     {
         let w = which_log as int;
@@ -291,14 +283,14 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_regions_view2 = pm_regions_view.write(w, write_addr, bytes_to_append_part1);
-        let pm_regions_view3 = pm_regions_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
+        let pm_region_view2 = pm_region_view.write(w, write_addr, bytes_to_append_part1);
+        let pm_region_view3 = pm_region_view2.write(w, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append_part2);
 
         // Invoke `lemma_tentatively_append` on each write.
 
-        lemma_tentatively_append(pm_regions_view, multilog_id, num_logs, which_log, bytes_to_append_part1, cdb,
+        lemma_tentatively_append(pm_region_view, log_id, num_logs, which_log, bytes_to_append_part1, cdb,
                                  prev_infos, prev_state);
-        lemma_tentatively_append(pm_regions_view2, multilog_id, num_logs, which_log, bytes_to_append_part2, cdb,
+        lemma_tentatively_append(pm_region_view2, log_id, num_logs, which_log, bytes_to_append_part2, cdb,
                                  intermediate_infos, intermediate_state);
 
         // Use extensional equality to prove the equivalence of the

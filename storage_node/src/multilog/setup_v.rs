@@ -181,17 +181,18 @@ verus! {
             pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
 
-        // Initialize level 1 metadata and compute its CRC
+        // Initialize global metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
-        // TODO: why do we write this out for each log?
+        // We write this out for each log so that if, upon restore, our caller accidentally
+        // sends us the wrong regions, we can detect it.
         let global_metadata = GlobalMetadata {
             program_guid: MULTILOG_PROGRAM_GUID,
             version_number: MULTILOG_PROGRAM_VERSION_NUMBER,
-            length_of_region_metadata: LENGTH_OF_REGION_METADATA
+            length_of_region_metadata: LENGTH_OF_REGION_METADATA,
         };
         let global_crc = calculate_crc(&global_metadata);
 
-        // Initialize level 2 metadata and compute its CRC
+        // Initialize region metadata and compute its CRC
         let region_metadata = RegionMetadata {
             region_size,
             multilog_id,
@@ -205,7 +206,7 @@ verus! {
         // Obtain the initial CDB value
         let cdb = CDB_FALSE;
 
-        // Initialize level 3 metadata and compute its CRC
+        // Initialize log metadata and compute its CRC
         let log_metadata = LogMetadata {
             head: 0,
             _padding: 0,
@@ -323,7 +324,7 @@ verus! {
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
             pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 1,
-            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
+            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id(),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
