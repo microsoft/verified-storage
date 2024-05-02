@@ -198,14 +198,6 @@ so do not have to be read to have confidence in the correctness of the code.
   clients of this library
 * `multilogimpl_v.rs` implements `UntrustedMultiLogImpl`, verified for
   correctness and invoked by `MultiLogImpl` methods
-<!-- * `pmemspec_t.rs` specifies how persistent memory is assumed to behave, including
-  both normal operation and exceptional cases like crashes and bit corruption
-* `pmemfile_t.rs` implements `FileBackedPersistentMemoryRegions`, which
-  lets one use a directory in a persistent-memory file system as multilog storage
-* `pmemmock_t.rs` mocks persistent memory using volatile memory, in a way only
-  intended for use in testing -->
-* `pmemutil_v.rs` provides utility functions and proofs about persistent
-  memory
 * `inv_v.rs` provides invariants of the multilog code and proofs about those
   invariants
 * `layout_v.rs` provides constants, functions, and proofs about how the
@@ -222,10 +214,23 @@ so do not have to be read to have confidence in the correctness of the code.
 Here's an example of a program that uses a `MultiLogImpl`:
 
 ```
-// This function illustrates functionality of the multilog.
-#[allow(unused_variables)]
-#[allow(dead_code)]
-pub fn test_multilog() -> Option<()> {
+#[cfg(target_os = "windows")]
+fn create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
+    ensures
+        match multilog {
+            Some(multilog) => {
+                &&& multilog@.num_logs() == 2
+                &&& multilog@[0] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                    multilog@[0].capacity
+                )
+                &&& multilog@[1] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                    multilog@[1].capacity
+                )
+                &&& multilog.valid()
+            },
+            None => true,
+        }
+{
     // To test the multilog, we use files in the current directory that mock persistent-memory
     // regions. Here we use such regions, one of size 4096 and one of size 1024.
     let mut region_sizes: Vec<u64> = Vec::<u64>::new();
@@ -233,13 +238,10 @@ pub fn test_multilog() -> Option<()> {
     region_sizes.push(1024);
 
     // Create the multipersistent memory out of the two regions.
-    let dir_name = vstd::string::new_strlit(".");
-    let mut pm_regions = FileBackedPersistentMemoryRegions::new(
-        &dir_name,
-        MemoryMappedFileMediaType::SSD,
-        region_sizes.as_slice(),
-        FileCloseBehavior::TestingSoDeleteOnClose,
-    ).ok()?;
+    let file_name = vstd::string::new_strlit("test_multilog");
+    let mut pm_regions = FileBackedPersistentMemoryRegions::new(&file_name, MemoryMappedFileMediaType::SSD,
+                                                                region_sizes.as_slice(),
+                                                                FileCloseBehavior::TestingSoDeleteOnClose).ok()?;
 
     // Set up the memory regions to contain a multilog. The capacities will be less
     // than 4096 and 1024 because a few bytes are needed in each region for metadata.
@@ -249,7 +251,63 @@ pub fn test_multilog() -> Option<()> {
     runtime_assert(capacities[1] <= 1024);
 
     // Start accessing the multilog.
-    let mut multilog = MultiLogImpl::start(pm_regions, multilog_id).ok()?;
+    MultiLogImpl::start(pm_regions, multilog_id).ok()
+}
+
+#[cfg(target_os = "linux")]
+fn create_multilog() -> (multilog: Option<MultiLogImpl<MappedPmRegions>>)
+    ensures
+        match multilog {
+            Some(multilog) => {
+                &&& multilog@.num_logs() == 2
+                &&& multilog@[0] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                    multilog@[0].capacity
+                )
+                &&& multilog@[1] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                    multilog@[1].capacity
+                )
+                &&& multilog.valid()
+            },
+            None => true,
+        }
+{
+    // To test the multilog, we use files in the current directory that mock persistent-memory
+    // regions. Here we use such regions, one of size 4096 and one of size 1024.
+    let mut region_sizes: Vec<u64> = Vec::<u64>::new();
+    region_sizes.push(4096);
+    region_sizes.push(1024);
+
+    // Create the multipersistent memory out of the two regions.
+    let file_name = vstd::string::new_strlit("test_multilog");
+    let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
+        file_name,
+        (region_sizes[0] + region_sizes[1]) as usize,
+    ).ok()?;
+    let mut regions = Vec::<MappedPM>::new();
+    let region_desc0 = pm_dev.get_new_region(region_sizes[0]).ok()?;
+    let region0 = MappedPM::new(region_desc0).ok()?;
+    regions.push(region0);
+    let region_desc1 = pm_dev.get_new_region(region_sizes[1]).ok()?;
+    let region1 = MappedPM::new(region_desc1).ok()?;
+    regions.push(region1);
+    let mut pm_regions = crate::pmem::linux_pmemfile_t::MappedPmRegions::combine_regions(regions);
+    assert(pm_regions@[0].len() == 4096);
+    assert(pm_regions@[1].len() == 1024);
+
+    // Set up the memory regions to contain a multilog. The capacities will be less
+    // than 4096 and 1024 because a few bytes are needed in each region for metadata.
+    let (capacities, multilog_id) = MultiLogImpl::setup(&mut pm_regions).ok()?;
+    runtime_assert(capacities.len() == 2);
+    runtime_assert(capacities[0] <= 4096);
+    runtime_assert(capacities[1] <= 1024);
+
+    // Start accessing the multilog.
+    MultiLogImpl::start(pm_regions, multilog_id).ok()
+}
+
+fn test_multilog_on_memory_mapped_file() -> Option<()>
+{
+    let mut multilog = create_multilog()?;
 
     // Tentatively append [30, 42, 100] to log #0 of the multilog.
     let mut v: Vec<u8> = Vec::<u8>::new();
@@ -294,7 +352,7 @@ pub fn test_multilog() -> Option<()> {
     // wasn't corrupted.
     if let Ok(bytes) = multilog.read(0, 1, 2) {
         runtime_assert(bytes.len() == 2);
-        assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 42);
+        assert(multilog.constants().impervious_to_corruption ==> bytes[0] == 42);
     }
 
     // We now advance the head of log #0 to position 2. This causes the
@@ -314,7 +372,7 @@ pub fn test_multilog() -> Option<()> {
     // If we read from position 2 of log #0, we get the same thing we
     // would have gotten before the advance-head operation.
     if let Ok(bytes) = multilog.read(0, 2, 1) {
-        assert(pm_regions.constants().impervious_to_corruption ==> bytes[0] == 100);
+        assert(multilog.constants().impervious_to_corruption ==> bytes[0] == 100);
     }
 
     // But if we try to read from position 0 of log #0, we get an

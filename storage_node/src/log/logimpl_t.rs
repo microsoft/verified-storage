@@ -262,7 +262,7 @@ verus! {
         // The `setup` method sets up persistent memory regions
         // `pm_region` to store an initial empty log. It returns a
         // vector listing the capacity of the log as well as a
-        // fresh log ID to uniquely identify it. See `main.rs`
+        // fresh log ID to uniquely identify it. See `README.md`
         // for more documentation.
         pub exec fn setup(pm_region: &mut PMRegion) -> (result: Result<(u64, u128), LogErr>)
             requires
@@ -297,7 +297,7 @@ verus! {
         // The `start` method creates an `UntrustedLogImpl` out of a
         // persistent memory region. It's assumed that the region was
         // initialized with `setup` and then only log operations were
-        // allowed to mutate them. See `main.rs` for more
+        // allowed to mutate them. See `README.md` for more
         // documentation and an example of use.
         pub exec fn start(pm_region: PMRegion, log_id: u128) -> (result: Result<LogImpl<PMRegion>, LogErr>)
             requires
@@ -339,7 +339,7 @@ verus! {
         // The `tentatively_append` method tentatively appends
         // `bytes_to_append` to the end of the log. It's tentative in
         // that crashes will undo the appends, and reads aren't
-        // allowed in the tentative part of the log. See `main.rs` for
+        // allowed in the tentative part of the log. See `README.md` for
         // more documentation and examples of use.
         pub exec fn tentatively_append(&mut self, bytes_to_append: &[u8]) -> (result: Result<u128, LogErr>)
             requires
@@ -379,7 +379,7 @@ verus! {
         // appends that have been done to `self` since the last
         // commit. The commit is atomic in that even if there's a
         // crash in the middle, the recovered-to state either reflects
-        // all those tentative appends or none of them. See `main.rs`
+        // all those tentative appends or none of them. See `README.md`
         // for more documentation and examples of use.
         pub exec fn commit(&mut self) -> (result: Result<(), LogErr>)
             requires
@@ -408,7 +408,7 @@ verus! {
         // tentatively; it completes it durably before returning.
         // However, `advance_head` doesn't commit tentative appends;
         // to do that, you need a separate call to `commit`. See
-        // `main.rs` for more documentation and examples of use.
+        // `README.md` for more documentation and examples of use.
         pub exec fn advance_head(&mut self, new_head: u128) -> (result: Result<(), LogErr>)
             requires
                 old(self).valid(),
@@ -450,7 +450,7 @@ verus! {
 
         // The `read` method reads `len` bytes from the log starting
         // at virtual position `pos`. It isn't allowed to read earlier
-        // than the head or past the committed tail. See `main.rs` for
+        // than the head or past the committed tail. See `README.md` for
         // more documentation and examples of use.
         pub exec fn read(&self, pos: u128, len: u64) -> (result: Result<Vec<u8>, LogErr>)
             requires
@@ -489,7 +489,7 @@ verus! {
         // position, the virtual tail position, and the capacity. The
         // capacity is the maximum number of bytes there can be in the
         // log past the head, including bytes in tentative appends
-        // that haven't been committed yet. See `main.rs` for more
+        // that haven't been committed yet. See `README.md` for more
         // documentation and examples of use.
         pub exec fn get_head_tail_and_capacity(&self) -> (result: Result<(u128, u128, u64), LogErr>)
             requires

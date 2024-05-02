@@ -289,6 +289,23 @@ verus! {
         }
     }
 
+    impl VolatileMemoryMockingPersistentMemoryRegion
+    {
+        fn new_mock_only_for_use_in_testing(region_size: u64) -> (result: Result<Self, PmemError>)
+            requires
+                region_size > 0,
+            ensures
+                match result {
+                    Ok(region) => region.inv() && region@.len() == region_size,
+                    Err(_) => true,
+                }
+        {
+            let mut dev = VolatileMemoryMockingPersistentMemoryDevice::new(region_size);
+            let region_desc = dev.get_new_region(region_size)?;
+            Self::new(region_desc)
+        }
+    }
+
     // The `VolatileMemoryMockingPersistentMemoryRegions` struct
     // contains a vector of volatile memory regions.
     pub struct VolatileMemoryMockingPersistentMemoryRegions

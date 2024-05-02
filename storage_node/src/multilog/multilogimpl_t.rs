@@ -285,7 +285,7 @@ verus! {
         // The `setup` method sets up persistent memory regions `pm_regions`
         // to store an initial empty multilog. It returns a vector
         // listing the capacities of the logs as well as a fresh
-        // multilog ID to uniquely identify it. See `main.rs` for more
+        // multilog ID to uniquely identify it. See `README.md` for more
         // documentation.
         pub exec fn setup(pm_regions: &mut PMRegions) -> (result: Result<(Vec<u64>, u128), MultiLogErr>)
             requires
@@ -340,7 +340,7 @@ verus! {
         // of a set of persistent memory regions. It's assumed that
         // those regions were initialized with `setup` and then only
         // multilog operations were allowed to mutate them. See
-        // `main.rs` for more documentation and an example of use.
+        // `README.md` for more documentation and an example of use.
         pub exec fn start(pm_regions: PMRegions, multilog_id: u128)
                           -> (result: Result<MultiLogImpl<PMRegions>, MultiLogErr>)
             requires
@@ -385,7 +385,7 @@ verus! {
         // `bytes_to_append` to the end of log number `which_log` in
         // the multilog. It's tentative in that crashes will undo the
         // appends, and reads aren't allowed in the tentative part of
-        // the log. See `main.rs` for more documentation and examples
+        // the log. See `README.md` for more documentation and examples
         // of use.
         pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8])
                                        -> (result: Result<u128, MultiLogErr>)
@@ -434,7 +434,7 @@ verus! {
         // appends that have been done to `self` since the last
         // commit. The commit is atomic in that even if there's a
         // crash in the middle, the recovered-to state either reflects
-        // all those tentative appends or none of them. See `main.rs`
+        // all those tentative appends or none of them. See `README.md`
         // for more documentation and examples of use.
         pub exec fn commit(&mut self) -> (result: Result<(), MultiLogErr>)
             requires
@@ -467,7 +467,7 @@ verus! {
         // doesn't do this tentatively; it completes it durably before
         // returning. However, `advance_head` doesn't commit tentative
         // appends; to do that, you need a separate call to
-        // `commit`. See `main.rs` for more documentation and examples
+        // `commit`. See `README.md` for more documentation and examples
         // of use.
         pub exec fn advance_head(&mut self, which_log: u32, new_head: u128) -> (result: Result<(), MultiLogErr>)
             requires
@@ -520,7 +520,7 @@ verus! {
         // The `read` method reads `len` bytes from log number
         // `which_log` starting at virtual position `pos`. It isn't
         // allowed to read earlier than the head or past the committed
-        // tail. See `main.rs` for more documentation and examples of
+        // tail. See `README.md` for more documentation and examples of
         // use.
         pub exec fn read(&self, which_log: u32, pos: u128, len: u64) -> (result: Result<Vec<u8>, MultiLogErr>)
             requires
@@ -566,7 +566,7 @@ verus! {
         // capacity. The capacity is the maximum number of bytes there
         // can be in the log past the head, including bytes in
         // tentative appends that haven't been committed yet. See
-        // `main.rs` for more documentation and examples of use.
+        // `README.md` for more documentation and examples of use.
         pub exec fn get_head_tail_and_capacity(&self, which_log: u32) -> (result: Result<(u128, u128, u64), MultiLogErr>)
             requires
                 self.valid()
