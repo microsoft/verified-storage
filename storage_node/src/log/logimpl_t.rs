@@ -43,7 +43,7 @@ use crate::log::logimpl_v::UntrustedLogImpl;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::timestamp_t::*;
-use crate::pmem::wrpm_v::*;
+use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;

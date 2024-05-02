@@ -16,7 +16,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
-use crate::pmem::wrpm_v::*;
+use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;

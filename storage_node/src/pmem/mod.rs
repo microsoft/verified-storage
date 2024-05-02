@@ -8,4 +8,4 @@ pub mod pmemspec_t;
 pub mod pmemutil_v;
 pub mod serialization_t;
 pub mod timestamp_t;
-pub mod wrpm_v;
+pub mod wrpm_t;
