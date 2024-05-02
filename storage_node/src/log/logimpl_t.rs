@@ -203,12 +203,10 @@ verus! {
         wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>
     }
 
-    impl<PMRegions: PersistentMemoryRegions> TimestampedModule for LogImpl<PMRegions> {
-        type RegionsView = PersistentMemoryRegionsView;
-
+    impl<PMRegion: PersistentMemoryRegion> TimestampedModule for LogImpl<PMRegion> {
         closed spec fn get_timestamp(&self) -> PmTimestamp
         {
-            self.wrpm_regions@.timestamp
+            self.wrpm_region@.timestamp
         }
 
         open spec fn inv(self) -> bool {
@@ -217,12 +215,12 @@ verus! {
 
         fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
             proof { self.lemma_valid_implies_wrpm_inv(); }
-            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.log_id, new_timestamp);
+            self.untrusted_log_impl.update_timestamp(&mut self.wrpm_region, self.log_id, new_timestamp);
             proof { self.lemma_untrusted_log_inv_implies_valid(); }
         }
     }
 
-    impl <PMRegions: PersistentMemoryRegions> LogImpl<PMRegions> {
+    impl <PMRegion: PersistentMemoryRegion> LogImpl<PMRegion> {
         // The view of a `LogImpl` is whatever the
         // `UntrustedLogImpl` it wraps says it is.
         pub closed spec fn view(self) -> AbstractLogState
@@ -233,12 +231,12 @@ verus! {
         // The constants of a `LogImpl` are whatever the
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
-            self.wrpm_regions.constants()
+            self.wrpm_region.constants()
         }
 
         pub closed spec fn device_id(&self) -> u128
         {
-            self.wrpm_regions@.device_id()
+            self.wrpm_region@.device_id
         }
 
         // This is the validity condition that is maintained between
@@ -256,109 +254,86 @@ verus! {
         // if it crashes and recovers, must represent the current
         // abstract state with pending tentative appends dropped.
         pub closed spec fn valid(self) -> bool {
-            &&& self.untrusted_log_impl.inv(&self.wrpm_regions, self.log_id@)
-            &&& can_only_crash_as_state(self.wrpm_regions@, self.log_id@, self@.drop_pending_appends())
+            &&& self.untrusted_log_impl.inv(&self.wrpm_region, self.log_id@)
+            &&& can_only_crash_as_state(self.wrpm_region@, self.log_id@, self@.drop_pending_appends())
         }
 
         proof fn lemma_valid_implies_wrpm_inv(self)
             requires
                 self.valid()
             ensures
-                self.wrpm_regions.inv()
+                self.wrpm_region.inv()
         {
-            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.log_id@);
+            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_region, self.log_id@);
         }
 
         proof fn lemma_untrusted_log_inv_implies_valid(self)
             requires
-                self.untrusted_log_impl.inv(&self.wrpm_regions, self.log_id@)
+                self.untrusted_log_impl.inv(&self.wrpm_region, self.log_id@)
             ensures
                 self.valid()
         {
-            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.log_id@);
+            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_region, self.log_id@);
         }
 
         // The `setup` method sets up persistent memory regions
-        // `pm_regions` to store an initial empty log. It returns a
+        // `pm_region` to store an initial empty log. It returns a
         // vector listing the capacity of the log as well as a
         // fresh log ID to uniquely identify it. See `main.rs`
         // for more documentation.
-        pub exec fn setup(pm_regions: &mut PMRegions) -> (result: Result<u64, u128), LogErr>)
+        pub exec fn setup(pm_region: &mut PMRegion) -> (result: Result<(u64, u128), LogErr>)
             requires
-                old(pm_regions).inv(),
+                old(pm_region).inv(),
             ensures
-                pm_regions.inv(),
-                pm_regions@.no_outstanding_writes(),
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
                 match result {
-                    Ok((log_capacities, log_id)) => {
-                        let state = AbstractLogState::initialize(log_capacities@);
-                        &&& pm_regions@.len() == old(pm_regions)@.len()
-                        &&& pm_regions@.len() >= 1
-                        &&& pm_regions@.len() <= u32::MAX
-                        &&& log_capacities@.len() == pm_regions@.len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
-                               #[trigger] log_capacities@[i] <= pm_regions@[i].len()
-                        &&& forall |i: int| 0 <= i < pm_regions@.len() ==>
-                               #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len()
-                        &&& can_only_crash_as_state(pm_regions@, log_id, state)
-                        &&& UntrustedLogImpl::recover(pm_regions@.committed(), log_id) == Some(state)
+                    Ok((log_capacity, log_id)) => {
+                        let state = AbstractLogState::initialize(log_capacity as int);
+                        &&& log_capacity <= pm_region@.len()
+                        &&& pm_region@.len() == old(pm_region)@.len()
+                        &&& can_only_crash_as_state(pm_region@, log_id, state)
+                        &&& UntrustedLogImpl::recover(pm_region@.committed(), log_id) == Some(state)
                         // Required by the `start` function's precondition. Putting this in the
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
-                        &&& UntrustedLogImpl::recover(pm_regions@.flush().committed(), log_id) == Some(state)
+                        &&& UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 2
-                        &&& pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
+                        &&& pm_region@.timestamp.value() == old(pm_region)@.timestamp.value() + 2
+                        &&& pm_region@.timestamp.device_id() == old(pm_region)@.timestamp.device_id()
                     },
-                    Err(LogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
-                        let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@[which_log as int].len() < required_space
-                    },
-                    Err(LogErr::CantSetupWithFewerThanOneRegion { }) => {
-                        let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() < 1
-                    },
-                    Err(LogErr::CantSetupWithMoreThanU32MaxRegions { }) => {
-                        let flushed_regions = old(pm_regions)@.flush();
-                        &&& pm_regions@ == flushed_regions
-                        &&& pm_regions@.len() > u32::MAX
+                    Err(LogErr::InsufficientSpaceForSetup { required_space }) => {
+                        &&& pm_region@ == old(pm_region)@.flush()
+                        &&& pm_region@.len() < required_space
                     },
                     _ => false
                 }
         {
             let log_id = generate_fresh_log_id();
-            let capacities = UntrustedLogImpl::setup(pm_regions, log_id)?;
+            let capacities = UntrustedLogImpl::setup(pm_region, log_id)?;
             Ok((capacities, log_id))
         }
 
         // The `start` method creates an `UntrustedLogImpl` out of a
-        // set of persistent memory regions. It's assumed that those
-        // regions were initialized with `setup` and then only log
-        // operations were allowed to mutate them. See `main.rs` for
-        // more documentation and an example of use.
-        pub exec fn start(pm_regions: PMRegions, log_id: u128)
-                          -> (result: Result<LogImpl<PMRegions>, LogErr>)
+        // persistent memory region. It's assumed that the region was
+        // initialized with `setup` and then only log operations were
+        // allowed to mutate them. See `main.rs` for more
+        // documentation and an example of use.
+        pub exec fn start(pm_region: PMRegion, log_id: u128) -> (result: Result<LogImpl<PMRegion>, LogErr>)
             requires
-                pm_regions.inv(),
-                ({
-                    let flushed_regions = pm_regions@.flush();
-                    UntrustedLogImpl::recover(flushed_regions.committed(), log_id).is_Some()
-                }),
+                pm_region.inv(),
+                pm_region@.timestamp.device_id() == pm_region@.device_id,
+                UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id).is_Some(),
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
-                        &&& trusted_log_impl.constants() == pm_regions.constants()
-                        &&& ({
-                            let flushed_regions = pm_regions@.flush();
-                            Some(trusted_log_impl@) == UntrustedLogImpl::recover(flushed_regions.committed(),
-                                                                                    log_id)
-                            })
-                        &&& trusted_log_impl.get_timestamp().value() == pm_regions@.timestamp.value() + 1
-                        &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.timestamp.device_id()
+                        &&& trusted_log_impl.constants() == pm_region.constants()
+                        &&& Some(trusted_log_impl@) == UntrustedLogImpl::recover(pm_region@.flush().committed(),
+                                                                               log_id)
+                        &&& trusted_log_impl.get_timestamp().value() == pm_region@.timestamp.value() + 1
+                        &&& trusted_log_impl.get_timestamp().device_id() == pm_region@.timestamp.device_id()
                     },
-                    Err(LogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
+                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false
                 }
         {
@@ -369,28 +344,26 @@ verus! {
             // it write such that, if a crash happens in the middle,
             // it doesn't change the persistent state.
 
-            let ghost state = UntrustedLogImpl::recover(pm_regions@.flush().committed(), log_id).get_Some_0();
-            let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
+            let ghost state = UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id).get_Some_0();
+            let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
             let tracked perm = TrustedPermission::new_one_possibility(log_id, state);
             let untrusted_log_impl =
-                UntrustedLogImpl::start(&mut wrpm_regions, log_id, Tracked(&perm), Ghost(state))?;
+                UntrustedLogImpl::start(&mut wrpm_region, log_id, Tracked(&perm), Ghost(state))?;
             Ok(
                 LogImpl {
                     untrusted_log_impl,
                     log_id:  Ghost(log_id),
-                    wrpm_regions
+                    wrpm_region
                 },
             )
         }
 
         // The `tentatively_append` method tentatively appends
-        // `bytes_to_append` to the end of log number `which_log` in
-        // the log. It's tentative in that crashes will undo the
-        // appends, and reads aren't allowed in the tentative part of
-        // the log. See `main.rs` for more documentation and examples
-        // of use.
-        pub exec fn tentatively_append(&mut self, which_log: u32, bytes_to_append: &[u8])
-                                       -> (result: Result<u128, LogErr>)
+        // `bytes_to_append` to the end of the log. It's tentative in
+        // that crashes will undo the appends, and reads aren't
+        // allowed in the tentative part of the log. See `main.rs` for
+        // more documentation and examples of use.
+        pub exec fn tentatively_append(&mut self, bytes_to_append: &[u8]) -> (result: Result<u128, LogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -398,24 +371,17 @@ verus! {
                 self.constants() == old(self).constants(),
                 match result {
                     Ok(offset) => {
-                        let state = old(self)@[which_log as int];
-                        &&& which_log < old(self)@.num_logs()
+                        let state = old(self)@;
                         &&& offset == state.head + state.log.len() + state.pending.len()
-                        &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
+                        &&& self@ == old(self)@.tentatively_append(bytes_to_append@)
                         &&& self.get_timestamp() == old(self).get_timestamp()
-                    },
-                    Err(LogErr::InvalidLogIndex { }) => {
-                        &&& which_log >= self@.num_logs()
-                        &&& self@ == old(self)@
                     },
                     Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                         &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
                         &&& available_space < bytes_to_append@.len()
                         &&& {
-                               let state = self@[which_log as int];
-                               ||| available_space == state.capacity - state.log.len() - state.pending.len()
-                               ||| available_space == u128::MAX - state.head - state.log.len() - state.pending.len()
+                               ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
+                               ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
                            }
                     },
                     _ => false
@@ -428,7 +394,7 @@ verus! {
             // state or the current state with `bytes_to_append`
             // appended.
             let tracked perm = TrustedPermission::new_one_possibility(self.log_id@, self@.drop_pending_appends());
-            self.untrusted_log_impl.tentatively_append(&mut self.wrpm_regions, which_log, bytes_to_append,
+            self.untrusted_log_impl.tentatively_append(&mut self.wrpm_region, bytes_to_append,
                                                        self.log_id, Tracked(&perm))
         }
 
@@ -461,17 +427,16 @@ verus! {
             // committed.
             let tracked perm = TrustedPermission::new_two_possibilities(self.log_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
-            self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.log_id, Tracked(&perm))
+            self.untrusted_log_impl.commit(&mut self.wrpm_region, self.log_id, Tracked(&perm))
         }
 
-        // The `advance_head` method advances the head of log number
-        // `which_log` to virtual new head position `new_head`. It
-        // doesn't do this tentatively; it completes it durably before
-        // returning. However, `advance_head` doesn't commit tentative
-        // appends; to do that, you need a separate call to
-        // `commit`. See `main.rs` for more documentation and examples
-        // of use.
-        pub exec fn advance_head(&mut self, which_log: u32, new_head: u128) -> (result: Result<(), LogErr>)
+        // The `advance_head` method advances the head of the log to
+        // virtual new head position `new_head`. It doesn't do this
+        // tentatively; it completes it durably before returning.
+        // However, `advance_head` doesn't commit tentative appends;
+        // to do that, you need a separate call to `commit`. See
+        // `main.rs` for more documentation and examples of use.
+        pub exec fn advance_head(&mut self, new_head: u128) -> (result: Result<(), LogErr>)
             requires
                 old(self).valid(),
             ensures
@@ -479,27 +444,20 @@ verus! {
                 self.constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
-                        let w = which_log as int;
-                        &&& which_log < self@.num_logs()
-                        &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
-                        &&& self@ == old(self)@.advance_head(w, new_head as int)
+                        let state = old(self)@;
+                        &&& state.head <= new_head <= state.head + state.log.len()
+                        &&& self@ == old(self)@.advance_head(new_head as int)
                         &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
                         &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
                     },
-                    Err(LogErr::InvalidLogIndex{ }) => {
-                        &&& which_log >= self@.num_logs()
-                        &&& self@ == old(self)@
-                    },
                     Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
                         &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& head == self@[which_log as int].head
+                        &&& head == self@.head
                         &&& new_head < head
                     },
                     Err(LogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
                         &&& self@ == old(self)@
-                        &&& which_log < self@.num_logs()
-                        &&& tail == self@[which_log as int].head + self@[which_log as int].log.len()
+                        &&& tail == self@.head + self@.log.len()
                         &&& new_head > tail
                     },
                     _ => false,
@@ -513,45 +471,38 @@ verus! {
             let tracked perm = TrustedPermission::new_two_possibilities(
                 self.log_id@,
                 self@.drop_pending_appends(),
-                self@.advance_head(which_log as int, new_head as int).drop_pending_appends()
+                self@.advance_head(new_head as int).drop_pending_appends()
             );
-            self.untrusted_log_impl.advance_head(&mut self.wrpm_regions, which_log, new_head,
+            self.untrusted_log_impl.advance_head(&mut self.wrpm_region, new_head,
                                                  self.log_id, Tracked(&perm))
         }
 
-        // The `read` method reads `len` bytes from log number
-        // `which_log` starting at virtual position `pos`. It isn't
-        // allowed to read earlier than the head or past the committed
-        // tail. See `main.rs` for more documentation and examples of
-        // use.
-        pub exec fn read(&self, which_log: u32, pos: u128, len: u64) -> (result: Result<Vec<u8>, LogErr>)
+        // The `read` method reads `len` bytes from the log starting
+        // at virtual position `pos`. It isn't allowed to read earlier
+        // than the head or past the committed tail. See `main.rs` for
+        // more documentation and examples of use.
+        pub exec fn read(&self, pos: u128, len: u64) -> (result: Result<Vec<u8>, LogErr>)
             requires
                 self.valid(),
                 pos + len <= u128::MAX,
             ensures
                 ({
-                    let state = self@[which_log as int];
+                    let state = self@;
                     let head = state.head;
                     let log = state.log;
                     match result {
                         Ok(bytes) => {
-                            let true_bytes = self@.read(which_log as int, pos as int, len as int);
-                            &&& which_log < self@.num_logs()
+                            let true_bytes = self@.read(pos as int, len as int);
                             &&& pos >= head
                             &&& pos + len <= head + log.len()
                             &&& read_correct_modulo_corruption(bytes@, true_bytes,
                                                              self.constants().impervious_to_corruption)
                         },
-                        Err(LogErr::InvalidLogIndex { }) => {
-                            which_log >= self@.num_logs()
-                        },
                         Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
-                            &&& which_log < self@.num_logs()
                             &&& pos < head
                             &&& head_pos == head
                         },
                         Err(LogErr::CantReadPastTail{ tail }) => {
-                            &&& which_log < self@.num_logs()
                             &&& pos + len > tail
                             &&& tail == head + log.len()
                         },
@@ -559,35 +510,30 @@ verus! {
                     }
                 })
         {
-            self.untrusted_log_impl.read(&self.wrpm_regions, which_log, pos, len, self.log_id)
+            self.untrusted_log_impl.read(&self.wrpm_region, pos, len, self.log_id)
         }
 
         // The `get_head_tail_and_capacity` method returns three
-        // pieces of metadata about log number `which_log`: the
-        // virtual head position, the virtual tail position, and the
-        // capacity. The capacity is the maximum number of bytes there
-        // can be in the log past the head, including bytes in
-        // tentative appends that haven't been committed yet. See
-        // `main.rs` for more documentation and examples of use.
-        pub exec fn get_head_tail_and_capacity(&self, which_log: u32) -> (result: Result<(u128, u128, u64), LogErr>)
+        // pieces of metadata about the log: the virtual head
+        // position, the virtual tail position, and the capacity. The
+        // capacity is the maximum number of bytes there can be in the
+        // log past the head, including bytes in tentative appends
+        // that haven't been committed yet. See `main.rs` for more
+        // documentation and examples of use.
+        pub exec fn get_head_tail_and_capacity(&self) -> (result: Result<(u128, u128, u64), LogErr>)
             requires
                 self.valid()
             ensures
                 match result {
                     Ok((result_head, result_tail, result_capacity)) => {
-                        let inf_log = self@[which_log as int];
-                        &&& which_log < self@.num_logs()
-                        &&& result_head == inf_log.head
-                        &&& result_tail == inf_log.head + inf_log.log.len()
-                        &&& result_capacity == inf_log.capacity
-                    },
-                    Err(LogErr::InvalidLogIndex{ }) => {
-                        which_log >= self@.num_logs()
+                        &&& result_head == self@.head
+                        &&& result_tail == self@.head + self@.log.len()
+                        &&& result_capacity == self@.capacity
                     },
                     _ => false
                 }
         {
-            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.log_id)
+            self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_region, self.log_id)
         }
     }
 

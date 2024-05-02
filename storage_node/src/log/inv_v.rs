@@ -6,7 +6,7 @@
 //! of the system's correctness.
 //!
 use crate::log::layout_v::*;
-//use crate::log::logimpl_v::LogInfo;
+use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -17,13 +17,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    pub struct LogInfo {
-        pub log_area_len: u64,
-        pub head: u128,
-        pub head_log_area_offset: u64,
-        pub log_length: u64,
-        pub log_plus_pending_length: u64,
-    }
 
     // This invariant says that there are no outstanding writes to any
     // part of the metadata subregion of the persistent-memory region.

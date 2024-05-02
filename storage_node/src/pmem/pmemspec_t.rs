@@ -564,8 +564,6 @@ verus! {
             ensures
                 self.inv(),
                 self@.timestamp == new_timestamp,
-                self@.equal_except_for_timestamps(old(self)@),
-                forall |s| old(self)@.can_crash_as(s) <==> self@.can_crash_as(s),
         ;
 
         fn get_num_regions(&self) -> (result: usize)

@@ -61,8 +61,6 @@ verus! {
     /// in order to be able to update their ghost timestamp when other components on
     /// the same device perform a global flush/fence.
     pub trait TimestampedModule : Sized {
-        type RegionsView;
-
         spec fn get_timestamp(&self) -> PmTimestamp;
 
         // this function should invoke the `inv` function for internal PM regions

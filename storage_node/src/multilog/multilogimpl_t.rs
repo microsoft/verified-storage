@@ -210,8 +210,6 @@ verus! {
     }
 
     impl<PMRegions: PersistentMemoryRegions> TimestampedModule for MultiLogImpl<PMRegions> {
-        type RegionsView = PersistentMemoryRegionsView;
-
         closed spec fn get_timestamp(&self) -> PmTimestamp
         {
             self.wrpm_regions@.timestamp
@@ -347,20 +345,14 @@ verus! {
                           -> (result: Result<MultiLogImpl<PMRegions>, MultiLogErr>)
             requires
                 pm_regions.inv(),
-                ({
-                    let flushed_regions = pm_regions@.flush();
-                    UntrustedMultiLogImpl::recover(flushed_regions.committed(), multilog_id).is_Some()
-                }),
+                UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).is_Some(),
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl.constants() == pm_regions.constants()
-                        &&& ({
-                            let flushed_regions = pm_regions@.flush();
-                            Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(flushed_regions.committed(),
-                                                                                    multilog_id)
-                            })
+                        &&& Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(),
+                                                                                     multilog_id)
                         &&& trusted_log_impl.get_timestamp().value() == pm_regions@.timestamp.value() + 1
                         &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.timestamp.device_id()
                     },

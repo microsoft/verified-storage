@@ -99,7 +99,7 @@ verus! {
     // The region's contents aren't valid, i.e., they're not
     // recoverable to a valid log. The user must have requested to
     // start using the wrong region of persistent memory.
-    fn read_log_variables<PMRegion: PersistentMemoryRegion>(
+    pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
         pm_region: &PMRegion,
         log_id: u128,
         cdb: bool,
@@ -239,11 +239,11 @@ verus! {
         let log_length = log_metadata.log_length;
         if log_length > region_metadata.log_area_len {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
-            return Err(LogErr::StartFailedDueToInvalidMemoryContents{ which_log })
+            return Err(LogErr::StartFailedDueToInvalidMemoryContents)
         }
         if log_length as u128 > u128::MAX - head {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
-            return Err(LogErr::StartFailedDueToInvalidMemoryContents{ which_log })
+            return Err(LogErr::StartFailedDueToInvalidMemoryContents)
         }
 
         // Compute the offset into the log area where the head of the

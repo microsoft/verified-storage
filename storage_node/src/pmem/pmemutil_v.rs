@@ -100,6 +100,19 @@ verus! {
         }
     }
 
+    // This lemma establishes that if a persistent memory region has
+    // no outstanding writes, then a flush of them does nothing.
+    pub proof fn lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(
+        region_view: PersistentMemoryRegionView,
+    )
+        requires
+            region_view.no_outstanding_writes()
+        ensures
+            // the timestamps are allowed to differ
+            region_view.flush().equal_except_for_timestamps(region_view),
+    {
+    }
+
     // This lemma establishes that if a collection of persistent
     // memory regions has no outstanding writes anywhere, then a flush
     // of them does nothing.
@@ -109,12 +122,10 @@ verus! {
         requires
             regions_view.no_outstanding_writes()
         ensures
-            ({
-                let flushed = regions_view.flush();
-                // the timestamps are allowed to differ
-                flushed.equal_except_for_timestamps(regions_view)
-            })
-    {}
+            // the timestamps are allowed to differ
+            regions_view.flush().equal_except_for_timestamps(regions_view),
+    {
+    }
 
     // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
     pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()

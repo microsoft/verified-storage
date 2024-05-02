@@ -127,7 +127,7 @@ verus! {
             requires
                 self.inv(wrpm_regions, multilog_id)
             ensures
-            can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends())
+                can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends())
         {}
 
         // This function specifies how to view the in-memory state of
@@ -293,10 +293,7 @@ verus! {
             where
                 PMRegions: PersistentMemoryRegions
             requires
-                ({
-                    let flushed = old(wrpm_regions)@.flush();
-                    Self::recover(flushed.committed(), multilog_id) == Some(state)
-                }),
+                Self::recover(old(wrpm_regions)@.flush().committed(), multilog_id) == Some(state),
                 old(wrpm_regions).inv(),
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, multilog_id) == Some(state),
             ensures
@@ -590,10 +587,10 @@ verus! {
             Ok(old_pending_tail)
         }
 
-        // This local helper method updates the level-3 metadata on
+        // This local helper method updates the log metadata on
         // persistent memory to be consistent with `self.infos` and
         // `self.state`. It does so in the following steps: (1) update, in
-        // each region, the level-3 metadata corresponding to the inactive
+        // each region, the log metadata corresponding to the inactive
         // CDB; (2) flush; (3) swap the CDB in region #0; (4) flush again.
         //
         // The first of these steps only writes to inactive metadata, i.e.,
@@ -603,10 +600,10 @@ verus! {
         //
         // Before calling this function, the caller should make sure that
         // `self.infos` and `self.state` contain the data that the inactive
-        // level-3 metadata should reflect. But, since this function has to
+        // log metadata should reflect. But, since this function has to
         // reason about crashes, it also needs to know things about the
         // *previous* values of `self.infos` and `self.state`, since those
-        // are the ones that the active level-3 metadata is consistent with
+        // are the ones that the active log metadata is consistent with
         // and will stay consistent with until we write the new CDB. These
         // previous values are passed as ghost parameters since they're
         // only needed for proving things.
@@ -664,7 +661,7 @@ verus! {
 
             let ghost old_timestamp = wrpm_regions@.timestamp;
 
-            // Loop, each time performing the update of the inactive level-3
+            // Loop, each time performing the update of the inactive log
             // metadata for log number `current_log`.
 
             for current_log in 0..self.num_logs
@@ -675,10 +672,7 @@ verus! {
                     memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                    ({
-                        let flushed = wrpm_regions@.flush();
-                        each_info_consistent_with_log_area(flushed, self.num_logs, self.infos@, self.state@)
-                    }),
+                    each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                     forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                         #[trigger] perm.check_permission(s),
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==>
@@ -721,7 +715,7 @@ verus! {
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 
-                // Encode the level-3 metadata as bytes, and compute the CRC of those bytes
+                // Encode the log metadata as bytes, and compute the CRC of those bytes
 
                 let info = &self.infos[current_log as usize];
                 let log_metadata = LogMetadata {
@@ -778,7 +772,7 @@ verus! {
 
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
 
-                // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
+                // Prove that after the flush, the log metadata corresponding to the unused CDB will
                 // be reflected in memory.
 
                 let ghost flushed = wrpm_regions_new.flush();
@@ -974,8 +968,7 @@ verus! {
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
                         let w = which_log as int;
                         if which_log < current_log {
-                            let flushed_regions = wrpm_regions@.flush();
-                            info_consistent_with_log_area(flushed_regions[w], self.infos[w], self.state@[w])
+                            info_consistent_with_log_area(wrpm_regions@.flush()[w], self.infos[w], self.state@[w])
                         }
                         else {
                             self.infos[w] == prev_infos[w]
@@ -1489,11 +1482,10 @@ verus! {
                     let log = self@[which_log as int];
                     match result {
                         Ok((result_head, result_tail, result_capacity)) => {
-                            let inf_log = self@[which_log as int];
                             &&& which_log < self@.num_logs()
-                            &&& result_head == inf_log.head
-                            &&& result_tail == inf_log.head + inf_log.log.len()
-                            &&& result_capacity == inf_log.capacity
+                            &&& result_head == log.head
+                            &&& result_tail == log.head + log.log.len()
+                            &&& result_capacity == log.capacity
                         },
                         Err(MultiLogErr::InvalidLogIndex{ }) => {
                             which_log >= self@.num_logs()
