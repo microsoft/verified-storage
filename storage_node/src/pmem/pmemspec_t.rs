@@ -168,11 +168,11 @@ verus! {
     {}
 
     /// We model the persistent memory as getting flushed in chunks,
-    /// where each chunk has `PERSISTENCE_CHUNK_SIZE` bytes. We refer
+    /// where each chunk has `const_persistence_chunk_size()` bytes. We refer
     /// to chunk number `c` as the set of addresses `addr` such that
-    /// `addr / PERSISTENCE_CHUNK_SIZE == c`.
+    /// `addr / const_persistence_chunk_size() == c`.
 
-    pub spec const PERSISTENCE_CHUNK_SIZE: int = 8;
+    pub open spec fn const_persistence_chunk_size() -> int { 8 }
 
     /// We model the state of each byte of persistent memory as
     /// follows. `state_at_last_flush` contains the contents
@@ -302,7 +302,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / PERSISTENCE_CHUNK_SIZE == chunk
+                &&& addr / const_persistence_chunk_size() == chunk
             } ==> #[trigger] bytes[addr] == self.state[addr].state_at_last_flush
         }
 
@@ -314,7 +314,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / PERSISTENCE_CHUNK_SIZE == chunk
+                &&& addr / const_persistence_chunk_size() == chunk
             } ==> #[trigger] bytes[addr] == self.state[addr].flush_byte()
         }
 
@@ -497,11 +497,8 @@ verus! {
                 self.inv(),
                 addr + S::spec_serialized_len() <= self@.len()
             ensures
-            ({
-                let true_val = S::spec_deserialize(
-                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                output == true_val
-            })
+                output == S::spec_deserialize(
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len())),
         ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
@@ -511,10 +508,10 @@ verus! {
                 addr + bytes@.len() <= u64::MAX
             ensures
                 self.inv(),
-                self@ == self@.write(addr as int, bytes@),
+                self@ == old(self)@.write(addr as int, bytes@),
                 forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
                             r.timestamp == self@.timestamp
-                ;
+        ;
 
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
@@ -524,10 +521,8 @@ verus! {
                 old(self).inv(),
                 addr + S::spec_serialized_len() <= old(self)@.len(),
             ensures
-                ({
-                    let written = old(self)@.write(addr as int, to_write.spec_serialize());
-                    &&& written == self@
-                })
+                self.inv(),
+                self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
         ;
 
 
@@ -539,8 +534,8 @@ verus! {
                 self@ == old(self)@.flush(),
                 self@.device_id == old(self)@.device_id,
                 self@.timestamp.value() == old(self)@.timestamp.value() + 1,
-                self@.timestamp.device_id() == old(self)@.timestamp.device_id()
-                ;
+                self@.timestamp.device_id() == old(self)@.timestamp.device_id(),
+        ;
 
         fn update_region_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
@@ -549,7 +544,8 @@ verus! {
                 old(self)@.timestamp.device_id() == new_timestamp@.device_id(),
             ensures
                 self.inv(),
-                self@ == old(self)@.update_region_with_timestamp(new_timestamp@);
+                self@ == old(self)@.update_region_with_timestamp(new_timestamp@),
+        ;
     }
 
     /// The `PersistentMemoryRegions` trait represents an ordered list
@@ -568,7 +564,8 @@ verus! {
         fn device_id(&self) -> (result: u128)
             ensures
                 result == self.spec_device_id(),
-                result == self@.device_id;
+                result == self@.device_id,
+        ;
 
         fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
@@ -579,20 +576,23 @@ verus! {
                 self.inv(),
                 self@.timestamp == new_timestamp,
                 self@.equal_except_for_timestamps(old(self)@),
-                forall |s| old(self)@.can_crash_as(s) <==> self@.can_crash_as(s);
+                forall |s| old(self)@.can_crash_as(s) <==> self@.can_crash_as(s),
+        ;
 
         fn get_num_regions(&self) -> (result: usize)
             requires
                 self.inv()
             ensures
-                result == self@.len();
+                result == self@.len(),
+        ;
 
         fn get_region_size(&self, index: usize) -> (result: u64)
             requires
                 self.inv(),
                 index < self@.len()
             ensures
-                result == self@[index as int].len();
+                result == self@[index as int].len(),
+        ;
 
         fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
             requires
@@ -615,7 +615,8 @@ verus! {
                     else {
                         maybe_corrupted(bytes@, true_bytes, addrs)
                     }
-                });
+                })
+        ;
 
         // TODO: should we be able to read more than one S with a single read call?
         // Note that addr is a regular offset in terms of bytes, but the result is of type S
@@ -652,11 +653,9 @@ verus! {
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                ({
-                    let written = old(self)@.write(index as int, addr as int, bytes@);
-                    &&& self@ == written
-                    &&& self@.timestamp == old(self)@.timestamp
-                });
+                self@ == old(self)@.write(index as int, addr as int, bytes@),
+                self@.timestamp == old(self)@.timestamp,
+        ;
 
         // TODO: should this take a &[S] or just S?
         // We should probably only be able to write an S to this address if we can be sure
@@ -676,12 +675,9 @@ verus! {
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                ({
-                    let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
-                    &&& self@ == written
-                    &&& self@.timestamp == old(self)@.timestamp
-                });
-
+                self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
+                self@.timestamp == old(self)@.timestamp,
+            ;
 
         fn flush(&mut self)
             requires
@@ -689,14 +685,11 @@ verus! {
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                ({
-                    let flushed = old(self)@.flush();
-                    &&& self@ == flushed
-                    &&& self@.device_id == old(self)@.device_id
-                    &&& self@.all_timestamps_match() // TODO: maybe invariant?
-                    &&& self@.timestamp.device_id() == old(self)@.timestamp.device_id()
-                }),
-                self@.timestamp.value() == old(self)@.timestamp.value() + 1
+                self@ == old(self)@.flush(),
+                self@.device_id == old(self)@.device_id,
+                self@.all_timestamps_match(), // TODO: maybe invariant?
+                self@.timestamp.device_id() == old(self)@.timestamp.device_id(),
+                self@.timestamp.value() == old(self)@.timestamp.value() + 1,
             ;
     }
 }

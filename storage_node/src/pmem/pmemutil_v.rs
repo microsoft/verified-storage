@@ -31,7 +31,7 @@ verus! {
             forall |s| pm_region_view.can_crash_as(s) ==> #[trigger] s[addr] == pm_region_view.committed()[addr]
     {
         assert forall |s| pm_region_view.can_crash_as(s) implies #[trigger] s[addr] == pm_region_view.committed()[addr] by {
-            let chunk = addr / PERSISTENCE_CHUNK_SIZE;
+            let chunk = addr / const_persistence_chunk_size();
             // There are two cases to consider. Each is fairly trivial
             // for Z3, once we cue it to consider the two cases
             // separately with the following `if`.
@@ -596,13 +596,13 @@ verus! {
         }
     }
 
-    /// If the only outstanding write is `PERSISTENCE_CHUNK_SIZE`-sized and
+    /// If the only outstanding write is `const_persistence_chunk_size()`-sized and
     /// -aligned, then there are only two possible resulting crash states,
     /// one with the write and one without.
 
     // This lemma establishes that, if there are no outstanding writes and
-    // we write a `PERSISTENCE_CHUNK_SIZE`-aligned segment of length
-    // `PERSISTENCE_CHUNK_SIZE`, then there are only two possible crash
+    // we write a `const_persistence_chunk_size()`-aligned segment of length
+    // `const_persistence_chunk_size()`, then there are only two possible crash
     // states that can happen after the write is initiated. In one of those
     // crash states, nothing has changed; in the other, all the written
     // bytes have been updated according to this write.
@@ -612,10 +612,10 @@ verus! {
         bytes_to_write: Seq<u8>,
     )
         requires
-            bytes_to_write.len() == PERSISTENCE_CHUNK_SIZE,
-            write_addr % PERSISTENCE_CHUNK_SIZE == 0,
+            bytes_to_write.len() == const_persistence_chunk_size(),
+            write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
-            write_addr + PERSISTENCE_CHUNK_SIZE <= pm_region_view.len(),
+            write_addr + const_persistence_chunk_size() <= pm_region_view.len(),
             pm_region_view.no_outstanding_writes()
         ensures
             ({
@@ -631,7 +631,7 @@ verus! {
                        ||| crash_bytes == pm_region_view.committed()
                        ||| crash_bytes == pm_region_view.write(write_addr, bytes_to_write).flush().committed()
                    } by {
-            let chunk = write_addr / PERSISTENCE_CHUNK_SIZE;
+            let chunk = write_addr / const_persistence_chunk_size();
             let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write);
 
             // To reason about all the bytes we haven't written, it's useful to invoke
@@ -653,8 +653,8 @@ verus! {
     }
 
     // This lemma establishes that, if there are no outstanding writes and
-    // we write a `PERSISTENCE_CHUNK_SIZE`-aligned segment of length
-    // `PERSISTENCE_CHUNK_SIZE` to a single region among a collection of
+    // we write a `const_persistence_chunk_size()`-aligned segment of length
+    // `const_persistence_chunk_size()` to a single region among a collection of
     // persistent memory regions, then there are only two possible crash
     // states that can happen after the write is initiated. In one of those
     // crash states, nothing has changed; in the other, all the written
@@ -667,10 +667,10 @@ verus! {
     )
         requires
             0 <= index < pm_regions_view.len(),
-            bytes_to_write.len() == PERSISTENCE_CHUNK_SIZE,
-            write_addr % PERSISTENCE_CHUNK_SIZE == 0,
+            bytes_to_write.len() == const_persistence_chunk_size(),
+            write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
-            write_addr + PERSISTENCE_CHUNK_SIZE <= pm_regions_view[index as int].len(),
+            write_addr + const_persistence_chunk_size() <= pm_regions_view[index as int].len(),
             pm_regions_view.no_outstanding_writes(),
 
         ensures

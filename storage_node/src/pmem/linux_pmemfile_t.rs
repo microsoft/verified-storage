@@ -133,10 +133,39 @@ verus! {
     }
 
     impl MappedPmDevice {
+        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, PmemError>)
+            ensures
+                match result {
+                    Ok(device) => {
+                        &&& device.spec_get_cursor() == Some(0u64)
+                        &&& device.len() == size
+                        // TODO: check virt addr in postcondition
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            Self::new_internal(file_to_map, size, true)
+        }
+
+        pub fn new_testing_only<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, PmemError>)
+            ensures
+                match result {
+                    Ok(device) => {
+                        &&& device.spec_get_cursor() == Some(0u64)
+                        &&& device.len() == size
+                        // TODO: check virt addr in postcondition
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            Self::new_internal(file_to_map, size, false)
+        }
+
         // TODO: detailed information for error returns
         #[verifier::external_body]
         #[allow(dead_code)]
-        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, PmemError>)
+        pub fn new_internal<'a>(file_to_map: StrSlice<'a>, size: usize, require_pm: bool)
+                                -> (result: Result<Self, PmemError>)
             ensures
                 match result {
                     Ok(device) => {
@@ -170,7 +199,7 @@ verus! {
                         .unwrap()
                 });
                 Err(PmemError::CannotOpenPmFile)
-            } else if is_pm == 0 {
+            } else if is_pm == 0 && require_pm {
                 eprintln!("{}", unsafe {
                     CString::from_raw(pmem_errormsg() as *mut i8)
                         .into_string()
@@ -534,6 +563,10 @@ verus! {
                 forall |i: int| 0 <= i < result@.len() ==> {
                     let region = #[trigger] result@[i];
                     region.device_id == result@[0].device_id
+                },
+                forall |i: int| 0 <= i < result@.len() ==> {
+                    let region = #[trigger] result@[i];
+                    region.len() == regions@[i]@.len()
                 },
                 result@.timestamp == regions[0]@.timestamp,
                 result.spec_device_id() == regions[0].spec_device_id()

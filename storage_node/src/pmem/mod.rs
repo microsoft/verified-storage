@@ -9,4 +9,6 @@ pub mod pmemspec_t;
 pub mod pmemutil_v;
 pub mod serialization_t;
 pub mod timestamp_t;
+#[cfg(target_os = "windows")]
+pub mod windows_pmemfile_t;
 pub mod wrpm_v;
