@@ -248,7 +248,7 @@ verus! {
             self.device_id
         }
 
-        spec fn constants(&self) -> PersistentMemoryConstants
+        closed spec fn constants(&self) -> PersistentMemoryConstants
         {
             PersistentMemoryConstants { impervious_to_corruption: true }
         }

@@ -411,7 +411,7 @@ verus! {
     }
 
     #[cfg(target_os = "linux")]
-    fn create_log() -> (multilog: Option<LogImpl<MappedPmRegion>>)
+    fn create_log() -> (log: Option<LogImpl<MappedPM>>)
         ensures
             match log {
                 Some(log) => {
@@ -430,12 +430,12 @@ verus! {
             region_size as usize,
         ).ok()?;
         let region_desc = pm_dev.get_new_region(region_size).ok()?;
-        let pm_region = MappedPM::new(region_desc).ok()?;
+        let mut pm_region = MappedPM::new(region_desc).ok()?;
         assert(pm_region@.len() == 1024);
 
         // Set up the memory region to contain a log. The capacity will be less than
         // the file size because a few bytes are needed for metadata.
-        let (capacity, log_id) = MultiLogImpl::setup(&mut pm_region).ok()?;
+        let (capacity, log_id) = LogImpl::setup(&mut pm_region).ok()?;
         runtime_assert(capacity <= 1024);
 
         // Start accessing the log.
