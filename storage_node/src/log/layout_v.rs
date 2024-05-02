@@ -21,18 +21,15 @@
 //!
 //! Global metadata (absolute offsets):
 //!   bytes 0..8:     Version number of the program that created this metadata
-//!   bytes 8..16:    Length of regional metadata, not includign CRC
+//!   bytes 8..16:    Length of region metadata, not including CRC
 //!   bytes 16..32:   Program GUID for this program  
 //!   bytes 32..40:   CRC of the above 32 bytes
 //!
 //! Region metadata (absolute offsets):
-//!   bytes 40..44:   Number of logs in the multilog
-//!   bytes 44..48:   Index of this log in the multilog
-//!   bytes 48..56:   Unused padding bytes
-//!   bytes 56..64:   This region's size
-//!   bytes 64..72:   Length of log area (LoLA)
-//!   bytes 72..88:   Multilog ID
-//!   bytes 88..96:   CRC of the above 48 bytes
+//!   bytes 40..48:   This region's size
+//!   bytes 48..56:   Length of log area (LoLA)
+//!   bytes 56..72:   Log ID
+//!   bytes 72..80:   CRC of the above 32 bytes
 //!
 //! Log metadata (relative offsets):
 //!   bytes 0..8:     Log length

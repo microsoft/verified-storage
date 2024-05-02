@@ -22,7 +22,7 @@
 //!
 //! Global metadata (absolute offsets):
 //!   bytes 0..8:     Version number of the program that created this metadata
-//!   bytes 8..16:    Length of regional metadata, not includign CRC
+//!   bytes 8..16:    Length of region metadata, not including CRC
 //!   bytes 16..32:   Program GUID for this program  
 //!   bytes 32..40:   CRC of the above 32 bytes
 //!

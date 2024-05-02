@@ -9,6 +9,7 @@ pub mod log;
 pub mod multilog;
 pub mod pmem;
 
+use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
@@ -215,8 +216,12 @@ verus! {
             match multilog {
                 Some(multilog) => {
                     &&& multilog@.num_logs() == 2
-                    &&& multilog@[0] == AbstractLogState::initialize(multilog@[0].capacity)
-                    &&& multilog@[1] == AbstractLogState::initialize(multilog@[1].capacity)
+                    &&& multilog@[0] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                        multilog@[0].capacity
+                    )
+                    &&& multilog@[1] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                        multilog@[1].capacity
+                    )
                     &&& multilog.valid()
                 },
                 None => true,
@@ -251,8 +256,12 @@ verus! {
             match multilog {
                 Some(multilog) => {
                     &&& multilog@.num_logs() == 2
-                    &&& multilog@[0] == AbstractLogState::initialize(multilog@[0].capacity)
-                    &&& multilog@[1] == AbstractLogState::initialize(multilog@[1].capacity)
+                    &&& multilog@[0] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                        multilog@[0].capacity
+                    )
+                    &&& multilog@[1] == crate::multilog::multilogspec_t::AbstractLogState::initialize(
+                        multilog@[1].capacity
+                    )
                     &&& multilog.valid()
                 },
                 None => true,
@@ -371,10 +380,138 @@ verus! {
         Some(())
     }
 
+    #[cfg(target_os = "windows")]
+    fn create_log() -> (log: Option<LogImpl<FileBackedPersistentMemoryRegion>>)
+        ensures
+            match log {
+                Some(log) => {
+                    &&& log@ == crate::log::logspec_t::AbstractLogState::initialize(log@.capacity)
+                    &&& log.valid()
+                },
+                None => true,
+            }
+    {
+        let region_size = 1024;
+
+        // Create the memory out of a single file.
+        let file_name = vstd::string::new_strlit("test_log");
+        let mut pm_region = FileBackedPersistentMemoryRegions::new_single_region(
+            &file_name, MemoryMappedFileMediaType::SSD,
+            region_size,
+            FileCloseBehavior::TestingSoDeleteOnClose
+        ).ok()?;
+
+        // Set up the memory region to contain a log. The capacity will be less than
+        // the file size because a few bytes are needed for metadata.
+        let (capacity, log_id) = LogImpl::setup(&mut pm_region).ok()?;
+        runtime_assert(capacity <= 1024);
+
+        // Start accessing the log.
+        LogImpl::start(pm_region, log_id).ok()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_log() -> (multilog: Option<LogImpl<MappedPmRegion>>)
+        ensures
+            match log {
+                Some(log) => {
+                    &&& log@ == crate::log::logspec_t::AbstractLogState::initialize(log@.capacity)
+                    &&& log.valid()
+                },
+                None => true,
+            }
+    {
+        let region_size = 1024;
+
+        // Create the multipersistent memory out of the two regions.
+        let file_name = vstd::string::new_strlit("test_multilog");
+        let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
+            file_name,
+            region_size as usize,
+        ).ok()?;
+        let region_desc = pm_dev.get_new_region(region_size).ok()?;
+        let pm_region = MappedPM::new(region_desc).ok()?;
+        assert(pm_region@.len() == 1024);
+
+        // Set up the memory region to contain a log. The capacity will be less than
+        // the file size because a few bytes are needed for metadata.
+        let (capacity, log_id) = MultiLogImpl::setup(&mut pm_region).ok()?;
+        runtime_assert(capacity <= 1024);
+
+        // Start accessing the log.
+        LogImpl::start(pm_region, log_id).ok()
+    }
+
+    fn test_log_on_memory_mapped_file() -> Option<()>
+    {
+        let mut log = create_log()?;
+
+        // Tentatively append [30, 42, 100] to the log.
+        let mut v: Vec<u8> = Vec::<u8>::new();
+        v.push(30); v.push(42); v.push(100);
+        let pos = log.tentatively_append(v.as_slice()).ok()?;
+        runtime_assert(pos == 0);
+
+        // Note that a tentative append doesn't actually advance the tail. That
+        // doesn't happen until the next commit.
+        let (head, tail, _capacity) = log.get_head_tail_and_capacity().ok()?;
+        runtime_assert(head == 0);
+        runtime_assert(tail == 0);
+
+        // Now commit the tentative appends. This causes the log to have tail 3.
+        if log.commit().is_err() {
+            runtime_assert(false); // can't fail
+        }
+        match log.get_head_tail_and_capacity() {
+            Ok((head, tail, capacity)) => {
+                runtime_assert(head == 0);
+                runtime_assert(tail == 3);
+            },
+            _ => runtime_assert(false) // can't fail
+        }
+
+        // We read the 2 bytes starting at position 1 of the log. We should
+        // read bytes [42, 100]. This is only guaranteed if the memory
+        // wasn't corrupted.
+        if let Ok(bytes) = log.read(1, 2) {
+            runtime_assert(bytes.len() == 2);
+            assert(log.constants().impervious_to_corruption ==> bytes[0] == 42);
+        }
+
+        // We now advance the head of the log to position 2. This causes the
+        // head to become 2 and the tail stays at 3.
+        match log.advance_head(2) {
+            Ok(()) => runtime_assert(true),
+            _ => runtime_assert(false) // can't fail
+        }
+        match log.get_head_tail_and_capacity() {
+            Ok((head, tail, capacity)) => {
+                runtime_assert(head == 2);
+                runtime_assert(tail == 3);
+            },
+            _ => runtime_assert(false) // can't fail
+        }
+
+        // If we read from position 2 of the log, we get the same thing we
+        // would have gotten before the advance-head operation.
+        if let Ok(bytes) = log.read(2, 1) {
+            assert(log.constants().impervious_to_corruption ==> bytes[0] == 100);
+        }
+
+        // But if we try to read from position 0, we get an
+        // error because we're not allowed to read from before the head.
+        match log.read(0, 1) {
+            Err(LogErr::CantReadBeforeHead{head}) => runtime_assert(head == 2),
+            _ => runtime_assert(false) // can't succeed, and can't fail with any other error
+        }
+        Some(())
+    }
+
     #[allow(dead_code)]
     fn main()
     {
         test_multilog_with_timestamps();
         test_multilog_on_memory_mapped_file();
+        test_log_on_memory_mapped_file();
     }
 }

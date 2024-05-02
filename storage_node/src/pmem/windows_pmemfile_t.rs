@@ -697,6 +697,36 @@ impl FileBackedPersistentMemoryRegions {
         }
         Ok(Self { media_type, dev, pms })
     }
+
+    // The static function `new_single_region` creates a
+    // `FileBackedPersistentMemoryRegion` object by creating a file
+    // and mapping it all into a single memory-mapped section.
+    //
+    // `path` -- the path to use for the file
+    //
+    // `media_type` -- the type of media the path refers to
+    //
+    // `region_size` -- the region size
+    //
+    // `close_behavior` -- what to do when the file is closed
+    #[verifier::external_body]
+    pub fn new_single_region(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
+                             close_behavior: FileCloseBehavior)
+                             -> (result: Result<FileBackedPersistentMemoryRegion, PmemError>)
+        ensures
+            match result {
+                Ok(pm_region) => {
+                    &&& pm_region.inv()
+                    &&& pm_region@.no_outstanding_writes()
+                    &&& pm_region@.len() == region_size
+                },
+                Err(_) => true
+            }
+    {
+        let mut dev = FileBackedPersistentMemoryDevice::new(&path, media_type.clone(), region_size, close_behavior)?;
+        let region_desc = dev.get_new_region(region_size)?;
+        FileBackedPersistentMemoryRegion::new(region_desc)
+    }
 }
 
 impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
