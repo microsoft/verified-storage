@@ -203,23 +203,6 @@ verus! {
         wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>
     }
 
-    impl<PMRegion: PersistentMemoryRegion> TimestampedModule for LogImpl<PMRegion> {
-        closed spec fn get_timestamp(&self) -> PmTimestamp
-        {
-            self.wrpm_region@.timestamp
-        }
-
-        open spec fn inv(self) -> bool {
-            self.valid()
-        }
-
-        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
-            proof { self.lemma_valid_implies_wrpm_inv(); }
-            self.untrusted_log_impl.update_timestamp(&mut self.wrpm_region, self.log_id, new_timestamp);
-            proof { self.lemma_untrusted_log_inv_implies_valid(); }
-        }
-    }
-
     impl <PMRegion: PersistentMemoryRegion> LogImpl<PMRegion> {
         // The view of a `LogImpl` is whatever the
         // `UntrustedLogImpl` it wraps says it is.
@@ -298,8 +281,6 @@ verus! {
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
                         &&& UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_region@.timestamp.value() == old(pm_region)@.timestamp.value() + 2
-                        &&& pm_region@.timestamp.device_id() == old(pm_region)@.timestamp.device_id()
                     },
                     Err(LogErr::InsufficientSpaceForSetup { required_space }) => {
                         &&& pm_region@ == old(pm_region)@.flush()
@@ -321,7 +302,6 @@ verus! {
         pub exec fn start(pm_region: PMRegion, log_id: u128) -> (result: Result<LogImpl<PMRegion>, LogErr>)
             requires
                 pm_region.inv(),
-                pm_region@.timestamp.device_id() == pm_region@.device_id,
                 UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id).is_Some(),
             ensures
                 match result {
@@ -330,8 +310,6 @@ verus! {
                         &&& trusted_log_impl.constants() == pm_region.constants()
                         &&& Some(trusted_log_impl@) == UntrustedLogImpl::recover(pm_region@.flush().committed(),
                                                                                log_id)
-                        &&& trusted_log_impl.get_timestamp().value() == pm_region@.timestamp.value() + 1
-                        &&& trusted_log_impl.get_timestamp().device_id() == pm_region@.timestamp.device_id()
                     },
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false
@@ -374,7 +352,6 @@ verus! {
                         let state = old(self)@;
                         &&& offset == state.head + state.log.len() + state.pending.len()
                         &&& self@ == old(self)@.tentatively_append(bytes_to_append@)
-                        &&& self.get_timestamp() == old(self).get_timestamp()
                     },
                     Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                         &&& self@ == old(self)@
@@ -411,11 +388,7 @@ verus! {
                 self.valid(),
                 self.constants() == old(self).constants(),
                 match result {
-                    Ok(()) => {
-                        &&& self@ == old(self)@.commit()
-                        &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
-                        &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
-                    }
+                    Ok(()) => self@ == old(self)@.commit(),
                     _ => false
                 }
         {
@@ -447,8 +420,6 @@ verus! {
                         let state = old(self)@;
                         &&& state.head <= new_head <= state.head + state.log.len()
                         &&& self@ == old(self)@.advance_head(new_head as int)
-                        &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
-                        &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
                     },
                     Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
                         &&& self@ == old(self)@

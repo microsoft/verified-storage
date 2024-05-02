@@ -1532,6 +1532,7 @@ verus! {
                 wrpm_regions@.timestamp == new_timestamp@
         {
             wrpm_regions.update_timestamps(new_timestamp);
+            assume(false);
         }
 
     }

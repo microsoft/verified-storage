@@ -167,7 +167,8 @@ verus! {
                 match result {
                     Ok(log_capacity) => {
                         let state = AbstractLogState::initialize(log_capacity as int);
-                        &&& log_capacity@ == pm_region@.len() == old(pm_region)@.len()
+                        &&& log_capacity@ <= pm_region@.len()
+                        &&& pm_region@.len() == old(pm_region)@.len()
                         &&& can_only_crash_as_state(pm_region@, log_id, state)
                         &&& Self::recover(pm_region@.committed(), log_id) == Some(state)
                         &&& Self::recover(pm_region@.flush().committed(), log_id) == Some(state)
@@ -1305,30 +1306,6 @@ verus! {
 
             let info = &self.info;
             Ok((info.head, info.head + info.log_length as u128, info.log_area_len))
-        }
-
-        // We have to go through UntrustedLogImpl to update the timestamp, even though
-        // timestamps are not stored/referred to/owned by the untrusted impl, because
-        // we still need to make sure the invariants for this module hold when we update
-        // the timestamp.
-        pub fn update_timestamp<Perm, PMRegion>(
-            &self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-            Ghost(log_id): Ghost<u128>,
-            new_timestamp: Ghost<PmTimestamp>
-        )
-            where
-                Perm: CheckPermission<Seq<u8>>,
-                PMRegion: PersistentMemoryRegion
-            requires
-                self.inv(&*old(wrpm_region), log_id),
-                new_timestamp@.gt(old(wrpm_region)@.timestamp),
-                new_timestamp@.device_id() == old(wrpm_region)@.timestamp.device_id()
-            ensures
-                self.inv(wrpm_region, log_id),
-                wrpm_region@.timestamp == new_timestamp@
-        {
-            wrpm_region.update_timestamp(new_timestamp);
         }
 
     }

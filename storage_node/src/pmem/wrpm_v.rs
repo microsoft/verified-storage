@@ -194,8 +194,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
 
     pub closed spec fn inv(&self) -> bool
     {
-        &&& self.pm_region.inv()
-        &&& self.pm_region@.timestamp.device_id() == self.pm_region@.device_id
+        self.pm_region.inv()
     }
 
     pub closed spec fn constants(&self) -> PersistentMemoryConstants
@@ -206,7 +205,6 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     pub exec fn new(pm_region: PMRegion) -> (wrpm_region: Self)
         requires
             pm_region.inv(),
-            pm_region@.timestamp.device_id() == pm_region@.device_id,
         ensures
             wrpm_region.inv(),
             wrpm_region@ == pm_region@,
@@ -315,8 +313,9 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     pub fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
         requires
             old(self).inv(),
+            old(self)@.device_id == old(self)@.timestamp.device_id(),
             new_timestamp@.gt(old(self)@.timestamp),
-            new_timestamp@.device_id() == old(self)@.timestamp.device_id()
+            new_timestamp@.device_id() == old(self)@.timestamp.device_id(),
         ensures
             self.inv(),
             self@.timestamp == new_timestamp@,

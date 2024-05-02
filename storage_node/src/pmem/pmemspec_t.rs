@@ -472,32 +472,58 @@ verus! {
         fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
             requires
                 self.inv(),
-                addr + num_bytes <= self@.len()
+                addr + num_bytes <= self@.len(),
+                // Reads aren't permitted where there are still outstanding writes
+                self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
             ensures
-                bytes@ == self@.committed().subrange(addr as int, addr + num_bytes);
+                ({
+                    let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
+                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
+                    // If the persistent memory regions are impervious
+                    // to corruption, read returns the last bytes
+                    // written. Otherwise, it returns a
+                    // possibly-corrupted version of those bytes.
+                    if self.constants().impervious_to_corruption {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        maybe_corrupted(bytes@, true_bytes, addrs)
+                    }
+                })
+        ;
 
         fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
             where
                 S: Serializable + Sized
             requires
                 self.inv(),
-                addr + S::spec_serialized_len() <= self@.len()
+                addr + S::spec_serialized_len() <= self@.len(),
+                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
             ensures
-                output == S::spec_deserialize(
-                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len())),
+            ({
+                let true_val = S::spec_deserialize(
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                if self.constants().impervious_to_corruption {
+                    output == true_val
+                } else {
+                    maybe_corrupted_serialized(*output, true_val, addr as int)
+                }
+            })
         ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
                 addr + bytes@.len() <= old(self)@.len(),
-                addr + bytes@.len() <= u64::MAX
+                addr + bytes@.len() <= u64::MAX,
+                // Writes aren't allowed where there are already outstanding writes.
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, bytes@),
-                forall |r: PersistentMemoryRegionsView| r.device_id == self.spec_device_id() ==>
-                            r.timestamp == self@.timestamp
+                self@.timestamp == old(self)@.timestamp,
         ;
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
@@ -506,10 +532,12 @@ verus! {
             requires
                 old(self).inv(),
                 addr + S::spec_serialized_len() <= old(self)@.len(),
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
+                self@.timestamp == old(self)@.timestamp,
         ;
 
 
@@ -624,7 +652,7 @@ verus! {
                 if self.constants().impervious_to_corruption {
                     output == true_val
                 } else {
-                    &&& maybe_corrupted_serialized(*output, true_val, addr as int)
+                    maybe_corrupted_serialized(*output, true_val, addr as int)
                 }
             })
         ;
