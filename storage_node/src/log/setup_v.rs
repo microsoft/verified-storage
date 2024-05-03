@@ -10,7 +10,6 @@ use crate::log::logimpl_t::LogErr;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -94,8 +93,6 @@ verus! {
             memory_correctly_set_up_on_region(
                 pm_region@.flush().committed(), // it'll be correct after the next flush
                 region_size, log_id),
-            pm_region@.timestamp == old(pm_region)@.timestamp,
-            pm_region@.timestamp.device_id() == old(pm_region)@.timestamp.device_id()
     {
         // Initialize global metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
@@ -228,8 +225,6 @@ verus! {
             pm_region@.len() == old(pm_region)@.len(),
             pm_region@.no_outstanding_writes(),
             recover_state(pm_region@.committed(), log_id) == Some(AbstractLogState::initialize(log_capacity as int)),
-            pm_region@.timestamp.value() == old(pm_region)@.timestamp.value() + 1,
-            pm_region@.timestamp.device_id() == old(pm_region)@.timestamp.device_id(),
     {
         write_setup_metadata_to_region(pm_region, region_size, log_id);
 
@@ -250,8 +245,6 @@ verus! {
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
             assert(pm_region@.len() == flushed_region.len());
-
-            lemma_auto_timestamp_helpers();
         }
 
         pm_region.flush()

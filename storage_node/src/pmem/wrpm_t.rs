@@ -1,6 +1,5 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -54,7 +53,7 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
         ensures
             wrpm_regions.inv(),
             wrpm_regions@ == pm_regions@,
-            wrpm_regions.constants() == pm_regions.constants()
+            wrpm_regions.constants() == pm_regions.constants(),
     {
         Self {
             pm_regions: pm_regions,
@@ -72,7 +71,7 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
         ensures
             pm_regions.inv(),
             pm_regions@ == self@,
-            pm_regions.constants() == self.constants()
+            pm_regions.constants() == self.constants(),
     {
         &self.pm_regions
     }
@@ -90,22 +89,13 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             addr + bytes@.len() <= old(self)@[index as int].len(),
             addr + bytes@.len() <= u64::MAX,
             old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-            ({
-                // The key thing the caller must prove is that all crash states are authorized by `perm`
-                &&& forall |s| {
-                        let pm_state = old(self)@.write(index as int, addr as int, bytes@);
-                        pm_state.can_crash_as(s)
-                    } ==> #[trigger] perm@.check_permission(s)
-            }),
+            // The key thing the caller must prove is that all crash states are authorized by `perm`
+            forall |s| old(self)@.write(index as int, addr as int, bytes@).can_crash_as(s)
+                  ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            ({
-                let written = old(self)@.write(index as int, addr as int, bytes@);
-                &&& self@ == written
-            }),
-            self@.timestamp == old(self)@.timestamp
-
+            self@ == old(self)@.write(index as int, addr as int, bytes@),
     {
         self.pm_regions.write(index, addr, bytes)
     }
@@ -119,21 +109,13 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             index < old(self)@.len(),
             addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
             old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
-            ({
-                // The key thing the caller must prove is that all crash states are authorized by `perm`
-                &&& forall |s| {
-                        let pm_state = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
-                        pm_state.can_crash_as(s)
-                    } ==> #[trigger] perm@.check_permission(s)
-            }),
+            // The key thing the caller must prove is that all crash states are authorized by `perm`
+            forall |s| old(self)@.write(index as int, addr as int, to_write.spec_serialize()).can_crash_as(s)
+                  ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@.timestamp == old(self)@.timestamp,
-            ({
-                let written = old(self)@.write(index as int, addr as int, to_write.spec_serialize());
-                self@ == written
-            })
+            self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
     {
         self.pm_regions.serialize_and_write(index, addr, to_write);
     }
@@ -148,27 +130,10 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             old(self).inv(),
         ensures
             self.inv(),
-            ({
-                let flushed = old(self)@.flush();
-                &&& self@ == flushed
-            }),
+            self@ == old(self)@.flush(),
             self.constants() == old(self).constants(),
-            self@.timestamp.value() == old(self)@.timestamp.value() + 1,
-            self@.timestamp.device_id() == old(self)@.timestamp.device_id()
     {
         self.pm_regions.flush()
-    }
-
-    pub fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
-        requires
-            old(self).inv(),
-            new_timestamp@.gt(old(self)@.timestamp),
-            new_timestamp@.device_id() == old(self)@.timestamp.device_id()
-        ensures
-            self.inv(),
-            self@.timestamp == new_timestamp@,
-    {
-        self.pm_regions.update_timestamps(new_timestamp);
     }
 }
 
@@ -208,7 +173,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         ensures
             wrpm_region.inv(),
             wrpm_region@ == pm_region@,
-            wrpm_region.constants() == pm_region.constants()
+            wrpm_region.constants() == pm_region.constants(),
     {
         Self {
             pm_region: pm_region,
@@ -226,7 +191,7 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         ensures
             pm_region.inv(),
             pm_region@ == self@,
-            pm_region.constants() == self.constants()
+            pm_region.constants() == self.constants(),
     {
         &self.pm_region
     }
@@ -243,23 +208,16 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             addr + bytes@.len() <= old(self)@.len(),
             addr + bytes@.len() <= u64::MAX,
             old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
-            ({
                 // The key thing the caller must prove is that all crash states are authorized by `perm`
-                &&& forall |s| {
-                        let pm_state = old(self)@.write(addr as int, bytes@);
-                        pm_state.can_crash_as(s)
-                    } ==> #[trigger] perm@.check_permission(s)
-            }),
+            forall |s| old(self)@.write(addr as int, bytes@).can_crash_as(s)
+                  ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
             self@ == old(self)@.write(addr as int, bytes@),
-            self@.timestamp == old(self)@.timestamp,
-
     {
         let ghost pmr = self.pm_region;
         self.pm_region.write(addr, bytes);
-        assert(self.pm_region@ == pmr@.write(addr as int, bytes@));
     }
 
     #[allow(unused_variables)]
@@ -270,21 +228,13 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             old(self).inv(),
             addr + S::spec_serialized_len() <= old(self)@.len(),
             old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
-            ({
-                // The key thing the caller must prove is that all crash states are authorized by `perm`
-                &&& forall |s| {
-                        let pm_state = old(self)@.write(addr as int, to_write.spec_serialize());
-                        pm_state.can_crash_as(s)
-                    } ==> #[trigger] perm@.check_permission(s)
-            }),
+            // The key thing the caller must prove is that all crash states are authorized by `perm`
+            forall |s| old(self)@.write(addr as int, to_write.spec_serialize()).can_crash_as(s)
+                  ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@.timestamp == old(self)@.timestamp,
-            ({
-                let written = old(self)@.write(addr as int, to_write.spec_serialize());
-                self@ == written
-            })
+            self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
     {
         self.pm_region.serialize_and_write(addr, to_write);
     }
@@ -299,28 +249,10 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             old(self).inv(),
         ensures
             self.inv(),
-            ({
-                let flushed = old(self)@.flush();
-                &&& self@ == flushed
-            }),
+            self@ == old(self)@.flush(),
             self.constants() == old(self).constants(),
-            self@.timestamp.value() == old(self)@.timestamp.value() + 1,
-            self@.timestamp.device_id() == old(self)@.timestamp.device_id()
     {
         self.pm_region.flush()
-    }
-
-    pub fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
-        requires
-            old(self).inv(),
-            old(self)@.device_id == old(self)@.timestamp.device_id(),
-            new_timestamp@.gt(old(self)@.timestamp),
-            new_timestamp@.device_id() == old(self)@.timestamp.device_id(),
-        ensures
-            self.inv(),
-            self@.timestamp == new_timestamp@,
-    {
-        self.pm_region.update_region_timestamp(new_timestamp);
     }
 }
 }

@@ -7,7 +7,6 @@
 
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -106,11 +105,11 @@ verus! {
         region_view: PersistentMemoryRegionView,
     )
         requires
-            region_view.no_outstanding_writes()
+            region_view.no_outstanding_writes(),
         ensures
-            // the timestamps are allowed to differ
-            region_view.flush().equal_except_for_timestamps(region_view),
+            region_view.flush() == region_view,
     {
+        assert(region_view.flush() =~= region_view);
     }
 
     // This lemma establishes that if a collection of persistent
@@ -120,25 +119,25 @@ verus! {
         regions_view: PersistentMemoryRegionsView,
     )
         requires
-            regions_view.no_outstanding_writes()
+            regions_view.no_outstanding_writes(),
         ensures
-            // the timestamps are allowed to differ
-            regions_view.flush().equal_except_for_timestamps(regions_view),
+            regions_view.flush() == regions_view,
     {
+        assert(regions_view.flush().len() == regions_view.len());
+        assert forall |i| 0 <= i < regions_view.len() implies
+               #[trigger] regions_view.flush().regions[i] == regions_view.regions[i] by {
+            assert(regions_view[i].no_outstanding_writes());
+            lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(regions_view.regions[i]);
+        }
+        assert(regions_view.flush() =~= regions_view);
     }
 
     // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
     pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
         ensures
-            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> {
-                let flushed = #[trigger] r.flush();
-                flushed.equal_except_for_timestamps(r)
-            }
+            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> r.flush() == r
     {
-        assert forall |r: PersistentMemoryRegionsView, | r.no_outstanding_writes() implies {
-            let flushed = #[trigger] r.flush();
-            flushed.equal_except_for_timestamps(r)
-        } by {
+        assert forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() implies r.flush() == r by {
             lemma_if_no_outstanding_writes_then_flush_is_idempotent(r);
         };
     }

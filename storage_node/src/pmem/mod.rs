@@ -1,4 +1,3 @@
-pub mod device_t;
 #[cfg(target_os = "linux")]
 pub mod linux_pmemfile_t;
 #[cfg(target_os = "windows")]
@@ -7,5 +6,4 @@ pub mod pmemmock_t;
 pub mod pmemspec_t;
 pub mod pmemutil_v;
 pub mod serialization_t;
-pub mod timestamp_t;
 pub mod wrpm_t;

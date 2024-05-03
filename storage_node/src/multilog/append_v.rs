@@ -10,7 +10,6 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::PersistentMemoryRegionsView;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;

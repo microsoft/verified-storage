@@ -9,7 +9,6 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::PersistentMemoryRegionView;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;

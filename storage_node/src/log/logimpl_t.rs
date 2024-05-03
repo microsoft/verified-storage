@@ -42,7 +42,6 @@ use std::fmt::Write;
 use crate::log::logimpl_v::UntrustedLogImpl;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::timestamp_t::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -215,11 +214,6 @@ verus! {
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
             self.wrpm_region.constants()
-        }
-
-        pub closed spec fn device_id(&self) -> u128
-        {
-            self.wrpm_region@.device_id
         }
 
         // This is the validity condition that is maintained between

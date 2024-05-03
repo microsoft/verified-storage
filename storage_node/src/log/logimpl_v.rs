@@ -15,7 +15,6 @@ use crate::log::start_v::{read_cdb, read_log_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -92,7 +91,6 @@ verus! {
                 PMRegion: PersistentMemoryRegion
         {
             &&& wrpm_region.inv() // whatever the persistent memory regions require as an invariant
-            &&& wrpm_region@.timestamp.device_id() == wrpm_region@.timestamp.device_id()
             &&& no_outstanding_writes_to_metadata(wrpm_region@)
             &&& memory_matches_deserialized_cdb(wrpm_region@, self.cdb)
             &&& metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, self.info)
@@ -135,20 +133,6 @@ verus! {
             self.state@
         }
 
-        // This lemma establishes that if two `PersistentMemoryRegionView`s are identical except
-        // for timestamp, then the recovery view of their committed bytes are the same. This is
-        // somewhat obvious -- the timestamp is not used at all in `recover`. Note that if
-        // the timestamp is used to update the ghost state associated with a PM region, then
-        // its recovery view may change, because its committed bytes have changed.
-        pub proof fn lemma_recovery_view_does_not_depend_on_timestamp()
-            ensures
-                forall |r1: PersistentMemoryRegionView, r2, id| #![auto] r1.equal_except_for_timestamps(r2) ==>
-                    Self::recover(r1.committed(), id) == Self::recover(r2.committed(), id)
-        {
-            assert (forall |r1: PersistentMemoryRegionView, r2| r1.equal_except_for_timestamps(r2) ==>
-                    r1.committed() == r2.committed());
-        }
-
         // The `setup` method sets up persistent memory objects `pm_region`
         // to store an initial empty log. It returns the capacity of the log.
         // See `main.rs` for more documentation.
@@ -173,8 +157,6 @@ verus! {
                         &&& Self::recover(pm_region@.committed(), log_id) == Some(state)
                         &&& Self::recover(pm_region@.flush().committed(), log_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_region@.timestamp.value() == old(pm_region)@.timestamp.value() + 2
-                        &&& pm_region@.timestamp.device_id() == old(pm_region)@.timestamp.device_id()
                     },
                     Err(LogErr::InsufficientSpaceForSetup { required_space }) => {
                         &&& pm_region@ == old(pm_region)@.flush()
@@ -183,9 +165,6 @@ verus! {
                     _ => false
                 }
         {
-            proof {
-                lemma_auto_timestamp_helpers();
-            }
             let ghost original_pm_region = pm_region@;
 
             // We can't write without proving that there are no
@@ -241,9 +220,6 @@ verus! {
                 lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(pm_region@);
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
                     pm_region@);
-
-                Self::lemma_recovery_view_does_not_depend_on_timestamp();
-                assert(pm_region@.timestamp.device_id() == original_pm_region.timestamp.device_id());
             }
 
             Ok(log_capacity)
@@ -280,8 +256,6 @@ verus! {
                         &&& log_impl.inv(wrpm_region, log_id)
                         &&& log_impl@ == state
                         &&& can_only_crash_as_state(wrpm_region@, log_id, state.drop_pending_appends())
-                        &&& wrpm_region@.timestamp.value() == old(wrpm_region)@.timestamp.value() + 1
-                        &&& wrpm_region@.timestamp.device_id() == old(wrpm_region)@.timestamp.device_id()
                     },
                     Err(LogErr::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     _ => false
@@ -361,7 +335,6 @@ verus! {
                         let state = old(self)@;
                         &&& offset == state.head + state.log.len() + state.pending.len()
                         &&& self@ == old(self)@.tentatively_append(bytes_to_append@)
-                        &&& wrpm_region@.timestamp == old(wrpm_region)@.timestamp
                     },
                     Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                         &&& self@ == old(self)@
@@ -579,21 +552,13 @@ verus! {
                 self.inv(wrpm_region, log_id),
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
-                wrpm_region@.timestamp.value() == old(wrpm_region)@.timestamp.value() + 2,
-                wrpm_region@.timestamp.device_id() == old(wrpm_region)@.timestamp.device_id(),
         {
-            proof {
-                lemma_auto_timestamp_helpers();
-            }
-
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
             let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                       else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
-
-            let ghost old_timestamp = wrpm_region@.timestamp;
 
             ///////////////////////////////////////
             // Update the inactive log metadata.
@@ -690,7 +655,6 @@ verus! {
                        #[trigger] perm.check_permission(s));
             assert(self.info.log_area_len == prev_info.log_area_len);
             assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info));
-            assert(wrpm_region@.timestamp == old_timestamp);
 
             // Prove that after the flush we're about to do, all our
             // invariants will continue to hold (using the still-unchanged
@@ -830,8 +794,6 @@ verus! {
                 can_only_crash_as_state(wrpm_region@, log_id, self@.drop_pending_appends()),
                 result is Ok,
                 self@ == old(self)@.commit(),
-                wrpm_region@.timestamp.value() == old(wrpm_region)@.timestamp.value() + 2,
-                wrpm_region@.timestamp.device_id() == old(wrpm_region)@.timestamp.device_id(),
         {
             let ghost prev_info = self.info;
             let ghost prev_state = self.state@;
@@ -887,7 +849,6 @@ verus! {
                     ||| Self::recover(s, log_id) ==
                         Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
                 },
-                // old(wrpm_region)@.device_id() == timestamp@.device_id()
             ensures
                 self.inv(wrpm_region, log_id),
                 wrpm_region.constants() == old(wrpm_region).constants(),
@@ -896,8 +857,6 @@ verus! {
                     Ok(()) => {
                         &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
                         &&& self@ == old(self)@.advance_head(new_head as int)
-                        &&& wrpm_region@.timestamp.value() == old(wrpm_region)@.timestamp.value() + 2
-                        &&& wrpm_region@.timestamp.device_id() == old(wrpm_region)@.timestamp.device_id()
                     },
                     Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
                         &&& self@ == old(self)@

@@ -43,7 +43,6 @@ use std::fmt::Write;
 use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::timestamp_t::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -209,23 +208,6 @@ verus! {
         wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>
     }
 
-    impl<PMRegions: PersistentMemoryRegions> TimestampedModule for MultiLogImpl<PMRegions> {
-        closed spec fn get_timestamp(&self) -> PmTimestamp
-        {
-            self.wrpm_regions@.timestamp
-        }
-
-        open spec fn inv(self) -> bool {
-            self.valid()
-        }
-
-        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
-            proof { self.lemma_valid_implies_wrpm_inv(); }
-            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp);
-            proof { self.lemma_untrusted_log_inv_implies_valid(); }
-        }
-    }
-
     impl <PMRegions: PersistentMemoryRegions> MultiLogImpl<PMRegions> {
         // The view of a `MultiLogImpl` is whatever the
         // `UntrustedMultiLogImpl` it wraps says it is.
@@ -238,11 +220,6 @@ verus! {
         // persistent memory it wraps says they are.
         pub closed spec fn constants(&self) -> PersistentMemoryConstants {
             self.wrpm_regions.constants()
-        }
-
-        pub closed spec fn device_id(&self) -> u128
-        {
-            self.wrpm_regions@.device_id()
         }
 
         // This is the validity condition that is maintained between
@@ -310,8 +287,6 @@ verus! {
                         // postcond of `setup` ensures that the trusted caller doesn't have to prove it
                         &&& UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 2
-                        &&& pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
@@ -353,8 +328,6 @@ verus! {
                         &&& trusted_log_impl.constants() == pm_regions.constants()
                         &&& Some(trusted_log_impl@) == UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(),
                                                                                      multilog_id)
-                        &&& trusted_log_impl.get_timestamp().value() == pm_regions@.timestamp.value() + 1
-                        &&& trusted_log_impl.get_timestamp().device_id() == pm_regions@.timestamp.device_id()
                     },
                     Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
                     _ => false
@@ -400,7 +373,6 @@ verus! {
                         &&& which_log < old(self)@.num_logs()
                         &&& offset == state.head + state.log.len() + state.pending.len()
                         &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
-                        &&& self.get_timestamp() == old(self).get_timestamp()
                     },
                     Err(MultiLogErr::InvalidLogIndex { }) => {
                         &&& which_log >= self@.num_logs()
@@ -443,12 +415,8 @@ verus! {
                 self.valid(),
                 self.constants() == old(self).constants(),
                 match result {
-                    Ok(()) => {
-                        &&& self@ == old(self)@.commit()
-                        &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
-                        &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
-                    }
-                    _ => false
+                    Ok(()) => self@ == old(self)@.commit(),
+                    _ => false,
                 }
         {
             // For crash safety, we must restrict the untrusted code's
@@ -481,8 +449,6 @@ verus! {
                         &&& which_log < self@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
                         &&& self@ == old(self)@.advance_head(w, new_head as int)
-                        &&& self.get_timestamp().value() == old(self).get_timestamp().value() + 2
-                        &&& self.get_timestamp().device_id() == old(self).get_timestamp().device_id()
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
                         &&& which_log >= self@.num_logs()

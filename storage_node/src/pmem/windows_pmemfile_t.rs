@@ -9,9 +9,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
     PmemError,
 };
-use crate::pmem::device_t::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use deps_hack::rand::Rng;
@@ -277,161 +275,6 @@ unsafe impl Sync for MemoryMappedFile {}
 
 verus! {
 
-// This executable method can be called to compute a random GUID.
-// It uses the external `rand` crate.
-#[verifier::external_body]
-pub exec fn generate_fresh_device_id() -> (out: u128)
-{
-    deps_hack::rand::thread_rng().gen::<u128>()
-}
-
-pub struct FileBackedPersistentMemoryRegionDescription
-{
-    mmf: std::rc::Rc<MemoryMappedFile>,  // the memory-mapped file
-    offset: u64,                         // the offset into the file where the region starts
-    size: u64,                           // the length of the region
-    device_id: u128,                     // device ID
-    timestamp: Ghost<PmTimestamp>,       // timestamp of last flush
-}
-
-impl RegionDescriptor for FileBackedPersistentMemoryRegionDescription
-{
-    closed spec fn view(&self) -> RegionDescriptorView {
-        RegionDescriptorView {
-            len: self.size,
-            timestamp: self.timestamp@,
-            device_id: self.device_id,
-        }
-    }
-
-    fn device_id(&self) -> u128 {
-        self.device_id
-    }
-
-    fn len(&self) -> u64 {
-        self.size
-    }
-}
-
-pub struct FileBackedPersistentMemoryDevice
-{
-    mmf: std::rc::Rc<MemoryMappedFile>, // the memory-mapped file
-    size: u64,                          // the length of the file
-    device_id: u128,                    // device ID
-    cursor: u64,                        // offset beyond which file hasn't yet been allocated to regions
-}
-
-impl PmDevice for FileBackedPersistentMemoryDevice
-{
-    type RegionDesc = FileBackedPersistentMemoryRegionDescription;
-
-    closed spec fn len(&self) -> u64
-    {
-        self.size
-    }
-
-    fn capacity(&self) -> u64
-    {
-        self.size
-    }
-
-    closed spec fn spec_device_id(&self) -> u128
-    {
-        self.device_id
-    }
-
-    fn device_id(&self) -> u128
-    {
-        self.device_id
-    }
-
-    closed spec fn spec_get_cursor(&self) -> Option<u64>
-    {
-        if self.cursor >= self.size {
-            None
-        } else {
-            Some(self.cursor)
-        }
-    }
-
-    fn get_cursor(&self) -> Option<u64>
-    {
-        if self.cursor >= self.size {
-            None
-        } else {
-            Some(self.cursor)
-        }
-    }
-
-    fn inc_cursor(&mut self, len: u64)
-    {
-        self.cursor = self.cursor + len;
-    }
-
-    // Must be external body to operate on raw pointers
-    #[verifier::external_body]
-    fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
-    {
-        let offset = self.cursor;
-        self.inc_cursor(len);
-        Ok(FileBackedPersistentMemoryRegionDescription {
-            mmf: self.mmf.clone(),
-            offset,
-            size: len,
-            timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
-            device_id: self.device_id()
-        })
-    }
-}
-
-impl FileBackedPersistentMemoryDevice
-{
-    // The static function `new` creates the file with the given path,
-    // maps it into memory, and returns a `FileBackedPersistentMemoryDevice`.
-
-    #[verifier::external_body]
-    pub fn new(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64,
-               close_behavior: FileCloseBehavior)
-               -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(pm) => pm.len() == size,
-                Err(_) => true
-            }
-    {
-        let mmf = MemoryMappedFile::from_file(file_path, size as usize, media_type.clone(),
-                                              FileOpenBehavior::CreateNew, close_behavior);
-        Ok(Self {
-            mmf: std::rc::Rc::new(mmf),
-            size,
-            device_id: generate_fresh_device_id(),
-            cursor: 0
-        })
-    }
-
-    // The static function `restore` maps the existing file with the given path
-    // into memory and returns a `FileBackedPersistentMemoryRegion`.
-
-    #[verifier::external_body]
-    pub fn restore(file_path: &StrSlice, media_type: MemoryMappedFileMediaType, size: u64)
-                  -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(pm) => pm.len() == size,
-                Err(_) => true
-            }
-    {
-        let mmf = MemoryMappedFile::from_file(file_path, size as usize, media_type.clone(),
-                                              FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent);
-        Ok(Self {
-            mmf: std::rc::Rc::new(mmf),
-            size,
-            device_id: generate_fresh_device_id(),
-            cursor: 0
-        })
-    }
-}
-
 // The `FileBackedPersistentMemoryRegion` struct represents a
 // persistent-memory region backed by a memory-mapped file.
 
@@ -439,25 +282,71 @@ impl FileBackedPersistentMemoryDevice
 pub struct FileBackedPersistentMemoryRegion
 {
     pub section: MemoryMappedFileSection,                          // the memory-mapped file section
-    pub persistent_memory_view: Ghost<PersistentMemoryRegionView>, // an abstract view of the contents
-    pub device_id: u128,                                           // device ID
-    pub timestamp: Ghost<PmTimestamp>,                             // timestamp of last flush
+}
+
+impl FileBackedPersistentMemoryRegion
+{
+    #[verifier::external_body]
+    fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
+                    open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
+                    -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(region) => region.inv() && region@.len() == region_size,
+                Err(_) => true,
+            }
+    {
+        let mmf = MemoryMappedFile::from_file(
+            path,
+            region_size.try_into().unwrap(),
+            media_type,
+            open_behavior,
+            close_behavior
+        );
+        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
+        let section = MemoryMappedFileSection::new(mmf, 0, region_size.try_into().unwrap());
+        Ok(Self { section })
+    }
+
+    pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
+           close_behavior: FileCloseBehavior) -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(region) => region.inv() && region@.len() == region_size,
+                Err(_) => true,
+            }
+    {
+        Self::new_internal(path, media_type, region_size, FileOpenBehavior::CreateNew, close_behavior)
+    }
+
+    pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64)
+               -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(region) => region.inv() && region@.len() == region_size,
+                Err(_) => true,
+            }
+    {
+        Self::new_internal(path, media_type, region_size, FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent)
+    }
+
+    #[verifier::external_body]
+    fn new_from_section(section: MemoryMappedFileSection) -> (result: Self)
+        ensures
+            result.inv(),
+            result@.len() == section.size,
+    {
+        Self{ section }
+    }
 }
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
-    type RegionDesc = FileBackedPersistentMemoryRegionDescription;
-
-    closed spec fn view(&self) -> PersistentMemoryRegionView
-    {
-        self.persistent_memory_view@
-    }
+    closed spec fn view(&self) -> PersistentMemoryRegionView;
 
     closed spec fn inv(&self) -> bool
     {
-        &&& self@.len() == self.section.size
-        &&& self.device_id == self@.device_id
-        &&& self@.timestamp.device_id() == self.spec_device_id()
+        self@.len() == self.section.size
     }
 
     closed spec fn constants(&self) -> PersistentMemoryConstants
@@ -465,53 +354,9 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         PersistentMemoryConstants { impervious_to_corruption: true }
     }
 
-    fn device_id(&self) -> u128
-    {
-        self.device_id
-    }
-
-    closed spec fn spec_device_id(&self) -> u128
-    {
-        self.device_id
-    }
-
     fn get_region_size(&self) -> u64
     {
         self.section.size as u64
-    }
-
-    #[verifier::external_body]
-    fn new(region_descriptor: Self::RegionDesc) -> Result<Self, PmemError>
-    {
-        // We don't really know what the contents of memory are,
-        // so just make something up (all zeroes). The
-        // postcondition doesn't expose the contents, so all
-        // that matters is the length.
-        let ghost state = Seq::new(
-            region_descriptor.size as nat,
-            |i| PersistentMemoryByte {
-                state_at_last_flush: 0,
-                outstanding_write: None,
-            }
-        );
-        let persistent_memory_view = Ghost(
-            PersistentMemoryRegionView {
-                state,
-                device_id: region_descriptor.device_id,
-                timestamp: region_descriptor@.timestamp
-            }
-        );
-        let section = MemoryMappedFileSection::new(
-            region_descriptor.mmf,
-            region_descriptor.offset.try_into().unwrap(),
-            region_descriptor.size.try_into().unwrap(),
-        );
-        Ok(Self {
-            section,
-            persistent_memory_view,
-            device_id: region_descriptor.device_id,
-            timestamp: region_descriptor.timestamp,
-        })
     }
 
     #[verifier::external_body]
@@ -555,7 +400,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     {
         let addr_usize: usize = addr.try_into().unwrap();
         let _ = self.section.update_region(addr_usize, bytes);
-        self.persistent_memory_view = Ghost(self.persistent_memory_view@.write(addr as int, bytes@))
     }
 
     #[verifier::external_body]
@@ -593,14 +437,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn flush(&mut self)
     {
-        self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
         self.section.flush();
-    }
-
-    #[allow(unused_variables)]
-    fn update_region_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>)
-    {
-        self.persistent_memory_view = Ghost(self.persistent_memory_view@.update_region_with_timestamp(new_timestamp@));
     }
 }
 
@@ -610,12 +447,49 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 
 pub struct FileBackedPersistentMemoryRegions
 {
-    media_type: MemoryMappedFileMediaType,       // common media file type used
-    dev: FileBackedPersistentMemoryDevice,       // device corresponding to the file all regions are part of
-    pms: Vec<FileBackedPersistentMemoryRegion>,  // all regions
+    media_type: MemoryMappedFileMediaType,           // common media file type used
+    regions: Vec<FileBackedPersistentMemoryRegion>,  // all regions
 }
 
 impl FileBackedPersistentMemoryRegions {
+    #[verifier::external_body]
+    fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
+                    open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
+                    -> (result: Result<Self, PmemError>)
+        ensures
+            match result {
+                Ok(pm_regions) => {
+                    &&& pm_regions.inv()
+                    &&& pm_regions@.no_outstanding_writes()
+                    &&& pm_regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+                },
+                Err(_) => true
+            }
+    {
+        let mut total_size = 0;
+        for region_size in region_sizes {
+            total_size = total_size + region_size;
+        }
+        let mmf = MemoryMappedFile::from_file(
+            path,
+            total_size.try_into().unwrap(),
+            media_type.clone(),
+            open_behavior,
+            close_behavior
+        );
+        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
+        let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
+        let mut offset: usize = 0;
+        for i in 0..region_sizes.len() {
+            let region_size: usize = region_sizes[i].try_into().unwrap();
+            let section = MemoryMappedFileSection::new(mmf.clone(), offset, region_size.try_into().unwrap());
+            let region = FileBackedPersistentMemoryRegion::new_from_section(section);
+            regions.push(region);
+            offset += region_size;
+        }
+        Ok(Self { media_type, regions })
+    }
 
     // The static function `new` creates a
     // `FileBackedPersistentMemoryRegions` object by creating a file
@@ -629,7 +503,6 @@ impl FileBackedPersistentMemoryRegions {
     // `region_sizes[i]` is the length of file `log<i>`
     //
     // `close_behavior` -- what to do when the file is closed
-    #[verifier::external_body]
     pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
                close_behavior: FileCloseBehavior)
                -> (result: Result<Self, PmemError>)
@@ -644,19 +517,7 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true
             }
     {
-        let mut total_size = 0;
-        for region_size in region_sizes {
-            total_size = total_size + region_size;
-        }
-        let mut dev = FileBackedPersistentMemoryDevice::new(&path, media_type.clone(), total_size, close_behavior)?;
-        let mut pms = Vec::<FileBackedPersistentMemoryRegion>::new();
-        for i in 0..region_sizes.len() {
-            let region_size = region_sizes[i];
-            let region_desc = dev.get_new_region(region_size)?;
-            let pm = FileBackedPersistentMemoryRegion::new(region_desc)?;
-            pms.push(pm);
-        }
-        Ok(Self { media_type, dev, pms })
+        Self::new_internal(path, media_type, region_sizes, FileOpenBehavior::CreateNew, close_behavior)
     }
 
     // The static function `restore` creates a
@@ -669,7 +530,6 @@ impl FileBackedPersistentMemoryRegions {
     //
     // `region_sizes` -- a vector of region sizes, where
     // `region_sizes[i]` is the length of file `log<i>`
-    #[verifier::external_body]
     pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64])
                    -> (result: Result<Self, PmemError>)
         ensures
@@ -683,108 +543,54 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true
             }
     {
-        let mut total_size = 0;
-        for region_size in region_sizes {
-            total_size = total_size + region_size;
-        }
-        let mut dev = FileBackedPersistentMemoryDevice::restore(&path, media_type.clone(), total_size)?;
-        let mut pms = Vec::<FileBackedPersistentMemoryRegion>::new();
-        for i in 0..region_sizes.len() {
-            let region_size = region_sizes[i];
-            let region_desc = dev.get_new_region(region_size)?;
-            let pm = FileBackedPersistentMemoryRegion::new(region_desc)?;
-            pms.push(pm);
-        }
-        Ok(Self { media_type, dev, pms })
-    }
-
-    // The static function `new_single_region` creates a
-    // `FileBackedPersistentMemoryRegion` object by creating a file
-    // and mapping it all into a single memory-mapped section.
-    //
-    // `path` -- the path to use for the file
-    //
-    // `media_type` -- the type of media the path refers to
-    //
-    // `region_size` -- the region size
-    //
-    // `close_behavior` -- what to do when the file is closed
-    #[verifier::external_body]
-    pub fn new_single_region(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
-                             close_behavior: FileCloseBehavior)
-                             -> (result: Result<FileBackedPersistentMemoryRegion, PmemError>)
-        ensures
-            match result {
-                Ok(pm_region) => {
-                    &&& pm_region.inv()
-                    &&& pm_region@.no_outstanding_writes()
-                    &&& pm_region@.len() == region_size
-                },
-                Err(_) => true
-            }
-    {
-        let mut dev = FileBackedPersistentMemoryDevice::new(&path, media_type.clone(), region_size, close_behavior)?;
-        let region_desc = dev.get_new_region(region_size)?;
-        FileBackedPersistentMemoryRegion::new(region_desc)
+        Self::new_internal(
+            path, media_type, region_sizes, FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent
+        )
     }
 }
 
 impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    closed spec fn view(&self) -> PersistentMemoryRegionsView
-    {
-        PersistentMemoryRegionsView {
-            regions: self.pms@.map(|_idx, pm: FileBackedPersistentMemoryRegion| pm@),
-            timestamp: self.pms[0]@.timestamp,
-            device_id: self.dev.device_id,
-        }
-    }
+    #[verifier::external_body]
+    closed spec fn view(&self) -> PersistentMemoryRegionsView;
 
     closed spec fn inv(&self) -> bool
     {
-        forall |i: int| #![trigger(self.pms[i])] 0 <= i < self.pms.len() ==> self.pms[i].inv()
+        forall |i: int| #![trigger(self.regions[i])] 0 <= i < self.regions.len() ==> self.regions[i].inv()
     }
 
-    closed spec fn constants(&self) -> PersistentMemoryConstants
-    {
-        PersistentMemoryConstants { impervious_to_corruption: true }
-    }
+    #[verifier::external_body]
+    closed spec fn constants(&self) -> PersistentMemoryConstants;
 
-    closed spec fn spec_device_id(&self) -> u128
-    {
-        self.dev.spec_device_id()
-    }
-
-    fn device_id(&self) -> (result: u128)
-    {
-        self.dev.device_id()
-    }
-
+    #[verifier::external_body]
     fn get_num_regions(&self) -> usize
     {
-        self.pms.len()
+        self.regions.len()
     }
 
+    #[verifier::external_body]
     fn get_region_size(&self, index: usize) -> u64
     {
-        self.pms[index].get_region_size()
+        self.regions[index].get_region_size()
     }
 
+    #[verifier::external_body]
     fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
     {
-        self.pms[index].read(addr, num_bytes)
+        self.regions[index].read(addr, num_bytes)
     }
 
+    #[verifier::external_body]
     fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
         where
             S: Serializable + Sized
     {
-        self.pms[index].read_and_deserialize(addr)
+        self.regions[index].read_and_deserialize(addr)
     }
 
     #[verifier::external_body]
     fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
     {
-        self.pms[index].write(addr, bytes)
+        self.regions[index].write(addr, bytes)
     }
 
     #[verifier::external_body]
@@ -792,7 +598,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
         where
             S: Serializable + Sized
     {
-        self.pms[index].serialize_and_write(addr, to_write);
+        self.regions[index].serialize_and_write(addr, to_write);
     }
 
     #[verifier::external_body]
@@ -812,21 +618,10 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
                 }
             },
             _ => {
-                for i in 0..self.pms.len() {
-                    self.pms[i].flush();
+                for i in 0..self.regions.len() {
+                    self.regions[i].flush();
                 }
             },
-        }
-    }
-
-    #[verifier::external_body]
-    fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
-    {
-        for i in iter: 0..self.pms.len()
-            invariant
-                iter.end == self.pms.len(),
-        {
-            self.pms[i].update_region_timestamp(new_timestamp);
         }
     }
 }
