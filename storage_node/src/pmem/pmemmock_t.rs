@@ -328,6 +328,18 @@ verus! {
             self.device_id
         }
 
+        fn split_off(&mut self, at: usize) -> Self
+        {
+            let regions2 = self.pms.split_off(at);
+            let ret = Self {
+                pms: regions2,
+                device_id: self.device_id
+            };
+            assert(self@.regions == old(self)@.regions.subrange(0, at as int));
+            assert(ret@.regions == old(self)@.regions.subrange(at as int, old(self)@.len() as int));
+            ret
+        }
+
         // TODO: same issue as the other update timestamp function -- this shouldn't really
         // be exec but I don't know how to do it with a spec function. Maybe the compiler
         // will just see that it's a no-op and optimize it out?

@@ -567,6 +567,18 @@ verus! {
                 result == self@.device_id,
         ;
 
+        // Similar to std::vec `split_off`; splits the regions into two at the given index,
+        // returning a newly-allocated `PersistentMemoryRegions` containing the regions
+        // in the rage [at, len) and removing those elements from the original
+        fn split_off(&mut self, at: usize) -> (result: Self)
+            requires
+                0 <= at <= old(self)@.len(),
+            ensures
+                self@.regions == old(self)@.regions.subrange(0, at as int),
+                result@.regions == old(self)@.regions.subrange(at as int, old(self)@.len() as int),
+                result.spec_device_id() == self.spec_device_id()
+        ;
+
         fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
             requires
                 old(self).inv(),

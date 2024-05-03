@@ -478,6 +478,18 @@ verus! {
             self.device_id
         }
 
+        fn split_off(&mut self, at: usize) -> Self
+        {
+            let regions2 = self.pms.split_off(at);
+            let ret = Self {
+                pms: regions2,
+                device_id: self.device_id
+            };
+            assert(self@.regions == old(self)@.regions.subrange(0, at as int));
+            assert(ret@.regions == old(self)@.regions.subrange(at as int, old(self)@.len() as int));
+            ret
+        }
+
         fn get_num_regions(&self) -> usize
         {
             self.pms.len()

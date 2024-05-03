@@ -3,17 +3,16 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
-use core::ffi::c_void;
+use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
-    PmemError,
+    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
-use crate::pmem::device_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
+use core::ffi::c_void;
 use deps_hack::rand::Rng;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
 use deps_hack::winapi::um::errhandlingapi::GetLastError;
@@ -58,7 +57,7 @@ pub enum FileCloseBehavior {
     TestingSoDeleteOnClose,
     Persistent,
 }
-    
+
 // Must be external body because Verus does not currently support raw pointers
 // TODO: is there a better/safer way to handle this? UnsafeCell maybe?
 #[verifier::external_body]
@@ -723,6 +722,20 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     {
         self.dev.device_id()
     }
+
+    // TODO: make sure this works on windows
+    fn split_off(&mut self, at: usize) -> Self
+        {
+            let regions2 = self.pms.split_off(at);
+            let ret = Self {
+                pms: regions2,
+                media_type: self.media_type,
+                dev: self.dev
+            };
+            assert(self@.regions == old(self)@.regions.subrange(0, at as int));
+            assert(ret@.regions == old(self)@.regions.subrange(at as int, old(self)@.len() as int));
+            ret
+        }
 
     fn get_num_regions(&self) -> usize
     {
