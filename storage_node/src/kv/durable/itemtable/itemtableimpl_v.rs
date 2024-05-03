@@ -66,7 +66,7 @@ verus! {
                 old(pm_regions)@.len() == 1,
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
                 ({
-                    let item_slot_size = I::spec_serialized_len() + VALID_BYTES_SIZE + CRC_SIZE;
+                    let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * num_keys < usize::MAX
                     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
@@ -93,7 +93,7 @@ verus! {
             let table_region_size = region_sizes[0];
             // determine if the provided region is large enough for the
             // specified number of items
-            let item_slot_size = item_size + VALID_BYTES_SIZE + CRC_SIZE;
+            let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
                 let actual: usize = region_sizes[0] as usize;
@@ -134,7 +134,7 @@ verus! {
                 old(wrpm_regions).inv(),
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
                 ({
-                    let item_slot_size = I::spec_serialized_len() + VALID_BYTES_SIZE + CRC_SIZE;
+                    let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                 })
@@ -171,7 +171,7 @@ verus! {
             let table_region_size = region_sizes[0];
             // determine if the provided region is large enough for the
             // specified number of items
-            let item_slot_size = item_size + VALID_BYTES_SIZE + CRC_SIZE;
+            let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
                 let actual: usize = region_sizes[0] as usize;
@@ -224,7 +224,7 @@ verus! {
                 forall |i: int|  0 <= i < old(self).spec_free_list().len() ==>
                     0 <= #[trigger] old(self).spec_free_list()[i] < old(self).spec_num_keys(),
                 ({
-                    let item_slot_size = old(self).spec_item_size() + VALID_BYTES_SIZE + CRC_SIZE;
+                    let item_slot_size = old(self).spec_item_size() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
@@ -242,7 +242,7 @@ verus! {
                 None => return Err(KvError::OutOfSpace)
             };
             assert(free_index < self.num_keys);
-            let item_slot_size = self.item_size + VALID_BYTES_SIZE + CRC_SIZE;
+            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + free_index * item_slot_size;
 
             // calculate and write the CRC of the provided item
@@ -268,7 +268,7 @@ verus! {
             requires
                 old(wrpm_regions).inv(),
                 ({
-                    let item_slot_size = old(self).spec_item_size() + VALID_BYTES_SIZE + CRC_SIZE;
+                    let item_slot_size = old(self).spec_item_size() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
@@ -280,7 +280,7 @@ verus! {
                 // TODO
         {
             assume(false);
-            let item_slot_size = self.item_size + VALID_BYTES_SIZE + CRC_SIZE;
+            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
             Ok(())
@@ -305,7 +305,7 @@ verus! {
                 // TODO
         {
             assume(false);
-            let item_slot_size = self.item_size + VALID_BYTES_SIZE + CRC_SIZE;
+            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE, Tracked(perm));
             Ok(())
@@ -319,7 +319,7 @@ verus! {
             old(pm_regions)@.len() == 1,
             old(pm_regions)@.no_outstanding_writes(),
             ({
-                let item_size = I::spec_serialized_len() + VALID_BYTES_SIZE + CRC_SIZE;
+                let item_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                 let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                 old(pm_regions)@[0].len() >= metadata_header_size + (item_size * num_keys)
             })
@@ -355,7 +355,7 @@ verus! {
         ensures
             match result {
                 Ok(output_table) => {
-                    let item_slot_size = I::spec_serialized_len() + VALID_BYTES_SIZE + CRC_SIZE;
+                    let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
                     let num_keys = output_table.num_keys;
                     &&& 0 <= item_slot_size < usize::MAX

@@ -45,7 +45,7 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
-    #[derive(Debug)]
+    #[derive(Debug, Eq, PartialEq, Clone)]
     pub enum PmemError {
         InvalidFileName,
         CannotOpenPmFile,
@@ -154,6 +154,8 @@ verus! {
 
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
+
+    pub const CDB_SIZE: u64 = 8;
 
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
@@ -572,8 +574,11 @@ verus! {
         // in the rage [at, len) and removing those elements from the original
         fn split_off(&mut self, at: usize) -> (result: Self)
             requires
+                old(self).inv(),
                 0 <= at <= old(self)@.len(),
             ensures
+                self.inv(),
+                result.inv(),
                 self@.regions == old(self)@.regions.subrange(0, at as int),
                 result@.regions == old(self)@.regions.subrange(at as int, old(self)@.len() as int),
                 result.spec_device_id() == self.spec_device_id()

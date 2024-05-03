@@ -24,11 +24,14 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use super::durable::durableimpl_v::*;
+use super::durable::durablelist::layout_v::*;
 use super::durable::durablespec_t::*;
+use super::durable::itemtable::layout_v::*;
 use super::kvimpl_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
+use crate::multilog::multilogimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
@@ -59,6 +62,7 @@ where
     InvalidItemTableHeader,
     InvalidListMetadata,
     InvalidListRegionMetadata,
+    MultiLogErr { err: MultiLogErr }
 }
 
 pub trait Item<K> : Sized {
@@ -117,33 +121,44 @@ where
     /// volatile components of the key-value store.
     /// `list_node_size` is the number of list entries in each node (not the number
     /// of bytes used by each node)
-    fn new(
+    fn setup(
         pmem: PM,
         kvstore_id: u128,
-        max_keys: usize,
-        list_node_size: usize
-    ) -> (result: Result<Self, KvError<K, E>>)
+        num_keys: u64,
+        node_size: u32
+    ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
         requires
             pmem.inv(),
+            ({
+                let metadata_size = ListEntryMetadata::spec_serialized_len();
+                let key_size = K::spec_serialized_len();
+                let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+                let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+                &&& metadata_slot_size <= u64::MAX
+                &&& list_element_slot_size <= u64::MAX
+                &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+            }),
+            L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+            node_size < u32::MAX,
+            0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
+            ({
+                let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
+                &&& 0 <= item_slot_size < usize::MAX
+                &&& 0 <= item_slot_size * num_keys < usize::MAX
+                &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+            })
         ensures
-            match result {
-                Ok(new_kv) => {
-                    &&& new_kv.valid()
+            match(result) {
+                Ok((log_region, list_regions, item_region)) => {
+                    &&& log_region.inv()
+                    &&& list_regions.inv()
+                    &&& item_region.inv()
                 }
-                Err(_) => true
+                Err(_) => true // TODO
             }
     {
-        Ok(
-            Self {
-                id: kvstore_id,
-                untrusted_kv_impl: UntrustedKvStoreImpl::untrusted_new(
-                    pmem,
-                    kvstore_id,
-                    max_keys,
-                    list_node_size
-                )?
-            }
-        )
+        UntrustedKvStoreImpl::<PM, K, I, L, V, E>::untrusted_setup(pmem, kvstore_id, num_keys, node_size)
     }
 
     fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K, E>>)

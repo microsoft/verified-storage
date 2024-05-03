@@ -77,8 +77,6 @@ verus! {
     pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 8;
     pub const RELATIVE_POS_OF_ITEM: u64 = 16;
 
-    pub const VALID_BYTES_SIZE: u64 = 8;
-
     // TODO: should this be trusted?
     impl Serializable for ItemTableMetadata
     {

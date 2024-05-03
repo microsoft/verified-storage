@@ -173,7 +173,6 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 24;
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 32;
     pub const LENGTH_OF_ENTRY_METADATA_MINUS_KEY: u64 = 32;
-    pub const VALID_BYTES_SIZE: u64 = 8;
 
     #[repr(C)]
     pub struct ListEntryMetadata

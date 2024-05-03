@@ -8,9 +8,11 @@ use vstd::prelude::*;
 
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
 use crate::kv::durable::durablelist::durablelistspec_t::*;
+use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::durablespec_t::*;
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
+use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
@@ -69,24 +71,73 @@ verus! {
 
         // This function doesn't take a perm because it performs initial setup
         // for each structure, which we don't guarantee will be crash consistent
-        pub fn new(pmem: PM,
+        // TODO: we also need a recovery method; this one starts from scratch
+        pub fn setup(
+            mut pmem: PM,
             kvstore_id: u128,
-            max_keys: usize,
-            lower_bound_on_max_pages: usize,
-        ) -> (result: Result<Self, KvError<K, E>>)
+            num_keys: u64,
+            node_size: u32,
+            // lower_bound_on_max_pages: usize,
+        ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
+            requires
+                pmem.inv(),
+                ({
+                    let metadata_size = ListEntryMetadata::spec_serialized_len();
+                    let key_size = K::spec_serialized_len();
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+                    let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+                    &&& metadata_slot_size <= u64::MAX
+                    &&& list_element_slot_size <= u64::MAX
+                    &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                    &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+                }),
+                L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+                node_size < u32::MAX,
+                0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
+                ({
+                    let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
+                    &&& 0 <= item_slot_size < usize::MAX
+                    &&& 0 <= item_slot_size * num_keys < usize::MAX
+                    &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+                })
             ensures
                 match(result) {
-                    Ok(durable_store) => {
-                        &&& durable_store@.empty()
-                        &&& durable_store.valid()
-                        &&& durable_store@.valid()
-                        &&& durable_store@.contents.dom().finite()
+                    Ok((log_region, list_regions, item_region)) => {
+                        &&& log_region.inv()
+                        &&& list_regions.inv()
+                        &&& item_region.inv()
                     }
                     Err(_) => true // TODO
                 }
         {
-            assume(false);
-            Err(KvError::NotImplemented)
+            // TODO: what ID should we use for the new components? Should we generate a new one
+            // for each, or should it match the KV store?
+
+            // 1. split given PM regions up so that each corresponds with one of the
+            // durable components
+            let num_regions = pmem.get_num_regions();
+            if num_regions < 4 {
+                return Err(KvError::TooFewRegions {required: 4, actual: num_regions });
+            } else if num_regions > 4 {
+                return Err(KvError::TooManyRegions {required: 4, actual: num_regions });
+            }
+
+            let mut log_region = pmem.split_off(3);
+            let mut list_regions = pmem.split_off(1);
+            let mut item_table_region = pmem;
+
+            // 2. set up each component
+            // the component setup functions will make sure that the regions are large enough
+            let result = UntrustedMultiLogImpl::setup(&mut log_region, kvstore_id);
+            if let Err(e) = result {
+                return Err(KvError::MultiLogErr { err: e });
+            }
+
+            DurableList::<K, L, E>::setup(&mut list_regions, kvstore_id, num_keys, node_size)?;
+
+            DurableItemTable::<K, I, E>::setup(&mut item_table_region, kvstore_id, num_keys as u64)?;
+
+            Ok((log_region, list_regions, item_table_region))
         }
 
         pub fn create(

@@ -159,7 +159,7 @@ verus! {
     // This enumeration represents the various errors that can be
     // returned from multilog operations. They're self-explanatory.
     // TODO: make PmemErr and MultiLogErr handling cleaner
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum MultiLogErr {
         CantSetupWithFewerThanOneRegion { },
         CantSetupWithMoreThanU32MaxRegions { },

@@ -16,7 +16,9 @@ use vstd::prelude::*;
 use vstd::seq::*;
 
 use super::durable::durableimpl_v::*;
+use super::durable::durablelist::layout_v::*;
 use super::durable::durablespec_t::*;
+use super::durable::itemtable::layout_v::*;
 use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
@@ -42,7 +44,7 @@ where
     id: u128,
     durable_store: DurableKvStore<PM, K, I, L, E>,
     volatile_index: V,
-    entries_per_list_node: usize,
+    node_size: u32,
     _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>,
 }
 
@@ -93,34 +95,46 @@ where
         &&& self.volatile_index.valid()
     }
 
-    pub fn untrusted_new(
+    // This only sets up new durable components for a new KV. We will handle
+    // the volatile index in `untrusted_start`
+    pub fn untrusted_setup(
         pmem: PM,
         kvstore_id: u128,
-        max_keys: usize,
-        list_node_size: usize,
-    ) -> (result: Result<Self, KvError<K, E>>)
+        num_keys: u64,
+        node_size: u32,
+    ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
+        requires
+            pmem.inv(),
+            ({
+                let metadata_size = ListEntryMetadata::spec_serialized_len();
+                let key_size = K::spec_serialized_len();
+                let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+                let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+                &&& metadata_slot_size <= u64::MAX
+                &&& list_element_slot_size <= u64::MAX
+                &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+            }),
+            L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+            node_size < u32::MAX,
+            0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
+            ({
+                let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
+                &&& 0 <= item_slot_size < usize::MAX
+                &&& 0 <= item_slot_size * num_keys < usize::MAX
+                &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+            })
         ensures
-            match result {
-                Ok(new_kv) => {
-                    &&& new_kv.valid()
+            match(result) {
+                Ok((log_region, list_regions, item_region)) => {
+                    &&& log_region.inv()
+                    &&& list_regions.inv()
+                    &&& item_region.inv()
                 }
-                Err(_) => true
+                Err(_) => true // TODO
             }
     {
-        let durable_store = DurableKvStore::new(pmem, kvstore_id, max_keys, list_node_size)?;
-        let volatile_index = V::new(kvstore_id, max_keys)?;
-        let kv = Self {
-            id: kvstore_id,
-            durable_store,
-            volatile_index,
-            entries_per_list_node: list_node_size,
-            _phantom: Ghost(spec_phantom_data()),
-        };
-        proof {
-            lemma_empty_index_matches_empty_store(durable_store@, volatile_index@);
-            kv.lemma_empty_kv();
-        }
-        Ok(kv)
+        DurableKvStore::<PM, K, I, L, E>::setup(pmem, kvstore_id, num_keys, node_size)
     }
 
     pub fn untrusted_create(

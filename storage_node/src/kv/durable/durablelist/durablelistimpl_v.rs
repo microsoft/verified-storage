@@ -45,7 +45,7 @@ verus! {
             pm_regions: &mut PM,
             list_id: u128,
             num_keys: u64,
-            node_size: u64,
+            node_size: u32,
         ) -> (result: Result<(), KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions
@@ -55,7 +55,7 @@ verus! {
                 ({
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
                     let key_size = K::spec_serialized_len();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
                     let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
@@ -92,20 +92,20 @@ verus! {
             let table_region_size = region_sizes[0];
             let node_region_size = region_sizes[1];
             let metadata_size = ListEntryMetadata::serialized_len();
-            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + VALID_BYTES_SIZE;
+            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + CDB_SIZE;
 
             let list_element_size = L::serialized_len();
             let list_element_slot_size = list_element_size + CRC_SIZE;
 
             // check that the table region is large enough -- needs at least as many slots as keys
-            if ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) > table_region_size {
-                let required = (ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys)) as usize;
+            if ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys as u64) > table_region_size {
+                let required = (ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys as u64)) as usize;
                 let actual = table_region_size as usize;
                 return Err(KvError::RegionTooSmall{required, actual});
             }
 
             // check that the table region is large enough -- needs to fit at least one node
-            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size;
+            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
             if required_node_region_size > node_region_size {
                 let required = required_node_region_size as usize;
                 let actual = node_region_size as usize;
@@ -136,7 +136,7 @@ verus! {
                 ({
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
                     let key_size = K::spec_serialized_len();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
                     let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
@@ -167,7 +167,7 @@ verus! {
             let table_region_size = region_sizes[0];
             let node_region_size = region_sizes[1];
             let metadata_size = ListEntryMetadata::serialized_len();
-            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + VALID_BYTES_SIZE;
+            let metadata_slot_size = metadata_size + CRC_SIZE + K::serialized_len() + CDB_SIZE;
 
             let list_element_size = L::serialized_len();
             let list_element_slot_size = list_element_size + CRC_SIZE;
@@ -433,7 +433,7 @@ verus! {
         pub fn write_setup_metadata<PM>(
             pm_regions: &mut PM,
             num_keys: u64,
-            node_size: u64,
+            node_size: u32,
         ) -> (result: Result<(), KvError<K,E>>)
             where
                 PM: PersistentMemoryRegions
@@ -445,7 +445,7 @@ verus! {
                 ({
                     // the first region is large enough to be the metadata table
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + K::spec_serialized_len() + VALID_BYTES_SIZE;
+                    let metadata_slot_size = metadata_size + CRC_SIZE + K::spec_serialized_len() + CDB_SIZE;
                     old(pm_regions)@[0].len() >= ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys)
                 }),
                 // the second region is large enough for at least one node
@@ -460,8 +460,8 @@ verus! {
             let element_size = L::serialized_len() + CRC_SIZE;
             let metadata_table_header = GlobalListMetadata {
                 element_size: (L::serialized_len() + CRC_SIZE) as u32,
-                node_size: node_size as u32,
-                num_keys,
+                node_size: node_size,
+                num_keys: num_keys as u64,
                 version_number: LIST_METADATA_VERSION_NUMBER,
                 _padding: 0,
                 program_guid: DURABLE_LIST_METADATA_TABLE_PROGRAM_GUID
@@ -473,7 +473,7 @@ verus! {
             pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_table_header);
             pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_HEADER_CRC, &metadata_table_header_crc);
 
-            let metadata_header_entry_slot_size = VALID_BYTES_SIZE + CRC_SIZE + LENGTH_OF_ENTRY_METADATA_MINUS_KEY + K::serialized_len();
+            let metadata_header_entry_slot_size = CDB_SIZE + CRC_SIZE + LENGTH_OF_ENTRY_METADATA_MINUS_KEY + K::serialized_len();
             // invalidate all metadata table entries so that we can scan it and build the allocator
             for index in 0..num_keys
                 // TODO: invariant
@@ -486,7 +486,7 @@ verus! {
             // 2) Handle list node region
             // Initialize list region header and compute its CRC
             let region_sizes = get_region_sizes(pm_regions);
-            let num_nodes = (region_sizes[1] - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size;
+            let num_nodes = (region_sizes[1] - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size as u64;
             let list_node_region_header = ListRegionHeader {
                 num_nodes,
                 version_number: DURABLE_LIST_REGION_VERSION_NUMBER,
@@ -514,7 +514,7 @@ verus! {
                     Ok(output_metadata) => {
                         let metadata_size = ListEntryMetadata::spec_serialized_len();
                         let key_size = K::spec_serialized_len();
-                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + VALID_BYTES_SIZE;
+                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
                         &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
                         &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
                     }
