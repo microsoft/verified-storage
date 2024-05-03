@@ -122,6 +122,7 @@ verus! {
             }
         }
 
+        // TODO: refactor into smaller functions
         pub exec fn start<PM>(
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
@@ -190,8 +191,12 @@ verus! {
 
             let mut metadata_table_free_list: Vec<u64> = Vec::with_capacity(list_metadata_table.num_keys as usize);
             let mut list_node_region_free_list: Vec<u64> = Vec::new();
+            // this list will store in-use nodes; all nodes not in this list go in the free list
+            let mut list_nodes_in_use: Vec<u64> = Vec::new();
+            // separate vector to help traverse the lists and fill in list_nodes_in_use
+            let mut list_node_region_stack: Vec<u64> = Vec::new();
 
-            // construct the allocators for the metadata table and the list node region
+            // construct allocator for the metadata table
             for index in 0..list_metadata_table.num_keys {
                 assume(false);
                 let metadata_slot_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * metadata_slot_size;
@@ -206,24 +211,91 @@ verus! {
                         // about list structures to the caller for indexing at the same time
                         // TODO: construct info to send to the volatile index once you have a better
                         // idea of what it will need
-                        let entry_crc: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC);
-                        let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA);
-                        let key: &K = pm_regions.read_and_deserialize(0, metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY);
-                        let mut digest = CrcDigest::new();
-                        digest.write(entry);
-                        digest.write(key);
-                        let calc_entry_crc = digest.sum64();
+                        // TODO: move the read+check CRC logic into its own function
+                        let crc_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
+                        let entry_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA;
+                        let key_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY;
+                        let entry_crc: &u64 = pm_regions.read_and_deserialize(0, crc_addr);
+                        let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, entry_addr);
+                        let key: &K = pm_regions.read_and_deserialize(0, key_addr);
+                        if !check_crc_two_deserialized(entry, key, entry_crc, Ghost(mem),
+                                Ghost(pm_regions.constants().impervious_to_corruption),
+                                Ghost(entry_addr),
+                                Ghost(key_addr),
+                                Ghost(crc_addr))
+                        {
+                            return Err(KvError::CRCMismatch);
+                        } else {
+                            // TODO: if the CRC check passes, add the information to the structure
+                            // we return for the volatile index to use
+                            list_node_region_stack.push(entry.get_head());
+                        }
                     },
                     None => return Err(KvError::CRCMismatch)
                 }
             }
 
+            // construct allocator for the list node region
+            // we need to use two vectors for this -- one as a stack for traversal of the lists,
+            // and one to record which nodes are in use
+            let ghost mem1 = pm_regions@[1].committed();
+            while list_node_region_stack.len() != 0 {
+                assume(false);
+                let current_index = list_node_region_stack.pop().unwrap();
+                list_nodes_in_use.push(current_index);
 
+                // read the node, check its CRC; if it's fine, push its next
+                // pointer onto the stack
+                let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
+                    current_index * (list_metadata_table.node_size as u64);
+                let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
+                let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
+                let ptr_serialized_len = u64::serialized_len();
+                let next_pointer: &u64 = pm_regions.read_and_deserialize(1, ptr_addr);
+                let node_header_crc: &u64 = pm_regions.read_and_deserialize(1, crc_addr);
+                if !check_crc_deserialized(next_pointer, node_header_crc, Ghost(mem1),
+                        Ghost(pm_regions.constants().impervious_to_corruption),
+                        Ghost(ptr_addr),
+                        Ghost(ptr_serialized_len),
+                        Ghost(crc_addr)
+                ) {
+                    return Err(KvError::CRCMismatch);
+                }
+                // If the CRC check passes, then the next pointer is valid.
+                // If a node's next pointer points to itself, we've reached the end of the list;
+                // otherwise, push the next pointer onto the stack
+                if *next_pointer != current_index {
+                    list_node_region_stack.push(*next_pointer);
+                }
+            }
 
+            // construct the list region allocator
+            // TODO: this is pretty inefficient, but I don't think Verus currently supports
+            // structures like HashMaps that might make it easier. it would be faster if
+            // the in-use vector was sorted, but it may not be, and we don't have
+            // access to Rust std::vec sort methods
+            let mut found = false;
+            for i in 0..list_region_metadata.num_nodes {
+                assume(false);
+                found = false;
+                for j in 0..list_nodes_in_use.len() {
+                    assume(false);
+                    if list_nodes_in_use[j] == i {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    list_node_region_free_list.push(i);
+                }
+            }
 
-
-            assume(false);
-            Err(KvError::NotImplemented)
+            Ok(Self {
+                _phantom: Ghost(spec_phantom_data()),
+                metadata_table_free_list,
+                list_node_region_free_list,
+                state: Ghost(state) // TODO: this needs to be set up properly
+            })
         }
 
         // Allocates a new list node, sets its next pointer to NULL,

@@ -365,15 +365,17 @@ verus! {
         Ghost(impervious_to_corruption): Ghost<bool>,
         Ghost(data1_addr): Ghost<u64>,
         Ghost(data2_addr): Ghost<u64>,
-        Ghost(data1_len): Ghost<u64>,
-        Ghost(data2_len): Ghost<u64>,
         Ghost(crc_addr): Ghost<u64>
     ) -> (b: bool)
         where
             S: Serializable + Sized,
             T: Serializable + Sized,
         requires
+            data1_c.spec_crc() == spec_crc_u64(data1_c.spec_serialize()),
+            data2_c.spec_crc() == spec_crc_u64(data2_c.spec_serialize()),
             ({
+                let data1_len = S::spec_serialized_len();
+                let data2_len = T::spec_serialized_len();
                 // data1 and data2 can be stored on PM in any order but
                 // they cannot overlap; the CRC cannot overlap with either
                 ||| {
@@ -388,25 +390,29 @@ verus! {
                     }
             }),
             crc_addr + CRC_SIZE <= mem.len(),
-            // TODO: data{1,2}_len don't need to be passed in
-            data1_len == S::spec_serialized_len(),
-            data2_len == T::spec_serialized_len(),
             ({
-                let true_data1 = S::spec_deserialize(mem.subrange(data1_addr as int, data1_addr + data1_len));
-                let true_data2 = T::spec_deserialize(mem.subrange(data2_addr as int, data2_addr + data2_len));
+                let data1_len = S::spec_serialized_len();
+                let data2_len = T::spec_serialized_len();
+                let true_data1_bytes = mem.subrange(data1_addr as int, data1_addr + data1_len);
+                let true_data2_bytes = mem.subrange(data2_addr as int, data2_addr + data2_len);
+                let all_true_bytes = true_data1_bytes + true_data2_bytes;
+                let true_data1 = S::spec_deserialize(true_data1_bytes);
+                let true_data2 = T::spec_deserialize(true_data2_bytes);
                 let true_crc = u64::spec_deserialize(mem.subrange(crc_addr as int, crc_addr + CRC_SIZE));
-                if impervious_to_corruption {
-                    &&& data1_c == true_data1
-                    &&& data2_c == true_data2
-                    &&& crc_c == true_crc
-                } else {
-                    &&& maybe_corrupted_serialized(*data1_c, true_data1, data1_addr as int)
-                    &&& maybe_corrupted_serialized(*data2_c, true_data2, data2_addr as int)
-                    &&& maybe_corrupted_serialized(*crc_c, true_crc, crc_addr as int)
-                }
+                &&& if impervious_to_corruption {
+                        &&& data1_c == true_data1
+                        &&& data2_c == true_data2
+                        &&& crc_c == true_crc
+                    } else {
+                        &&& maybe_corrupted_serialized(*data1_c, true_data1, data1_addr as int)
+                        &&& maybe_corrupted_serialized(*data2_c, true_data2, data2_addr as int)
+                        &&& maybe_corrupted_serialized(*crc_c, true_crc, crc_addr as int)
+                    }
             })
         ensures
             ({
+                let data1_len = S::spec_serialized_len();
+                let data2_len = T::spec_serialized_len();
                 let true_data1_bytes = mem.subrange(data1_addr as int, data1_addr + data1_len);
                 let true_data2_bytes = mem.subrange(data2_addr as int, data2_addr + data2_len);
                 let true_data1 = S::spec_deserialize(true_data1_bytes);
@@ -429,9 +435,13 @@ verus! {
         digest.write(data2_c);
         let computed_crc = digest.sum64();
 
+        let ret = *crc_c == computed_crc;
+
         proof {
             let data1_bytes = data1_c.spec_serialize();
             let data2_bytes = data2_c.spec_serialize();
+            let data1_len = S::spec_serialized_len();
+            let data2_len = T::spec_serialized_len();
             let true_data1_bytes = mem.subrange(data1_addr as int, data1_addr + data1_len);
             let true_data2_bytes = mem.subrange(data2_addr as int, data2_addr + data2_len);
             let true_data1 = S::spec_deserialize(true_data1_bytes);
@@ -443,21 +453,34 @@ verus! {
             // ghost state of a CrcDigest looks like) into a 1D sequence
             reveal_with_fuel(Seq::flatten, 3);
 
-            // We may need to invoke `axiom_bytes_uncorrupted` here to justify that since the CRCs match,
-            // we can conclude that the data matches as well. The reasoning is the same as in `check_crc`
-            // and `check_crc_deserialized`; however,
+            let data1_addrs = Seq::new(S::spec_serialized_len() as nat, |i: int| i + data1_addr);
+            let data2_addrs = Seq::new(T::spec_serialized_len() as nat, |i: int| i + data2_addr);
+            let data_addrs = data1_addrs + data2_addrs;
+
+            S::lemma_auto_serialized_len();
+            T::lemma_auto_serialized_len();
+            S::lemma_auto_deserialize_serialize();
+            T::lemma_auto_deserialize_serialize();
+            S::lemma_auto_serialize_deserialize();
+            T::lemma_auto_serialize_deserialize();
+
+            // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
+            // we can conclude that the data matches as well. That axiom only applies in the case
+            // when all three of the following conditions hold: (1) the last-written CRC really is
+            // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
+            // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
+            // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
+            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
+            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
+            // detected corruption.
             if {
                 &&& true_crc == spec_crc_u64(true_data1_bytes + true_data2_bytes)
                 &&& !impervious_to_corruption
                 &&& crc_c == computed_crc
             } {
-                let data1_addrs = Seq::new(S::spec_serialized_len() as nat, |i: int| i + data1_addr);
-                let data2_addrs = Seq::new(T::spec_serialized_len() as nat, |i: int| i + data2_addr);
-                let data_addrs = data1_addrs + data2_addrs;
 
-                S::lemma_auto_deserialize_serialize();
-                T::lemma_auto_deserialize_serialize();
-
+                // maybe_corrupted serialized objects are backed by maybe_corrupted bytes, but we need to explicitly
+                // establish this to invoke the axiom
                 lemma_maybe_corrupted_serialized_implies_maybe_corrupted_bytes(*data1_c, true_data1, data1_addr as int);
                 lemma_maybe_corrupted_serialized_implies_maybe_corrupted_bytes(*data2_c, true_data2, data2_addr as int);
 
@@ -480,10 +503,42 @@ verus! {
                     crc_addr as int
                 );
 
+                assert(true_data1_bytes + true_data2_bytes =~= data1_bytes + data2_bytes);
+                lemma_subseq_of_concat_bytes_equal(
+                    true_data1_bytes + true_data2_bytes,
+                    data1_bytes + data2_bytes,
+                    true_data1_bytes,
+                    true_data2_bytes,
+                    data1_bytes,
+                    data2_bytes
+                );
             }
-            assume(false);
         }
-        *crc_c == computed_crc
+        ret
+    }
+
+    proof fn lemma_subseq_of_concat_bytes_equal(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        sub1: Seq<u8>,
+        sub2: Seq<u8>,
+        sub3: Seq<u8>,
+        sub4: Seq<u8>
+    )
+        requires
+            s1 == s2,
+            sub1 + sub2 == s1,
+            sub3 + sub4 == s2,
+            sub1.len() == sub3.len(),
+            sub2.len() == sub4.len()
+        ensures
+            sub1 == sub3,
+            sub2 == sub4
+    {
+        assert(s1.subrange(0, sub1.len() as int) == sub1);
+        assert(s1.subrange(sub1.len() as int, s1.len() as int) == sub2);
+        assert(s2.subrange(0, sub3.len() as int) == sub3);
+        assert(s2.subrange(sub3.len() as int, s2.len() as int) == sub4);
     }
 
     proof fn lemma_maybe_corrupted_serialized_implies_maybe_corrupted_bytes<S>(

@@ -184,6 +184,14 @@ verus! {
         first_entry_offset: u64, // offset of the first live entry in the head node
     }
 
+    impl ListEntryMetadata {
+        // TODO: postcondition should tell caller that this is the
+        // actual head of the list?
+        pub fn get_head(&self) -> u64 {
+            self.head
+        }
+    }
+
     impl Serializable for ListEntryMetadata
     {
         closed spec fn spec_serialize(self) -> Seq<u8>
@@ -351,7 +359,12 @@ verus! {
     // Most list metadata is stored in the ListEntryMetadata structure,
     // so nodes only need to have a next pointer and a CRC for that
     // pointer. Since it's only 2 fields and one is a CRC, there is
-    // no struct associated with the node metadata
+    // no struct associated with the node metadata.
+    //
+    // Since the next pointers are structured as offsets into an array of
+    // notes, 0 may be a valid next pointer. So, to indicate that a node
+    // is the tail of its list, its next pointer will point to *itself*
+    // rather than being set to 0.
     pub const RELATIVE_POS_OF_NEXT_POINTER: u64 = 0;
     pub const RELATIVE_POS_OF_LIST_NODE_CRC: u64 = 8;
     pub const RELATIVE_POS_OF_LIST_CONTENTS_AREA: u64 = 16;
