@@ -196,58 +196,24 @@ the correctness of the code.
 Here's an example of a program that uses a `LogImpl`:
 
 ```
-#[cfg(target_os = "windows")]
-fn create_log() -> (log: Option<LogImpl<FileBackedPersistentMemoryRegion>>)
-    ensures
-        match log {
-            Some(log) => {
-                &&& log@ == crate::log::logspec_t::AbstractLogState::initialize(log@.capacity)
-                &&& log.valid()
-            },
-            None => true,
-        }
+fn test_log_on_memory_mapped_file() -> Option<()>
 {
     let region_size = 1024;
 
     // Create the memory out of a single file.
     let file_name = vstd::string::new_strlit("test_log");
-    let mut pm_region = FileBackedPersistentMemoryRegions::new_single_region(
+    #[cfg(target_os = "windows")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
         &file_name, MemoryMappedFileMediaType::SSD,
         region_size,
         FileCloseBehavior::TestingSoDeleteOnClose
     ).ok()?;
-
-    // Set up the memory region to contain a log. The capacity will be less than
-    // the file size because a few bytes are needed for metadata.
-    let (capacity, log_id) = LogImpl::setup(&mut pm_region).ok()?;
-    runtime_assert(capacity <= 1024);
-
-    // Start accessing the log.
-    LogImpl::start(pm_region, log_id).ok()
-}
-    
-#[cfg(target_os = "linux")]
-fn create_log() -> (log: Option<LogImpl<MappedPM>>)
-    ensures
-        match log {
-            Some(log) => {
-                &&& log@ == crate::log::logspec_t::AbstractLogState::initialize(log@.capacity)
-                &&& log.valid()
-            },
-            None => true,
-        }
-{
-    let region_size = 1024;
-
-    // Create the multipersistent memory out of the two regions.
-    let file_name = vstd::string::new_strlit("test_multilog");
-    let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
-        file_name,
-        region_size as usize,
+    #[cfg(target_os = "linux")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
+        PersistentMemoryCheck::DontCheckForPersistentMemory,
     ).ok()?;
-    let region_desc = pm_dev.get_new_region(region_size).ok()?;
-    let mut pm_region = MappedPM::new(region_desc).ok()?;
-    assert(pm_region@.len() == 1024);
 
     // Set up the memory region to contain a log. The capacity will be less than
     // the file size because a few bytes are needed for metadata.
@@ -255,12 +221,7 @@ fn create_log() -> (log: Option<LogImpl<MappedPM>>)
     runtime_assert(capacity <= 1024);
 
     // Start accessing the log.
-    LogImpl::start(pm_region, log_id).ok()
-}
-
-fn test_log_on_memory_mapped_file() -> Option<()>
-{
-    let mut log = create_log()?;
+    let mut log = LogImpl::start(pm_region, log_id).ok()?;
 
     // Tentatively append [30, 42, 100] to the log.
     let mut v: Vec<u8> = Vec::<u8>::new();
