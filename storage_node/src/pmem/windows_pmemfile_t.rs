@@ -65,11 +65,6 @@ pub struct WindowsHandle {
     h: deps_hack::winapi::um::winnt::HANDLE,
 }
 
-#[verifier::external_body]
-pub struct ByteSlice {
-    pub slice: &'static mut [u8],
-}
-
 
 // The `MemoryMappedFile` struct represents a memory-mapped file.
 
@@ -205,7 +200,6 @@ pub struct MemoryMappedFileSection {
     mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
     size: usize,                         // number of bytes in the section
     h_map_addr: WindowsHandle,           // address of the first byte of the section
-    slice: ByteSlice,                    // above address viewed as a Rust slice
 }
 
 impl MemoryMappedFileSection {
@@ -215,14 +209,11 @@ impl MemoryMappedFileSection {
             offset + len <= mmf.len(),
     {
         let h_map_addr = unsafe { (mmf.h_map_addr.h as *mut u8).offset(offset.try_into().unwrap()) };
-        // Convert the address into a static Rust slice.
-        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr, len) };
 
         Self {
             mmf: mmf.clone(),
             size: len,
             h_map_addr: WindowsHandle{ h: h_map_addr as deps_hack::winapi::um::winnt::HANDLE },
-            slice: ByteSlice{ slice: slice },
         }
     }
 
@@ -344,9 +335,11 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
     {
-        let addr_usize: usize = addr.try_into().unwrap();
+        let offset: isize = addr.try_into().unwrap();
         let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-        self.section.slice.slice[addr_usize .. addr_usize + num_bytes_usize].to_vec()
+        let h_map_addr = unsafe { self.section.h_map_addr.h.offset(offset) as *const u8 };
+        let slice = unsafe { core::slice::from_raw_parts(h_map_addr, num_bytes_usize) };
+        slice.to_vec()
     }
 
     #[verifier::external_body]
@@ -380,8 +373,10 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn write(&mut self, addr: u64, bytes: &[u8])
     {
-        let addr_usize: usize = addr.try_into().unwrap();
-        self.section.slice.slice[addr_usize .. addr_usize + bytes.len()].copy_from_slice(bytes);
+        let offset: isize = addr.try_into().unwrap();
+        let h_map_addr = unsafe { self.section.h_map_addr.h.offset(offset) as *mut u8 };
+        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr, bytes.len()) };
+        slice.copy_from_slice(bytes)
     }
 
     #[verifier::external_body]
