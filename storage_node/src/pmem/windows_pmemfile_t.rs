@@ -96,7 +96,7 @@ impl MemoryMappedFile {
         unsafe {
             let path = path.into_rust_str();
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
-            let path_cstr = std::ffi::CString::new(path).unwrap();
+            let path_cstr = std::ffi::CString::new(path).unwrap().as_ptr();
 
             let create_or_open = match open_behavior {
                 FileOpenBehavior::CreateNew => CREATE_NEW,
@@ -107,7 +107,7 @@ impl MemoryMappedFile {
                 FileCloseBehavior::Persistent => FILE_ATTRIBUTE_NORMAL,
             };
             let h_file = CreateFileA(
-                path_cstr.as_ptr(),
+                path_cstr,
                 GENERIC_READ | GENERIC_WRITE,
                 FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
                 core::ptr::null_mut(),
@@ -163,7 +163,7 @@ impl MemoryMappedFile {
             if let FileCloseBehavior::TestingSoDeleteOnClose = close_behavior {
                 // After opening the file, mark it for deletion when the file is closed.
                 // Obviously, we should only do this during testing!
-                deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr.as_ptr());
+                deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr);
             }
 
             let mmf = MemoryMappedFile {
