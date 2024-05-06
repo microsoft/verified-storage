@@ -188,10 +188,10 @@ impl Drop for MemoryMappedFile {
 // The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
 
 pub struct MemoryMappedFileSection {
-    pub mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
-    pub size: usize,                         // number of bytes in the section
-    pub h_map_addr: WindowsHandle,           // address of the first byte of the section
-    pub slice: ByteSlice,                    // above address viewed as a Rust slice
+    mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
+    size: usize,                         // number of bytes in the section
+    h_map_addr: WindowsHandle,           // address of the first byte of the section
+    slice: ByteSlice,                    // above address viewed as a Rust slice
 }
 
 impl MemoryMappedFileSection {
@@ -281,7 +281,7 @@ verus! {
 #[allow(dead_code)]
 pub struct FileBackedPersistentMemoryRegion
 {
-    pub section: MemoryMappedFileSection,                          // the memory-mapped file section
+    pub section: MemoryMappedFileSection,
 }
 
 impl FileBackedPersistentMemoryRegion
@@ -344,16 +344,11 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
 
-    closed spec fn inv(&self) -> bool
-    {
-        self@.len() == self.section.size
-    }
+    closed spec fn inv(&self) -> bool;
 
-    closed spec fn constants(&self) -> PersistentMemoryConstants
-    {
-        PersistentMemoryConstants { impervious_to_corruption: true }
-    }
+    closed spec fn constants(&self) -> PersistentMemoryConstants;
 
+    #[verifier::external_body]
     fn get_region_size(&self) -> u64
     {
         self.section.size as u64
@@ -458,11 +453,11 @@ impl FileBackedPersistentMemoryRegions {
                     -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(pm_regions) => {
-                    &&& pm_regions.inv()
-                    &&& pm_regions@.no_outstanding_writes()
-                    &&& pm_regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
                 },
                 Err(_) => true
             }
@@ -508,11 +503,11 @@ impl FileBackedPersistentMemoryRegions {
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(pm_regions) => {
-                    &&& pm_regions.inv()
-                    &&& pm_regions@.no_outstanding_writes()
-                    &&& pm_regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
                 },
                 Err(_) => true
             }
@@ -534,11 +529,11 @@ impl FileBackedPersistentMemoryRegions {
                    -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(pm_regions) => {
-                    &&& pm_regions.inv()
-                    &&& pm_regions@.no_outstanding_writes()
-                    &&& pm_regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i]
+                Ok(regions) => {
+                    &&& regions.inv()
+                    &&& regions@.no_outstanding_writes()
+                    &&& regions@.len() == region_sizes@.len()
+                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
                 },
                 Err(_) => true
             }
@@ -553,10 +548,8 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     closed spec fn view(&self) -> PersistentMemoryRegionsView;
 
-    closed spec fn inv(&self) -> bool
-    {
-        forall |i: int| #![trigger(self.regions[i])] 0 <= i < self.regions.len() ==> self.regions[i].inv()
-    }
+    #[verifier::external_body]
+    closed spec fn inv(&self) -> bool;
 
     #[verifier::external_body]
     closed spec fn constants(&self) -> PersistentMemoryConstants;

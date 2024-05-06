@@ -142,7 +142,7 @@ verus! {
     }
 
     #[cfg(target_os = "linux")]
-    fn create_multilog() -> (multilog: Option<MultiLogImpl<MappedPmRegions>>)
+    fn create_multilog() -> (multilog: Option<MultiLogImpl<FileBackedPersistentMemoryRegions>>)
         ensures
             match multilog {
                 Some(multilog) => {
@@ -166,20 +166,11 @@ verus! {
 
         // Create the multipersistent memory out of the two regions.
         let file_name = vstd::string::new_strlit("test_multilog");
-        let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
-            file_name,
-            (region_sizes[0] + region_sizes[1]) as usize,
+        let mut pm_regions = FileBackedPersistentMemoryRegions::new(
+            &file_name,
+            region_sizes.as_slice(),
+            PersistentMemoryCheck::DontCheckForPersistentMemory,
         ).ok()?;
-        let mut regions = Vec::<MappedPM>::new();
-        let region_desc0 = pm_dev.get_new_region(region_sizes[0]).ok()?;
-        let region0 = MappedPM::new(region_desc0).ok()?;
-        regions.push(region0);
-        let region_desc1 = pm_dev.get_new_region(region_sizes[1]).ok()?;
-        let region1 = MappedPM::new(region_desc1).ok()?;
-        regions.push(region1);
-        let mut pm_regions = crate::pmem::linux_pmemfile_t::MappedPmRegions::combine_regions(regions);
-        assert(pm_regions@[0].len() == 4096);
-        assert(pm_regions@[1].len() == 1024);
 
         // Set up the memory regions to contain a multilog. The capacities will be less
         // than 4096 and 1024 because a few bytes are needed in each region for metadata.
@@ -302,7 +293,7 @@ verus! {
     }
 
     #[cfg(target_os = "linux")]
-    fn create_log() -> (log: Option<LogImpl<MappedPM>>)
+    fn create_log() -> (log: Option<LogImpl<FileBackedPersistentMemoryRegion>>)
         ensures
             match log {
                 Some(log) => {
@@ -314,15 +305,13 @@ verus! {
     {
         let region_size = 1024;
 
-        // Create the multipersistent memory out of the two regions.
-        let file_name = vstd::string::new_strlit("test_multilog");
-        let mut pm_dev = crate::pmem::linux_pmemfile_t::MappedPmDevice::new_testing_only(
-            file_name,
-            region_size as usize,
+        // Create the memory out of a single file.
+        let file_name = vstd::string::new_strlit("test_log");
+        let mut pm_region = FileBackedPersistentMemoryRegion::new(
+            &file_name,
+            region_size,
+            PersistentMemoryCheck::DontCheckForPersistentMemory,
         ).ok()?;
-        let region_desc = pm_dev.get_new_region(region_size).ok()?;
-        let mut pm_region = MappedPM::new(region_desc).ok()?;
-        assert(pm_region@.len() == 1024);
 
         // Set up the memory region to contain a log. The capacity will be less than
         // the file size because a few bytes are needed for metadata.
