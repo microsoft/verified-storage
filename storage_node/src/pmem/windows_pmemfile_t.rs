@@ -62,7 +62,7 @@ pub enum FileCloseBehavior {
 #[verifier::external_body]
 #[derive(Clone, Copy)]
 pub struct WindowsHandle {
-    pub h: deps_hack::winapi::um::winnt::HANDLE,
+    h: deps_hack::winapi::um::winnt::HANDLE,
 }
 
 #[verifier::external_body]
@@ -74,21 +74,30 @@ pub struct ByteSlice {
 // The `MemoryMappedFile` struct represents a memory-mapped file.
 
 pub struct MemoryMappedFile {
-    pub media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
-    pub size: usize,                            // number of bytes in the file
-    pub h_file: WindowsHandle,                  // handle to the file
-    pub h_map_file: WindowsHandle,              // handle to the mapping
-    pub h_map_addr: WindowsHandle,              // address of the first byte of the mapping
+    media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
+    size: usize,                            // number of bytes in the file
+    h_file: WindowsHandle,                  // handle to the file
+    h_map_file: WindowsHandle,              // handle to the mapping
+    h_map_addr: WindowsHandle,              // address of the first byte of the mapping
 }
 
 impl MemoryMappedFile {
+    #[verifier::external_body]
+    pub open spec fn len(&self) -> usize;
 
     // The function `from_file` memory-maps a file and returns a
     // `MemoryMappedFile` to represent it.
 
     #[verifier::external_body]
     pub fn from_file(path: &StrSlice, size: usize, media_type: MemoryMappedFileMediaType,
-                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior) -> Self {
+                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
+                     -> (result: Result<Self, PmemError>)
+        ensures
+            (match result {
+                Ok(mmf) => mmf.len() == size,
+                Err(_) => true,
+            }),
+    {
         unsafe {
             let path = path.into_rust_str();
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
@@ -114,11 +123,13 @@ impl MemoryMappedFile {
             let error_code = GetLastError();
 
             if h_file.is_null() {
-                panic!("Could not open file {}. err={}", path, error_code);
+                println!("Could not open file {}. err={}", path, error_code);
+                return Err(PmemError::CannotOpenPmFile);
             }
 
             if h_file == INVALID_HANDLE_VALUE {
-                panic!("Could not find file {}. err={}", path, error_code);
+                println!("Could not find file {}. err={}", path, error_code);
+                return Err(PmemError::CannotOpenPmFile);
             }
 
             let mut li : ULARGE_INTEGER = std::mem::zeroed();
@@ -135,7 +146,8 @@ impl MemoryMappedFile {
             );
 
             if h_map_file.is_null() {
-                panic!("Could not create file mapping object for {}.", path);
+                println!("Could not create file mapping object for {}.", path);
+                return Err(PmemError::CannotOpenPmFile);
             }
 
             // Map a view of the file mapping into the address space of the process
@@ -149,7 +161,8 @@ impl MemoryMappedFile {
 
             if h_map_addr.is_null() {
                 let err = GetLastError();
-                panic!("Could not map view of file, got error {}", err);
+                println!("Could not map view of file, got error {}", err);
+                return Err(PmemError::CannotOpenPmFile);
             }
 
             if let FileCloseBehavior::TestingSoDeleteOnClose = close_behavior {
@@ -158,13 +171,14 @@ impl MemoryMappedFile {
                 deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr.as_ptr());
             }
 
-            MemoryMappedFile {
+            let mmf = MemoryMappedFile {
                 media_type,
                 size,
                 h_file: WindowsHandle{ h: h_file },
                 h_map_file: WindowsHandle{ h: h_map_file },
                 h_map_addr: WindowsHandle{ h: h_map_addr },
-            }
+            };
+            Ok(mmf)
         }
     }
 }
@@ -198,7 +212,7 @@ impl MemoryMappedFileSection {
     #[verifier::external_body]
     pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> (result: Self)
         requires
-            offset + len <= mmf.size,
+            offset + len <= mmf.len(),
     {
         let h_map_addr = unsafe { (mmf.h_map_addr.h as *mut u8).offset(offset.try_into().unwrap()) };
         // Convert the address into a static Rust slice.
@@ -210,33 +224,6 @@ impl MemoryMappedFileSection {
             h_map_addr: WindowsHandle{ h: h_map_addr as deps_hack::winapi::um::winnt::HANDLE },
             slice: ByteSlice{ slice: slice },
         }
-    }
-
-    // The function `update_region` updates part of a
-    // memory-mapped a file. Specifically, it overwrites the
-    // contents starting at offset `offset` with the data in
-    // slice `data`.
-
-    #[inline(always)]
-    #[verifier::external_body]
-    pub fn update_region(&mut self, offset: usize, data: &[u8]) -> Result<(), ()> {
-        if offset + data.len() > self.size {
-            return Err(())
-        }
-
-        self.slice.slice[offset .. offset + data.len()].copy_from_slice(data);
-
-        Ok(())
-    }
-
-    // The function `read_region` reads part of a memory-mapped a
-    // file into a returned vector.
-
-    #[inline(always)]
-    #[verifier::external_body]
-    pub fn read_region(&self, offset: usize, num_bytes: usize) -> Vec<u8>
-    {
-        self.slice.slice[offset .. offset + num_bytes].to_vec()
     }
 
     // The function `flush` flushes updated parts of the
@@ -302,14 +289,14 @@ impl FileBackedPersistentMemoryRegion
             media_type,
             open_behavior,
             close_behavior
-        );
+        )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
         let section = MemoryMappedFileSection::new(mmf, 0, region_size.try_into().unwrap());
         Ok(Self { section })
     }
 
     pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
-           close_behavior: FileCloseBehavior) -> (result: Result<Self, PmemError>)
+               close_behavior: FileCloseBehavior) -> (result: Result<Self, PmemError>)
         ensures
             match result {
                 Ok(region) => region.inv() && region@.len() == region_size,
@@ -359,7 +346,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     {
         let addr_usize: usize = addr.try_into().unwrap();
         let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-        self.section.read_region(addr_usize, num_bytes_usize)
+        self.section.slice.slice[addr_usize .. addr_usize + num_bytes_usize].to_vec()
     }
 
     #[verifier::external_body]
@@ -394,7 +381,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     fn write(&mut self, addr: u64, bytes: &[u8])
     {
         let addr_usize: usize = addr.try_into().unwrap();
-        let _ = self.section.update_region(addr_usize, bytes);
+        self.section.slice.slice[addr_usize .. addr_usize + bytes.len()].copy_from_slice(bytes);
     }
 
     #[verifier::external_body]
@@ -472,7 +459,7 @@ impl FileBackedPersistentMemoryRegions {
             media_type.clone(),
             open_behavior,
             close_behavior
-        );
+        )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
         let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
         let mut offset: usize = 0;
