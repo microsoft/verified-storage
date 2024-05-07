@@ -28,12 +28,12 @@ impl Drop for MemoryMappedFile
 impl MemoryMappedFile
 {
     // TODO: detailed information for error returns
-    pub fn from_file<'a>(file_to_map: &StrSlice<'a>, size: usize, file_open_behavior: FileOpenBehavior,
+    pub fn from_file<'a>(file_to_map: &str, size: usize, file_open_behavior: FileOpenBehavior,
                          persistent_memory_check: PersistentMemoryCheck) -> Result<Self, PmemError>
     {
         let mut mapped_len = 0;
         let mut is_pm = 0;
-        let file = CString::new(file_to_map.into_rust_str()).map_err(|_| PmemError::InvalidFileName )?;
+        let file = CString::new(file_to_map).map_err(|_| PmemError::InvalidFileName )?;
         let file = file.as_c_str();
 
         let require_pm = match persistent_memory_check {
@@ -88,14 +88,24 @@ pub struct MemoryMappedFileSection {
 
 impl MemoryMappedFileSection
 {
-    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Self
+    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
     {
-        let new_virt_addr = unsafe { mmf.virt_addr.offset(offset.try_into().unwrap()) };
-        Self {
+        if offset + len >= mmf.size {
+            return Err(PmemError::AccessOutOfRange);
+        }
+        
+        let offset_as_isize: isize = match offset.try_into() {
+            Ok(off) => off,
+            Err(_) => return Err(PmemError::AccessOutOfRange),
+        };
+
+        let new_virt_addr = unsafe { mmf.virt_addr.offset(offset_as_isize) };
+        let section = Self {
             mmf,
             virt_addr: new_virt_addr,
             size: len,
-        }
+        };
+        Ok(section)
     }
 }
 
@@ -131,13 +141,13 @@ impl FileBackedPersistentMemoryRegion
             }
     {
         let mmf = MemoryMappedFile::from_file(
-            path,
-            region_size.try_into().unwrap(),
+            path.into_rust_str(),
+            region_size as usize,
             open_behavior,
             persistent_memory_check,
         )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
-        let section = MemoryMappedFileSection::new(mmf, 0, region_size.try_into().unwrap());
+        let section = MemoryMappedFileSection::new(mmf, 0, region_size as usize)?;
         Ok(Self { section })
     }
 
@@ -173,10 +183,8 @@ impl FileBackedPersistentMemoryRegion
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-
-    closed spec fn inv(&self) -> bool;
-
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+    closed spec fn inv(&self) -> bool;
+    closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
     fn get_region_size(&self) -> u64
@@ -187,8 +195,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
     {
-        let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
         // not overflow `isize`. `addr` and `num_bytes` are unsigned and
@@ -201,13 +207,13 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
             self.section.virt_addr.offset(addr.try_into().unwrap())
         };
 
-        // SAFETY: The precondition establishes that `num_bytes_usize` bytes
+        // SAFETY: The precondition establishes that `num_bytes as usize` bytes
         // from `addr_on_pm` are valid bytes on PM. We do not modify the
         // bytes backing this slice while the slice is live because
         // this function does not modify them and it returns a copy of the bytes,
         // not a direct reference to them.
         let pm_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(addr_on_pm, num_bytes_usize)
+            std::slice::from_raw_parts(addr_on_pm, num_bytes as usize)
         };
 
         // `to_vec` clones the bytes in `pm_slice`
@@ -279,7 +285,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         where
             S: Serializable + Sized
     {
-        let num_bytes: usize = S::serialized_len().try_into().unwrap();
+        let num_bytes: usize = S::serialized_len() as usize;
 
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -345,25 +351,29 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true,
             }
     {
-        let mut total_size = 0;
-        for region_size in region_sizes {
-            total_size = total_size + region_size;
+        let mut total_size: usize = 0;
+        for &region_size in region_sizes {
+            let region_size = region_size as usize;
+            if region_size >= usize::MAX - total_size {
+                return Err(PmemError::AccessOutOfRange);
+            }
+            total_size += region_size;
         }
         let mmf = MemoryMappedFile::from_file(
-            file_to_map,
-            total_size.try_into().unwrap(),
+            file_to_map.into_rust_str(),
+            total_size,
             open_behavior,
             persistent_memory_check,
         )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
         let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        let mut offset: usize = 0;
-        for i in 0..region_sizes.len() {
-            let region_size: usize = region_sizes[i].try_into().unwrap();
-            let section = MemoryMappedFileSection::new(mmf.clone(), offset, region_size.try_into().unwrap());
+        let mut current_offset: usize = 0;
+        for &region_size in region_sizes {
+            let region_size: usize = region_size as usize;
+            let section = MemoryMappedFileSection::new(mmf.clone(), current_offset, region_size)?;
             let region = FileBackedPersistentMemoryRegion::new_from_section(section);
             regions.push(region);
-            offset += region_size;
+            current_offset += region_size;
         }
         Ok(Self { regions })
     }
@@ -402,17 +412,8 @@ impl FileBackedPersistentMemoryRegions {
 }
 
 impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    closed spec fn view(&self) -> PersistentMemoryRegionsView
-    {
-        PersistentMemoryRegionsView {
-            regions: self.regions@.map(|_idx, region: FileBackedPersistentMemoryRegion| region@),
-        }
-    }
-
-    #[verifier::external_body]
+    closed spec fn view(&self) -> PersistentMemoryRegionsView;
     closed spec fn inv(&self) -> bool;
-
-    #[verifier::external_body]
     closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]

@@ -56,8 +56,8 @@ impl MemoryMappedFile {
             let path_cstr = match std::ffi::CString::new(path) {
                 Ok(p) => p,
                 Err(_) => {
-                    println!("Could not convert path {} to string", path);
-                    return Err(PmemError::CannotOpenPmFile);
+                    eprintln!("Could not convert path {} to string", path);
+                    return Err(PmemError::InvalidFileName);
                 }
             };
 
@@ -66,7 +66,7 @@ impl MemoryMappedFile {
                 match size.try_into() {
                     Ok(sz) => sz,
                     Err(_) => {
-                        println!("Could not convert size {} into u64", size);
+                        eprintln!("Could not convert size {} into u64", size);
                         return Err(PmemError::CannotOpenPmFile);
                     }
                 };
@@ -95,9 +95,9 @@ impl MemoryMappedFile {
                 let error_code = GetLastError();
                 match open_behavior {
                     FileOpenBehavior::CreateNew =>
-                        println!("Could not create new file {}. err={}", path, error_code),
+                        eprintln!("Could not create new file {}. err={}", path, error_code),
                     FileOpenBehavior::OpenExisting =>
-                        println!("Could not open existing file {}. err={}", path, error_code),
+                        eprintln!("Could not open existing file {}. err={}", path, error_code),
                 };
                 return Err(PmemError::CannotOpenPmFile);
             }
@@ -116,7 +116,7 @@ impl MemoryMappedFile {
             );
 
             if h_map_file.is_null() {
-                println!("Could not create file mapping object for {}.", path);
+                eprintln!("Could not create file mapping object for {}.", path);
                 return Err(PmemError::CannotOpenPmFile);
             }
 
@@ -131,7 +131,7 @@ impl MemoryMappedFile {
 
             if h_map_addr.is_null() {
                 let err = GetLastError();
-                println!("Could not map view of file, got error {}", err);
+                eprintln!("Could not map view of file, got error {}", err);
                 return Err(PmemError::CannotOpenPmFile);
             }
 
