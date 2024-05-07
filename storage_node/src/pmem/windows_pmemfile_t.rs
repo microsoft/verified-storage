@@ -32,39 +32,11 @@ use vstd::prelude::*;
 use core::arch::x86_64::_mm_clflush;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::_mm_sfence;
-
-verus! {
-
-// The `MemoryMappedFileMediaType` enum represents a type of media
-// from which a file can be memory-mapped.
-
-#[derive(Clone)]
-pub enum MemoryMappedFileMediaType {
-    HDD,
-    SSD,
-    BatteryBackedDRAM,
-}
-
-#[derive(Copy, Clone)]
-pub enum FileOpenBehavior {
-    CreateNew,
-    OpenExisting,
-}
-
-#[derive(Copy, Clone)]
-pub enum FileCloseBehavior {
-    TestingSoDeleteOnClose,
-    Persistent,
-}
     
-// Must be external body because Verus does not currently support raw pointers
-// TODO: is there a better/safer way to handle this? UnsafeCell maybe?
-#[verifier::external_body]
 #[derive(Clone, Copy)]
 pub struct WindowsHandle {
     h: deps_hack::winapi::um::winnt::HANDLE,
 }
-
 
 // The `MemoryMappedFile` struct represents a memory-mapped file.
 
@@ -77,24 +49,14 @@ pub struct MemoryMappedFile {
 }
 
 impl MemoryMappedFile {
-    #[verifier::external_body]
-    pub open spec fn len(&self) -> usize;
-
     // The function `from_file` memory-maps a file and returns a
     // `MemoryMappedFile` to represent it.
 
-    #[verifier::external_body]
-    pub fn from_file(path: &StrSlice, size: usize, media_type: MemoryMappedFileMediaType,
+    pub fn from_file(path: &str, size: usize, media_type: MemoryMappedFileMediaType,
                      open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
-                     -> (result: Result<Self, PmemError>)
-        ensures
-            (match result {
-                Ok(mmf) => mmf.len() == size,
-                Err(_) => true,
-            }),
+                     -> Result<Self, PmemError>
     {
         unsafe {
-            let path = path.into_rust_str();
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
             let path_cstr = std::ffi::CString::new(path).unwrap().as_ptr();
 
@@ -179,9 +141,7 @@ impl MemoryMappedFile {
 }
 
 impl Drop for MemoryMappedFile {
-    #[verifier::external_body]
     fn drop(&mut self)
-        opens_invariants none
     {
         unsafe {
             deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr.h);
@@ -196,6 +156,7 @@ impl Drop for MemoryMappedFile {
 
 // The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
 
+#[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
     size: usize,                         // number of bytes in the section
@@ -203,10 +164,7 @@ pub struct MemoryMappedFileSection {
 }
 
 impl MemoryMappedFileSection {
-    #[verifier::external_body]
-    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> (result: Self)
-        requires
-            offset + len <= mmf.len(),
+    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Self
     {
         let h_map_addr = unsafe { (mmf.h_map_addr.h as *mut u8).offset(offset.try_into().unwrap()) };
 
@@ -220,7 +178,6 @@ impl MemoryMappedFileSection {
     // The function `flush` flushes updated parts of the
     // memory-mapped file back to the media.
 
-    #[verifier::external_body]
     pub fn flush(&mut self) {
         unsafe {
             match self.mmf.media_type {
@@ -246,12 +203,29 @@ impl MemoryMappedFileSection {
     }
 }
 
+verus! {
+
+// The `MemoryMappedFileMediaType` enum represents a type of media
+// from which a file can be memory-mapped.
+
+#[derive(Clone)]
+pub enum MemoryMappedFileMediaType {
+    HDD,
+    SSD,
+    BatteryBackedDRAM,
 }
 
-unsafe impl Send for MemoryMappedFile {}
-unsafe impl Sync for MemoryMappedFile {}
+#[derive(Copy, Clone)]
+pub enum FileOpenBehavior {
+    CreateNew,
+    OpenExisting,
+}
 
-verus! {
+#[derive(Copy, Clone)]
+pub enum FileCloseBehavior {
+    TestingSoDeleteOnClose,
+    Persistent,
+}
 
 // The `FileBackedPersistentMemoryRegion` struct represents a
 // persistent-memory region backed by a memory-mapped file.
@@ -259,7 +233,7 @@ verus! {
 #[allow(dead_code)]
 pub struct FileBackedPersistentMemoryRegion
 {
-    pub section: MemoryMappedFileSection,
+    section: MemoryMappedFileSection,
 }
 
 impl FileBackedPersistentMemoryRegion
@@ -275,7 +249,7 @@ impl FileBackedPersistentMemoryRegion
             }
     {
         let mmf = MemoryMappedFile::from_file(
-            path,
+            path.into_rust_str(),
             region_size.try_into().unwrap(),
             media_type,
             open_behavior,
@@ -310,9 +284,6 @@ impl FileBackedPersistentMemoryRegion
 
     #[verifier::external_body]
     fn new_from_section(section: MemoryMappedFileSection) -> (result: Self)
-        ensures
-            result.inv(),
-            result@.len() == section.size,
     {
         Self{ section }
     }
@@ -449,7 +420,7 @@ impl FileBackedPersistentMemoryRegions {
             total_size = total_size + region_size;
         }
         let mmf = MemoryMappedFile::from_file(
-            path,
+            path.into_rust_str(),
             total_size.try_into().unwrap(),
             media_type.clone(),
             open_behavior,
@@ -527,13 +498,8 @@ impl FileBackedPersistentMemoryRegions {
 }
 
 impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    #[verifier::external_body]
     closed spec fn view(&self) -> PersistentMemoryRegionsView;
-
-    #[verifier::external_body]
     closed spec fn inv(&self) -> bool;
-
-    #[verifier::external_body]
     closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
