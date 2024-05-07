@@ -54,7 +54,7 @@ impl MemoryMappedFile {
         unsafe {
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
             let path_cstr = match std::ffi::CString::new(path) {
-                Ok(p) => p.as_ptr(),
+                Ok(p) => p,
                 Err(_) => {
                     println!("Could not convert path {} to string", path);
                     return Err(PmemError::CannotOpenPmFile);
@@ -82,7 +82,7 @@ impl MemoryMappedFile {
 
             // Open or create the file with `CreateFileA`.
             let h_file = CreateFileA(
-                path_cstr,
+                path_cstr.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
                 FILE_SHARE_WRITE | FILE_SHARE_READ | FILE_SHARE_DELETE,
                 core::ptr::null_mut(),
@@ -138,7 +138,7 @@ impl MemoryMappedFile {
             if let FileCloseBehavior::TestingSoDeleteOnClose = close_behavior {
                 // After opening the file, mark it for deletion when the file is closed.
                 // Obviously, we should only do this during testing!
-                DeleteFileA(path_cstr);
+                DeleteFileA(path_cstr.as_ptr());
             }
 
             let mmf = MemoryMappedFile {
