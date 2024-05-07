@@ -33,19 +33,14 @@ use core::arch::x86_64::_mm_clflush;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::_mm_sfence;
     
-#[derive(Clone, Copy)]
-pub struct WindowsHandle {
-    h: deps_hack::winapi::um::winnt::HANDLE,
-}
-
 // The `MemoryMappedFile` struct represents a memory-mapped file.
 
 pub struct MemoryMappedFile {
     media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
     size: usize,                            // number of bytes in the file
-    h_file: WindowsHandle,                  // handle to the file
-    h_map_file: WindowsHandle,              // handle to the mapping
-    h_map_addr: WindowsHandle,              // address of the first byte of the mapping
+    h_file: HANDLE,                         // handle to the file
+    h_map_file: HANDLE,                     // handle to the mapping
+    h_map_addr: HANDLE,                     // address of the first byte of the mapping
 }
 
 impl MemoryMappedFile {
@@ -131,9 +126,9 @@ impl MemoryMappedFile {
             let mmf = MemoryMappedFile {
                 media_type,
                 size,
-                h_file: WindowsHandle{ h: h_file },
-                h_map_file: WindowsHandle{ h: h_map_file },
-                h_map_addr: WindowsHandle{ h: h_map_addr },
+                h_file,
+                h_map_file,
+                h_map_addr,
             };
             Ok(mmf)
         }
@@ -144,11 +139,11 @@ impl Drop for MemoryMappedFile {
     fn drop(&mut self)
     {
         unsafe {
-            deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr.h);
-            deps_hack::winapi::um::handleapi::CloseHandle(self.h_map_file.h);
+            deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr);
+            deps_hack::winapi::um::handleapi::CloseHandle(self.h_map_file);
 
-            if !self.h_file.h.is_null() {
-                deps_hack::winapi::um::handleapi::CloseHandle(self.h_file.h);
+            if !self.h_file.is_null() {
+                deps_hack::winapi::um::handleapi::CloseHandle(self.h_file);
             }
         }
     }
@@ -160,18 +155,18 @@ impl Drop for MemoryMappedFile {
 pub struct MemoryMappedFileSection {
     mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
     size: usize,                         // number of bytes in the section
-    h_map_addr: WindowsHandle,           // address of the first byte of the section
+    h_map_addr: HANDLE,                  // address of the first byte of the section
 }
 
 impl MemoryMappedFileSection {
     pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Self
     {
-        let h_map_addr = unsafe { (mmf.h_map_addr.h as *mut u8).offset(offset.try_into().unwrap()) };
+        let h_map_addr = unsafe { (mmf.h_map_addr as *mut u8).offset(offset.try_into().unwrap()) };
 
         Self {
             mmf: mmf.clone(),
             size: len,
-            h_map_addr: WindowsHandle{ h: h_map_addr as deps_hack::winapi::um::winnt::HANDLE },
+            h_map_addr: h_map_addr as HANDLE,
         }
     }
 
@@ -190,7 +185,7 @@ impl MemoryMappedFileSection {
                 },
                 _ => {
                     let hr = deps_hack::winapi::um::memoryapi::FlushViewOfFile(
-                        self.h_map_addr.h as *const deps_hack::winapi::ctypes::c_void,
+                        self.h_map_addr as *const deps_hack::winapi::ctypes::c_void,
                         self.size
                     );
 
@@ -308,7 +303,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     {
         let offset: isize = addr.try_into().unwrap();
         let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-        let h_map_addr = unsafe { self.section.h_map_addr.h.offset(offset) as *const u8 };
+        let h_map_addr = unsafe { self.section.h_map_addr.offset(offset) as *const u8 };
         let slice = unsafe { core::slice::from_raw_parts(h_map_addr, num_bytes_usize) };
         slice.to_vec()
     }
@@ -327,7 +322,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *const u8 = unsafe {
-            (self.section.h_map_addr.h as *const u8).offset(addr.try_into().unwrap())
+            (self.section.h_map_addr as *const u8).offset(addr.try_into().unwrap())
         };
 
         // Cast the pointer to PM bytes to an S pointer
@@ -345,7 +340,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     fn write(&mut self, addr: u64, bytes: &[u8])
     {
         let offset: isize = addr.try_into().unwrap();
-        let h_map_addr = unsafe { self.section.h_map_addr.h.offset(offset) as *mut u8 };
+        let h_map_addr = unsafe { self.section.h_map_addr.offset(offset) as *mut u8 };
         let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr, bytes.len()) };
         slice.copy_from_slice(bytes)
     }
@@ -367,7 +362,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *mut u8 = unsafe {
-            (self.section.h_map_addr.h as *mut u8).offset(addr.try_into().unwrap())
+            (self.section.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
         };
 
         // convert the given &S to a pointer, then a slice of bytes
