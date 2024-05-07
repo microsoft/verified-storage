@@ -52,7 +52,6 @@ verus! {
     {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L, E>;
-        // {}
 
         // Proving crash consistency here will come down to proving that each update
         // to an individual component results in a valid AbstractKvStoreState either with 0
@@ -71,7 +70,6 @@ verus! {
 
         // This function doesn't take a perm because it performs initial setup
         // for each structure, which we don't guarantee will be crash consistent
-        // TODO: we also need a recovery method; this one starts from scratch
         pub fn setup(
             mut pmem: PM,
             kvstore_id: u128,
@@ -138,6 +136,24 @@ verus! {
             DurableItemTable::<K, I, E>::setup(&mut item_table_region, kvstore_id, num_keys as u64)?;
 
             Ok((log_region, list_regions, item_table_region))
+        }
+
+        pub fn start(
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedKvPermission<PM, K, I, L, E>, PM>,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
+            Ghost(state): Ghost<DurableKvStoreView<K, I, L, E>>
+        ) -> (result: Result<Self, KvError<K, E>>)
+            where
+                PM: PersistentMemoryRegions
+            requires
+                old(wrpm_regions).inv(),
+                // TODO
+            ensures
+                wrpm_regions.inv()
+                // TODO
+        {
+            return Err(KvError::NotImplemented);
         }
 
         pub fn create(

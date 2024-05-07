@@ -1,5 +1,6 @@
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
+use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -9,6 +10,7 @@ use crate::pmem::wrpm_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
+use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
@@ -23,6 +25,24 @@ verus! {
         num_keys: u64,
         free_list: Vec<u64>,
         state: Ghost<DurableItemTableView<I>>,
+    }
+
+    // TODO: make a PR to Verus
+    #[verifier::opaque]
+    pub open spec fn filter_map<A, B>(seq: Seq<A>, pred: spec_fn(A) -> Option<B>) -> Seq<B>
+        decreases seq.len()
+    {
+        if seq.len() == 0 {
+            Seq::<B>::empty()
+        } else {
+            let subseq = filter_map(seq.drop_last(), pred);
+            let last = pred(seq.last());
+            if let Some(last) = last {
+                subseq.push(last)
+            } else {
+                subseq
+            }
+        }
     }
 
     impl<K, I, E> DurableItemTable<K, I, E>
@@ -49,6 +69,106 @@ verus! {
         pub closed spec fn spec_free_list(self) -> Seq<u64>
         {
             self.free_list@
+        }
+
+        // TODO: this really only needs to take a Seq<u8> but this is still backed
+        // by pm region*s*
+        // TODO: Refactor -- this is huge
+        // TODO: this may not be correct if it's possible to insert/commit and remove the same index in the same
+        // transaction. I don't expect that to ever be necessary so we should explicitly prevent it to ensure this
+        // spec is correct.
+        pub closed spec fn recover(mems: Seq<Seq<u8>>, op_log: Seq<OpLogEntryType>, kvstore_id: u128) -> Option<DurableItemTableView<I>>
+        {
+            // The item table only uses one region
+            if mems.len() != 1 {
+                None
+            } else {
+                let mem = mems[0];
+                if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
+                    // If the memory is not large enough to store the metadata header,
+                    // it is not valid
+                    None
+                }
+                else {
+                    let metadata_header_bytes = mem.subrange(
+                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
+                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                    );
+                    let crc_bytes = mem.subrange(
+                        ABSOLUTE_POS_OF_HEADER_CRC as int,
+                        ABSOLUTE_POS_OF_HEADER_CRC + 8
+                    );
+                    let metadata_header = ItemTableMetadata::spec_deserialize(metadata_header_bytes);
+                    let crc = u64::spec_deserialize(crc_bytes);
+                    if crc != metadata_header.spec_crc() {
+                        // The header is invalid if the stored CRC does not match the contents
+                        // of the metadata header
+                        None
+                    } else {
+                        if metadata_header.program_guid != ITEM_TABLE_PROGRAM_GUID {
+                            // The header must contain the correct GUID; if it doesn't, then
+                            // this structure wasn't created by this program.
+                            None
+                        } else if metadata_header.version_number == 1 {
+                            // If the metadata was written by version #1 of this code, then this
+                            // is how to interpret it:
+
+                            // The header is invalid if it isn't large enough to contain an entry
+                            // for each key, or if the specified item size doesn't match the serialized
+                            // len of `I`.
+                            if {
+                                ||| metadata_header.item_size != I::spec_serialized_len()
+                                ||| mem.len() < ABSOLUTE_POS_OF_TABLE_AREA + (metadata_header.item_size + CRC_SIZE + CDB_SIZE) * metadata_header.num_keys
+                            } {
+                                None
+                            } else {
+                                // TODO: Can we simplify this logic? It's pretty complicated for a spec function
+                                let table_area = mem.subrange(ABSOLUTE_POS_OF_TABLE_AREA as int, mem.len() as int);
+                                let item_entry_size = metadata_header.item_size + CRC_SIZE + CDB_SIZE;
+                                // split `mem` into a map where table indices map to the bytes in that slot
+                                let item_slot_bytes = Map::new(|i: int| 0 <= i < metadata_header.num_keys, |i: int| {
+                                    mem.subrange(i * item_entry_size, i * item_entry_size + item_entry_size)
+                                });
+                                let indexes_to_insert = filter_map(op_log, |entry: OpLogEntryType| {
+                                    match entry {
+                                        OpLogEntryType::ItemTableEntryCommit {table_index} => Some(table_index),
+                                        _ => None
+                                    }
+                                });
+                                let indexes_to_remove = filter_map(op_log, |entry: OpLogEntryType| {
+                                    match entry {
+                                        OpLogEntryType::ItemTableEntryInvalidate {table_index} => Some(table_index),
+                                        _ => None
+                                    }
+                                });
+                                // determine the list of indices that are *not* live (i.e., are invalid
+                                // and are not updated by a log entry, or are invalidated by a log entry)
+                                let filter_indices = item_slot_bytes.dom().filter(|i: int| {
+                                    let item_bytes = item_slot_bytes[i];
+                                    let valid = spec_u64_from_le_bytes(item_bytes.subrange(
+                                        RELATIVE_POS_OF_VALID_CDB as int,
+                                        RELATIVE_POS_OF_VALID_CDB + CDB_SIZE
+                                    ));
+
+                                    indexes_to_remove.contains(i as u64) || (valid == CDB_FALSE && !indexes_to_insert.contains(i as u64))
+                                });
+                                // remove non-live indices
+                                let item_slot_bytes = item_slot_bytes.remove_keys(filter_indices);
+                                // convert byte sequence values to view elements
+                                let items = item_slot_bytes.map_entries(|i: int, bytes: Seq<u8> | {
+                                    let crc = u64::spec_deserialize(bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + 8));
+                                    let item = I::spec_deserialize(bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + metadata_header.item_size));
+                                    DurableItemTableViewEntry::new(crc, item)
+                                });
+                                Some(DurableItemTableView::new(items))
+                            }
+                        } else {
+                            // Version #1 is currently the only valid version; return None if we see any other versions
+                            None
+                        }
+                    }
+                }
+            }
         }
 
         // TODO: write invariants
