@@ -49,6 +49,7 @@ verus! {
         CannotOpenPmFile,
         NotPm,
         PmdkError,
+        AccessOutOfRange,
     }
 
     /// This is our model of bit corruption. It models corruption of a

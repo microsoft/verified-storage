@@ -3,21 +3,21 @@
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
 
-use core::ffi::c_void;
+use builtin::*;
+use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
     PmemError,
 };
 use crate::pmem::serialization_t::*;
-use builtin::*;
-use builtin_macros::*;
 use deps_hack::rand::Rng;
+use deps_hack::winapi::ctypes::c_void;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
 use deps_hack::winapi::um::errhandlingapi::GetLastError;
-use deps_hack::winapi::um::fileapi::{CreateFileA, DeleteFileA, CREATE_NEW, OPEN_EXISTING};
-use deps_hack::winapi::um::handleapi::INVALID_HANDLE_VALUE;
-use deps_hack::winapi::um::memoryapi::{MapViewOfFile, FILE_MAP_ALL_ACCESS};
+use deps_hack::winapi::um::fileapi::{CreateFileA, CREATE_NEW, DeleteFileA, OPEN_EXISTING};
+use deps_hack::winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use deps_hack::winapi::um::memoryapi::{FILE_MAP_ALL_ACCESS, FlushViewOfFile, MapViewOfFile, UnmapViewOfFile};
 use deps_hack::winapi::um::winbase::CreateFileMappingA;
 use deps_hack::winapi::um::winnt::{
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ,
@@ -53,7 +53,23 @@ impl MemoryMappedFile {
     {
         unsafe {
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
-            let path_cstr = std::ffi::CString::new(path).unwrap().as_ptr();
+            let path_cstr = match std::ffi::CString::new(path) {
+                Ok(p) => p.as_ptr(),
+                Err(_) => {
+                    println!("Could not convert path {} to string", path);
+                    return Err(PmemError::CannotOpenPmFile);
+                }
+            };
+
+            // Windows can only create files with size < 2^64 so we need to convert `size` to a `u64`.
+            let size_as_u64: u64 =
+                match size.try_into() {
+                    Ok(sz) => sz,
+                    Err(_) => {
+                        println!("Could not convert size {} into u64", size);
+                        return Err(PmemError::CannotOpenPmFile);
+                    }
+                };
 
             let create_or_open = match open_behavior {
                 FileOpenBehavior::CreateNew => CREATE_NEW,
@@ -63,6 +79,8 @@ impl MemoryMappedFile {
                 FileCloseBehavior::TestingSoDeleteOnClose => FILE_ATTRIBUTE_TEMPORARY,
                 FileCloseBehavior::Persistent => FILE_ATTRIBUTE_NORMAL,
             };
+
+            // Open or create the file with `CreateFileA`.
             let h_file = CreateFileA(
                 path_cstr,
                 GENERIC_READ | GENERIC_WRITE,
@@ -70,24 +88,24 @@ impl MemoryMappedFile {
                 core::ptr::null_mut(),
                 create_or_open,
                 attributes,
-                core::ptr::null_mut());
+                core::ptr::null_mut()
+            );
 
-            let error_code = GetLastError();
-
-            if h_file.is_null() {
-                println!("Could not open file {}. err={}", path, error_code);
+            if h_file.is_null() || h_file == INVALID_HANDLE_VALUE {
+                let error_code = GetLastError();
+                match open_behavior {
+                    FileOpenBehavior::CreateNew =>
+                        println!("Could not create new file {}. err={}", path, error_code),
+                    FileOpenBehavior::OpenExisting =>
+                        println!("Could not open existing file {}. err={}", path, error_code),
+                };
                 return Err(PmemError::CannotOpenPmFile);
             }
 
-            if h_file == INVALID_HANDLE_VALUE {
-                println!("Could not find file {}. err={}", path, error_code);
-                return Err(PmemError::CannotOpenPmFile);
-            }
+            let mut li: ULARGE_INTEGER = std::mem::zeroed();
+            *li.QuadPart_mut() = size_as_u64;
 
-            let mut li : ULARGE_INTEGER = std::mem::zeroed();
-            *li.QuadPart_mut() = size as u64;
-
-            // Create a file mapping object backed by the system paging file
+            // Create a file mapping object backed by the file
             let h_map_file = CreateFileMappingA(
                 h_file,
                 core::ptr::null_mut(),
@@ -108,7 +126,7 @@ impl MemoryMappedFile {
                 FILE_MAP_ALL_ACCESS,
                 0,
                 0,
-                size.try_into().unwrap(),
+                size,
             );
 
             if h_map_addr.is_null() {
@@ -120,7 +138,7 @@ impl MemoryMappedFile {
             if let FileCloseBehavior::TestingSoDeleteOnClose = close_behavior {
                 // After opening the file, mark it for deletion when the file is closed.
                 // Obviously, we should only do this during testing!
-                deps_hack::winapi::um::fileapi::DeleteFileA(path_cstr);
+                DeleteFileA(path_cstr);
             }
 
             let mmf = MemoryMappedFile {
@@ -139,12 +157,9 @@ impl Drop for MemoryMappedFile {
     fn drop(&mut self)
     {
         unsafe {
-            deps_hack::winapi::um::memoryapi::UnmapViewOfFile(self.h_map_addr);
-            deps_hack::winapi::um::handleapi::CloseHandle(self.h_map_file);
-
-            if !self.h_file.is_null() {
-                deps_hack::winapi::um::handleapi::CloseHandle(self.h_file);
-            }
+            UnmapViewOfFile(self.h_map_addr);
+            CloseHandle(self.h_map_file);
+            CloseHandle(self.h_file);
         }
     }
 }
@@ -159,15 +174,25 @@ pub struct MemoryMappedFileSection {
 }
 
 impl MemoryMappedFileSection {
-    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Self
+    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
     {
-        let h_map_addr = unsafe { (mmf.h_map_addr as *mut u8).offset(offset.try_into().unwrap()) };
+        if offset + len >= mmf.size {
+            return Err(PmemError::AccessOutOfRange);
+        }
+        
+        let offset_as_isize: isize = match offset.try_into() {
+            Ok(off) => off,
+            Err(_) => return Err(PmemError::AccessOutOfRange),
+        };
+        
+        let h_map_addr = unsafe { (mmf.h_map_addr as *mut u8).offset(offset_as_isize) };
 
-        Self {
+        let section = Self {
             mmf: mmf.clone(),
             size: len,
             h_map_addr: h_map_addr as HANDLE,
-        }
+        };
+        Ok(section)
     }
 
     // The function `flush` flushes updated parts of the
@@ -184,8 +209,8 @@ impl MemoryMappedFileSection {
                     _mm_sfence();
                 },
                 _ => {
-                    let hr = deps_hack::winapi::um::memoryapi::FlushViewOfFile(
-                        self.h_map_addr as *const deps_hack::winapi::ctypes::c_void,
+                    let hr = FlushViewOfFile(
+                        self.h_map_addr as *const c_void,
                         self.size
                     );
 
@@ -210,13 +235,13 @@ pub enum MemoryMappedFileMediaType {
     BatteryBackedDRAM,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy)]
 pub enum FileOpenBehavior {
     CreateNew,
     OpenExisting,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone, Copy)]
 pub enum FileCloseBehavior {
     TestingSoDeleteOnClose,
     Persistent,
@@ -245,13 +270,13 @@ impl FileBackedPersistentMemoryRegion
     {
         let mmf = MemoryMappedFile::from_file(
             path.into_rust_str(),
-            region_size.try_into().unwrap(),
+            region_size as usize,
             media_type,
             open_behavior,
             close_behavior
         )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
-        let section = MemoryMappedFileSection::new(mmf, 0, region_size.try_into().unwrap());
+        let section = MemoryMappedFileSection::new(mmf, 0, region_size as usize)?;
         Ok(Self { section })
     }
 
@@ -287,9 +312,7 @@ impl FileBackedPersistentMemoryRegion
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-
     closed spec fn inv(&self) -> bool;
-
     closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
@@ -301,10 +324,10 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
     {
-        let offset: isize = addr.try_into().unwrap();
-        let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-        let h_map_addr = unsafe { self.section.h_map_addr.offset(offset) as *const u8 };
-        let slice = unsafe { core::slice::from_raw_parts(h_map_addr, num_bytes_usize) };
+        let addr_on_pm: *const u8 = unsafe {
+            (self.section.h_map_addr as *const u8).offset(addr.try_into().unwrap())
+        };
+        let slice: &[u8] = unsafe { core::slice::from_raw_parts(addr_on_pm, num_bytes as usize) };
         slice.to_vec()
     }
 
@@ -331,17 +354,19 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // SAFETY: The precondition establishes that `S::serialized_len()` bytes
         // after the offset specified by `addr` are valid PM bytes, so it is
         // safe to dereference s_pointer. The borrow checker should treat this object
-        // as borrowed from the MappedPM object, preventing mutable borrows of any
-        // other part of the object until this one is dropped.
+        // as borrowed from the FileBackedPersistentMemoryRegion object,
+        // preventing mutable borrows of any other part of the object until
+        // this one is dropped.
         unsafe { &(*s_pointer) }
     }
 
     #[verifier::external_body]
     fn write(&mut self, addr: u64, bytes: &[u8])
     {
-        let offset: isize = addr.try_into().unwrap();
-        let h_map_addr = unsafe { self.section.h_map_addr.offset(offset) as *mut u8 };
-        let slice = unsafe { core::slice::from_raw_parts_mut(h_map_addr, bytes.len()) };
+        let addr_on_pm: *mut u8 = unsafe {
+            (self.section.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
+        };
+        let slice: &mut [u8] = unsafe { core::slice::from_raw_parts_mut(addr_on_pm, bytes.len()) };
         slice.copy_from_slice(bytes)
     }
 
@@ -369,11 +394,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         let s_pointer = to_write as *const S as *const u8;
 
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                s_pointer as *const c_void,
-                addr_on_pm as *mut c_void,
-                num_bytes
-            );
+            std::ptr::copy_nonoverlapping(s_pointer, addr_on_pm, num_bytes);
         }
     }
 
@@ -410,26 +431,30 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true
             }
     {
-        let mut total_size = 0;
-        for region_size in region_sizes {
-            total_size = total_size + region_size;
+        let mut total_size: usize = 0;
+        for &region_size in region_sizes {
+            let region_size = region_size as usize;
+            if region_size >= usize::MAX - total_size {
+                return Err(PmemError::AccessOutOfRange);
+            }
+            total_size += region_size;
         }
         let mmf = MemoryMappedFile::from_file(
             path.into_rust_str(),
-            total_size.try_into().unwrap(),
+            total_size,
             media_type.clone(),
             open_behavior,
             close_behavior
         )?;
         let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
         let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        let mut offset: usize = 0;
-        for i in 0..region_sizes.len() {
-            let region_size: usize = region_sizes[i].try_into().unwrap();
-            let section = MemoryMappedFileSection::new(mmf.clone(), offset, region_size.try_into().unwrap());
+        let mut current_offset: usize = 0;
+        for &region_size in region_sizes {
+            let region_size: usize = region_size as usize;
+            let section = MemoryMappedFileSection::new(mmf.clone(), current_offset, region_size)?;
             let region = FileBackedPersistentMemoryRegion::new_from_section(section);
             regions.push(region);
-            offset += region_size;
+            current_offset += region_size;
         }
         Ok(Self { media_type, regions })
     }
@@ -554,8 +579,8 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
                 }
             },
             _ => {
-                for i in 0..self.regions.len() {
-                    self.regions[i].flush();
+                for region in &mut self.regions {
+                    region.flush();
                 }
             },
         }
