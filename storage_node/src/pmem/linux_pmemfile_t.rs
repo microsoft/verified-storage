@@ -12,61 +12,24 @@ use deps_hack::{
     pmem_memcpy_nodrain, pmem_unmap, rand::Rng, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
 };
 
-verus! {
-
-#[derive(Copy, Clone)]
-pub enum FileOpenBehavior {
-    CreateNew,
-    OpenExisting,
-}
-
-#[derive(Copy, Clone)]
-pub enum PersistentMemoryCheck {
-    CheckForPersistentMemory,
-    DontCheckForPersistentMemory,
-}
-
-// Must be external body because Verus does not currently support raw pointers
-// TODO: is there a better/safer way to handle this? UnsafeCell maybe?
-#[verifier::external_body]
-#[derive(Clone, Copy)]
-struct PmPointer { virt_addr: *mut u8 }
-
-// TODO: is this actually how we should represent this? Maybe
-// multiple separate mmap'ings?
 pub struct MemoryMappedFile {
-    virt_addr: PmPointer,
+    virt_addr: *mut u8,
     size: usize,
 }
 
 impl Drop for MemoryMappedFile
 {
-    #[verifier::external_body]
     fn drop(&mut self)
-        opens_invariants none
     {
-        unsafe { pmem_unmap(self.virt_addr.virt_addr as *mut c_void, self.size.try_into().unwrap()) };
+        unsafe { pmem_unmap(self.virt_addr as *mut c_void, self.size) };
     }
 }
 
 impl MemoryMappedFile
 {
-    #[verifier::external_body]
-    pub open spec fn len(&self) -> usize
-    {
-        self.size
-    }
-
     // TODO: detailed information for error returns
-    #[verifier::external_body]
-    #[allow(dead_code)]
     pub fn from_file<'a>(file_to_map: &StrSlice<'a>, size: usize, file_open_behavior: FileOpenBehavior,
-                         persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(device) => device.len() == size,
-                Err(_) => true, // TODO
-            }
+                         persistent_memory_check: PersistentMemoryCheck) -> Result<Self, PmemError>
     {
         let mut mapped_len = 0;
         let mut is_pm = 0;
@@ -109,37 +72,45 @@ impl MemoryMappedFile
             Err(PmemError::NotPm)
         } else {
             Ok(Self {
-                virt_addr: PmPointer { virt_addr: addr as *mut u8 },
+                virt_addr: addr as *mut u8,
                 size: mapped_len.try_into().unwrap(),
             })
         }
     }
 }
 
+#[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: std::rc::Rc<MemoryMappedFile>,
-    virt_addr: PmPointer,
+    virt_addr: *mut u8,
     size: usize,
 }
 
 impl MemoryMappedFileSection
 {
-    #[verifier::external_body]
     pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Self
-        requires
-            0 <= offset + len <= mmf.len(),
     {
-        let new_virt_addr = unsafe {
-            PmPointer {
-                virt_addr: mmf.virt_addr.virt_addr.offset(offset.try_into().unwrap())
-            }
-        };
+        let new_virt_addr = unsafe { mmf.virt_addr.offset(offset.try_into().unwrap()) };
         Self {
             mmf,
             virt_addr: new_virt_addr,
             size: len,
         }
     }
+}
+
+verus! {
+
+#[derive(Clone, Copy)]
+pub enum FileOpenBehavior {
+    CreateNew,
+    OpenExisting,
+}
+
+#[derive(Clone, Copy)]
+pub enum PersistentMemoryCheck {
+    CheckForPersistentMemory,
+    DontCheckForPersistentMemory,
 }
 
 pub struct FileBackedPersistentMemoryRegion
@@ -194,9 +165,6 @@ impl FileBackedPersistentMemoryRegion
 
     #[verifier::external_body]
     fn new_from_section(section: MemoryMappedFileSection) -> (result: Self)
-        ensures
-            result.inv(),
-            result@.len() == section.size,
     {
         Self{ section }
     }
@@ -230,7 +198,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *const u8 = unsafe {
-            self.section.virt_addr.virt_addr.offset(addr.try_into().unwrap())
+            self.section.virt_addr.offset(addr.try_into().unwrap())
         };
 
         // SAFETY: The precondition establishes that `num_bytes_usize` bytes
@@ -260,7 +228,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *const u8 = unsafe {
-            self.section.virt_addr.virt_addr.offset(addr.try_into().unwrap())
+            self.section.virt_addr.offset(addr.try_into().unwrap())
         };
 
         // Cast the pointer to PM bytes to an S pointer
@@ -286,7 +254,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *mut u8 = unsafe {
-            self.section.virt_addr.virt_addr.offset(addr.try_into().unwrap())
+            self.section.virt_addr.offset(addr.try_into().unwrap())
         };
 
         // pmem_memcpy_nodrain() does a memcpy to PM with no cache line flushes or
@@ -322,7 +290,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *mut u8 = unsafe {
-            self.section.virt_addr.virt_addr.offset(addr.try_into().unwrap())
+            self.section.virt_addr.offset(addr.try_into().unwrap())
         };
 
         // convert the given &S to a pointer, then a slice of bytes
