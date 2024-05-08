@@ -28,8 +28,8 @@ impl Drop for MemoryMappedFile
 impl MemoryMappedFile
 {
     // TODO: detailed information for error returns
-    pub fn from_file<'a>(file_to_map: &str, size: usize, file_open_behavior: FileOpenBehavior,
-                         persistent_memory_check: PersistentMemoryCheck) -> Result<Self, PmemError>
+    fn from_file<'a>(file_to_map: &str, size: usize, file_open_behavior: FileOpenBehavior,
+                     persistent_memory_check: PersistentMemoryCheck) -> Result<Self, PmemError>
     {
         let mut mapped_len = 0;
         let mut is_pm = 0;
@@ -88,7 +88,7 @@ pub struct MemoryMappedFileSection {
 
 impl MemoryMappedFileSection
 {
-    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
+    fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
     {
         if offset + len >= mmf.size {
             return Err(PmemError::AccessOutOfRange);
@@ -125,7 +125,7 @@ pub enum PersistentMemoryCheck {
 
 pub struct FileBackedPersistentMemoryRegion
 {
-    pub section: MemoryMappedFileSection,
+    section: MemoryMappedFileSection,
 }
 
 impl FileBackedPersistentMemoryRegion

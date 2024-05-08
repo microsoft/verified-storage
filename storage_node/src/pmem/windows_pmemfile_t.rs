@@ -47,9 +47,9 @@ impl MemoryMappedFile {
     // The function `from_file` memory-maps a file and returns a
     // `MemoryMappedFile` to represent it.
 
-    pub fn from_file(path: &str, size: usize, media_type: MemoryMappedFileMediaType,
-                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
-                     -> Result<Self, PmemError>
+    fn from_file(path: &str, size: usize, media_type: MemoryMappedFileMediaType,
+                 open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
+                 -> Result<Self, PmemError>
     {
         unsafe {
             // Since str in rust is not null terminated, we need to convert it to a null-terminated string.
@@ -174,7 +174,7 @@ pub struct MemoryMappedFileSection {
 }
 
 impl MemoryMappedFileSection {
-    pub fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
+    fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
     {
         if offset + len >= mmf.size {
             return Err(PmemError::AccessOutOfRange);
@@ -198,7 +198,7 @@ impl MemoryMappedFileSection {
     // The function `flush` flushes updated parts of the
     // memory-mapped file back to the media.
 
-    pub fn flush(&mut self) {
+    fn flush(&mut self) {
         unsafe {
             match self.mmf.media_type {
                 MemoryMappedFileMediaType::BatteryBackedDRAM => {
