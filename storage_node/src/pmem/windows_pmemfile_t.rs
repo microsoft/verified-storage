@@ -23,8 +23,10 @@ use deps_hack::winapi::um::winnt::{
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, HANDLE, PAGE_READWRITE, ULARGE_INTEGER,
 };
+use std::cell::RefCell;
 use std::convert::*;
 use std::ffi::CString;
+use std::rc::Rc;
 use std::slice;
 use vstd::prelude::*;
 
@@ -41,6 +43,7 @@ pub struct MemoryMappedFile {
     h_file: HANDLE,                         // handle to the file
     h_map_file: HANDLE,                     // handle to the mapping
     h_map_addr: HANDLE,                     // address of the first byte of the mapping
+    num_bytes_sectioned: usize,             // how many bytes allocated to `MemoryMappedFileSection`s
 }
 
 impl MemoryMappedFile {
@@ -147,6 +150,7 @@ impl MemoryMappedFile {
                 h_file,
                 h_map_file,
                 h_map_addr,
+                num_bytes_sectioned: 0,
             };
             Ok(mmf)
         }
@@ -165,30 +169,45 @@ impl Drop for MemoryMappedFile {
 }
 
 // The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
+// It contains a reference to the `MemoryMappedFile` it's a section of so that the
+// `MemoryMappedFile` isn't dropped until this `MemoryMappedFileSection1 is dropped.
 
 #[verifier::external_body]
 pub struct MemoryMappedFileSection {
-    mmf: std::rc::Rc<MemoryMappedFile>,  // reference to the MemoryMappedFile this is part of
-    size: usize,                         // number of bytes in the section
-    h_map_addr: HANDLE,                  // address of the first byte of the section
+    mmf: Rc<RefCell<MemoryMappedFile>>,     // the memory-mapped file this is a section of
+    media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
+    size: usize,                            // number of bytes in the section
+    h_map_addr: HANDLE,                     // address of the first byte of the section
 }
 
 impl MemoryMappedFileSection {
-    fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
+    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
     {
-        if offset + len >= mmf.size {
+        let mut mmf_borrowed = mmf.borrow_mut();
+        let offset = mmf_borrowed.num_bytes_sectioned;
+        let offset_as_isize: isize = match offset.try_into() {
+            Ok(off) => off,
+            Err(_) => {
+                eprintln!("Can't express offset {} as isize", offset);
+                return Err(PmemError::AccessOutOfRange)
+            },
+        };
+
+        if offset + len > mmf_borrowed.size {
+            eprintln!("Can't allocate {} bytes because only {} remain", len, mmf_borrowed.size - offset);
             return Err(PmemError::AccessOutOfRange);
         }
         
-        let offset_as_isize: isize = match offset.try_into() {
-            Ok(off) => off,
-            Err(_) => return Err(PmemError::AccessOutOfRange),
-        };
-        
-        let h_map_addr = unsafe { (mmf.h_map_addr as *mut u8).offset(offset_as_isize) };
+        let h_map_addr = unsafe { (mmf_borrowed.h_map_addr as *mut u8).offset(offset_as_isize) };
 
+        mmf_borrowed.num_bytes_sectioned += len;
+        let media_type = mmf_borrowed.media_type.clone();
+
+        std::mem::drop(mmf_borrowed);
+        
         let section = Self {
-            mmf: mmf.clone(),
+            mmf,
+            media_type,
             size: len,
             h_map_addr: h_map_addr as HANDLE,
         };
@@ -200,7 +219,7 @@ impl MemoryMappedFileSection {
 
     fn flush(&mut self) {
         unsafe {
-            match self.mmf.media_type {
+            match self.media_type {
                 MemoryMappedFileMediaType::BatteryBackedDRAM => {
                     // If using battery-backed DRAM, there's no need
                     // to flush cache lines, since those will be
@@ -275,8 +294,9 @@ impl FileBackedPersistentMemoryRegion
             open_behavior,
             close_behavior
         )?;
-        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
-        let section = MemoryMappedFileSection::new(mmf, 0, region_size as usize)?;
+        let mmf =
+            Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
+        let section = MemoryMappedFileSection::new(mmf, region_size as usize)?;
         Ok(Self { section })
     }
 
@@ -435,6 +455,7 @@ impl FileBackedPersistentMemoryRegions {
         for &region_size in region_sizes {
             let region_size = region_size as usize;
             if region_size >= usize::MAX - total_size {
+                eprintln!("Cannot allocate {} bytes because, combined with the {} allocated so far, it would exceed usize::MAX", region_size, total_size);
                 return Err(PmemError::AccessOutOfRange);
             }
             total_size += region_size;
@@ -446,15 +467,14 @@ impl FileBackedPersistentMemoryRegions {
             open_behavior,
             close_behavior
         )?;
-        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
+        let mmf =
+            Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
         let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        let mut current_offset: usize = 0;
         for &region_size in region_sizes {
             let region_size: usize = region_size as usize;
-            let section = MemoryMappedFileSection::new(mmf.clone(), current_offset, region_size)?;
+            let section = MemoryMappedFileSection::new(mmf.clone(), region_size)?;
             let region = FileBackedPersistentMemoryRegion::new_from_section(section);
             regions.push(region);
-            current_offset += region_size;
         }
         Ok(Self { media_type, regions })
     }

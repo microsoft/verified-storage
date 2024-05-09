@@ -1,7 +1,7 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use core::ffi::c_void;
-use std::{convert::TryInto, ffi::CString};
+use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
 use builtin::*;
 use builtin_macros::*;
@@ -15,6 +15,7 @@ use deps_hack::{
 pub struct MemoryMappedFile {
     virt_addr: *mut u8,
     size: usize,
+    num_bytes_sectioned: usize,
 }
 
 impl Drop for MemoryMappedFile
@@ -74,6 +75,7 @@ impl MemoryMappedFile
             Ok(Self {
                 virt_addr: addr as *mut u8,
                 size: mapped_len.try_into().unwrap(),
+                num_bytes_sectioned: 0,
             })
         }
     }
@@ -81,25 +83,35 @@ impl MemoryMappedFile
 
 #[verifier::external_body]
 pub struct MemoryMappedFileSection {
-    mmf: std::rc::Rc<MemoryMappedFile>,
+    mmf: Rc<RefCell<MemoryMappedFile>>,
     virt_addr: *mut u8,
     size: usize,
 }
 
 impl MemoryMappedFileSection
 {
-    fn new(mmf: std::rc::Rc<MemoryMappedFile>, offset: usize, len: usize) -> Result<Self, PmemError>
+    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
     {
-        if offset + len >= mmf.size {
-            return Err(PmemError::AccessOutOfRange);
-        }
-        
+        let mut mmf_borrowed = mmf.borrow_mut();
+        let offset = mmf_borrowed.num_bytes_sectioned;
         let offset_as_isize: isize = match offset.try_into() {
             Ok(off) => off,
-            Err(_) => return Err(PmemError::AccessOutOfRange),
+            Err(_) => {
+                eprintln!("Can't express offset {} as isize", offset);
+                return Err(PmemError::AccessOutOfRange)
+            },
         };
 
+        if offset + len > mmf_borrowed.size {
+            eprintln!("Can't allocate {} bytes because only {} remain", len, mmf_borrowed.size - offset);
+            return Err(PmemError::AccessOutOfRange);
+        }
+
+        mmf_borrowed.num_bytes_sectioned += len;
         let new_virt_addr = unsafe { mmf.virt_addr.offset(offset_as_isize) };
+
+        std::mem::drop(mmf_borrowed);
+
         let section = Self {
             mmf,
             virt_addr: new_virt_addr,
@@ -146,8 +158,8 @@ impl FileBackedPersistentMemoryRegion
             open_behavior,
             persistent_memory_check,
         )?;
-        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
-        let section = MemoryMappedFileSection::new(mmf, 0, region_size as usize)?;
+        let mmf = Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
+        let section = MemoryMappedFileSection::new(mmf, region_size as usize)?;
         Ok(Self { section })
     }
 
@@ -365,15 +377,13 @@ impl FileBackedPersistentMemoryRegions {
             open_behavior,
             persistent_memory_check,
         )?;
-        let mmf = std::rc::Rc::<MemoryMappedFile>::new(mmf);
+        let mmf = Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
         let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        let mut current_offset: usize = 0;
         for &region_size in region_sizes {
             let region_size: usize = region_size as usize;
-            let section = MemoryMappedFileSection::new(mmf.clone(), current_offset, region_size)?;
+            let section = MemoryMappedFileSection::new(mmf.clone(), region_size)?;
             let region = FileBackedPersistentMemoryRegion::new_from_section(section);
             regions.push(region);
-            current_offset += region_size;
         }
         Ok(Self { regions })
     }
