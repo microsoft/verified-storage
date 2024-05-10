@@ -8,7 +8,7 @@
 
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
+    PersistentMemoryRegionView, PmemError,
 };
 use crate::pmem::serialization_t::*;
 use builtin::*;
@@ -119,102 +119,6 @@ verus! {
                 std::slice::from_raw_parts(bytes_pointer, num_bytes)
             };
             self.contents.splice(addr_usize..addr_usize+num_bytes, bytes.iter().cloned());
-        }
-
-        #[verifier::external_body]
-        fn flush(&mut self)
-        {
-        }
-    }
-
-    // The `VolatileMemoryMockingPersistentMemoryRegions` struct
-    // contains a vector of volatile memory regions.
-    pub struct VolatileMemoryMockingPersistentMemoryRegions
-    {
-        pub regions: Vec<VolatileMemoryMockingPersistentMemoryRegion>,
-    }
-
-    impl VolatileMemoryMockingPersistentMemoryRegions
-    {
-        #[verifier::external_body]
-        pub fn new(region_sizes: &[u64]) -> (result: Self)
-            ensures
-                result.inv(),
-                result@.len() == region_sizes@.len(),
-                forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] result@[i].len() == region_sizes[i],
-        {
-            let mut regions = Vec::<VolatileMemoryMockingPersistentMemoryRegion>::new();
-            let num_regions = region_sizes.len();
-            for pos in 0..num_regions
-                invariant
-                    regions.len() == pos,
-                    forall |i| 0 <= i < pos ==> regions[i]@.len() == region_sizes[i],
-            {
-                let region = VolatileMemoryMockingPersistentMemoryRegion::new(region_sizes[pos]);
-                regions.push(region);
-            }
-            Self{ regions }
-        }
-    }
-
-    /// So that `VolatileMemoryMockingPersistentMemoryRegions` can be
-    /// used to mock a collection of persistent memory regions, it
-    /// implements the trait `PersistentMemoryRegions`.
-    impl PersistentMemoryRegions for VolatileMemoryMockingPersistentMemoryRegions {
-        #[verifier::external_body]
-        closed spec fn view(&self) -> PersistentMemoryRegionsView
-        {
-            PersistentMemoryRegionsView{
-                regions: self.regions@.map(|_i, r: VolatileMemoryMockingPersistentMemoryRegion| r@)
-            }
-        }
-
-        closed spec fn inv(&self) -> bool
-        {
-            forall |i| 0 <= i < self.regions.len() ==> #[trigger] self.regions[i].inv()
-        }
-
-        #[verifier::external_body]
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
-
-        #[verifier::external_body]
-        fn get_num_regions(&self) -> usize
-        {
-            self.regions.len()
-        }
-
-        #[verifier::external_body]
-        fn get_region_size(&self, index: usize) -> u64
-        {
-            self.regions[index].get_region_size()
-        }
-
-        #[verifier::external_body]
-        fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-        {
-            self.regions[index].read(addr, num_bytes)
-        }
-
-        #[verifier::external_body]
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
-            where
-                S: Serializable + Sized
-        {
-            self.regions[index].read_and_deserialize(addr)
-        }
-
-        #[verifier::external_body]
-        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
-        {
-            self.regions[index].write(addr, bytes)
-        }
-
-        #[verifier::external_body]
-        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
-            where
-                S: Serializable + Sized
-        {
-            self.regions[index].serialize_and_write(addr, to_write);
         }
 
         #[verifier::external_body]

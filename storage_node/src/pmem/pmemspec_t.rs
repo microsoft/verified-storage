@@ -1,6 +1,6 @@
-//! This file contains the trusted specification for how a collection
-//! of persistent memory regions (implementing trait
-//! `PersistentMemoryRegions`) behaves.
+//! This file contains the trusted specification for how a persistent
+//! memory region (implementing trait `PersistentMemoryRegion`)
+//! behaves.
 //!
 //! One of the things it models is what can happen to a persistent
 //! memory region if the system crashes in the middle of a write.
@@ -288,68 +288,6 @@ verus! {
         }
     }
 
-    /// We model the state of a sequence of regions of persistent
-    /// memory as a `PersistentMemoryRegionsView`, which is essentially
-    /// just a sequence of `PersistentMemoryRegionView` values.
-
-    #[verifier::ext_equal]
-    pub struct PersistentMemoryRegionsView {
-        pub regions: Seq<PersistentMemoryRegionView>,
-    }
-
-    impl PersistentMemoryRegionsView {
-        pub open spec fn len(self) -> nat
-        {
-            self.regions.len()
-        }
-
-        pub open spec fn spec_index(self, i: int) -> PersistentMemoryRegionView
-        {
-            self.regions[i]
-        }
-
-        pub open spec fn write(self, index: int, addr: int, bytes: Seq<u8>) -> Self
-        {
-            Self {
-                regions: self.regions.map(|pos: int, pre_view: PersistentMemoryRegionView|
-                    if pos == index {
-                        pre_view.write(addr, bytes)
-                    } else {
-                        pre_view
-                    }
-                ),
-            }
-        }
-
-
-        pub open spec fn flush(self) -> Self
-        {
-            Self {
-                regions: self.regions.map(|_pos, pm: PersistentMemoryRegionView| pm.flush()),
-            }
-        }
-
-        pub open spec fn no_outstanding_writes(self) -> bool {
-            forall |i: int| #![auto] 0 <= i < self.len() ==> self[i].no_outstanding_writes()
-        }
-
-        pub open spec fn no_outstanding_writes_in_range(self, index: int, start: int, end: int) -> bool
-        {
-            self[index].no_outstanding_writes_in_range(start, end)
-        }
-
-        pub open spec fn committed(self) -> Seq<Seq<u8>>
-        {
-            Seq::<Seq<u8>>::new(self.len(), |i: int| self[i].committed())
-        }
-
-        pub open spec fn can_crash_as(self, crash_regions: Seq<Seq<u8>>) -> bool
-        {
-            &&& crash_regions.len() == self.len()
-            &&& forall |i: int| #![auto] 0 <= i < self.len() ==> self[i].can_crash_as(crash_regions[i])
-        }
-    }
-
     // The struct `PersistentMemoryConstants` contains fields that
     // remain the same across all operations on persistent memory.
 
@@ -382,7 +320,7 @@ verus! {
                 ({
                     let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    // If the persistent memory regions are impervious
+                    // If the persistent memory region is impervious
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
@@ -445,125 +383,6 @@ verus! {
         fn flush(&mut self)
             requires
                 old(self).inv()
-            ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.flush(),
-        ;
-    }
-
-    /// The `PersistentMemoryRegions` trait represents an ordered list
-    /// of one or more persistent memory regions.
-
-    pub trait PersistentMemoryRegions : Sized
-    {
-        spec fn view(&self) -> PersistentMemoryRegionsView;
-
-        spec fn inv(&self) -> bool;
-
-        spec fn constants(&self) -> PersistentMemoryConstants;
-
-        fn get_num_regions(&self) -> (result: usize)
-            requires
-                self.inv()
-            ensures
-                result == self@.len(),
-        ;
-
-        fn get_region_size(&self, index: usize) -> (result: u64)
-            requires
-                self.inv(),
-                index < self@.len()
-            ensures
-                result == self@[index as int].len(),
-        ;
-
-        fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires
-                self.inv(),
-                index < self@.len(),
-                addr + num_bytes <= self@[index as int].len(),
-                // Reads aren't permitted where there are still outstanding writes
-                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + num_bytes),
-            ensures
-                ({
-                    let true_bytes = self@[index as int].committed().subrange(addr as int, addr + num_bytes);
-                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    // If the persistent memory regions are impervious
-                    // to corruption, read returns the last bytes
-                    // written. Otherwise, it returns a
-                    // possibly-corrupted version of those bytes.
-                    if self.constants().impervious_to_corruption {
-                        bytes@ == true_bytes
-                    }
-                    else {
-                        maybe_corrupted(bytes@, true_bytes, addrs)
-                    }
-                })
-        ;
-
-        // TODO: should we be able to read more than one S with a single read call?
-        // Note that addr is a regular offset in terms of bytes, but the result is of type S
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (output: &S)
-            where
-                S: Serializable + Sized
-            requires
-                self.inv(),
-                index < self@.len(),
-                addr + S::spec_serialized_len() <= self@[index as int].len(),
-                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
-                // TODO: should require that we have previously written an S to this address
-            ensures
-            ({
-                let true_val = S::spec_deserialize(
-                    self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-                if self.constants().impervious_to_corruption {
-                    output == true_val
-                } else {
-                    maybe_corrupted_serialized(*output, true_val, addr as int)
-                }
-            })
-        ;
-
-        // TODO: remove and fully replace with serialize_and_write
-        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
-            requires
-                old(self).inv(),
-                index < old(self)@.len(),
-                addr + bytes@.len() <= old(self)@[index as int].len(),
-                // Writes aren't allowed where there are already outstanding writes.
-                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + bytes@.len()),
-            ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, bytes@),
-        ;
-
-        // TODO: should this take a &[S] or just S?
-        // We should probably only be able to write an S to this address if we can be sure
-        // that we are not partially overwriting another structure? since a subsequent
-        // read would make that structure invalid.
-        // how to represent that though? need to map addresses to types in spec code...
-        // or something similar...
-        // Note that addr is a regular offset in terms of bytes, but to_write is type S
-        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
-            where
-                S: Serializable + Sized
-            requires
-                old(self).inv(),
-                index < old(self)@.len(),
-                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
-                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
-            ensures
-                self.inv(),
-                self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
-        ;
-
-        fn flush(&mut self)
-            requires
-                old(self).inv(),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),

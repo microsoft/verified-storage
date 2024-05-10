@@ -4,16 +4,18 @@ use builtin_macros::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
-pub mod kv;
+//pub mod kv;
 pub mod log;
-pub mod multilog;
+//pub mod multilog;
 pub mod pmem;
 
+/*
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
 use crate::multilog::multilogspec_t::*;
+*/
 #[cfg(target_os = "linux")]
 use crate::pmem::linux_pmemfile_t::*;
 #[cfg(target_os = "windows")]
@@ -21,6 +23,8 @@ use crate::pmem::windows_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+
+/*
 
 mod tests {
 
@@ -307,4 +311,9 @@ fn main()
     test_multilog_on_memory_mapped_file();
     test_log_on_memory_mapped_file();
 }
+*/
+
+#[allow(dead_code)]
+fn main()
+{
 }

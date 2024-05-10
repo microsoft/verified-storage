@@ -1,7 +1,7 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use core::ffi::c_void;
-use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
+use std::{convert::TryInto, ffi::CString};
 
 use builtin::*;
 use builtin_macros::*;
@@ -12,10 +12,10 @@ use deps_hack::{
     pmem_memcpy_nodrain, pmem_unmap, rand::Rng, PMEM_FILE_CREATE, PMEM_FILE_EXCL,
 };
 
+#[verifier::external_body]
 pub struct MemoryMappedFile {
     virt_addr: *mut u8,
     size: usize,
-    num_bytes_sectioned: usize,
 }
 
 impl Drop for MemoryMappedFile
@@ -81,46 +81,6 @@ impl MemoryMappedFile
     }
 }
 
-#[verifier::external_body]
-pub struct MemoryMappedFileSection {
-    mmf: Rc<RefCell<MemoryMappedFile>>,
-    virt_addr: *mut u8,
-    size: usize,
-}
-
-impl MemoryMappedFileSection
-{
-    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
-    {
-        let mut mmf_borrowed = mmf.borrow_mut();
-        let offset = mmf_borrowed.num_bytes_sectioned;
-        let offset_as_isize: isize = match offset.try_into() {
-            Ok(off) => off,
-            Err(_) => {
-                eprintln!("Can't express offset {} as isize", offset);
-                return Err(PmemError::AccessOutOfRange)
-            },
-        };
-
-        if offset + len > mmf_borrowed.size {
-            eprintln!("Can't allocate {} bytes because only {} remain", len, mmf_borrowed.size - offset);
-            return Err(PmemError::AccessOutOfRange);
-        }
-
-        mmf_borrowed.num_bytes_sectioned += len;
-        let new_virt_addr = unsafe { mmf.virt_addr.offset(offset_as_isize) };
-
-        std::mem::drop(mmf_borrowed);
-
-        let section = Self {
-            mmf,
-            virt_addr: new_virt_addr,
-            size: len,
-        };
-        Ok(section)
-    }
-}
-
 verus! {
 
 #[derive(Clone, Copy)]
@@ -137,7 +97,7 @@ pub enum PersistentMemoryCheck {
 
 pub struct FileBackedPersistentMemoryRegion
 {
-    section: MemoryMappedFileSection,
+    mmf: MemoryMappedFileSection,
 }
 
 impl FileBackedPersistentMemoryRegion
@@ -158,9 +118,7 @@ impl FileBackedPersistentMemoryRegion
             open_behavior,
             persistent_memory_check,
         )?;
-        let mmf = Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
-        let section = MemoryMappedFileSection::new(mmf, region_size as usize)?;
-        Ok(Self { section })
+        Ok(Self { mmf })
     }
 
     pub fn new(path: &StrSlice, region_size: u64, persistent_memory_check: PersistentMemoryCheck)
@@ -184,13 +142,7 @@ impl FileBackedPersistentMemoryRegion
         Self::new_internal(path, region_size, FileOpenBehavior::OpenExisting,
                            PersistentMemoryCheck::DontCheckForPersistentMemory)
     }
-
-    #[verifier::external_body]
-    fn new_from_section(section: MemoryMappedFileSection) -> (result: Self)
-    {
-        Self{ section }
-    }
-}
+}
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
@@ -338,137 +290,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // primitive are durable. This guarantees that all updates made with `write`/
         // `serialize_and_write` since the last `flush` call will be durable before
         // any new updates become durable.
-        unsafe { pmem_drain(); }
-    }
-}
-
-pub struct FileBackedPersistentMemoryRegions {
-    regions: Vec<FileBackedPersistentMemoryRegion>,
-}
-
-impl FileBackedPersistentMemoryRegions {
-    // TODO: detailed information for error returns
-    #[verifier::external_body]
-    #[allow(dead_code)]
-    pub fn new_internal<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64], open_behavior: FileOpenBehavior,
-                            persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true,
-            }
-    {
-        let mut total_size: usize = 0;
-        for &region_size in region_sizes {
-            let region_size = region_size as usize;
-            if region_size >= usize::MAX - total_size {
-                return Err(PmemError::AccessOutOfRange);
-            }
-            total_size += region_size;
-        }
-        let mmf = MemoryMappedFile::from_file(
-            file_to_map.into_rust_str(),
-            total_size,
-            open_behavior,
-            persistent_memory_check,
-        )?;
-        let mmf = Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
-        let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        for &region_size in region_sizes {
-            let region_size: usize = region_size as usize;
-            let section = MemoryMappedFileSection::new(mmf.clone(), region_size)?;
-            let region = FileBackedPersistentMemoryRegion::new_from_section(section);
-            regions.push(region);
-        }
-        Ok(Self { regions })
-    }
-    
-    pub fn new<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64],
-                   persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true,
-            }
-    {
-        Self::new_internal(file_to_map, region_sizes, FileOpenBehavior::CreateNew, persistent_memory_check)
-    }
-    
-    pub fn restore<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64],
-                       persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < regions@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true,
-            }
-    {
-        Self::new_internal(file_to_map, region_sizes, FileOpenBehavior::OpenExisting, persistent_memory_check)
-    }
-}
-
-impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    closed spec fn view(&self) -> PersistentMemoryRegionsView;
-    closed spec fn inv(&self) -> bool;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
-
-    #[verifier::external_body]
-    fn get_num_regions(&self) -> usize
-    {
-        self.regions.len()
-    }
-
-    #[verifier::external_body]
-    fn get_region_size(&self, index: usize) -> u64
-    {
-        self.regions[index].get_region_size()
-    }
-
-    #[verifier::external_body]
-    fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-    {
-        self.regions[index].read(addr, num_bytes)
-    }
-
-    #[verifier::external_body]
-    fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
-        where
-            S: Serializable + Sized
-    {
-        self.regions[index].read_and_deserialize(addr)
-    }
-
-    #[verifier::external_body]
-    fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
-    {
-        self.regions[index].write(addr, bytes)
-    }
-
-    #[verifier::external_body]
-    fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
-        where
-            S: Serializable + Sized
-    {
-        self.regions[index].serialize_and_write(addr, to_write);
-    }
-
-    #[verifier::external_body]
-    fn flush(&mut self)
-    {
         unsafe { pmem_drain(); }
     }
 }

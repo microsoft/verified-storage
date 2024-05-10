@@ -7,8 +7,7 @@ use builtin::*;
 use builtin_macros::*;
 use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
-    PmemError,
+    PersistentMemoryRegionView, PmemError,
 };
 use crate::pmem::serialization_t::*;
 use deps_hack::rand::Rng;
@@ -23,10 +22,8 @@ use deps_hack::winapi::um::winnt::{
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_TEMPORARY, FILE_SHARE_DELETE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, HANDLE, PAGE_READWRITE, ULARGE_INTEGER,
 };
-use std::cell::RefCell;
 use std::convert::*;
 use std::ffi::CString;
-use std::rc::Rc;
 use std::slice;
 use vstd::prelude::*;
 
@@ -37,13 +34,13 @@ use core::arch::x86_64::_mm_sfence;
     
 // The `MemoryMappedFile` struct represents a memory-mapped file.
 
+#[verifier::external_body]
 pub struct MemoryMappedFile {
     media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
     size: usize,                            // number of bytes in the file
     h_file: HANDLE,                         // handle to the file
     h_map_file: HANDLE,                     // handle to the mapping
     h_map_addr: HANDLE,                     // address of the first byte of the mapping
-    num_bytes_sectioned: usize,             // how many bytes allocated to `MemoryMappedFileSection`s
 }
 
 impl MemoryMappedFile {
@@ -150,68 +147,9 @@ impl MemoryMappedFile {
                 h_file,
                 h_map_file,
                 h_map_addr,
-                num_bytes_sectioned: 0,
             };
             Ok(mmf)
         }
-    }
-}
-
-impl Drop for MemoryMappedFile {
-    fn drop(&mut self)
-    {
-        unsafe {
-            UnmapViewOfFile(self.h_map_addr);
-            CloseHandle(self.h_map_file);
-            CloseHandle(self.h_file);
-        }
-    }
-}
-
-// The `MemoryMappedFileSection` struct represents a section of a memory-mapped file.
-// It contains a reference to the `MemoryMappedFile` it's a section of so that the
-// `MemoryMappedFile` isn't dropped until this `MemoryMappedFileSection1 is dropped.
-
-#[verifier::external_body]
-pub struct MemoryMappedFileSection {
-    mmf: Rc<RefCell<MemoryMappedFile>>,     // the memory-mapped file this is a section of
-    media_type: MemoryMappedFileMediaType,  // type of media on which the file is stored
-    size: usize,                            // number of bytes in the section
-    h_map_addr: HANDLE,                     // address of the first byte of the section
-}
-
-impl MemoryMappedFileSection {
-    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
-    {
-        let mut mmf_borrowed = mmf.borrow_mut();
-        let offset = mmf_borrowed.num_bytes_sectioned;
-        let offset_as_isize: isize = match offset.try_into() {
-            Ok(off) => off,
-            Err(_) => {
-                eprintln!("Can't express offset {} as isize", offset);
-                return Err(PmemError::AccessOutOfRange)
-            },
-        };
-
-        if offset + len > mmf_borrowed.size {
-            eprintln!("Can't allocate {} bytes because only {} remain", len, mmf_borrowed.size - offset);
-            return Err(PmemError::AccessOutOfRange);
-        }
-        
-        let h_map_addr = unsafe { (mmf_borrowed.h_map_addr as *mut u8).offset(offset_as_isize) };
-
-        mmf_borrowed.num_bytes_sectioned += len;
-        let media_type = mmf_borrowed.media_type.clone();
-
-        std::mem::drop(mmf_borrowed);
-        
-        let section = Self {
-            mmf,
-            media_type,
-            size: len,
-            h_map_addr: h_map_addr as HANDLE,
-        };
-        Ok(section)
     }
 
     // The function `flush` flushes updated parts of the
@@ -238,6 +176,17 @@ impl MemoryMappedFileSection {
                     }
                 },
             }
+        }
+    }
+}
+
+impl Drop for MemoryMappedFile {
+    fn drop(&mut self)
+    {
+        unsafe {
+            UnmapViewOfFile(self.h_map_addr);
+            CloseHandle(self.h_map_file);
+            CloseHandle(self.h_file);
         }
     }
 }
@@ -272,7 +221,7 @@ pub enum FileCloseBehavior {
 #[allow(dead_code)]
 pub struct FileBackedPersistentMemoryRegion
 {
-    section: MemoryMappedFileSection,
+    mmf: MemoryMappedFile,
 }
 
 impl FileBackedPersistentMemoryRegion
@@ -294,10 +243,7 @@ impl FileBackedPersistentMemoryRegion
             open_behavior,
             close_behavior
         )?;
-        let mmf =
-            Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
-        let section = MemoryMappedFileSection::new(mmf, region_size as usize)?;
-        Ok(Self { section })
+        Ok(Self { mmf })
     }
 
     pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
@@ -321,12 +267,6 @@ impl FileBackedPersistentMemoryRegion
     {
         Self::new_internal(path, media_type, region_size, FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent)
     }
-
-    #[verifier::external_body]
-    fn new_from_section(section: MemoryMappedFileSection) -> (result: Self)
-    {
-        Self{ section }
-    }
 }
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
@@ -338,14 +278,14 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn get_region_size(&self) -> u64
     {
-        self.section.size as u64
+        self.mmf.size as u64
     }
 
     #[verifier::external_body]
     fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
     {
         let addr_on_pm: *const u8 = unsafe {
-            (self.section.h_map_addr as *const u8).offset(addr.try_into().unwrap())
+            (self.mmf.h_map_addr as *const u8).offset(addr.try_into().unwrap())
         };
         let slice: &[u8] = unsafe { core::slice::from_raw_parts(addr_on_pm, num_bytes as usize) };
         slice.to_vec()
@@ -365,7 +305,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *const u8 = unsafe {
-            (self.section.h_map_addr as *const u8).offset(addr.try_into().unwrap())
+            (self.mmf.h_map_addr as *const u8).offset(addr.try_into().unwrap())
         };
 
         // Cast the pointer to PM bytes to an S pointer
@@ -384,7 +324,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     fn write(&mut self, addr: u64, bytes: &[u8])
     {
         let addr_on_pm: *mut u8 = unsafe {
-            (self.section.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
+            (self.mmf.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
         };
         let slice: &mut [u8] = unsafe { core::slice::from_raw_parts_mut(addr_on_pm, bytes.len()) };
         slice.copy_from_slice(bytes)
@@ -407,7 +347,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // that we will not violate this restriction in practice.
         // TODO: put it in the precondition anyway
         let addr_on_pm: *mut u8 = unsafe {
-            (self.section.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
+            (self.mmf.h_map_addr as *mut u8).offset(addr.try_into().unwrap())
         };
 
         // convert the given &S to a pointer, then a slice of bytes
@@ -421,189 +361,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn flush(&mut self)
     {
-        self.section.flush();
-    }
-}
-
-// The `FileBackedPersistentMemoryRegions` struct contains a
-// vector of volatile memory regions. It implements the trait
-// `PersistentMemoryRegions` so that it can be used by a multilog.
-
-pub struct FileBackedPersistentMemoryRegions
-{
-    media_type: MemoryMappedFileMediaType,           // common media file type used
-    regions: Vec<FileBackedPersistentMemoryRegion>,  // all regions
-}
-
-impl FileBackedPersistentMemoryRegions {
-    #[verifier::external_body]
-    fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
-                    open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
-                    -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true
-            }
-    {
-        let mut total_size: usize = 0;
-        for &region_size in region_sizes {
-            let region_size = region_size as usize;
-            if region_size >= usize::MAX - total_size {
-                eprintln!("Cannot allocate {} bytes because, combined with the {} allocated so far, it would exceed usize::MAX", region_size, total_size);
-                return Err(PmemError::AccessOutOfRange);
-            }
-            total_size += region_size;
-        }
-        let mmf = MemoryMappedFile::from_file(
-            path.into_rust_str(),
-            total_size,
-            media_type.clone(),
-            open_behavior,
-            close_behavior
-        )?;
-        let mmf =
-            Rc::<RefCell<MemoryMappedFile>>::new(RefCell::<MemoryMappedFile>::new(mmf));
-        let mut regions = Vec::<FileBackedPersistentMemoryRegion>::new();
-        for &region_size in region_sizes {
-            let region_size: usize = region_size as usize;
-            let section = MemoryMappedFileSection::new(mmf.clone(), region_size)?;
-            let region = FileBackedPersistentMemoryRegion::new_from_section(section);
-            regions.push(region);
-        }
-        Ok(Self { media_type, regions })
-    }
-
-    // The static function `new` creates a
-    // `FileBackedPersistentMemoryRegions` object by creating a file
-    // and dividing it into memory-mapped sections.
-    //
-    // `path` -- the path to use for the file
-    //
-    // `media_type` -- the type of media the path refers to
-    //
-    // `region_sizes` -- a vector of region sizes, where
-    // `region_sizes[i]` is the length of file `log<i>`
-    //
-    // `close_behavior` -- what to do when the file is closed
-    pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
-               close_behavior: FileCloseBehavior)
-               -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true
-            }
-    {
-        Self::new_internal(path, media_type, region_sizes, FileOpenBehavior::CreateNew, close_behavior)
-    }
-
-    // The static function `restore` creates a
-    // `FileBackedPersistentMemoryRegions` object by opening an
-    // existing file and dividing it into memory-mapped sections.
-    //
-    // `path` -- the path to use for the file
-    //
-    // `media_type` -- the type of media the path refers to
-    //
-    // `region_sizes` -- a vector of region sizes, where
-    // `region_sizes[i]` is the length of file `log<i>`
-    pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64])
-                   -> (result: Result<Self, PmemError>)
-        ensures
-            match result {
-                Ok(regions) => {
-                    &&& regions.inv()
-                    &&& regions@.no_outstanding_writes()
-                    &&& regions@.len() == region_sizes@.len()
-                    &&& forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] regions@[i].len() == region_sizes@[i]
-                },
-                Err(_) => true
-            }
-    {
-        Self::new_internal(
-            path, media_type, region_sizes, FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent
-        )
-    }
-}
-
-impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
-    closed spec fn view(&self) -> PersistentMemoryRegionsView;
-    closed spec fn inv(&self) -> bool;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
-
-    #[verifier::external_body]
-    fn get_num_regions(&self) -> usize
-    {
-        self.regions.len()
-    }
-
-    #[verifier::external_body]
-    fn get_region_size(&self, index: usize) -> u64
-    {
-        self.regions[index].get_region_size()
-    }
-
-    #[verifier::external_body]
-    fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-    {
-        self.regions[index].read(addr, num_bytes)
-    }
-
-    #[verifier::external_body]
-    fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
-        where
-            S: Serializable + Sized
-    {
-        self.regions[index].read_and_deserialize(addr)
-    }
-
-    #[verifier::external_body]
-    fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
-    {
-        self.regions[index].write(addr, bytes)
-    }
-
-    #[verifier::external_body]
-    fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
-        where
-            S: Serializable + Sized
-    {
-        self.regions[index].serialize_and_write(addr, to_write);
-    }
-
-    #[verifier::external_body]
-    fn flush(&mut self)
-    {
-        match self.media_type {
-            MemoryMappedFileMediaType::BatteryBackedDRAM => {
-                // If using battery-backed DRAM, a single sfence
-                // instruction will fence all of memory, so
-                // there's no need to iterate through all the
-                // regions. Also, there's no need to flush cache
-                // lines, since those will be flushed during the
-                // battery-enabled graceful shutdown after power
-                // loss.
-                unsafe {
-                    core::arch::x86_64::_mm_sfence();
-                }
-            },
-            _ => {
-                for region in &mut self.regions {
-                    region.flush();
-                }
-            },
-        }
+        self.mmf.flush();
     }
 }
 
