@@ -26,6 +26,7 @@ verus! {
         )
     }
 
+    // TODO: these proofs should live somewhere else
     pub proof fn lemma_serialized_val_uncorrupted<S>(
         read_val: S,
         true_val: S,

@@ -15,12 +15,12 @@ use crate::multilog::multilogspec_t::*;
 use crate::pmem::device_t::*;
 #[cfg(target_os = "linux")]
 use crate::pmem::linux_pmemfile_t::*;
-#[cfg(target_os = "windows")]
-use crate::pmem::windows_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::timestamp_t::*;
+#[cfg(target_os = "windows")]
+use crate::pmem::windows_pmemfile_t::*;
 
 mod tests {
     use super::*;
@@ -368,6 +368,10 @@ verus! {
             _ => runtime_assert(false) // can't succeed, and can't fail with any other error
         }
         Some(())
+    }
+
+    fn test_durable_setup_and_start() {
+
     }
 
     #[allow(dead_code)]

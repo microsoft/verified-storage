@@ -77,7 +77,11 @@ verus! {
         // TODO: this may not be correct if it's possible to insert/commit and remove the same index in the same
         // transaction. I don't expect that to ever be necessary so we should explicitly prevent it to ensure this
         // spec is correct.
-        pub closed spec fn recover(mems: Seq<Seq<u8>>, op_log: Seq<OpLogEntryType>, kvstore_id: u128) -> Option<DurableItemTableView<I>>
+        pub closed spec fn recover(
+            mems: Seq<Seq<u8>>,
+            op_log: Seq<OpLogEntryType>,
+            kvstore_id: u128
+        ) -> Option<DurableItemTableView<I>>
         {
             // The item table only uses one region
             if mems.len() != 1 {

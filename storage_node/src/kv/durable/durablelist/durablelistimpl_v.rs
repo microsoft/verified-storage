@@ -24,7 +24,7 @@ verus! {
         _phantom: Ghost<core::marker::PhantomData<(K, L, E)>>,
         metadata_table_free_list: Vec<u64>,
         list_node_region_free_list: Vec<u64>,
-        state: Ghost<DurableListView<K, L>>
+        state: Ghost<DurableListView<K, L, E>>
     }
 
     impl<K, L, E> DurableList<K, L, E>
@@ -33,13 +33,75 @@ verus! {
             L: Serializable + std::fmt::Debug,
             E: std::fmt::Debug
     {
-        pub closed spec fn view(self) -> DurableListView<K, L>
+        pub closed spec fn view(self) -> DurableListView<K, L, E>
         {
             self.state@
         }
 
         // TODO
         closed spec fn inv(self) -> bool;
+
+
+        pub closed spec fn recover(
+            mems: Seq<Seq<u8>>,
+            op_log: Seq<OpLogEntryType>,
+            kvstore_id: u128
+        ) -> Option<DurableItemTableView<I>>
+        {
+            // the durable list uses two regions
+            if mems.len() != 2 {
+                None
+            } else {
+                let metadata_table_mem = mems[0];
+                let list_node_region_mem = mems[1];
+                if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
+                    // Invalid if the metadata table sequence is not large enough
+                    // to store the metadata header. It actually needs to be big
+                    // enough to store an entry for every key, but we don't know
+                    // the number of keys yet.
+                    None
+                } else {
+                    let metadata_header_bytes = metadata_table_mems.subrange(
+                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
+                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                    );
+                    let crc_bytes = metadata_table_mems.subrange(
+                        ABSOLUTE_POS_OF_HEADER_CRC as int,
+                        ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
+                    );
+                    let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
+                    let crc = u64::spec_deserialize(crc_bytes);
+                    if crc != metadata_header.spec_crc() {
+                        // The list is invalid if the stored CRC does not match the contents
+                        // of the metadata header
+                        None
+                    else {
+                        if metadata_header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID {
+                            // The header must contain the correct GUID; if it doesn't, then
+                            // this structure wasn't created by this program.
+                            None
+                        }
+                        } else if metadata_header.version_number == 1 {
+                            // If the metadata was written by version #1 of this code, then this
+                            // is how to interpret it:
+
+                            // The table region is invalid if it isn't large enough to contain an
+                            // entry for each key
+                            let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len();
+                            if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * metadata_header.num_keys {
+                                None
+                            } else {
+                                // TODO: we're missing log operations for adding a new entry to the
+                                // list metadata table
+                            }
+                        } else {
+                            // Version #1 is currently the only valid version number
+                            None
+                        }
+                    }
+                }
+            }
+        }
 
         pub exec fn setup<PM>(
             pm_regions: &mut PM,
@@ -127,7 +189,7 @@ verus! {
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
             Tracked(perm): Tracked<&TrustedListPermission>,
-            Ghost(state): Ghost<DurableListView<K, L>>
+            Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions

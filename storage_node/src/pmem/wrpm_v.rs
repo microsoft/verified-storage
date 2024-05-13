@@ -18,6 +18,38 @@ pub trait CheckPermission<State>
     spec fn check_permission(&self, state: State) -> bool;
 }
 
+// // This trait helps us obtain permissions structures about individual components
+// // from higher-level perm definitions. `OuterState` refers to the more general/higher-level
+// // perm; `InnerState` refers to the more specific/lower-level perm. For example,
+// // `TrustedKvPermission` may be an `OuterState` and `TrustedMultiLogPermission`
+// // may be an `InnerState`.
+// // TODO: right now this only works with inner structures that do not require
+// // input to their recovery fn (e.g. the log). We need a variation on this
+// // to handle additional recovery information.
+// // TODO: does this need to use tracked values? do we need to ensure that
+// // there is at most one converted permission at a time?
+// pub trait FromPerm<P, OuterState, InnerState> : CheckPermission<InnerState> + Sized
+//     where
+//         P: CheckPermission<OuterState>
+// {
+//     spec fn from(perm: &P) -> Self;
+
+//     spec fn states_correspond(outer_state: OuterState, inner_state: InnerState) -> bool;
+
+//     // This lemma proves that the Perm structure obtained using `Self::from`
+//     // only allows crash states that are also legal in the context of the outer
+//     // permission
+//     proof fn lemma_perm_conversion_preserves_crash_consistency(&self, from_perm: &P)
+//         requires
+//             Self::from(from_perm) == self
+//         ensures
+//             forall |s1: InnerState, s2: OuterState| {
+//                 &&& from_perm.check_permission(s2)
+//                 &&& Self::states_correspond(s2, s1)
+//             } <==> self.check_permission(s1)
+//     ;
+// }
+
 #[allow(dead_code)]
 pub struct WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
     where
