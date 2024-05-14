@@ -135,7 +135,7 @@ verus! {
 
         // The `setup` method sets up persistent memory objects `pm_region`
         // to store an initial empty log. It returns the capacity of the log.
-        // See `main.rs` for more documentation.
+        // See `README.md` for more documentation.
         pub exec fn setup<PMRegion>(
             pm_region: &mut PMRegion,
             log_id: u128,
@@ -229,7 +229,7 @@ verus! {
         // `UntrustedLogImpl` out of a set of persistent memory
         // regions. It's assumed that those regions were initialized
         // with `setup` and then only `UntrustedLogImpl` methods
-        // were allowed to mutate them. See `main.rs` for more
+        // were allowed to mutate them. See `README.md` for more
         // documentation and an example of its use.
         //
         // This method is passed a write-restricted collection of
@@ -303,7 +303,7 @@ verus! {
         // The `tentatively_append` method tentatively appends
         // `bytes_to_append` to the end of the log. It's tentative in
         // that crashes will undo the appends, and reads aren't
-        // allowed in the tentative part of the log. See `main.rs` for
+        // allowed in the tentative part of the log. See `README.md` for
         // more documentation and examples of its use.
         //
         // This method is passed a write-restricted persistent memory
@@ -763,7 +763,7 @@ verus! {
         }
 
         // The `commit` method commits all tentative appends that have been
-        // performed since the last one. See `main.rs` for more
+        // performed since the last one. See `README.md` for more
         // documentation and examples of its use.
         //
         // This method is passed a write-restricted persistent memory
@@ -821,7 +821,7 @@ verus! {
         // thereby making more space for appending but making log
         // entries before the new head unavailable for reading. Upon
         // return from this method, the head advancement is durable,
-        // i.e., it will survive crashes. See `main.rs` for more
+        // i.e., it will survive crashes. See `README.md` for more
         // documentation and examples of its use.
         //
         // This method is passed a write-restricted persistent memory
@@ -1061,7 +1061,7 @@ verus! {
         // The `read` method reads part of the log, returning a vector
         // containing the read bytes. It doesn't guarantee that those
         // bytes aren't corrupted by persistent memory corruption. See
-        // `main.rs` for more documentation and examples of its use.
+        // `README.md` for more documentation and examples of its use.
         pub exec fn read<Perm, PMRegion>(
             &self,
             wrpm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
@@ -1234,7 +1234,7 @@ verus! {
         }
 
         // The `get_head_tail_and_capacity` method returns the head,
-        // tail, and capacity of the log. See `main.rs` for more
+        // tail, and capacity of the log. See `README.md` for more
         // documentation and examples of its use.
         #[allow(unused_variables)]
         pub exec fn get_head_tail_and_capacity<Perm, PMRegion>(

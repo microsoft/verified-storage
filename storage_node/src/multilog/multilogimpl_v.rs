@@ -138,7 +138,7 @@ verus! {
 
         // The `setup` method sets up persistent memory objects `pm_regions`
         // to store an initial empty multilog. It returns a vector
-        // listing the capacities of the logs. See `main.rs` for more
+        // listing the capacities of the logs. See `README.md` for more
         // documentation.
         pub exec fn setup<PMRegions>(
             pm_regions: &mut PMRegions,
@@ -254,7 +254,7 @@ verus! {
         // `UntrustedMultiLogImpl` out of a set of persistent memory
         // regions. It's assumed that those regions were initialized
         // with `setup` and then only `UntrustedMultiLogImpl` methods
-        // were allowed to mutate them. See `main.rs` for more
+        // were allowed to mutate them. See `README.md` for more
         // documentation and an example of its use.
         //
         // This method is passed a write-restricted collection of
@@ -340,7 +340,7 @@ verus! {
         // `bytes_to_append` to the end of log number `which_log` in
         // the multilog. It's tentative in that crashes will undo the
         // appends, and reads aren't allowed in the tentative part of
-        // the log. See `main.rs` for more documentation and examples
+        // the log. See `README.md` for more documentation and examples
         // of its use.
         //
         // This method is passed a write-restricted collection of
@@ -867,7 +867,7 @@ verus! {
         }
 
         // The `commit` method commits all tentative appends that have been
-        // performed since the last one. See `main.rs` for more
+        // performed since the last one. See `README.md` for more
         // documentation and examples of its use.
         //
         // This method is passed a write-restricted collection of
@@ -966,7 +966,7 @@ verus! {
         // thereby making more space for appending but making log entries
         // before the new head unavailable for reading. Upon return from
         // this method, the head advancement is durable, i.e., it will
-        // survive crashes. See `main.rs` for more documentation and
+        // survive crashes. See `README.md` for more documentation and
         // examples of its use.
         //
         // This method is passed a write-restricted collection of
@@ -1233,7 +1233,7 @@ verus! {
         // The `read` method reads part of one of the logs, returning a
         // vector containing the read bytes. It doesn't guarantee that
         // those bytes aren't corrupted by persistent memory corruption.
-        // See `main.rs` for more documentation and examples of its use.
+        // See `README.md` for more documentation and examples of its use.
         pub exec fn read<Perm, PMRegions>(
             &self,
             wrpm_regions: &WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>,
@@ -1419,7 +1419,7 @@ verus! {
         }
 
         // The `get_head_tail_and_capacity` method returns the head, tail,
-        // and capacity of one of the logs. See `main.rs` for more
+        // and capacity of one of the logs. See `README.md` for more
         // documentation and examples of its use.
         #[allow(unused_variables)]
         pub exec fn get_head_tail_and_capacity<Perm, PMRegions>(
