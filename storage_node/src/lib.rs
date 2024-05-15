@@ -5,7 +5,7 @@ use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
 //pub mod kv;
-pub mod log;
+//pub mod log;
 //pub mod multilog;
 pub mod pmem;
 
