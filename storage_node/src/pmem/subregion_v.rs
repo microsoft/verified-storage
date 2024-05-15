@@ -11,32 +11,120 @@ use vstd::prelude::*;
 verus! {
 
 pub enum PersistentMemoryByteResourceValue {
-    HalfAuthority{ state: PersistentMemoryByte },
+    WriteAuthority{ state: PersistentMemoryByte },
+    WriteAuthorityComplement{ state: PersistentMemoryByte },
+    ReadAuthority{ state: PersistentMemoryByte, num_readers: int },
+    ReadAuthorityComplement{ state: PersistentMemoryByte, num_readers: int },
     FullAuthority{ state: PersistentMemoryByte },
     Empty,
     Invalid,
 }
 
-impl PersistentMemoryByteResourceValue {
-    pub open spec fn valid(self) -> bool {
-        !(self is Invalid)
+impl PCM for PersistentMemoryByteResourceValue {
+    open spec fn valid(self) -> bool {
+        match self {
+            PersistentMemoryByteResourceValue::WriteAuthority{ .. } => true,
+            PersistentMemoryByteResourceValue::WriteAuthorityComplement{ .. } => true,
+            PersistentMemoryByteResourceValue::ReadAuthority{ num_readers, .. } => num_readers > 0,
+            PersistentMemoryByteResourceValue::ReadAuthorityComplement{ num_readers, .. } => num_readers > 0,
+            PersistentMemoryByteResourceValue::FullAuthority{ .. } => true,
+            PersistentMemoryByteResourceValue::Empty => true,
+            PersistentMemoryByteResourceValue::Invalid => false,
+        }
     }
 
-    pub open spec fn op(self, other: Self) -> Self {
+    open spec fn op(self, other: Self) -> Self {
         match (self, other) {
             (PersistentMemoryByteResourceValue::Empty, _) => other,
             (_, PersistentMemoryByteResourceValue::Empty) => self,
             (
-                PersistentMemoryByteResourceValue::HalfAuthority{ state: state1 },
-                PersistentMemoryByteResourceValue::HalfAuthority{ state: state2 },
-            ) => if state1 == state2 {
-                    PersistentMemoryByteResourceValue::FullAuthority { state: state1 }
+                PersistentMemoryByteResourceValue::ReadAuthority{ state: state1, num_readers: num_readers1 },
+                PersistentMemoryByteResourceValue::ReadAuthority{ state: state2, num_readers: num_readers2 },
+            ) => if state1 == state2 && num_readers1 > 0 && num_readers2 > 0 {
+                    PersistentMemoryByteResourceValue::ReadAuthority {
+                        state: state1, num_readers: num_readers1 + num_readers2
+                    }
                  }
                  else {
                     PersistentMemoryByteResourceValue::Invalid
+                 },
+            (
+                PersistentMemoryByteResourceValue::ReadAuthority{ state: state1, num_readers: num_readers1 },
+                PersistentMemoryByteResourceValue::ReadAuthorityComplement{ state: state2, num_readers: num_readers2 },
+            ) => if state1 == state2 {
+                    if num_readers2 > num_readers1 > 0 {
+                        PersistentMemoryByteResourceValue::ReadAuthorityComplement {
+                            state: state1, num_readers: num_readers2 - num_readers1
+                        }
+                    }
+                    else if num_readers2 == num_readers1 > 0 {
+                        PersistentMemoryByteResourceValue::FullAuthority{ state: state1 }
+                    }
+                    else {
+                        PersistentMemoryByteResourceValue::Invalid
+                    }
                  }
+                 else {
+                    PersistentMemoryByteResourceValue::Invalid
+                 },
+            (
+                PersistentMemoryByteResourceValue::ReadAuthorityComplement{ state: state2, num_readers: num_readers2 },
+                PersistentMemoryByteResourceValue::ReadAuthority{ state: state1, num_readers: num_readers1 },
+            ) => if state1 == state2 {
+                    if num_readers2 > num_readers1 > 0 {
+                        PersistentMemoryByteResourceValue::ReadAuthorityComplement {
+                            state: state1, num_readers: num_readers2 - num_readers1
+                        }
+                    }
+                    else if num_readers2 == num_readers1 > 0 {
+                        PersistentMemoryByteResourceValue::FullAuthority{ state: state1 }
+                    }
+                    else {
+                        PersistentMemoryByteResourceValue::Invalid
+                    }
+                 }
+                 else {
+                    PersistentMemoryByteResourceValue::Invalid
+                 },
+            (
+                PersistentMemoryByteResourceValue::WriteAuthority{ state: state1 },
+                PersistentMemoryByteResourceValue::WriteAuthorityComplement{ state: state2 },
+            ) => if state1 == state2 {
+                    PersistentMemoryByteResourceValue::FullAuthority{ state: state1 }
+                 }
+                 else {
+                    PersistentMemoryByteResourceValue::Invalid
+                 },
+            (
+                PersistentMemoryByteResourceValue::WriteAuthorityComplement{ state: state2 },
+                PersistentMemoryByteResourceValue::WriteAuthority{ state: state1 },
+            ) => if state1 == state2 {
+                    PersistentMemoryByteResourceValue::FullAuthority{ state: state1 }
+                 }
+                 else {
+                    PersistentMemoryByteResourceValue::Invalid
+                 },
             (_, _) => PersistentMemoryByteResourceValue::Invalid {  },
         }
+    }
+
+    open spec fn unit() -> Self {
+        Self::Empty
+    }
+
+    proof fn closed_under_incl(a: Self, b: Self) {
+    }
+
+    proof fn commutative(a: Self, b: Self) {
+    }
+
+    proof fn associative(a: Self, b: Self, c: Self) {
+    }
+
+    proof fn op_unit(a: Self) {
+    }
+
+    proof fn unit_valid() {
     }
 }
 
@@ -79,45 +167,6 @@ impl PCM for PersistentMemoryResourceValue {
     }
 
     proof fn unit_valid() {
-    }
-}
-
-pub struct PersistentMemoryRegionInvariantConstants
-{
-    pub loc: Loc,
-    pub size: usize,
-}
-
-pub struct PersistentMemoryRegionInvariantState
-{
-    pub perm: PersistentMemoryPermission,
-    pub authority: Resource<PersistentMemoryResourceValue>,
-}
-
-pub struct PersistentMemoryRegionInvariantPredicate { }
-impl InvariantPredicate<PersistentMemoryRegionInvariantConstants, PersistentMemoryRegionInvariantState>
-        for PersistentMemoryRegionInvariantPredicate {
-    open spec fn inv(c: PersistentMemoryRegionInvariantConstants, s: PersistentMemoryRegionInvariantState)
-                     -> bool {
-        &&& s.authority.loc() == c.loc
-        &&& s.perm@.len() == c.size
-        &&& forall |i| 0 <= i < c.size ==>
-            #[trigger] (s.authority.value().m)(i) ==
-            PersistentMemoryByteResourceValue::HalfAuthority{ state: s.perm@.state[i] }
-    }
-}
-
-pub struct PersistentMemorySubregion
-{
-    pub start_pos: int,
-    pub end_pos: int,
-    pub authority: Resource<PersistentMemoryResourceValue>,
-}
-
-impl PersistentMemorySubregion
-{
-    pub open spec fn valid(self) -> bool
-    {
     }
 }
 
