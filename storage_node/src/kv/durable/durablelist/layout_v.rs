@@ -11,6 +11,7 @@
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
+use crate::kv::durable::itemtable::itemtablespec_t::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -186,10 +187,21 @@ verus! {
     }
 
     impl ListEntryMetadata {
-        // TODO: postcondition should tell caller that this is the
-        // actual head of the list?
-        pub fn get_head(&self) -> u64 {
+        pub fn get_head(&self) -> (out: u64) 
+            ensures
+                out == self.spec_head()
+        {
             self.head
+        }
+
+        pub closed spec fn spec_head(self) -> u64 
+        {
+            self.head
+        }
+
+        pub closed spec fn spec_len(self) -> u64 
+        {
+            self.length
         }
     }
 
@@ -220,6 +232,53 @@ verus! {
             }
         }
     }
+
+    // We parse the metadata table into a Seq of `DurableItemTableViewEntry`s because the metadata table is essentially an item table.
+    // We don't return a `DurableItemTableView` so that we can recurse over the sequence of entries without adding methods to that view 
+    // and because the metadata table has a different header structure.
+    pub open spec fn parse_metadata_table<K>(header: GlobalListMetadata, mem: Seq<u8>) -> Option<Seq<DurableItemTableViewEntry<ListEntryMetadata, K>>>
+        where 
+            K: Serializable + std::fmt::Debug,
+    {
+        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
+        // check that the metadata in the header makes sense/is valid
+        if {
+            ||| header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID 
+            ||| header.version_number != 1
+            ||| mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * header.num_keys
+        } {
+            None
+        } else {
+            let table_area = mem.subrange(ABSOLUTE_POS_OF_METADATA_TABLE as int, mem.len() as int);
+            let table_view = Seq::new(
+                header.num_keys as nat,
+                |i: int| {
+                    let bytes = table_area.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
+                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
+                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE);
+                    let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
+                    let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len());
+
+                    let cdb = u64::spec_deserialize(cdb_bytes);
+                    let crc = u64::spec_deserialize(crc_bytes);
+                    let entry = ListEntryMetadata::spec_deserialize(entry_bytes);
+                    let key = K::spec_deserialize(key_bytes);
+
+                    // we can't check CRCs in this closure, since its return value is only used to construct the Seq
+
+                    DurableItemTableViewEntry::new(cdb, crc, entry, key)
+                }
+            );
+            // Finally, return None if any of the CRCs are invalid
+            // TODO: is this a reasonable way to check this, or is there a better way to do it
+            if !(forall |i: int| 0 <= i < table_view.len() ==> table_view[i].get_crc() == spec_crc_u64(table_view[i].get_item().spec_serialize() + table_view[i].get_key().spec_serialize())) {
+                None 
+            } else {
+                Some(table_view)
+            }
+        }
+    }
+
 
     impl Serializable for ListEntryMetadata
     {

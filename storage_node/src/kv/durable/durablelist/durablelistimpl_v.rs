@@ -43,104 +43,115 @@ verus! {
         // TODO
         closed spec fn inv(self) -> bool;
 
+        pub closed spec fn recover(
+            mems: Seq<Seq<u8>>,
+            op_log: Seq<OpLogEntryType>,
+            kvstore_id: u128,
+        ) -> Option<DurableListView<K, L, E>>
+        {
+            // the durable list uses two regions
+            if mems.len() != 2 {
+                None
+            } else {
+                let metadata_table_mem = mems[0];
+                let list_node_region_mem = mems[1];
+                if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
+                    // Invalid if the metadata table sequence is not large enough
+                    // to store the metadata header. It actually needs to be big
+                    // enough to store an entry for every key, but we don't know
+                    // the number of keys yet.
+                    None
+                } else {
+                    let metadata_header_bytes = metadata_table_mem.subrange(
+                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
+                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                    );
+                    let crc_bytes = metadata_table_mem.subrange(
+                        ABSOLUTE_POS_OF_HEADER_CRC as int,
+                        ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
+                    );
+                    let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
+                    let crc = u64::spec_deserialize(crc_bytes);
+                    if crc != metadata_header.spec_crc() {
+                        // The list is invalid if the stored CRC does not match the contents
+                        // of the metadata header
+                        None
+                    } else {
+                        // parse the item table into a mapping index->entry so that we can use it to 
+                        // construct each list.
+                        // TODO: IGNORE INVALID ENTRIES
+                        let metadata_table = parse_metadata_table(metadata_header, metadata_table_mem);
+                        match metadata_table {
+                            Some(metadata_table) => Self::recover_all_lists(metadata_header, metadata_table, list_node_region_mem),
+                            None => None
+                        }
+                    }
+                }
+            }
+        }
 
-        // pub closed spec fn recover(
-        //     mems: Seq<Seq<u8>>,
-        //     op_log: Seq<OpLogEntryType>,
-        //     kvstore_id: u128
-        // ) -> Option<DurableListView<K, L, E>>
-        // {
-        //     // the durable list uses two regions
-        //     if mems.len() != 2 {
-        //         None
-        //     } else {
-        //         let metadata_table_mem = mems[0];
-        //         let list_node_region_mem = mems[1];
-        //         if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
-        //             // Invalid if the metadata table sequence is not large enough
-        //             // to store the metadata header. It actually needs to be big
-        //             // enough to store an entry for every key, but we don't know
-        //             // the number of keys yet.
-        //             None
-        //         } else {
-        //             let metadata_header_bytes = metadata_table_mem.subrange(
-        //                 ABSOLUTE_POS_OF_METADATA_HEADER as int,
-        //                 ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-        //             );
-        //             let crc_bytes = metadata_table_mem.subrange(
-        //                 ABSOLUTE_POS_OF_HEADER_CRC as int,
-        //                 ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
-        //             );
-        //             let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
-        //             let crc = u64::spec_deserialize(crc_bytes);
-        //             if crc != metadata_header.spec_crc() {
-        //                 // The list is invalid if the stored CRC does not match the contents
-        //                 // of the metadata header
-        //                 None
-        //             } else {
-        //                 if metadata_header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID {
-        //                     // The header must contain the correct GUID; if it doesn't, then
-        //                     // this structure wasn't created by this program.
-        //                     None
-        //                 } else if metadata_header.version_number == 1 {
-        //                     // If the metadata was written by version #1 of this code, then this
-        //                     // is how to interpret it:
+        closed spec fn recover_all_lists(
+            metadata_header: GlobalListMetadata, 
+            metadata_table: Seq<DurableItemTableViewEntry<ListEntryMetadata, K>>,
+            mem: Seq<u8>,
+        ) -> Option<DurableListView<K, L, E>> 
+        {
+            let lists_map = Map::empty();
+            let result = Self::recover_each_list(metadata_header, metadata_table, mem, lists_map)?;
+            Some(DurableListView::new(result))
+        }
 
-        //                     // The table region is invalid if it isn't large enough to contain an
-        //                     // entry for each key
-        //                     let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len();
-        //                     if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * metadata_header.num_keys {
-        //                         None
-        //                     } else {
-        //                         // read the memory and create a view out of it, then apply the op log to the view
-        //                         let list_view = Self::recover_all_lists_from_mems(metadata_header, metadata_table_mem, list_node_region_mem);
-        //                     }
-        //                 } else {
-        //                     // Version #1 is currently the only valid version number
-        //                     None
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
+        // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
+        // used to help recurse over each metadata entry.
+        closed spec fn recover_each_list(
+            metadata_header: GlobalListMetadata,
+            metadata_entries: Seq<DurableItemTableViewEntry<ListEntryMetadata, K>>,
+            mem: Seq<u8>,
+            lists_map: Map<K, Seq<DurableListElementView<L>>>,
+        ) -> Option<Map<K, Seq<DurableListElementView<L>>>>
+            decreases
+                metadata_entries.len()
+        {
+            if metadata_entries.len() == 0 {
+                Some(lists_map)
+            } else {
+                let current_entry = metadata_entries[0];
+                let metadata_entries = metadata_entries.drop_first();
+                // Unlike in the item table, we will apply log entries later; we need to build the lists 
+                // first so that log entries can be applied to the table and the list in the correct order
+                let lists_map = lists_map.insert(
+                    current_entry.get_key(), 
+                    Self::recover_list(metadata_header, current_entry.get_item(), mem)?
+                );
+                Self::recover_each_list(metadata_header, metadata_entries, mem, lists_map)
+            }
+        }
 
-        // closed spec(checked) fn recover_all_lists_from_mems(
-        //     metadata_header: GlobalListMetadata, 
-        //     table_mem: Seq<u8>, 
-        //     list_region_mem: Seq<u8>
-        // ) -> DurableListView<K, L, E>
-        //     recommends
-        //         table_mem.len() >= ABSOLUTE_POS_OF_METADATA_TABLE + (LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len()) * metadata_header.num_keys,
-        //         metadata_header.version_number == 1,
-        //         metadata_header.program_guid == DURABLE_LIST_REGION_PROGRAM_GUID,
-        // {
-        //     let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len();
-        //     // maps indexes containing live metadata to the key and metadata structure they contain
-        //     let idx_to_metadata = Map::new(
-        //             |i: int| {
-        //                 let table_offset = ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * i;
-        //                 0 <= table_offset < metadata_header.num_keys ==> 
-        //                     parse_metadata_entry(table_mem.subrange(table_offset, table_offset + table_entry_slot_size)) is Some
-        //             },
-        //             |i: int| {
-        //                 let table_offset = ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * i;
-        //                 parse_metadata_entry(table_mem.subrange(table_offset, table_offset + table_entry_slot_size)).unwrap()
-        //             }
-        //     );
-        //     let idx_to_list = Map::new(
-        //         |i: int| idx_to_metadata.contains_key(i),
-        //         |i: int| {
-        //             let (key, metadata) = idx_to_metadata[i];
-        //             parse_list(key, metadata, list_region_mem)
-        //         }
-        //     );
+        closed spec fn recover_list(
+            metadata_header: GlobalListMetadata, 
+            entry: ListEntryMetadata, 
+            mem: Seq<u8>
+        ) -> Option<Seq<DurableListElementView<L>>>
+        {
+            let head_node_index = entry.get_head();
+            let list_len = entry.spec_len();
+            let new_list = Seq::empty();
+            Self::recover_list_helper(metadata_header, head_node_index, 
+                list_len, new_list, mem)
+        }
 
-        // }
+        closed spec fn recover_list_helper(
+            metadata_header: GlobalListMetadata,
+            cur_node_index: u64,
+            list_len_remaining: u64,
+            current_list: Seq<L>,
+            mem: Seq<u8>
+        ) -> Option<Seq<DurableListElementView<L>>>
+            decreases
+                list_len_remaining
+        {
 
-        // closed spec fn recover_list_from_mems(list_entry_metadata: ListEntryMetadata, list_region_mem: Seq<u8>) -> Seq<DurableListElementView<L>>
-        // {
-
-        // }
+        }
 
         pub exec fn setup<PM>(
             pm_regions: &mut PM,

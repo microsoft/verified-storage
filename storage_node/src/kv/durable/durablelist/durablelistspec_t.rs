@@ -3,6 +3,9 @@ use crate::pmem::wrpm_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use crate::kv::durable::itemtable::itemtablespec_t::*;
+
+use super::layout_v::ListEntryMetadata;
 
 verus! {
     pub struct TrustedListPermission
@@ -28,12 +31,6 @@ verus! {
     // The `lists` field represents the current contents of the list. It abstracts away the physical 
     // nodes of the unrolled linked list that the list is actually stored in, but it may contain
     // tentatively-appended list elements that are not visible yet.
-    // The `lists_len` fields stores the length of each list, which is used to determine which elements
-    // are valid/visible and which are not. Elements in a list beyond that list's length have been written
-    // to PM but are not yet visble. This structure makes it easier to apply log entries to the list view,
-    // since the log entry type that updates a list's length is a necessary part of append operations
-    // but only makes sense here if the user-visible length of the list does not match the actual length of 
-    // the underlying sequence in the view.
     #[verifier::reject_recursive_types(K)]
     pub struct DurableListView<K, L, E>
     {
@@ -52,6 +49,22 @@ verus! {
                 Some(self.lists[key])
             } else {
                 None
+            }
+        }
+
+        pub closed spec fn init() -> Self 
+        {
+            Self {
+                lists: Map::empty(),
+                _phantom: None
+            }
+        }
+
+        pub closed spec fn new(lists: Map<K, Seq<DurableListElementView<L>>>) -> Self 
+        {
+            Self {
+                lists,
+                _phantom: None
             }
         }
 

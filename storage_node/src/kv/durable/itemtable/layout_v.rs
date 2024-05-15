@@ -167,6 +167,7 @@ verus! {
     pub const RELATIVE_POS_OF_ITEM: u64 = 16;
 
     // TODO: This should be a closed method of the item table view type?
+    // TODO: maybe apply log to bytes BEFORE doing this?
     pub open spec fn parse_item_table<I, K, E>(metadata_header: ItemTableMetadata, mem: Seq<u8>) -> Option<DurableItemTableView<I, K, E>>
         where 
             I: Serializable,
@@ -186,12 +187,12 @@ verus! {
         } else {
             let table_area = mem.subrange(ABSOLUTE_POS_OF_TABLE_AREA as int, mem.len() as int);
             let item_entry_size = metadata_header.item_size + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
-            let item_table_view = Map::new(
-                |i: int| 0 <= i < metadata_header.num_keys,
+            let item_table_view = Seq::new(
+                metadata_header.num_keys as nat,
                 |i: int| {
                     // the offset of the key depends on the offset of the item, so we don't have a constant for it
                     let relative_key_offset = RELATIVE_POS_OF_ITEM + I::spec_serialized_len();
-                    let bytes = mem.subrange(i * item_entry_size, i * item_entry_size + item_entry_size);
+                    let bytes = table_area.subrange(i * item_entry_size, i * item_entry_size + item_entry_size);
                     let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + 8);
                     let item_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + I::spec_serialized_len());
@@ -207,7 +208,8 @@ verus! {
             );
             // Finally, return None if any of the CRCs are invalid
             // TODO: is this a reasonable way to check this, or is there a better way to do it?
-            if !(forall |i: int| #![auto] item_table_view.contains_key(i) ==> 
+            // TODO: skip invalid entries
+            if !(forall |i: int| #![auto] 0 <= i < item_table_view.len() ==> 
                 item_table_view[i].get_crc() != spec_crc_u64(item_table_view[i].get_item().spec_serialize() + item_table_view[i].get_key().spec_serialize())) 
             {
                 None 

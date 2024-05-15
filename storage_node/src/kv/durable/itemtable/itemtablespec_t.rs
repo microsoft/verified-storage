@@ -63,10 +63,11 @@ verus! {
     }
 
     pub struct DurableItemTableView<I, K, E>
-        
+        where
+            K: std::fmt::Debug,
+            E: std::fmt::Debug,
     {
-        // Maps indexes to their entries. Invalid/empty indexes have no mapping
-        item_table: Map<int, DurableItemTableViewEntry<I, K>>,
+        item_table: Seq<DurableItemTableViewEntry<I, K>>,
         _phantom: Option<E>
     }
 
@@ -78,8 +79,8 @@ verus! {
         pub closed spec fn init(num_keys: int) -> Self
         {
             Self {
-                item_table: Map::new(
-                    |i: int| 0 <= i < num_keys,
+                item_table: Seq::new(
+                    num_keys as nat,
                     |i: int| DurableItemTableViewEntry {
                         valid: false,
                         crc: 0,
@@ -93,7 +94,7 @@ verus! {
             }
         }
 
-        pub closed spec fn new(item_table: Map<int, DurableItemTableViewEntry<I, K>>) -> Self
+        pub closed spec fn new(item_table: Seq<DurableItemTableViewEntry<I, K>>) -> Self
         {
             Self {
                 item_table,
@@ -103,7 +104,7 @@ verus! {
 
         pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I, K>>
         {
-            if self.item_table.contains_key(index)
+            if index < 0 || index >= self.len() 
             {
                 Some(self.item_table[index])
             } else {
@@ -111,18 +112,23 @@ verus! {
             }
         }
 
+        pub closed spec fn len(self) -> nat 
+        {
+            self.item_table.len()
+        }
+
         // Inserting an entry and committing it are two separate operations. Inserted entries
         // are invalid until they are explicitly committed. Attempting to insert at an index
         // that already has a valid entry results in an error.
         pub closed spec fn insert(self, index: int, crc: u64, item: I, key: K) -> Result<Self, KvError<K, E>> 
         {
-            if !self.item_table.contains_key(index) {
+            if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
             } else if self[index].unwrap().valid() {
                 Err(KvError::EntryIsValid)
             } else {
                 Ok(Self {
-                    item_table: self.item_table.insert(
+                    item_table: self.item_table.update(
                             index,
                             DurableItemTableViewEntry {
                                 valid: false,
@@ -139,14 +145,14 @@ verus! {
 
         pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K, E>> 
         {
-            if !self.item_table.contains_key(index) {
+            if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
             } else if self[index].unwrap().valid() {
                 Err(KvError::EntryIsValid)
             } else {
                 let old_entry = self.item_table[index];
                 Ok(Self {
-                    item_table: self.item_table.insert(
+                    item_table: self.item_table.update(
                         index,
                         DurableItemTableViewEntry {
                             valid: true,
@@ -162,14 +168,14 @@ verus! {
 
         pub closed spec fn invalidate_entry(self, index: int) -> Result<Self, KvError<K, E>>
         {
-            if !self.item_table.contains_key(index) {
+            if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
             } else if !self[index].unwrap().valid() {
                 Err(KvError::EntryIsNotValid)
             } else {
                 let old_entry = self.item_table[index];
                 Ok(Self {
-                    item_table: self.item_table.insert(
+                    item_table: self.item_table.update(
                         index,
                         DurableItemTableViewEntry {
                             valid: false,
