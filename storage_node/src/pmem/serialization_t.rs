@@ -36,7 +36,7 @@ verus! {
         crc_addr: int,
     )
         where
-            S: Serializable + Sized
+            S: Serializable + Sized,
         requires
             // an impl of `Serializable can override the default impl, so
             // we have to require it here
@@ -101,7 +101,7 @@ verus! {
 
         proof fn lemma_auto_serialize_deserialize()
             ensures
-                forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()),
+                forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize())
         ;
 
         proof fn lemma_auto_deserialize_serialize()

@@ -35,6 +35,14 @@ verus! {
             new_head_node: u64,
             new_list_len: u64,
             new_list_start_index: u64,
+        },
+        CreateListTableEntry {
+            list_metadata_index: u64,
+            head: u64,
+            // this will also include a key, but we write that separately
+        },
+        DeleteListTableEntry {
+            list_metadata_index: u64,
         }
     }
 
@@ -44,19 +52,22 @@ verus! {
     // the head pointer to the tail. Once the log has been committed
     // it is illegal to perform any additional appends until it has
     // been cleared.
-    pub struct AbstractOpLogState<L>
+    pub struct AbstractOpLogState<K, L>
         where
+            K: Serializable,
             L: Serializable
     {
         pub log_state: AbstractLogState,
         pub op_list: Seq<OpLogEntryType>,
-        // stored separately from op_list so that item list can ignore L
+        // stored separately from op_list so that item list;s recovery fn can ignore L
         pub list_entry_map: Map<OpLogEntryType, L>,
         pub op_list_committed: bool,
+        pub _phantom: Option<K>,
     }
 
-    impl<L> AbstractOpLogState<L>
+    impl<K, L> AbstractOpLogState<K, L>
         where
+            K: Serializable,
             L: Serializable
     {
         pub open spec fn initialize(capacity: int) -> Self {
@@ -65,6 +76,7 @@ verus! {
                 op_list: Seq::empty(),
                 list_entry_map: Map::empty(),
                 op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -82,6 +94,7 @@ verus! {
                 op_list: self.op_list.push(OpLogEntryType::ItemTableEntryCommit { table_index: entry.table_index }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -99,6 +112,7 @@ verus! {
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -117,6 +131,7 @@ verus! {
                 op_list: self.op_list.push(op_log_entry),
                 list_entry_map: self.list_entry_map.insert(op_log_entry, *list_element),
                 op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -132,7 +147,8 @@ verus! {
                     new_length: entry.new_length,
                 }),
                 list_entry_map: self.list_entry_map,
-                op_list_committed: false
+                op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -150,7 +166,37 @@ verus! {
                     new_list_start_index: entry.new_list_start_index,
                 }),
                 list_entry_map: self.list_entry_map,
-                op_list_committed: false
+                op_list_committed: false,
+                _phantom: None
+            }
+        }
+
+        pub open spec fn tentatively_append_create_list_entry(
+            self,
+            entry: &CreateListEntry,
+            key: &K,
+        ) -> Self 
+        {
+            Self {
+                log_state: self.log_state.tentatively_append(entry.spec_serialize() + key.spec_serialize()),
+                op_list: self.op_list.push(OpLogEntryType::CreateListTableEntry { list_metadata_index: entry.list_metadata_index, head: entry.head }),
+                list_entry_map: self.list_entry_map,
+                op_list_committed: false,
+                _phantom: None
+            }
+        }
+
+        pub open spec fn tentatively_delete_list_entry(
+            self,
+            entry: &DeleteListEntry
+        ) -> Self 
+        {
+            Self {
+                log_state: self.log_state.tentatively_append(entry.spec_serialize()),
+                op_list: self.op_list.push(OpLogEntryType::DeleteListTableEntry { list_metadata_index: entry.list_metadata_index }),
+                list_entry_map: self.list_entry_map,
+                op_list_committed: false,
+                _phantom: None
             }
         }
 
@@ -161,6 +207,7 @@ verus! {
                 op_list: self.op_list,
                 list_entry_map: self.list_entry_map,
                 op_list_committed: true,
+                _phantom: None
             }
         }
 
@@ -175,7 +222,8 @@ verus! {
                     log_state: self.log_state.advance_head(self.log_state.head + self.log_state.log.len()),
                     op_list: Seq::empty(),
                     list_entry_map: Map::empty(),
-                    op_list_committed: false
+                    op_list_committed: false,
+                    _phantom: None
                 })
             }
         }

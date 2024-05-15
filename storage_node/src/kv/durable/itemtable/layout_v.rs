@@ -34,6 +34,9 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
+use super::itemtablespec_t::DurableItemTableView;
+use super::itemtablespec_t::DurableItemTableViewEntry;
+
 verus! {
     // Constants
 
@@ -67,15 +70,11 @@ verus! {
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
-        pub item_size: u64,
+        pub item_size: u64, // just I::serialized_len() -- does not include key, CRC, CDB
         pub num_keys: u64,
         pub _padding: u64,
         pub program_guid: u128,
     }
-
-    pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
-    pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 8;
-    pub const RELATIVE_POS_OF_ITEM: u64 = 16;
 
     // TODO: should this be trusted?
     impl Serializable for ItemTableMetadata
@@ -163,4 +162,58 @@ verus! {
         }
     }
 
+    pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
+    pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 8;
+    pub const RELATIVE_POS_OF_ITEM: u64 = 16;
+
+    // TODO: This should be a closed method of the item table view type?
+    pub open spec fn parse_item_table<I, K, E>(metadata_header: ItemTableMetadata, mem: Seq<u8>) -> Option<DurableItemTableView<I, K, E>>
+        where 
+            I: Serializable,
+            K: Serializable + std::fmt::Debug,
+            E: std::fmt::Debug
+    {
+        // Check that the header is valid and the memory is the correct size.
+        // We probably already did these checks when we parsed the metadata header, but
+        // do them again here just in case
+        if {
+            ||| metadata_header.version_number != 1
+            ||| metadata_header.program_guid != ITEM_TABLE_PROGRAM_GUID
+            ||| metadata_header.item_size != I::spec_serialized_len()
+            ||| mem.len() < ABSOLUTE_POS_OF_TABLE_AREA + (metadata_header.item_size + CRC_SIZE + CDB_SIZE) * metadata_header.num_keys 
+        } { 
+            None
+        } else {
+            let table_area = mem.subrange(ABSOLUTE_POS_OF_TABLE_AREA as int, mem.len() as int);
+            let item_entry_size = metadata_header.item_size + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
+            let item_table_view = Map::new(
+                |i: int| 0 <= i < metadata_header.num_keys,
+                |i: int| {
+                    // the offset of the key depends on the offset of the item, so we don't have a constant for it
+                    let relative_key_offset = RELATIVE_POS_OF_ITEM + I::spec_serialized_len();
+                    let bytes = mem.subrange(i * item_entry_size, i * item_entry_size + item_entry_size);
+                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
+                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + 8);
+                    let item_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + I::spec_serialized_len());
+                    let key_bytes = bytes.subrange(relative_key_offset, relative_key_offset + K::spec_serialized_len());
+                    
+                    let cdb = u64::spec_deserialize(cdb_bytes);
+                    let crc = u64::spec_deserialize(crc_bytes);
+                    let item = I::spec_deserialize(item_bytes);
+                    let key = K::spec_deserialize(key_bytes);
+                    
+                    DurableItemTableViewEntry::new(cdb, crc, item, key)
+                }
+            );
+            // Finally, return None if any of the CRCs are invalid
+            // TODO: is this a reasonable way to check this, or is there a better way to do it?
+            if !(forall |i: int| #![auto] item_table_view.contains_key(i) ==> 
+                item_table_view[i].get_crc() != spec_crc_u64(item_table_view[i].get_item().spec_serialize() + item_table_view[i].get_key().spec_serialize())) 
+            {
+                None 
+            } else {
+                Some(DurableItemTableView::new(item_table_view))
+            }
+        }
+    }
 }

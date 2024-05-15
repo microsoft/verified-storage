@@ -17,6 +17,8 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
+use super::durablelistspec_t::DurableListElementView;
+
 verus! {
     // These constants describe the position of various parts
     // of the durable list structures on persistent memory.
@@ -188,6 +190,34 @@ verus! {
         // actual head of the list?
         pub fn get_head(&self) -> u64 {
             self.head
+        }
+    }
+
+    pub open spec(checked) fn parse_metadata_entry<K>(bytes: Seq<u8>) -> Option<(K, ListEntryMetadata)>
+        where 
+            K: Serializable,
+        recommends
+            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len(),
+            RELATIVE_POS_OF_VALID_CDB + CDB_SIZE <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY <= bytes.len(),
+    {
+        let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE));
+        let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE));
+        let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
+        let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len());
+        let metadata = ListEntryMetadata::spec_deserialize(metadata_bytes);
+        let key = K::spec_deserialize(key_bytes);
+    
+        if cdb == CDB_FALSE {
+            None 
+        } else {
+            // If the CRC does not match the contents, it's not a valid entry
+            if crc != spec_crc_u64(metadata_bytes + key_bytes) {
+                None 
+            } else {
+                Some((key, metadata))
+            }
         }
     }
 
@@ -369,5 +399,13 @@ verus! {
     pub const RELATIVE_POS_OF_LIST_CONTENTS_AREA: u64 = 16;
     pub const LENGTH_OF_LIST_NODE_HEADER: u64 = 16;
 
+    // pub open spec fn parse_list<K>(
+    //     key: K,
+    //     metadata: ListEntryMetadata,
+    //     list_region_mem: Seq<u8>
+    // ) -> Seq<DurableListElementView<L>> 
+    // {
+        
+    // }
 
 }

@@ -573,4 +573,179 @@ verus! {
             LENGTH_OF_LOG_ENTRY
         }
     }
+
+    pub struct CreateListEntry 
+    {
+        pub entry_type: u64,
+        pub list_metadata_index: u64,
+        pub head: u64,
+        pub _padding0: u64,
+        pub _padding1: u64,
+    }
+
+    impl Serializable for CreateListEntry 
+    {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.entry_type) + 
+            spec_u64_to_le_bytes(self.list_metadata_index) + 
+            spec_u64_to_le_bytes(self.head) +
+            spec_u64_to_le_bytes(self._padding0) + 
+            spec_u64_to_le_bytes(self._padding1)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
+        {
+            Self {
+                entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
+                list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8)),
+                head: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_HEAD_CREATE_LIST as int, RELATIVE_POS_OF_HEAD_CREATE_LIST + 8)),
+                _padding0: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 8)),
+                _padding1: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 8)),
+            }
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
+                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
+                let serialized_head = #[trigger] spec_u64_to_le_bytes(s.head);
+                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
+                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
+                let serialized_entry = #[trigger] s.spec_serialize();
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
+                    RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
+                ) == serialized_entry_type 
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int,
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8
+                ) == serialized_list_metadata_index
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_HEAD_CREATE_LIST as int,
+                    RELATIVE_POS_OF_HEAD_CREATE_LIST + 8
+                ) == serialized_head 
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 8
+                ) == serialized_padding0 
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 8
+                ) == serialized_padding1
+            });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() 
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
+        }
+
+        proof fn lemma_auto_serialized_len() 
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> int 
+        {
+            LENGTH_OF_LOG_ENTRY as int
+        }
+
+        fn serialized_len() -> u64 
+        {
+            LENGTH_OF_LOG_ENTRY
+        }
+    }
+
+
+    pub struct DeleteListEntry
+    {
+        pub entry_type: u64,
+        pub list_metadata_index: u64,
+        pub _padding0: u64,
+        pub _padding1: u64,
+        pub _padding2: u64
+    }
+
+    impl Serializable for DeleteListEntry 
+    {
+        open spec fn spec_serialize(self) -> Seq<u8>
+        {
+            spec_u64_to_le_bytes(self.entry_type) + 
+            spec_u64_to_le_bytes(self.list_metadata_index) +
+            spec_u64_to_le_bytes(self._padding0) +
+            spec_u64_to_le_bytes(self._padding1) +
+            spec_u64_to_le_bytes(self._padding2)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
+        {
+            Self {
+                entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
+                list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST + 8)),
+                _padding0: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 8)),
+                _padding1: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 8)),
+                _padding2: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_2_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_2_DELETE_LIST + 8)),
+            }
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
+                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
+                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
+                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
+                let serialized_padding2 = #[trigger] spec_u64_to_le_bytes(s._padding2);
+                let serialized_entry = #[trigger] s.spec_serialize();
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
+                    RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
+                ) == serialized_entry_type 
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST as int,
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST + 8
+                ) == serialized_list_metadata_index
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 8
+                ) == serialized_padding0 
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 8
+                ) == serialized_padding1
+                &&& serialized_entry.subrange(
+                    RELATIVE_POS_OF_PADDING_2_DELETE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_2_DELETE_LIST + 8
+                ) == serialized_padding2
+            });
+        }
+
+        proof fn lemma_auto_deserialize_serialize() 
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
+        }
+
+        proof fn lemma_auto_serialized_len() 
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> int 
+        {
+            LENGTH_OF_LOG_ENTRY as int
+        }
+
+        fn serialized_len() -> u64 
+        {
+            LENGTH_OF_LOG_ENTRY   
+        }
+    }
 }

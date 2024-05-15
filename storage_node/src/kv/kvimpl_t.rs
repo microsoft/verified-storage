@@ -62,6 +62,8 @@ where
     InvalidItemTableHeader,
     InvalidListMetadata,
     InvalidListRegionMetadata,
+    EntryIsValid,
+    EntryIsNotValid,
     MultiLogErr { err: MultiLogErr }
 }
 

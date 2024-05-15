@@ -25,11 +25,19 @@ verus! {
         list_element: L
     }
 
-    // TODO: think about what this should actually be, might need a few layers
+    // The `lists` field represents the current contents of the list. It abstracts away the physical 
+    // nodes of the unrolled linked list that the list is actually stored in, but it may contain
+    // tentatively-appended list elements that are not visible yet.
+    // The `lists_len` fields stores the length of each list, which is used to determine which elements
+    // are valid/visible and which are not. Elements in a list beyond that list's length have been written
+    // to PM but are not yet visble. This structure makes it easier to apply log entries to the list view,
+    // since the log entry type that updates a list's length is a necessary part of append operations
+    // but only makes sense here if the user-visible length of the list does not match the actual length of 
+    // the underlying sequence in the view.
     #[verifier::reject_recursive_types(K)]
     pub struct DurableListView<K, L, E>
     {
-        list: Map<K, Seq<DurableListElementView<L>>>,
+        lists: Map<K, Seq<DurableListElementView<L>>>,
         _phantom: Option<E>
     }
 
@@ -40,8 +48,8 @@ verus! {
     {
         pub closed spec fn spec_index(self, key: K) -> Option<Seq<DurableListElementView<L>>>
         {
-            if self.list.contains_key(key) {
-                Some(self.list[key])
+            if self.lists.contains_key(key) {
+                Some(self.lists[key])
             } else {
                 None
             }
@@ -49,11 +57,11 @@ verus! {
 
         pub closed spec fn insert_key(self, key: K) -> Result<Self, KvError<K, E>>
         {
-            if self.list.contains_key(key) {
+            if self.lists.contains_key(key) {
                 Err(KvError::KeyAlreadyExists)
             } else {
                 Ok(Self {
-                    list: self.list.insert(key, Seq::empty()),
+                    lists: self.lists.insert(key, Seq::empty()),
                     _phantom: None
                 })
             }
@@ -67,14 +75,14 @@ verus! {
             index: int
         ) -> Result<Self, KvError<K, E>>
         {
-            if !self.list.contains_key(key) {
+            if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
-            } else if index < 0 || index > self.list[key].len() {
+            } else if index < 0 || index > self.lists[key].len() {
                 Err(KvError::IndexOutOfRange)
             } else {
-                let new_list = self.list[key].update(index, DurableListElementView { crc, list_element });
+                let new_lists = self.lists[key].update(index, DurableListElementView { crc, list_element });
                 Ok(Self {
-                    list: self.list.insert(key, new_list),
+                    lists: self.lists.insert(key, new_lists),
                     _phantom: None
                 })
             }
@@ -87,12 +95,13 @@ verus! {
             list_element: L
         ) -> Result<Self, KvError<K, E>>
         {
-            if !self.list.contains_key(key) {
+            if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
             } else {
-                let new_list = self.list[key].push(DurableListElementView { crc, list_element });
+                let new_lists = self.lists[key].push(DurableListElementView { crc, list_element });
                 Ok(Self {
-                    list: self.list.insert(key, new_list),
+                    lists: self.lists.insert(key, new_lists),
+
                     _phantom: None
                 })
             }
@@ -103,28 +112,28 @@ verus! {
             key: K
         ) -> Result<Self, KvError<K, E>>
         {
-            if !self.list.contains_key(key) {
+            if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
             } else {
                 Ok(Self {
-                    list: self.list.remove(key),
+                    lists: self.lists.remove(key),
                     _phantom: None
                 })
             }
         }
 
-        pub closed spec fn trim_list(
+        pub closed spec fn trim_lists(
             self,
             key: K,
             trim_length: int
         ) -> Result<Self, KvError<K, E>>
         {
-            if !self.list.contains_key(key) {
+            if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
             } else {
-                let new_list = self.list[key].subrange(trim_length, self.list[key].len() as int);
+                let new_lists = self.lists[key].subrange(trim_length, self.lists[key].len() as int);
                 Ok(Self {
-                    list: self.list.insert(key, new_list),
+                    lists: self.lists.insert(key, new_lists),
                     _phantom: None
                 })
             }

@@ -2,6 +2,9 @@ use crate::pmem::wrpm_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use crate::kv::kvimpl_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::kv::durable::oplog::oplogspec_t::*;
 
 verus! {
     pub struct TrustedItemTablePermission
@@ -18,19 +21,23 @@ verus! {
         }
     }
 
-    pub struct DurableItemTableViewEntry<I>
+    pub struct DurableItemTableViewEntry<I, K>
     {
-        crc: u64,
+        valid: bool,
+        crc: u64, // TODO: do we need this?
         item: I,
+        key: K,
     }
 
-    impl<I> DurableItemTableViewEntry<I>
+    impl<I, K> DurableItemTableViewEntry<I, K>
     {
-        pub closed spec fn new(crc: u64, item: I) -> Self
+        pub closed spec fn new(valid: u64, crc: u64, item: I, key: K) -> Self
         {
             Self {
+                valid: valid == CDB_TRUE,
                 crc,
-                item
+                item,
+                key
             }
         }
 
@@ -43,31 +50,58 @@ verus! {
         {
             self.item
         }
+
+        pub closed spec fn get_key(self) -> K
+        {
+            self.key
+        }
+
+        pub closed spec fn valid(self) -> bool 
+        {
+            self.valid
+        }
     }
 
-    pub struct DurableItemTableView<I>
+    pub struct DurableItemTableView<I, K, E>
+        
     {
         // Maps indexes to their entries. Invalid/empty indexes have no mapping
-        item_table: Map<int, DurableItemTableViewEntry<I>>
+        item_table: Map<int, DurableItemTableViewEntry<I, K>>,
+        _phantom: Option<E>
     }
 
-    impl<I> DurableItemTableView<I>
+    impl<I, K, E> DurableItemTableView<I, K, E>
+        where
+            K: std::fmt::Debug,
+            E: std::fmt::Debug,
     {
-        pub closed spec fn init() -> Self
+        pub closed spec fn init(num_keys: int) -> Self
         {
             Self {
-                item_table: Map::empty()
+                item_table: Map::new(
+                    |i: int| 0 <= i < num_keys,
+                    |i: int| DurableItemTableViewEntry {
+                        valid: false,
+                        crc: 0,
+                        // it doesn't matter what key and item are because the 
+                        // entry is invalid
+                        item: arbitrary(),
+                        key: arbitrary()
+                    }
+                ),
+                _phantom: None
             }
         }
 
-        pub closed spec fn new(item_table: Map<int, DurableItemTableViewEntry<I>>) -> Self
+        pub closed spec fn new(item_table: Map<int, DurableItemTableViewEntry<I, K>>) -> Self
         {
             Self {
-                item_table
+                item_table,
+                _phantom: None
             }
         }
 
-        pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
+        pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I, K>>
         {
             if self.item_table.contains_key(index)
             {
@@ -77,17 +111,120 @@ verus! {
             }
         }
 
-        // In the spec, we allow inserts that overwrite an existing entry
-        // TODO: should we change that? the exec impl doesn't do this
-        pub closed spec fn insert(self, index: int, entry: DurableItemTableViewEntry<I>) -> Self
+        // Inserting an entry and committing it are two separate operations. Inserted entries
+        // are invalid until they are explicitly committed. Attempting to insert at an index
+        // that already has a valid entry results in an error.
+        pub closed spec fn insert(self, index: int, crc: u64, item: I, key: K) -> Result<Self, KvError<K, E>> 
         {
-           Self { item_table: self.item_table.insert(index, entry) }
+            if !self.item_table.contains_key(index) {
+                Err(KvError::IndexOutOfRange)
+            } else if self[index].unwrap().valid() {
+                Err(KvError::EntryIsValid)
+            } else {
+                Ok(Self {
+                    item_table: self.item_table.insert(
+                            index,
+                            DurableItemTableViewEntry {
+                                valid: false,
+                                crc,
+                                item,
+                                key,
+                            }
+                        ),
+                        _phantom: None
+                    }
+                )
+            } 
         }
 
-        // TODO: return error if the index is not present?
-        pub closed spec fn remove(self, index: int) -> Self
+        pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K, E>> 
         {
-            Self { item_table: self.item_table.remove(index) }
+            if !self.item_table.contains_key(index) {
+                Err(KvError::IndexOutOfRange)
+            } else if self[index].unwrap().valid() {
+                Err(KvError::EntryIsValid)
+            } else {
+                let old_entry = self.item_table[index];
+                Ok(Self {
+                    item_table: self.item_table.insert(
+                        index,
+                        DurableItemTableViewEntry {
+                            valid: true,
+                            crc: old_entry.crc,
+                            item: old_entry.item,
+                            key: old_entry.key
+                        }
+                    ),
+                    _phantom: None
+                })
+            }
+        }
+
+        pub closed spec fn invalidate_entry(self, index: int) -> Result<Self, KvError<K, E>>
+        {
+            if !self.item_table.contains_key(index) {
+                Err(KvError::IndexOutOfRange)
+            } else if !self[index].unwrap().valid() {
+                Err(KvError::EntryIsNotValid)
+            } else {
+                let old_entry = self.item_table[index];
+                Ok(Self {
+                    item_table: self.item_table.insert(
+                        index,
+                        DurableItemTableViewEntry {
+                            valid: false,
+                            crc: old_entry.crc,
+                            item: old_entry.item,
+                            key: old_entry.key
+                        }
+                    ),
+                    _phantom: None
+                })
+            }
+        }
+
+        pub closed spec fn replay_log_item_table(
+            self,
+            op_log: Seq<OpLogEntryType>
+        ) -> Option<Self>
+            decreases op_log.len()
+        {
+            if op_log.len() == 0 {
+                Some(self)
+            } else {
+                let current_op = op_log[0];
+                let op_log = op_log.drop_first();
+                let item_table_view = self.apply_log_op_to_item_table(current_op);
+                if item_table_view is None {
+                    None
+                } else {
+                    item_table_view.unwrap().replay_log_item_table(op_log)
+                }
+            }
+        }
+
+        pub closed spec fn apply_log_op_to_item_table(
+            self,
+            op: OpLogEntryType,
+        ) -> Option<Self> 
+        {
+            match op {
+                OpLogEntryType::ItemTableEntryCommit { table_index } => {
+                    let res = self.commit_entry(table_index as int);
+                    match res {
+                        Ok(table_view) => Some(table_view),
+                        Err(_)=> None
+                    }
+                }
+                OpLogEntryType::ItemTableEntryInvalidate { table_index} => {
+                    let res = self.invalidate_entry(table_index as int);
+                    match res {
+                        Ok(table_view) => Some(table_view),
+                        Err(_)=> None
+                    }
+                }
+                _ => Some(self) // other ops leave the item table unchanged
+            }
         }
     }
 }
