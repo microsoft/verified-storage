@@ -43,52 +43,52 @@ verus! {
         // TODO
         closed spec fn inv(self) -> bool;
 
-        pub closed spec fn recover(
-            mems: Seq<Seq<u8>>,
-            op_log: Seq<OpLogEntryType>,
-            kvstore_id: u128,
-        ) -> Option<DurableListView<K, L, E>>
-        {
-            // the durable list uses two regions
-            if mems.len() != 2 {
-                None
-            } else {
-                let metadata_table_mem = mems[0];
-                let list_node_region_mem = mems[1];
-                if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
-                    // Invalid if the metadata table sequence is not large enough
-                    // to store the metadata header. It actually needs to be big
-                    // enough to store an entry for every key, but we don't know
-                    // the number of keys yet.
-                    None
-                } else {
-                    let metadata_header_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-                    );
-                    let crc_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_HEADER_CRC as int,
-                        ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
-                    );
-                    let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
-                    let crc = u64::spec_deserialize(crc_bytes);
-                    if crc != metadata_header.spec_crc() {
-                        // The list is invalid if the stored CRC does not match the contents
-                        // of the metadata header
-                        None
-                    } else {
-                        // parse the item table into a mapping index->entry so that we can use it to 
-                        // construct each list.
-                        // TODO: IGNORE INVALID ENTRIES
-                        let metadata_table = parse_metadata_table(metadata_header, metadata_table_mem);
-                        match metadata_table {
-                            Some(metadata_table) => Self::recover_all_lists(metadata_header, metadata_table, list_node_region_mem),
-                            None => None
-                        }
-                    }
-                }
-            }
-        }
+        // pub closed spec fn recover(
+        //     mems: Seq<Seq<u8>>,
+        //     op_log: Seq<OpLogEntryType>,
+        //     kvstore_id: u128,
+        // ) -> Option<DurableListView<K, L, E>>
+        // {
+        //     // the durable list uses two regions
+        //     if mems.len() != 2 {
+        //         None
+        //     } else {
+        //         let metadata_table_mem = mems[0];
+        //         let list_node_region_mem = mems[1];
+        //         if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
+        //             // Invalid if the metadata table sequence is not large enough
+        //             // to store the metadata header. It actually needs to be big
+        //             // enough to store an entry for every key, but we don't know
+        //             // the number of keys yet.
+        //             None
+        //         } else {
+        //             let metadata_header_bytes = metadata_table_mem.subrange(
+        //                 ABSOLUTE_POS_OF_METADATA_HEADER as int,
+        //                 ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+        //             );
+        //             let crc_bytes = metadata_table_mem.subrange(
+        //                 ABSOLUTE_POS_OF_HEADER_CRC as int,
+        //                 ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
+        //             );
+        //             let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
+        //             let crc = u64::spec_deserialize(crc_bytes);
+        //             if crc != metadata_header.spec_crc() {
+        //                 // The list is invalid if the stored CRC does not match the contents
+        //                 // of the metadata header
+        //                 None
+        //             } else {
+        //                 // parse the item table into a mapping index->entry so that we can use it to 
+        //                 // construct each list.
+        //                 // TODO: IGNORE INVALID ENTRIES
+        //                 let metadata_table = parse_metadata_table(metadata_header, metadata_table_mem);
+        //                 match metadata_table {
+        //                     Some(metadata_table) => Self::recover_all_lists(metadata_header, metadata_table, list_node_region_mem),
+        //                     None => None
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         closed spec fn recover_all_lists(
             metadata_header: GlobalListMetadata, 

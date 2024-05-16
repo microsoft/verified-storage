@@ -88,6 +88,8 @@ verus! {
                     None
                 }
                 else {
+                    // the metadata header is immutable, so we can check that it is valid before 
+                    // doing any log replay
                     let metadata_header_bytes = mem.subrange(
                         ABSOLUTE_POS_OF_METADATA_HEADER as int,
                         ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
@@ -103,18 +105,103 @@ verus! {
                         // of the metadata header
                         None
                     } else {
-                        // `parse_item_table` checks header metadata and the size of the memory region
-                        let item_table_view = parse_item_table(metadata_header, mem);
-                        if item_table_view is None {
-                            None
-                        } else {
-                            let item_table_view = item_table_view.unwrap();
-                            item_table_view.replay_log_item_table(op_log)
-                        }
+                        // replay the log on `mem`, then parse it into (hopefully) a valid item table view
+                        let mem = Self::replay_log_item_table(mem, op_log);
+                        parse_item_table(metadata_header, mem)
                     }
                 }
             }
         }
+
+        // Recursively apply log operations to the item table bytes. Skips all log entries that 
+        // do not modify the item table.
+        // TODO: check length of `mem`?
+        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
+            decreases op_log.len()
+        {
+            if op_log.len() == 0 {
+                mem
+            } else {
+                let current_op = op_log[0];
+                let op_log = op_log.drop_first();
+                let mem = Self::apply_log_op_to_item_table_mem(current_op, mem);
+                Self::replay_log_item_table(mem, op_log)
+            }
+        }
+
+        // TODO: refactor -- logic in both cases is the same
+        closed spec fn apply_log_op_to_item_table_mem(op: OpLogEntryType, mem: Seq<u8>) -> Seq<u8>
+        {
+            let item_entry_size = I::spec_serialized_len() + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
+            match op {
+                OpLogEntryType::ItemTableEntryCommit { table_index} => {
+                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + table_index * item_entry_size;
+                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
+                    let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
+                    let mem = mem.map(|pos: int, pre_byte: u8| 
+                                                        if addr <= pos < addr + valid_cdb.len() { valid_cdb[pos - addr]}
+                                                        else { pre_byte }
+                                                    );
+                    mem
+                }
+                OpLogEntryType::ItemTableEntryInvalidate { table_index } => {
+                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + table_index * item_entry_size;
+                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
+                    let invalid_cdb = spec_u64_to_le_bytes(CDB_FALSE);
+                    let mem = mem.map(|pos: int, pre_byte: u8| 
+                                                        if addr <= pos < addr + invalid_cdb.len() { invalid_cdb[pos - addr]}
+                                                        else { pre_byte }
+                                                    );
+                    mem
+                }
+                _ => mem
+            }
+        }
+
+        // pub closed spec fn recover(
+        //     mems: Seq<Seq<u8>>, // TODO: only use Seq<u8> once we have support for that
+        //     op_log: Seq<OpLogEntryType>,
+        //     kvstore_id: u128
+        // ) -> Option<DurableItemTableView<I, K, E>>
+        // {
+        //     // The item table only uses one region
+        //     if mems.len() != 1 {
+        //         None
+        //     } else {
+        //         let mem = mems[0];
+        //         if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
+        //             // If the memory is not large enough to store the metadata header,
+        //             // it is not valid
+        //             None
+        //         }
+        //         else {
+        //             let metadata_header_bytes = mem.subrange(
+        //                 ABSOLUTE_POS_OF_METADATA_HEADER as int,
+        //                 ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+        //             );
+        //             let crc_bytes = mem.subrange(
+        //                 ABSOLUTE_POS_OF_HEADER_CRC as int,
+        //                 ABSOLUTE_POS_OF_HEADER_CRC + 8
+        //             );
+        //             let metadata_header = ItemTableMetadata::spec_deserialize(metadata_header_bytes);
+        //             let crc = u64::spec_deserialize(crc_bytes);
+        //             if crc != metadata_header.spec_crc() {
+        //                 // The header is invalid if the stored CRC does not match the contents
+        //                 // of the metadata header
+        //                 None
+        //             } else {
+        //                 // `parse_item_table` checks header metadata and the size of the memory region
+        //                 let item_table_view = parse_item_table(metadata_header, mem);
+        //                 if item_table_view is None {
+        //                     None
+        //                 } else {
+        //                     let item_table_view = item_table_view.unwrap();
+        //                     item_table_view.replay_log_item_table(op_log)
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         // TODO: write invariants
         closed spec fn inv(self) -> bool;
