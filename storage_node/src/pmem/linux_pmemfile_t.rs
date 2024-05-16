@@ -108,7 +108,7 @@ impl MemoryMappedFileSection
         }
 
         mmf_borrowed.num_bytes_sectioned += len;
-        let new_virt_addr = unsafe { mmf.virt_addr.offset(offset_as_isize) };
+        let new_virt_addr = unsafe { mmf_borrowed.virt_addr.offset(offset_as_isize) };
 
         std::mem::drop(mmf_borrowed);
 
