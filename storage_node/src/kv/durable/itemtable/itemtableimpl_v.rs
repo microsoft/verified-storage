@@ -124,13 +124,13 @@ verus! {
             } else {
                 let current_op = op_log[0];
                 let op_log = op_log.drop_first();
-                let mem = Self::apply_log_op_to_item_table_mem(current_op, mem);
+                let mem = Self::apply_log_op_to_item_table_mem(mem, current_op);
                 Self::replay_log_item_table(mem, op_log)
             }
         }
 
         // TODO: refactor -- logic in both cases is the same
-        closed spec fn apply_log_op_to_item_table_mem(op: OpLogEntryType, mem: Seq<u8>) -> Seq<u8>
+        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
         {
             let item_entry_size = I::spec_serialized_len() + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
             match op {

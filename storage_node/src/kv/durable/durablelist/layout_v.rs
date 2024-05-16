@@ -187,6 +187,10 @@ verus! {
     }
 
     impl ListEntryMetadata {
+        pub closed spec fn new(head: u64, tail: u64, length: u64, first_entry_offset: u64) -> Self {
+            Self {head, tail, length, first_entry_offset}
+        }
+
         pub fn get_head(&self) -> (out: u64) 
             ensures
                 out == self.spec_head()
@@ -197,6 +201,11 @@ verus! {
         pub closed spec fn spec_head(self) -> u64 
         {
             self.head
+        }
+        
+        pub closed spec fn spec_tail(self) -> u64 
+        {
+            self.tail
         }
 
         pub closed spec fn spec_len(self) -> u64 

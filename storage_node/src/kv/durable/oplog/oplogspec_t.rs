@@ -19,7 +19,8 @@ verus! {
         AppendListNode {
             list_metadata_index: u64,
             old_tail: u64,
-            new_tail: u64
+            new_tail: u64,
+            metadata_crc: u64,
         },
         InsertListElement {
             node_offset: u64,
@@ -29,12 +30,14 @@ verus! {
         UpdateListLen {
             list_metadata_index: u64,
             new_length: u64,
+            metadata_crc: u64,
         },
         TrimList {
             list_metadata_index: u64,
             new_head_node: u64,
             new_list_len: u64,
             new_list_start_index: u64,
+            metadata_crc: u64,
         },
         CreateListTableEntry {
             list_metadata_index: u64,
@@ -108,7 +111,8 @@ verus! {
                 op_list: self.op_list.push(OpLogEntryType::AppendListNode {
                     list_metadata_index: entry.list_metadata_index,
                     old_tail: entry.old_tail,
-                    new_tail: entry.new_tail
+                    new_tail: entry.new_tail,
+                    metadata_crc: entry.metadata_crc,
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
@@ -145,6 +149,7 @@ verus! {
                 op_list: self.op_list.push(OpLogEntryType::UpdateListLen {
                     list_metadata_index: entry.list_metadata_index,
                     new_length: entry.new_length,
+                    metadata_crc: entry.metadata_crc,
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
@@ -164,6 +169,7 @@ verus! {
                     new_head_node: entry.new_head_node,
                     new_list_len: entry.new_list_len,
                     new_list_start_index: entry.new_list_start_index,
+                    metadata_crc: entry.metadata_crc,
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
@@ -179,7 +185,10 @@ verus! {
         {
             Self {
                 log_state: self.log_state.tentatively_append(entry.spec_serialize() + key.spec_serialize()),
-                op_list: self.op_list.push(OpLogEntryType::CreateListTableEntry { list_metadata_index: entry.list_metadata_index, head: entry.head }),
+                op_list: self.op_list.push(OpLogEntryType::CreateListTableEntry { 
+                    list_metadata_index: entry.list_metadata_index, 
+                    head: entry.head,
+                }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
                 _phantom: None

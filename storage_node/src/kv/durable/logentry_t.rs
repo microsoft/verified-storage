@@ -5,6 +5,8 @@
 //! audited to ensure they accurately reflect their
 //! byte-level Rust representations.
 //!
+//! TODO: the organization of this file and of logentry_v doesn't make much sense;
+//! move things so that they are in the correct _t or _v file.
 
 use builtin::*;
 use builtin_macros::*;
@@ -51,9 +53,8 @@ verus! {
     pub struct ItemTableEntry {
         pub entry_type: u64,
         pub table_index: u64,
-        pub _padding0: u64,
-        pub _padding1: u64,
-        pub _padding2: u64,
+        pub _padding0: u128,
+        pub _padding1: u128,
     }
 
     impl Serializable for ItemTableEntry {
@@ -61,9 +62,8 @@ verus! {
         {
             spec_u64_to_le_bytes(self.entry_type) +
             spec_u64_to_le_bytes(self.table_index) +
-            spec_u64_to_le_bytes(self._padding0) +
-            spec_u64_to_le_bytes(self._padding1) +
-            spec_u64_to_le_bytes(self._padding2)
+            spec_u128_to_le_bytes(self._padding0) +
+            spec_u128_to_le_bytes(self._padding1)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
@@ -78,20 +78,15 @@ verus! {
                         RELATIVE_POS_OF_ITEM_TABLE_INDEX as int,
                         RELATIVE_POS_OF_ITEM_TABLE_INDEX + 8
                 )),
-                _padding0: spec_u64_from_le_bytes(
+                _padding0: spec_u128_from_le_bytes(
                     bytes.subrange(
                         RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 8
+                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 16
                 )),
-                _padding1: spec_u64_from_le_bytes(
+                _padding1: spec_u128_from_le_bytes(
                     bytes.subrange(
                         RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 8
-                )),
-                _padding2: spec_u64_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_PADDING_2_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_2_ITEM_TABLE_ENTRY + 8
+                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 16
                 )),
             }
         }
@@ -99,12 +94,12 @@ verus! {
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_table_index = #[trigger] spec_u64_to_le_bytes(s.table_index);
-                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
-                let serialized_padding2 = #[trigger] spec_u64_to_le_bytes(s._padding2);
+                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
+                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -116,22 +111,19 @@ verus! {
                 ) == serialized_table_index
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 8
+                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 16
                     ) == serialized_padding0
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 8
+                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 16
                     ) == serialized_padding1
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_2_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_2_ITEM_TABLE_ENTRY + 8
-                    ) == serialized_padding2
             });
         }
 
         proof fn lemma_auto_deserialize_serialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -139,6 +131,7 @@ verus! {
         proof fn lemma_auto_serialized_len()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int
@@ -175,6 +168,7 @@ verus! {
         pub list_metadata_index: u64,
         pub old_tail: u64,
         pub new_tail: u64,
+        pub metadata_crc: u64,
         pub _padding0: u64,
     }
 
@@ -186,6 +180,7 @@ verus! {
             spec_u64_to_le_bytes(self.list_metadata_index) +
             spec_u64_to_le_bytes(self.old_tail) +
             spec_u64_to_le_bytes(self.new_tail) +
+            spec_u64_to_le_bytes(self.metadata_crc) +
             spec_u64_to_le_bytes(self._padding0)
         }
 
@@ -199,6 +194,8 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE + 8)),
                 new_tail: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE + 8)),
+                metadata_crc: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int, RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8)),
                 _padding0: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_PADDING_0_APPEND_NODE as int, RELATIVE_POS_OF_PADDING_0_APPEND_NODE + 8))
             }
@@ -212,7 +209,8 @@ verus! {
                 let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
                 let serialized_old_tail = #[trigger] spec_u64_to_le_bytes(s.old_tail);
                 let serialized_new_tail = #[trigger] spec_u64_to_le_bytes(s.new_tail);
-                let serialized_bytes0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
+                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
+                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding0);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -231,9 +229,13 @@ verus! {
                         RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE + 8
                     ) == serialized_new_tail
                 &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int,
+                        RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8
+                    ) == serialized_metadata_crc
+                &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_PADDING_0_APPEND_NODE as int,
                         RELATIVE_POS_OF_PADDING_0_APPEND_NODE + 8
-                    ) == serialized_bytes0
+                    ) == serialized_padding
             });
         }
 
@@ -285,7 +287,7 @@ verus! {
         pub node_offset: u64,
         pub index_in_node: u64,
         pub _padding0: u64,
-        pub _padding1: u64,
+        pub _padding1: u128,
     }
 
     impl Serializable for InsertListElementEntry
@@ -296,7 +298,7 @@ verus! {
             spec_u64_to_le_bytes(self.node_offset) +
             spec_u64_to_le_bytes(self.index_in_node) +
             spec_u64_to_le_bytes(self._padding0) +
-            spec_u64_to_le_bytes(self._padding1)
+            spec_u128_to_le_bytes(self._padding1)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -310,20 +312,21 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT + 8)),
                 _padding0: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT + 8)),
-                _padding1: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 8))
+                _padding1: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 16))
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_node_offset = #[trigger] spec_u64_to_le_bytes(s.node_offset);
                 let serialized_index_in_node = #[trigger] spec_u64_to_le_bytes(s.index_in_node);
                 let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
+                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -343,7 +346,7 @@ verus! {
                     ) == serialized_padding0
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT as int,
-                        RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 8
+                        RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 16
                     ) == serialized_padding1
             });
         }
@@ -351,6 +354,7 @@ verus! {
         proof fn lemma_auto_deserialize_serialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -358,6 +362,7 @@ verus! {
         proof fn lemma_auto_serialized_len()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int
@@ -388,8 +393,8 @@ verus! {
         pub entry_type: u64,
         pub list_metadata_index: u64,
         pub new_length: u64,
-        pub _padding0: u64,
-        pub _padding1: u64,
+        pub metadata_crc: u64,
+        pub _padding0: u128,
     }
 
     impl Serializable for UpdateListLenEntry
@@ -399,8 +404,9 @@ verus! {
             spec_u64_to_le_bytes(self.entry_type) +
             spec_u64_to_le_bytes(self.list_metadata_index) +
             spec_u64_to_le_bytes(self.new_length) +
-            spec_u64_to_le_bytes(self._padding0) +
-            spec_u64_to_le_bytes(self._padding1)
+            spec_u64_to_le_bytes(self.metadata_crc) +
+            spec_u128_to_le_bytes(self._padding0)
+            
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -412,22 +418,23 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN + 8)),
                 new_length: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8)),
-                _padding0: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 8)),
-                _padding1: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_PADDING_1_UPDATE_LIST_LEN + 8))
+                metadata_crc: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8)),
+                _padding0: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 16)),
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
                 let serialized_new_len = #[trigger] spec_u64_to_le_bytes(s.new_length);
-                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
+                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
+                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -442,19 +449,22 @@ verus! {
                         RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8
                     ) == serialized_new_len
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 8
-                    ) == serialized_padding0
+                        RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int,
+                        RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8
+                    ) == serialized_metadata_crc
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_1_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_PADDING_1_UPDATE_LIST_LEN + 8
-                    ) == serialized_padding1
+                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int,
+                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 16
+                    ) == serialized_padding0
+                
             });
         }
 
         proof fn lemma_auto_deserialize_serialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -462,6 +472,7 @@ verus! {
         proof fn lemma_auto_serialized_len()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int
@@ -489,6 +500,7 @@ verus! {
         pub new_head_node: u64,
         pub new_list_len: u64,
         pub new_list_start_index: u64,
+        pub metadata_crc: u64, 
     }
 
     impl Serializable for TrimListEntry
@@ -499,7 +511,8 @@ verus! {
             spec_u64_to_le_bytes(self.list_metadata_index) +
             spec_u64_to_le_bytes(self.new_head_node) +
             spec_u64_to_le_bytes(self.new_list_len) +
-            spec_u64_to_le_bytes(self.new_list_start_index)
+            spec_u64_to_le_bytes(self.new_list_start_index) +
+            spec_u64_to_le_bytes(self.metadata_crc)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -514,7 +527,9 @@ verus! {
                 new_list_len: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST as int, RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST + 8)),
                 new_list_start_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST as int, RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST + 8))
+                    bytes.subrange(RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST as int, RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST + 8)),
+                metadata_crc: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST as int, RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST + 8))
             }
         }
 
@@ -527,6 +542,7 @@ verus! {
                 let serialized_new_head_node = #[trigger] spec_u64_to_le_bytes(s.new_head_node);
                 let serialized_new_list_len = #[trigger] spec_u64_to_le_bytes(s.new_list_len);
                 let serialized_new_list_start_index = #[trigger] spec_u64_to_le_bytes(s.new_list_start_index);
+                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -548,6 +564,10 @@ verus! {
                         RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST as int,
                         RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST + 8
                     ) == serialized_new_list_start_index
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST as int,
+                        RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST + 8
+                    ) == serialized_metadata_crc
             });
         }
 
@@ -580,7 +600,7 @@ verus! {
         pub list_metadata_index: u64,
         pub head: u64,
         pub _padding0: u64,
-        pub _padding1: u64,
+        pub _padding1: u128,
     }
 
     impl Serializable for CreateListEntry 
@@ -591,7 +611,7 @@ verus! {
             spec_u64_to_le_bytes(self.list_metadata_index) + 
             spec_u64_to_le_bytes(self.head) +
             spec_u64_to_le_bytes(self._padding0) + 
-            spec_u64_to_le_bytes(self._padding1)
+            spec_u128_to_le_bytes(self._padding1)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
@@ -601,19 +621,20 @@ verus! {
                 list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8)),
                 head: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_HEAD_CREATE_LIST as int, RELATIVE_POS_OF_HEAD_CREATE_LIST + 8)),
                 _padding0: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 8)),
-                _padding1: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 8)),
+                _padding1: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16)),
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
                 let serialized_head = #[trigger] spec_u64_to_le_bytes(s.head);
                 let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
+                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -633,7 +654,7 @@ verus! {
                 ) == serialized_padding0 
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 8
+                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16
                 ) == serialized_padding1
             });
         }
@@ -641,6 +662,7 @@ verus! {
         proof fn lemma_auto_deserialize_serialize() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -648,6 +670,7 @@ verus! {
         proof fn lemma_auto_serialized_len() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int 
@@ -666,9 +689,8 @@ verus! {
     {
         pub entry_type: u64,
         pub list_metadata_index: u64,
-        pub _padding0: u64,
-        pub _padding1: u64,
-        pub _padding2: u64
+        pub _padding0: u128,
+        pub _padding1: u128,
     }
 
     impl Serializable for DeleteListEntry 
@@ -677,9 +699,8 @@ verus! {
         {
             spec_u64_to_le_bytes(self.entry_type) + 
             spec_u64_to_le_bytes(self.list_metadata_index) +
-            spec_u64_to_le_bytes(self._padding0) +
-            spec_u64_to_le_bytes(self._padding1) +
-            spec_u64_to_le_bytes(self._padding2)
+            spec_u128_to_le_bytes(self._padding0) +
+            spec_u128_to_le_bytes(self._padding1) 
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
@@ -687,21 +708,20 @@ verus! {
             Self {
                 entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
                 list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST + 8)),
-                _padding0: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 8)),
-                _padding1: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 8)),
-                _padding2: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_2_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_2_DELETE_LIST + 8)),
+                _padding0: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 16)),
+                _padding1: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 16)),
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
-                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u64_to_le_bytes(s._padding1);
-                let serialized_padding2 = #[trigger] spec_u64_to_le_bytes(s._padding2);
+                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
+                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -713,22 +733,19 @@ verus! {
                 ) == serialized_list_metadata_index
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 8
+                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 16
                 ) == serialized_padding0 
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 8
+                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 16
                 ) == serialized_padding1
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_2_DELETE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_2_DELETE_LIST + 8
-                ) == serialized_padding2
             });
         }
 
         proof fn lemma_auto_deserialize_serialize() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -736,6 +753,7 @@ verus! {
         proof fn lemma_auto_serialized_len() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int 
