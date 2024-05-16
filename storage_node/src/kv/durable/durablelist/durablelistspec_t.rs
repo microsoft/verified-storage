@@ -28,6 +28,14 @@ verus! {
         list_element: L
     }
 
+    impl<L> DurableListElementView<L>
+    {
+        pub closed spec fn new(crc: u64, list_element: L) -> Self 
+        {
+            Self { crc, list_element }
+        }
+    }
+
     // The `lists` field represents the current contents of the list. It abstracts away the physical 
     // nodes of the unrolled linked list that the list is actually stored in, but it may contain
     // tentatively-appended list elements that are not visible yet.

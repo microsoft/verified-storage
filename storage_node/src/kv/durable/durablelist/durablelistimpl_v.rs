@@ -97,8 +97,11 @@ verus! {
         ) -> Option<DurableListView<K, L, E>> 
         {
             let lists_map = Map::empty();
-            let result = Self::recover_each_list(metadata_header, metadata_table, mem, lists_map)?;
-            Some(DurableListView::new(result))
+            let result = Self::recover_each_list(metadata_header, metadata_table, mem, lists_map);
+            match result {
+                Some(result) => Some(DurableListView::new(result)),
+                None => None
+            }
         }
 
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
@@ -119,11 +122,17 @@ verus! {
                 let metadata_entries = metadata_entries.drop_first();
                 // Unlike in the item table, we will apply log entries later; we need to build the lists 
                 // first so that log entries can be applied to the table and the list in the correct order
-                let lists_map = lists_map.insert(
-                    current_entry.get_key(), 
-                    Self::recover_list(metadata_header, current_entry.get_item(), mem)?
-                );
-                Self::recover_each_list(metadata_header, metadata_entries, mem, lists_map)
+                let recovered_list = Self::recover_list(metadata_header, current_entry.get_item(), mem);
+                match recovered_list {
+                    Some(recovered_list) => {
+                        let lists_map = lists_map.insert(
+                            current_entry.get_key(), 
+                            recovered_list
+                        );
+                        Self::recover_each_list(metadata_header, metadata_entries, mem, lists_map)
+                    }
+                    None => None
+                }
             }
         }
 
@@ -133,24 +142,79 @@ verus! {
             mem: Seq<u8>
         ) -> Option<Seq<DurableListElementView<L>>>
         {
-            let head_node_index = entry.get_head();
+            let head_node_index = entry.spec_head();
             let list_len = entry.spec_len();
             let new_list = Seq::empty();
             Self::recover_list_helper(metadata_header, head_node_index, 
-                list_len, new_list, mem)
+                list_len as int, new_list, mem)
         }
 
         closed spec fn recover_list_helper(
             metadata_header: GlobalListMetadata,
             cur_node_index: u64,
-            list_len_remaining: u64,
-            current_list: Seq<L>,
+            list_len_remaining: int,
+            current_list: Seq<DurableListElementView<L>>,
             mem: Seq<u8>
         ) -> Option<Seq<DurableListElementView<L>>>
             decreases
                 list_len_remaining
         {
+            let elements_per_node = (metadata_header.node_size - RELATIVE_POS_OF_LIST_ELEMENT) / metadata_header.element_size as int;
+            if elements_per_node <= 0 {
+                None 
+            } else {
+                // first base case: if there are no more list elements remaining, return the current list]
+                // this may happen if we have allocated a node but not added any elements to it
+                // for some reason, Verus can't prove termination unless this is <= rather than ==
+                if list_len_remaining <= 0 {
+                    Some(current_list)
+                } else {
+                    // 1. parse the current node
+                    let result = parse_list_node::<L>(cur_node_index as int, metadata_header, mem);
+                    match result {
+                        Some((next_node_index, current_node_element_bytes)) => {
+                            // 2. add list elements to current list 
+                            let elements_to_keep = if elements_per_node < list_len_remaining {
+                                elements_per_node as nat
+                            } else {
+                                list_len_remaining as nat
+                            };
+                            let new_remaining = list_len_remaining - elements_to_keep;
 
+                            // We still don't check CRCs yet because we have not yet replayed the log, so some may not be correct
+                            let parsed_elements = Seq::new(
+                                elements_to_keep,
+                                |i: int| {
+                                    let bytes = current_node_element_bytes[i];
+                                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_LIST_ELEMENT_CRC as int, RELATIVE_POS_OF_LIST_ELEMENT_CRC + 8);
+                                    let list_element_bytes = bytes.subrange(RELATIVE_POS_OF_LIST_ELEMENT as int, RELATIVE_POS_OF_LIST_ELEMENT + L::spec_serialized_len());
+                                    DurableListElementView::new(
+                                        u64::spec_deserialize(crc_bytes),
+                                        L::spec_deserialize(list_element_bytes)
+                                    )
+                                }
+                            );
+
+                            let current_list = current_list + parsed_elements;
+
+                            // 3. go to next node if it exists
+                            // second base case: the current node's next pointer points to itself
+                            if next_node_index == cur_node_index {
+                                // if list_len_remaining isn't 0 here, something is wrong -- we've reached
+                                // the end of our list nodes, but haven't seen enough elements yet
+                                if new_remaining != 0 {
+                                    None
+                                } else {
+                                    Some(current_list)
+                                }
+                            } else {
+                                Self::recover_list_helper(metadata_header, next_node_index, new_remaining, current_list, mem)
+                            }
+                        }
+                        None => None
+                    }   
+                }
+            }   
         }
 
         pub exec fn setup<PM>(
@@ -601,7 +665,9 @@ verus! {
             let num_nodes = (region_sizes[1] - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size as u64;
             let list_node_region_header = ListRegionHeader {
                 num_nodes,
+                length: region_sizes[1],
                 version_number: DURABLE_LIST_REGION_VERSION_NUMBER,
+                _padding0: 0,
                 program_guid: DURABLE_LIST_REGION_PROGRAM_GUID
             };
             let list_node_region_header_crc = calculate_crc(&list_node_region_header);
