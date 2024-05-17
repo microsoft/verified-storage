@@ -1,24 +1,23 @@
 //! This file describes the persistent-memory layout used by the
-//! multilog implementation.
+//! log implementation.
 //!
 //! The code in this file is verified and untrusted (as indicated by
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 //!
-//! Each persistent-memory region used to store a log will have the following layout.
+//! The persistent-memory region used to store a log will have the following layout.
 //!
 //! Global metadata:   Metadata whose length is constant across all versions and
 //!                    the same for each region/log
-//! Region metadata:   Per-region metadata that does not change over the course
-//!                    of execution.
-//! Log metadata:      Per-log metadata that changes as the data changes, so it
+//! Region metadata:   Metadata that does not change over the course of
+//!                    execution.
+//! Log metadata:      Metadata that changes as the data changes, so it
 //!                    has two versions and a corruption-detecting boolean
 //!                    distinguishing which of those two versions is active
 //! Log area:          Area where log is written
 //!
-//! Only the first region's corruption-detecting boolean is used, and
-//! it dictates which log metadata is used on *all* regions. The
-//! corruption-detecting boolean on all other regions is ignored.
+//! The corruption-detecting boolean dictates which of the two instances of
+//! log metadata is used.
 //!
 //! Global metadata (absolute offsets):
 //!   bytes 0..8:     Version number of the program that created this metadata
@@ -27,13 +26,10 @@
 //!   bytes 32..40:   CRC of the above 32 bytes
 //!
 //! Region metadata (absolute offsets):
-//!   bytes 40..44:   Number of logs in the multilog
-//!   bytes 44..48:   Index of this log in the multilog
-//!   bytes 48..56:   Unused padding bytes
-//!   bytes 56..64:   This region's size
-//!   bytes 64..72:   Length of log area (LoLA)
-//!   bytes 72..88:   Multilog ID
-//!   bytes 88..96:   CRC of the above 48 bytes
+//!   bytes 40..48:   This region's size
+//!   bytes 48..56:   Length of log area (LoLA)
+//!   bytes 56..72:   Log ID
+//!   bytes 72..80:   CRC of the above 32 bytes
 //!
 //! Log metadata (relative offsets):
 //!   bytes 0..8:     Log length
@@ -55,7 +51,7 @@
 //! `CDB_FALSE` or `CDB_TRUE` was read.
 //!
 
-use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
+use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
@@ -80,40 +76,36 @@ verus! {
     pub const ABSOLUTE_POS_OF_GLOBAL_CRC: u64 = 32;
 
     pub const ABSOLUTE_POS_OF_REGION_METADATA: u64 = 40;
-    pub const RELATIVE_POS_OF_REGION_NUM_LOGS: u64 = 0;
-    pub const RELATIVE_POS_OF_REGION_WHICH_LOG: u64 = 4;
-    pub const RELATIVE_POS_OF_REGION_PADDING: u64 = 8;
-    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 16;
-    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 24;
-    pub const RELATIVE_POS_OF_REGION_MULTILOG_ID: u64 = 32;
-    pub const LENGTH_OF_REGION_METADATA: u64 = 48;
-    pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 88;
+    pub const RELATIVE_POS_OF_REGION_REGION_SIZE: u64 = 0;
+    pub const RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA: u64 = 8;
+    pub const RELATIVE_POS_OF_REGION_LOG_ID: u64 = 16;
+    pub const LENGTH_OF_REGION_METADATA: u64 = 32;
+    pub const ABSOLUTE_POS_OF_REGION_CRC: u64 = 72;
 
-    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 96;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 104;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 144;
+    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 80;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 88;
+    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
     pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
     pub const RELATIVE_POS_OF_LOG_PADDING: u64 = 8;
     pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 16;
     pub const LENGTH_OF_LOG_METADATA: u64 = 32;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 136;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 176;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
+    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 160;
     pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 256;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     // This GUID was generated randomly and is meant to describe the
     // multilog program, even if it has future versions.
 
-    pub const MULTILOG_PROGRAM_GUID: u128 = 0x21b8b4b3c7d140a9abf7e80c07b7f01fu128;
+    pub const LOG_PROGRAM_GUID: u128 = 0x8eecd9dea2de4443903e2acf951380bf;
 
     // The current version number, and the only one whose contents
     // this program can read, is the following:
 
-    pub const MULTILOG_PROGRAM_VERSION_NUMBER: u64 = 1;
+    pub const LOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
     // These structs represent the different levels of metadata.
     // TODO: confirm with runtime checks that the sizes and offsets are as expected
-
 
     #[repr(C)]
     pub struct GlobalMetadata {
@@ -180,8 +172,7 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
         }
 
-        open spec fn spec_serialized_len() -> int
-        {
+        open spec fn spec_serialized_len() -> int {
             LENGTH_OF_GLOBAL_METADATA as int
         }
 
@@ -193,37 +184,27 @@ verus! {
 
     #[repr(C)]
     pub struct RegionMetadata {
-        pub num_logs: u32,
-        pub which_log: u32,
-        pub _padding: u64,
         pub region_size: u64,
         pub log_area_len: u64,
-        pub multilog_id: u128,
+        pub log_id: u128,
     }
 
     impl Serializable for RegionMetadata {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
-            spec_u32_to_le_bytes(self.num_logs) + spec_u32_to_le_bytes(self.which_log) +
-                spec_u64_to_le_bytes(self._padding) + spec_u64_to_le_bytes(self.region_size) +
-                spec_u64_to_le_bytes(self.log_area_len) + spec_u128_to_le_bytes(self.multilog_id)
+            spec_u64_to_le_bytes(self.region_size) + spec_u64_to_le_bytes(self.log_area_len) +
+                spec_u128_to_le_bytes(self.log_id)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
         {
             Self {
-                num_logs: spec_u32_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_NUM_LOGS as int, RELATIVE_POS_OF_REGION_NUM_LOGS + 4)),
-                which_log: spec_u32_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_WHICH_LOG as int, RELATIVE_POS_OF_REGION_WHICH_LOG + 4)),
-                _padding: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_PADDING as int, RELATIVE_POS_OF_REGION_PADDING + 8)),
                 region_size: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_REGION_SIZE as int, RELATIVE_POS_OF_REGION_REGION_SIZE + 8)),
                 log_area_len: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8)),
-                multilog_id: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_MULTILOG_ID as int, RELATIVE_POS_OF_REGION_MULTILOG_ID + 16)),
+                log_id: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_REGION_LOG_ID as int, RELATIVE_POS_OF_REGION_LOG_ID + 16)),
             }
         }
 
@@ -233,25 +214,10 @@ verus! {
             lemma_auto_spec_u64_to_from_le_bytes();
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
-                let serialized_num_logs = #[trigger] spec_u32_to_le_bytes(s.num_logs);
-                let serialized_which_log = #[trigger] spec_u32_to_le_bytes(s.which_log);
-                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
                 let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
                 let serialized_len = #[trigger] spec_u64_to_le_bytes(s.log_area_len);
-                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.multilog_id);
+                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.log_id);
                 let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_NUM_LOGS as int,
-                        RELATIVE_POS_OF_REGION_NUM_LOGS + 4
-                    ) == serialized_num_logs
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_WHICH_LOG as int,
-                        RELATIVE_POS_OF_REGION_WHICH_LOG + 4
-                    ) == serialized_which_log
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_PADDING as int,
-                        RELATIVE_POS_OF_REGION_PADDING + 8,
-                    ) == serialized_padding
                 &&& serialized_metadata.subrange(
                         RELATIVE_POS_OF_REGION_REGION_SIZE as int,
                         RELATIVE_POS_OF_REGION_REGION_SIZE + 8
@@ -261,8 +227,8 @@ verus! {
                         RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8
                     ) == serialized_len
                 &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_MULTILOG_ID as int,
-                        RELATIVE_POS_OF_REGION_MULTILOG_ID + 16
+                        RELATIVE_POS_OF_REGION_LOG_ID as int,
+                        RELATIVE_POS_OF_REGION_LOG_ID + 16
                     ) == serialized_id
             });
         }
@@ -564,11 +530,9 @@ verus! {
     pub open spec fn parse_region_metadata(bytes: Seq<u8>) -> RegionMetadata
     {
         let region_size = parse_u64(bytes, RELATIVE_POS_OF_REGION_REGION_SIZE as int);
-        let multilog_id = parse_u128(bytes, RELATIVE_POS_OF_REGION_MULTILOG_ID as int);
-        let num_logs = parse_u32(bytes, RELATIVE_POS_OF_REGION_NUM_LOGS as int);
-        let which_log = parse_u32(bytes, RELATIVE_POS_OF_REGION_WHICH_LOG as int);
+        let log_id = parse_u128(bytes, RELATIVE_POS_OF_REGION_LOG_ID as int);
         let log_area_len = parse_u64(bytes, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int);
-        RegionMetadata { region_size, multilog_id, _padding: 0, num_logs, which_log, log_area_len }
+        RegionMetadata { region_size, log_id, log_area_len }
     }
 
     // This function returns the log metadata encoded as the given
@@ -677,20 +641,14 @@ verus! {
     }
 
     // This function specifies how recovery should treat the contents
-    // of a single persistent-memory region as an abstract log state.
+    // of the persistent-memory region as an abstract log state.
     // It assumes the corruption-detecting boolean has already been
     // read and is given by `cdb`.
     //
     // `mem` -- the contents of the persistent-memory region
     //
-    // `multilog_id` -- the GUID associated with the multilog when it
+    // `log_id` -- the GUID associated with the log when it
     // was initialized
-    //
-    // `num_logs` -- the number of logs overall in the multilog that
-    // this region's log is part of
-    //
-    // `which_log` -- which log, among the logs in the multilog,
-    // that this region stores
     //
     // `cdb` -- what value the corruption-detecting boolean has,
     // according to the metadata in region 0
@@ -703,11 +661,9 @@ verus! {
     // parameters
     //
     // `Some(s)` -- `s` is the abstract state represented in memory
-    pub open spec fn recover_abstract_log_from_region_given_cdb(
+    pub open spec fn recover_given_cdb(
         mem: Seq<u8>,
-        multilog_id: u128,
-        num_logs: int,
-        which_log: int,
+        log_id: u128,
         cdb: bool
     ) -> Option<AbstractLogState>
     {
@@ -725,7 +681,7 @@ verus! {
                 None
             }
             else {
-                if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
+                if global_metadata.program_guid != LOG_PROGRAM_GUID {
                     // To be valid, the global metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
@@ -755,9 +711,7 @@ verus! {
                             // sufficient room for the log area.
                             if {
                                 ||| region_metadata.region_size != mem.len()
-                                ||| region_metadata.multilog_id != multilog_id
-                                ||| region_metadata.num_logs != num_logs
-                                ||| region_metadata.which_log != which_log
+                                ||| region_metadata.log_id != log_id
                                 ||| region_metadata.log_area_len < MIN_LOG_AREA_SIZE
                                 ||| mem.len() < ABSOLUTE_POS_OF_LOG_AREA + region_metadata.log_area_len
                             } {
@@ -793,68 +747,21 @@ verus! {
         }
     }
 
-    // This function specifies how recovery should treat the contents
-    // of a sequence of persistent memory regions as an abstract
-    // multilog state. It assumes the corruption-detecting boolean has
-    // already been read and is given by `cdb`.
-    //
-    // `mems` -- the contents of the sequence of persistent memory
-    // regions, i.e., a sequence of sequences of bytes, with one
-    // sequence of bytes per persistent-memory region
-    //
-    // `multilog_id` -- the GUID associated with the multilog when it
-    // was initialized
-    //
-    // `cdb` -- what value the corruption-detecting boolean has,
-    // according to the metadata in region 0
-    //
-    // Returns an `Option<AbstractMultiLogState>` with the following
-    // meaning:
-    //
-    // `None` -- the metadata on persistent memory isn't consistent
-    // with it having been used as a multilog with the given
-    // parameters
-    //
-    // `Some(s)` -- `s` is the abstract state represented in memory
-    pub open spec fn recover_given_cdb(
-        mems: Seq<Seq<u8>>,
-        multilog_id: u128,
-        cdb: bool
-    ) -> Option<AbstractMultiLogState>
-    {
-        // For each region, use `recover_abstract_log_from_region_given_cdb` to recover it.  One of
-        // the parameters to that function is `which_log`, which we fill in with the index of the
-        // memory region within the sequence `mems`.
-        let seq_option = mems.map(|idx, c| recover_abstract_log_from_region_given_cdb(c, multilog_id, mems.len() as int,
-                                                                                      idx, cdb));
-
-        // If any of those recoveries failed, fail this recovery. Otherwise, amass all the recovered
-        // `AbstractLogState` values into a sequence to construct an `AbstractMultiLogState`.
-        if forall |i| 0 <= i < seq_option.len() ==> seq_option[i].is_Some() {
-            Some(AbstractMultiLogState{ states: seq_option.map(|_idx, ot: Option<AbstractLogState>| ot.unwrap()) })
-        }
-        else {
-            None
-        }
-    }
-
     // This function specifies how recovery should recover the
     // corruption-detecting boolean. The input `mem` is the contents
-    // of region #0 of the persistent memory regions, since the CDB is
-    // only stored there.
+    // of the persistent memory region.
     //
     // Returns an `Option<bool>` with the following meaning:
     //
     // `None` -- the metadata on this region isn't consistent
-    // with it having been used as a multilog
+    // with it having been used as a log
     //
     // `Some(cdb)` -- `cdb` is the corruption-detecting boolean
     pub open spec fn recover_cdb(mem: Seq<u8>) -> Option<bool>
     {
         if mem.len() < ABSOLUTE_POS_OF_REGION_METADATA {
             // If there isn't space in memory to store the global metadata
-            // and CRC, then this region clearly isn't a valid multilog
-            // region #0.
+            // and CRC, then this region clearly isn't a valid log region.
             None
         }
         else {
@@ -866,7 +773,7 @@ verus! {
                 None
             }
             else {
-                if global_metadata.program_guid != MULTILOG_PROGRAM_GUID {
+                if global_metadata.program_guid != LOG_PROGRAM_GUID {
                     // To be valid, the global metadata has to refer to this program's GUID.
                     // Otherwise, it wasn't created by this program.
                     None
@@ -897,87 +804,66 @@ verus! {
     }
 
     // This function specifies how recovery should treat the contents
-    // of a sequence of persistent-memory regions as an abstract
-    // multilog state.
+    // of a persistent-memory region as an abstract log state.
     //
-    // `mems` -- the contents of the persistent memory regions, i.e.,
-    // a sequence of sequences of bytes, with one sequence of bytes
-    // per persistent-memory region
+    // `mem` -- the contents of the persistent memory region
     //
-    // `multilog_id` -- the GUID associated with the multilog when it
+    // `log_id` -- the GUID associated with the log when it
     // was initialized
     //
-    // Returns an `Option<AbstractMultiLogState>` with the following
+    // Returns an `Option<AbstractLogState>` with the following
     // meaning:
     //
     // `None` -- the metadata on persistent memory isn't consistent
-    // with it having been used as a multilog with the given multilog
-    // ID
+    // with it having been used as a log with the given log ID
     //
     // `Some(s)` -- `s` is the abstract state represented in memory
-    pub open spec fn recover_all(mems: Seq<Seq<u8>>, multilog_id: u128) -> Option<AbstractMultiLogState>
+    pub open spec fn recover_state(mem: Seq<u8>, log_id: u128) -> Option<AbstractLogState>
     {
-        if mems.len() < 1 || mems.len() > u32::MAX {
-            // There needs to be at least one region for it to be
-            // valid, and there can't be more regions than can fit in
-            // a u32.
-            None
-        }
-        else {
-            // To recover, first recover the CDB from region #0, then
-            // use it to recover the abstract state from all the
-            // regions (including region #0).
-            match recover_cdb(mems[0]) {
-                Some(cdb) => recover_given_cdb(mems, multilog_id, cdb),
-                None => None
-            }
+        // To recover, first recover the CDB, then use it to recover the abstract state.
+        match recover_cdb(mem) {
+            Some(cdb) => recover_given_cdb(mem, log_id, cdb),
+            None => None
         }
     }
 
     /// Useful utility proofs about layout that other files use.
 
-    // This lemma establishes that if a persistent memory regions view
-    // `pm_regions_view` has no outstanding writes, and if its committed byte
+    // This lemma establishes that if a persistent memory region view
+    // `pm_region_view` has no outstanding writes, and if its committed byte
     // sequence recovers to abstract state `state`, then any state
-    // `pm_regions_view` can crash into also recovers that same abstract state.
+    // `pm_region_view` can crash into also recovers that same abstract state.
     pub proof fn lemma_if_no_outstanding_writes_then_can_only_crash_as_state(
-        pm_regions_view: PersistentMemoryRegionsView,
-        multilog_id: u128,
-        state: AbstractMultiLogState,
+        pm_region_view: PersistentMemoryRegionView,
+        log_id: u128,
+        state: AbstractLogState,
     )
         requires
-            pm_regions_view.no_outstanding_writes(),
-            recover_all(pm_regions_view.committed(), multilog_id) == Some(state),
+            pm_region_view.no_outstanding_writes(),
+            recover_state(pm_region_view.committed(), log_id) == Some(state),
         ensures
-            forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==> recover_all(s, multilog_id) == Some(state)
+            forall |s| #[trigger] pm_region_view.can_crash_as(s) ==> recover_state(s, log_id) == Some(state)
     {
         // This follows trivially from the observation that the only
-        // byte sequence `pm_regions_view` can crash into is its committed byte
+        // byte sequence `pm_region_view` can crash into is its committed byte
         // sequence. (It has no outstanding writes, so there's nothing
         // else it could crash into.)
-        lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(pm_regions_view);
+        lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
     }
 
-    // This lemma establishes that if persistent memory regions'
-    // contents `mems` can successfully be recovered from, then each
-    // of its regions has size large enough to hold at least
-    // `MIN_LOG_AREA_SIZE` bytes in its log area.
-    pub proof fn lemma_recover_all_successful_implies_region_sizes_sufficient(mems: Seq<Seq<u8>>, multilog_id: u128)
+    // This lemma establishes that if a persistent memory region's
+    // contents `mem` can successfully be recovered from, then it has
+    // size large enough to hold at least `MIN_LOG_AREA_SIZE` bytes in
+    // its log area.
+    pub proof fn lemma_recover_state_successful_implies_region_size_sufficient(mem: Seq<u8>, log_id: u128)
         requires
-            recover_all(mems, multilog_id).is_Some()
+            recover_state(mem, log_id).is_Some()
         ensures
-            forall |i| 0 <= i < mems.len() ==> #[trigger] mems[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
+            mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
     {
-        assert forall |i| 0 <= i < mems.len() implies
-                   #[trigger] mems[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE by
-        {
-            let cdb = recover_cdb(mems[0]).get_Some_0();
-            let recovered_mems = mems.map(|idx, c| recover_abstract_log_from_region_given_cdb(
-                c, multilog_id, mems.len() as int, idx, cdb));
-            // We have to mention `recovered_mems[i]` to trigger the `forall` in `recover_given_cdb`
-            // and thereby learn that it's Some. Everything we need follows easily from that.
-            assert(recovered_mems[i].is_Some());
-        }
+        let cdb = recover_cdb(mem).get_Some_0();
+        let recovered_mem = recover_given_cdb(mem, log_id, cdb);
+        assert(recovered_mem.is_Some());
     }
 
     // This lemma establishes that for any `i` and `n`, if
@@ -1023,22 +909,20 @@ verus! {
     {}
 
     // This lemma establishes that if the given persistent memory
-    // regions' contents can be recovered to a valid abstract state,
+    // region's contents can be recovered to a valid abstract state,
     // then that abstract state is unaffected by
     // `drop_pending_appends`.
-    pub proof fn lemma_recovered_state_is_crash_idempotent(mems: Seq<Seq<u8>>, multilog_id: u128)
+    pub proof fn lemma_recovered_state_is_crash_idempotent(mem: Seq<u8>, log_id: u128)
         requires
-            recover_all(mems, multilog_id).is_Some()
+            recover_state(mem, log_id).is_Some()
         ensures
             ({
-                let state = recover_all(mems, multilog_id).unwrap();
+                let state = recover_state(mem, log_id).unwrap();
                 state == state.drop_pending_appends()
             })
     {
-        let state = recover_all(mems, multilog_id).unwrap();
-        assert forall |which_log: int| #![trigger state[which_log]] 0 <= which_log < state.num_logs()
-            implies state[which_log].pending.len() == 0 by {
-        }
+        let state = recover_state(mem, log_id).unwrap();
+        assert(state.pending.len() == 0);
         assert(state =~= state.drop_pending_appends());
     }
 }

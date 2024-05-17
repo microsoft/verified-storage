@@ -46,9 +46,7 @@ verus! {
         #[verifier::external_body]
         pub fn write<S>(&mut self, val: &S)
             where
-                S: Serializable
-            requires
-
+                S: Serializable,
             ensures
                 self.bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_serialize())
         {

@@ -96,46 +96,46 @@ where
     }
 
     // This only sets up new durable components for a new KV. We will handle
-    // the volatile index in `untrusted_start`
-    pub fn untrusted_setup(
-        pmem: PM,
-        kvstore_id: u128,
-        num_keys: u64,
-        node_size: u32,
-    ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
-        requires
-            pmem.inv(),
-            ({
-                let metadata_size = ListEntryMetadata::spec_serialized_len();
-                let key_size = K::spec_serialized_len();
-                let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-                let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
-                &&& metadata_slot_size <= u64::MAX
-                &&& list_element_slot_size <= u64::MAX
-                &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-                &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
-            }),
-            L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
-            node_size < u32::MAX,
-            0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
-            ({
-                let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
-                &&& 0 <= item_slot_size < usize::MAX
-                &&& 0 <= item_slot_size * num_keys < usize::MAX
-                &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
-            })
-        ensures
-            match(result) {
-                Ok((log_region, list_regions, item_region)) => {
-                    &&& log_region.inv()
-                    &&& list_regions.inv()
-                    &&& item_region.inv()
-                }
-                Err(_) => true // TODO
-            }
-    {
-        DurableKvStore::<PM, K, I, L, E>::setup(pmem, kvstore_id, num_keys, node_size)
-    }
+    // // the volatile index in `untrusted_start`
+    // pub fn untrusted_setup(
+    //     pmem: PM,
+    //     kvstore_id: u128,
+    //     num_keys: u64,
+    //     node_size: u32,
+    // ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
+    //     requires
+    //         pmem.inv(),
+    //         ({
+    //             let metadata_size = ListEntryMetadata::spec_serialized_len();
+    //             let key_size = K::spec_serialized_len();
+    //             let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+    //             let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+    //             &&& metadata_slot_size <= u64::MAX
+    //             &&& list_element_slot_size <= u64::MAX
+    //             &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+    //             &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+    //         }),
+    //         L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+    //         node_size < u32::MAX,
+    //         0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
+    //         ({
+    //             let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
+    //             &&& 0 <= item_slot_size < usize::MAX
+    //             &&& 0 <= item_slot_size * num_keys < usize::MAX
+    //             &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+    //         })
+    //     ensures
+    //         match(result) {
+    //             Ok((log_region, list_regions, item_region)) => {
+    //                 &&& log_region.inv()
+    //                 &&& list_regions.inv()
+    //                 &&& item_region.inv()
+    //             }
+    //             Err(_) => true // TODO
+    //         }
+    // {
+    //     DurableKvStore::<PM, K, I, L, E>::setup(pmem, kvstore_id, num_keys, node_size)
+    // }
 
     pub fn untrusted_create(
         &mut self,

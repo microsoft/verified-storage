@@ -8,7 +8,6 @@
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -68,7 +67,7 @@ verus! {
     // This lemma establishes that if there are no outstanding writes
     // anywhere in a persistent memory region's view, then it can only
     // crash in one state, which is the same as its committed state.
-    proof fn lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
+    pub proof fn lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
         pm_region_view: PersistentMemoryRegionView
     )
         requires
@@ -101,6 +100,19 @@ verus! {
         }
     }
 
+    // This lemma establishes that if a persistent memory region has
+    // no outstanding writes, then a flush of them does nothing.
+    pub proof fn lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(
+        region_view: PersistentMemoryRegionView,
+    )
+        requires
+            region_view.no_outstanding_writes(),
+        ensures
+            region_view.flush() == region_view,
+    {
+        assert(region_view.flush() =~= region_view);
+    }
+
     // This lemma establishes that if a collection of persistent
     // memory regions has no outstanding writes anywhere, then a flush
     // of them does nothing.
@@ -108,27 +120,25 @@ verus! {
         regions_view: PersistentMemoryRegionsView,
     )
         requires
-            regions_view.no_outstanding_writes()
+            regions_view.no_outstanding_writes(),
         ensures
-            ({
-                let flushed = regions_view.flush();
-                // the timestamps are allowed to differ
-                flushed.equal_except_for_timestamps(regions_view)
-            })
-    {}
+            regions_view.flush() == regions_view,
+    {
+        assert(regions_view.flush().len() == regions_view.len());
+        assert forall |i| 0 <= i < regions_view.len() implies
+               #[trigger] regions_view.flush().regions[i] == regions_view.regions[i] by {
+            assert(regions_view[i].no_outstanding_writes());
+            lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(regions_view.regions[i]);
+        }
+        assert(regions_view.flush() =~= regions_view);
+    }
 
     // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
     pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
         ensures
-            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> {
-                let flushed = #[trigger] r.flush();
-                flushed.equal_except_for_timestamps(r)
-            }
+            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> r.flush() == r
     {
-        assert forall |r: PersistentMemoryRegionsView, | r.no_outstanding_writes() implies {
-            let flushed = #[trigger] r.flush();
-            flushed.equal_except_for_timestamps(r)
-        } by {
+        assert forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() implies r.flush() == r by {
             lemma_if_no_outstanding_writes_then_flush_is_idempotent(r);
         };
     }
@@ -799,10 +809,10 @@ verus! {
     // Calculates the CRC for a single `Serializable` object.
     pub fn calculate_crc<S>(val: &S) -> (out: u64)
         where
-            S: Serializable + Sized
+            S: Serializable + Sized,
         requires
             // this is true in the default implementation of `spec_crc`, but
-            // an impl of `Serializable can override the default impl, so
+            // an impl of `Serializable` can override the default impl, so
             // we have to require it here
             val.spec_crc() == spec_crc_u64(val.spec_serialize())
         ensures
@@ -817,5 +827,4 @@ verus! {
         }
         digest.sum64()
     }
-
 }

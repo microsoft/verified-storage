@@ -1,4 +1,4 @@
-use crate::pmem::wrpm_v::*;
+use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;

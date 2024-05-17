@@ -18,8 +18,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
-use crate::pmem::wrpm_v::*;
+use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -128,7 +127,7 @@ verus! {
             requires
                 self.inv(wrpm_regions, multilog_id)
             ensures
-            can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends())
+                can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends())
         {}
 
         // This function specifies how to view the in-memory state of
@@ -138,23 +137,9 @@ verus! {
             self.state@
         }
 
-        // This lemma establishes that if two `PersistentMemoryRegionsView`s are identical except
-        // for timestamp, then the recovery view of their committed bytes are the same. This is
-        // somewhat obvious -- the timestamp is not used at all in `recover`. Note that if
-        // the timestamp is used to update the ghost state associated with a PM region, then
-        // its recovery view may change, because its committed bytes have changed.
-        pub proof fn lemma_recovery_view_does_not_depend_on_timestamp()
-            ensures
-                forall |r1: PersistentMemoryRegionsView, r2, id| #![auto] r1.equal_except_for_timestamps(r2) ==> {
-                    Self::recover(r1.committed(), id) == Self::recover(r2.committed(), id)
-                }
-        {
-            assert (forall |r1: PersistentMemoryRegionsView, r2| r1.equal_except_for_timestamps(r2) ==> r1.committed() == r2.committed());
-        }
-
         // The `setup` method sets up persistent memory objects `pm_regions`
         // to store an initial empty multilog. It returns a vector
-        // listing the capacities of the logs. See `main.rs` for more
+        // listing the capacities of the logs. See `README.md` for more
         // documentation.
         pub exec fn setup<PMRegions>(
             pm_regions: &mut PMRegions,
@@ -182,8 +167,6 @@ verus! {
                         &&& Self::recover(pm_regions@.committed(), multilog_id) == Some(state)
                         &&& Self::recover(pm_regions@.flush().committed(), multilog_id) == Some(state)
                         &&& state == state.drop_pending_appends()
-                        &&& pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 2
-                        &&& pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
                     },
                     Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
                         let flushed_regions = old(pm_regions)@.flush();
@@ -203,9 +186,6 @@ verus! {
                     _ => false
                 }
         {
-            proof {
-                lemma_auto_timestamp_helpers();
-            }
             let ghost original_pm_regions = pm_regions@;
 
             // We can't write without proving that there are no
@@ -266,9 +246,6 @@ verus! {
                 lemma_if_no_outstanding_writes_then_flush_is_idempotent(pm_regions@);
                 lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(
                     pm_regions@);
-
-                Self::lemma_recovery_view_does_not_depend_on_timestamp();
-                assert(pm_regions@.timestamp.device_id() == original_pm_regions.timestamp.device_id());
             }
 
             Ok(log_capacities)
@@ -278,7 +255,7 @@ verus! {
         // `UntrustedMultiLogImpl` out of a set of persistent memory
         // regions. It's assumed that those regions were initialized
         // with `setup` and then only `UntrustedMultiLogImpl` methods
-        // were allowed to mutate them. See `main.rs` for more
+        // were allowed to mutate them. See `README.md` for more
         // documentation and an example of its use.
         //
         // This method is passed a write-restricted collection of
@@ -294,10 +271,7 @@ verus! {
             where
                 PMRegions: PersistentMemoryRegions
             requires
-                ({
-                    let flushed = old(wrpm_regions)@.flush();
-                    Self::recover(flushed.committed(), multilog_id) == Some(state)
-                }),
+                Self::recover(old(wrpm_regions)@.flush().committed(), multilog_id) == Some(state),
                 old(wrpm_regions).inv(),
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, multilog_id) == Some(state),
             ensures
@@ -308,8 +282,6 @@ verus! {
                         &&& log_impl.inv(wrpm_regions, multilog_id)
                         &&& log_impl@ == state
                         &&& can_only_crash_as_state(wrpm_regions@, multilog_id, state.drop_pending_appends())
-                        &&& wrpm_regions@.timestamp.value() == old(wrpm_regions)@.timestamp.value() + 1
-                        &&& wrpm_regions@.timestamp.device_id() == old(wrpm_regions)@.timestamp.device_id()
                     },
                     Err(MultiLogErr::CRCMismatch) => !wrpm_regions.constants().impervious_to_corruption,
                     _ => false
@@ -369,7 +341,7 @@ verus! {
         // `bytes_to_append` to the end of log number `which_log` in
         // the multilog. It's tentative in that crashes will undo the
         // appends, and reads aren't allowed in the tentative part of
-        // the log. See `main.rs` for more documentation and examples
+        // the log. See `README.md` for more documentation and examples
         // of its use.
         //
         // This method is passed a write-restricted collection of
@@ -403,7 +375,6 @@ verus! {
                         &&& which_log < old(self)@.num_logs()
                         &&& offset == state.head + state.log.len() + state.pending.len()
                         &&& self@ == old(self)@.tentatively_append(which_log as int, bytes_to_append@)
-                        &&& wrpm_regions@.timestamp == old(wrpm_regions)@.timestamp
                     },
                     Err(MultiLogErr::InvalidLogIndex { }) => {
                         &&& self@ == old(self)@
@@ -591,10 +562,10 @@ verus! {
             Ok(old_pending_tail)
         }
 
-        // This local helper method updates the level-3 metadata on
+        // This local helper method updates the log metadata on
         // persistent memory to be consistent with `self.infos` and
         // `self.state`. It does so in the following steps: (1) update, in
-        // each region, the level-3 metadata corresponding to the inactive
+        // each region, the log metadata corresponding to the inactive
         // CDB; (2) flush; (3) swap the CDB in region #0; (4) flush again.
         //
         // The first of these steps only writes to inactive metadata, i.e.,
@@ -604,10 +575,10 @@ verus! {
         //
         // Before calling this function, the caller should make sure that
         // `self.infos` and `self.state` contain the data that the inactive
-        // level-3 metadata should reflect. But, since this function has to
+        // log metadata should reflect. But, since this function has to
         // reason about crashes, it also needs to know things about the
         // *previous* values of `self.infos` and `self.state`, since those
-        // are the ones that the active level-3 metadata is consistent with
+        // are the ones that the active log metadata is consistent with
         // and will stay consistent with until we write the new CDB. These
         // previous values are passed as ghost parameters since they're
         // only needed for proving things.
@@ -648,13 +619,7 @@ verus! {
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
-                wrpm_regions@.timestamp.value() == old(wrpm_regions)@.timestamp.value() + 2,
-                wrpm_regions@.timestamp.device_id() == old(wrpm_regions)@.timestamp.device_id(),
         {
-            proof {
-                lemma_auto_timestamp_helpers();
-            }
-
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -663,9 +628,7 @@ verus! {
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
             assert(is_valid_log_index(0, self.num_logs));
 
-            let ghost old_timestamp = wrpm_regions@.timestamp;
-
-            // Loop, each time performing the update of the inactive level-3
+            // Loop, each time performing the update of the inactive log
             // metadata for log number `current_log`.
 
             for current_log in 0..self.num_logs
@@ -676,10 +639,7 @@ verus! {
                     memory_matches_deserialized_cdb(wrpm_regions@, self.cdb),
                     each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos),
                     each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, prev_infos, prev_state),
-                    ({
-                        let flushed = wrpm_regions@.flush();
-                        each_info_consistent_with_log_area(flushed, self.num_logs, self.infos@, self.state@)
-                    }),
+                    each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                     forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                         #[trigger] perm.check_permission(s),
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==>
@@ -713,16 +673,11 @@ verus! {
                         metadata_consistent_with_info(flushed[w], multilog_id, self.num_logs, which_log,
                                                         !self.cdb, self.infos@[w])
                     },
-
-                    // The loop does not include any flushes, so the timestamp remains unchanged
-                    // throughout the entire loop.
-
-                    wrpm_regions@.timestamp == old_timestamp,
             {
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 
-                // Encode the level-3 metadata as bytes, and compute the CRC of those bytes
+                // Encode the log metadata as bytes, and compute the CRC of those bytes
 
                 let info = &self.infos[current_log as usize];
                 let log_metadata = LogMetadata {
@@ -779,7 +734,7 @@ verus! {
 
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
 
-                // Prove that after the flush, the level-3 metadata corresponding to the unused CDB will
+                // Prove that after the flush, the log metadata corresponding to the unused CDB will
                 // be reflected in memory.
 
                 let ghost flushed = wrpm_regions_new.flush();
@@ -913,7 +868,7 @@ verus! {
         }
 
         // The `commit` method commits all tentative appends that have been
-        // performed since the last one. See `main.rs` for more
+        // performed since the last one. See `README.md` for more
         // documentation and examples of its use.
         //
         // This method is passed a write-restricted collection of
@@ -945,8 +900,6 @@ verus! {
                 can_only_crash_as_state(wrpm_regions@, multilog_id, self@.drop_pending_appends()),
                 result is Ok,
                 self@ == old(self)@.commit(),
-                wrpm_regions@.timestamp.value() == old(wrpm_regions)@.timestamp.value() + 2,
-                wrpm_regions@.timestamp.device_id() == old(wrpm_regions)@.timestamp.device_id(),
         {
             let ghost prev_infos = self.infos@;
             let ghost prev_state = self.state@;
@@ -975,8 +928,7 @@ verus! {
                     forall |which_log: u32| #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
                         let w = which_log as int;
                         if which_log < current_log {
-                            let flushed_regions = wrpm_regions@.flush();
-                            info_consistent_with_log_area(flushed_regions[w], self.infos[w], self.state@[w])
+                            info_consistent_with_log_area(wrpm_regions@.flush()[w], self.infos[w], self.state@[w])
                         }
                         else {
                             self.infos[w] == prev_infos[w]
@@ -1015,7 +967,7 @@ verus! {
         // thereby making more space for appending but making log entries
         // before the new head unavailable for reading. Upon return from
         // this method, the head advancement is durable, i.e., it will
-        // survive crashes. See `main.rs` for more documentation and
+        // survive crashes. See `README.md` for more documentation and
         // examples of its use.
         //
         // This method is passed a write-restricted collection of
@@ -1043,7 +995,6 @@ verus! {
                     ||| Self::recover(s, multilog_id) ==
                         Some(old(self)@.advance_head(which_log as int, new_head as int).drop_pending_appends())
                 },
-                // old(wrpm_regions)@.device_id() == timestamp@.device_id()
             ensures
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
@@ -1054,8 +1005,6 @@ verus! {
                         &&& which_log < self@.num_logs()
                         &&& old(self)@[w].head <= new_head <= old(self)@[w].head + old(self)@[w].log.len()
                         &&& self@ == old(self)@.advance_head(w, new_head as int)
-                        &&& wrpm_regions@.timestamp.value() == old(wrpm_regions)@.timestamp.value() + 2
-                        &&& wrpm_regions@.timestamp.device_id() == old(wrpm_regions)@.timestamp.device_id()
                     },
                     Err(MultiLogErr::InvalidLogIndex{ }) => {
                         &&& self@ == old(self)@
@@ -1285,7 +1234,7 @@ verus! {
         // The `read` method reads part of one of the logs, returning a
         // vector containing the read bytes. It doesn't guarantee that
         // those bytes aren't corrupted by persistent memory corruption.
-        // See `main.rs` for more documentation and examples of its use.
+        // See `README.md` for more documentation and examples of its use.
         pub exec fn read<Perm, PMRegions>(
             &self,
             wrpm_regions: &WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>,
@@ -1471,7 +1420,7 @@ verus! {
         }
 
         // The `get_head_tail_and_capacity` method returns the head, tail,
-        // and capacity of one of the logs. See `main.rs` for more
+        // and capacity of one of the logs. See `README.md` for more
         // documentation and examples of its use.
         #[allow(unused_variables)]
         pub exec fn get_head_tail_and_capacity<Perm, PMRegions>(
@@ -1490,11 +1439,10 @@ verus! {
                     let log = self@[which_log as int];
                     match result {
                         Ok((result_head, result_tail, result_capacity)) => {
-                            let inf_log = self@[which_log as int];
                             &&& which_log < self@.num_logs()
-                            &&& result_head == inf_log.head
-                            &&& result_tail == inf_log.head + inf_log.log.len()
-                            &&& result_capacity == inf_log.capacity
+                            &&& result_head == log.head
+                            &&& result_tail == log.head + log.log.len()
+                            &&& result_capacity == log.capacity
                         },
                         Err(MultiLogErr::InvalidLogIndex{ }) => {
                             which_log >= self@.num_logs()
@@ -1518,31 +1466,6 @@ verus! {
             let info = &self.infos[which_log as usize];
             Ok((info.head, info.head + info.log_length as u128, info.log_area_len))
         }
-
-        // We have to go through UntrustedMultiLogImpl to update timestamps, even though
-        // the timestamps are not stored/referred to/owned by the untrusted impl, because
-        // we still need to make sure the invariants for this module hold when we update
-        // the timestamps.
-        pub fn update_timestamps<Perm, PMRegions>(
-            &self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>,
-            Ghost(multilog_id): Ghost<u128>,
-            new_timestamp: Ghost<PmTimestamp>
-        )
-            where
-                Perm: CheckPermission<Seq<Seq<u8>>>,
-                PMRegions: PersistentMemoryRegions
-            requires
-                self.inv(&*old(wrpm_regions), multilog_id),
-                new_timestamp@.gt(old(wrpm_regions)@.timestamp),
-                new_timestamp@.device_id() == old(wrpm_regions)@.timestamp.device_id()
-            ensures
-                self.inv(wrpm_regions, multilog_id),
-                wrpm_regions@.timestamp == new_timestamp@
-        {
-            wrpm_regions.update_timestamps(new_timestamp);
-        }
-
     }
 
 }

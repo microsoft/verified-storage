@@ -12,7 +12,6 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -179,21 +178,20 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            pm_regions@.timestamp == old(pm_regions)@.timestamp,
-            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
 
-        // Initialize level 1 metadata and compute its CRC
+        // Initialize global metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
-        // TODO: why do we write this out for each log?
+        // We write this out for each log so that if, upon restore, our caller accidentally
+        // sends us the wrong regions, we can detect it.
         let global_metadata = GlobalMetadata {
             program_guid: MULTILOG_PROGRAM_GUID,
             version_number: MULTILOG_PROGRAM_VERSION_NUMBER,
-            length_of_region_metadata: LENGTH_OF_REGION_METADATA
+            length_of_region_metadata: LENGTH_OF_REGION_METADATA,
         };
         let global_crc = calculate_crc(&global_metadata);
 
-        // Initialize level 2 metadata and compute its CRC
+        // Initialize region metadata and compute its CRC
         let region_metadata = RegionMetadata {
             region_size,
             multilog_id,
@@ -207,7 +205,7 @@ verus! {
         // Obtain the initial CDB value
         let cdb = CDB_FALSE;
 
-        // Initialize level 3 metadata and compute its CRC
+        // Initialize log metadata and compute its CRC
         let log_metadata = LogMetadata {
             head: 0,
             _padding: 0,
@@ -324,8 +322,6 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            pm_regions@.timestamp.value() == old(pm_regions)@.timestamp.value() + 1,
-            pm_regions@.timestamp.device_id() == old(pm_regions)@.timestamp.device_id()
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -351,8 +347,6 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                pm_regions@.timestamp == old_pm_regions.timestamp,
-                pm_regions@.timestamp.device_id() == old_pm_regions.timestamp.device_id()
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
@@ -380,8 +374,6 @@ verus! {
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
-
-            lemma_auto_timestamp_helpers();
         }
 
         pm_regions.flush()
