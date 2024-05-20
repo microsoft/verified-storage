@@ -288,56 +288,43 @@ verus! {
         }
     }
 
-    // The struct `PersistentMemoryDeviceConstants` contains fields that
+    // The struct `PersistentMemoryConstants` contains fields that
     // remain the same across all operations on persistent memory.
 
-    pub trait PersistentMemoryAccessToken : Sized
-    {
-        spec fn id(self) -> int;
-        spec fn view(self) -> PersistentMemoryRegionView;
+    pub struct PersistentMemoryConstants {
+        pub impervious_to_corruption: bool
     }
 
-    pub trait PersistentMemoryDevice : Sized
+    pub trait PersistentMemoryRegion : Sized
     {
-        type AccessToken: PersistentMemoryAccessToken;
+        spec fn view(&self) -> PersistentMemoryRegionView;
 
-        spec fn id(self) -> int;
-        spec fn impervious_to_corruption(self) -> bool;
+        spec fn inv(&self) -> bool;
 
-        spec fn inv(self) -> bool;
+        spec fn constants(&self) -> PersistentMemoryConstants;
 
-        fn get_region_size(
-            &self,
-            Tracked(tok): Tracked<&Self::AccessToken>
-        ) -> (result: u64)
+        fn get_region_size(&self) -> (result: u64)
             requires
-                self.inv(),
-                tok.id() == self.id(),
+                self.inv()
             ensures
-                result == tok@.len(),
+                result == self@.len()
         ;
 
-        fn read(
-            &self,
-            Tracked(tok): Tracked<&Self::AccessToken>,
-            addr: u64,
-            num_bytes: u64
-        ) -> (bytes: Vec<u8>)
+        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
             requires
                 self.inv(),
-                tok.id() == self.id(),
-                addr + num_bytes <= tok@.len(),
+                addr + num_bytes <= self@.len(),
                 // Reads aren't permitted where there are still outstanding writes
-                tok@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
+                self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
             ensures
                 ({
-                    let true_bytes = tok@.committed().subrange(addr as int, addr + num_bytes);
+                    let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
                     // If the persistent memory region is impervious
                     // to corruption, read returns the last bytes
                     // written. Otherwise, it returns a
                     // possibly-corrupted version of those bytes.
-                    if self.impervious_to_corruption() {
+                    if self.constants().impervious_to_corruption {
                         bytes@ == true_bytes
                     }
                     else {
@@ -346,24 +333,19 @@ verus! {
                 })
         ;
 
-        fn read_and_deserialize<S>(
-            &self,
-            Tracked(tok): Tracked<&Self::AccessToken>,
-            addr: u64
-        ) -> (output: &S)
+        fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
             where
                 S: Serializable + Sized
             requires
                 self.inv(),
-                tok.id() == self.id(),
-                addr + S::spec_serialized_len() <= tok@.len(),
-                tok@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+                addr + S::spec_serialized_len() <= self@.len(),
+                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
             ensures
             ({
                 let true_val = S::spec_deserialize(
-                    tok@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
                 let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-                if self.impervious_to_corruption() {
+                if self.constants().impervious_to_corruption {
                     output == true_val
                 } else {
                     maybe_corrupted_serialized(*output, true_val, addr as int)
@@ -371,53 +353,40 @@ verus! {
             })
         ;
 
-        fn write(
-            &self,
-            Tracked(tok): Tracked<&mut Self::AccessToken>,
-            addr: u64,
-            bytes: &[u8]
-        )
+        fn write(&mut self, addr: u64, bytes: &[u8])
             requires
-                self.inv(),
-                old(tok).id() == self.id(),
-                addr + bytes@.len() <= old(tok)@.len(),
+                old(self).inv(),
+                addr + bytes@.len() <= old(self)@.len(),
                 addr + bytes@.len() <= u64::MAX,
                 // Writes aren't allowed where there are already outstanding writes.
-                old(tok)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
             ensures
-                tok.id() == old(tok).id(),
-                tok@ == old(tok)@.write(addr as int, bytes@),
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.write(addr as int, bytes@),
         ;
 
-        fn serialize_and_write<S>(
-            &self,
-            Tracked(tok): Tracked<&mut Self::AccessToken>,
-            addr: u64,
-            to_write: &S
-        )
+        fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
                 S: Serializable + Sized
             requires
-                self.inv(),
-                old(tok).id() == self.id(),
-                addr + S::spec_serialized_len() <= old(tok)@.len(),
-                old(tok)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+                old(self).inv(),
+                addr + S::spec_serialized_len() <= old(self)@.len(),
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
             ensures
-                tok.id() == old(tok).id(),
-                tok@ == old(tok)@.write(addr as int, to_write.spec_serialize()),
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
         ;
 
 
-        fn flush(
-            &self,
-            Tracked(tok): Tracked<&mut Self::AccessToken>
-        )
+        fn flush(&mut self)
             requires
-                self.inv(),
-                old(tok).id() == self.id(),
+                old(self).inv()
             ensures
-                tok.id() == old(tok).id(),
-                tok@ == old(tok)@.flush(),
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.flush(),
         ;
     }
 }
