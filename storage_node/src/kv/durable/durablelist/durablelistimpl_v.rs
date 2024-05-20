@@ -2,6 +2,8 @@ use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
+use crate::kv::durable::metadata::layout_v::*;
+use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -25,7 +27,6 @@ verus! {
             E: std::fmt::Debug
     {
         _phantom: Ghost<core::marker::PhantomData<(K, L, E)>>,
-        metadata_table_free_list: Vec<u64>,
         list_node_region_free_list: Vec<u64>,
         state: Ghost<DurableListView<K, L, E>>
     }
@@ -47,201 +48,29 @@ verus! {
         pub closed spec fn recover(
             mems: Seq<Seq<u8>>,
             node_size: u64,
-            op_log: Seq<OpLogEntryType>,
-            list_entry_map: Map<OpLogEntryType, L>,
+            op_log: Seq<OpLogEntryType<K>>,
+            list_entry_map: Map<OpLogEntryType<K>, L>,
+            metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
         ) -> Option<DurableListView<K, L, E>>
         {
-            // the durable list uses two regions
-            if mems.len() != 2 {
+            if mems.len() != NUM_DURABLE_LIST_REGIONS {
                 None
             } else {
-                let metadata_table_mem = mems[0];
-                let list_node_region_mem = mems[1];
-                if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
-                    // Invalid if the metadata table sequence is not large enough
-                    // to store the metadata header. It actually needs to be big
-                    // enough to store an entry for every key, but we don't know
-                    // the number of keys yet.
-                    None
-                } else {
-                    // the metadata header is immutable, so we can check that is valid before doing 
-                    // any log replay
-                    let metadata_header_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-                    );
-                    let crc_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_HEADER_CRC as int,
-                        ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
-                    );
-                    let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
-                    let crc = u64::spec_deserialize(crc_bytes);
-                    if crc != metadata_header.spec_crc() {
-                        // The list is invalid if the stored CRC does not match the contents
-                        // of the metadata header
-                        None
-                    } else {
-                        // replay the log on the metadata table and the list region, then parse them into a list view
-                        let metadata_table_mem = Self::replay_log_metadata_table(metadata_table_mem, op_log);
-                        let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
+                let list_node_region_mem = mems[0];
 
-                        // // parse the item table into a mapping index->entry so that we can use it to 
-                        // // construct each list.
-                        // // TODO: IGNORE INVALID ENTRIES
-                        let metadata_table = parse_metadata_table(metadata_header, metadata_table_mem);
-                        match metadata_table {
-                            Some(metadata_table) => Self::parse_all_lists(metadata_header, metadata_table, list_node_region_mem),
-                            None => None
-                        }
-                    }
-                }
-            }
-        }
+                // TODO: check list node region header for validity? or do we do that later?
 
-        closed spec fn replay_log_metadata_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
-            decreases op_log.len()
-        {
-            if op_log.len() == 0 {
-                mem 
-            } else {
-                let current_op = op_log[0];
-                let op_log = op_log.drop_first();
-                let mem = Self::apply_log_op_to_metadata_table_mem(mem, current_op);
-                Self::replay_log_metadata_table(mem, op_log)
-            }
-        }
-
-        // metadata table-related log entries store the CRC that the entry *will* have when all updates are written to it.
-        // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
-        // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
-        // update relevant fields.
-        // TODO: refactor the mapping closures
-        closed spec fn apply_log_op_to_metadata_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
-        {
-            let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
-            match op {
-                OpLogEntryType::AppendListNode{list_metadata_index, old_tail, new_tail, metadata_crc} => {
-                    // updates the tail field and the entry's CRC. We don't use the old tail value here -- that is only used
-                    // when updating list nodes
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
-                    let new_tail_bytes = spec_u64_to_le_bytes(new_tail);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if tail_addr <= pos < tail_addr + 8 {
-                            new_tail_bytes[pos - tail_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                OpLogEntryType::UpdateListLen{list_metadata_index, new_length, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
-                    let len_bytes = spec_u64_to_le_bytes(new_length);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if len_addr <= pos < len_addr + 8 {
-                            len_bytes[pos - len_addr]
-                        } else {
-                            pre_byte 
-                        }
-                    });
-                    mem
-                } 
-                OpLogEntryType::TrimList{list_metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let head_addr = entry_offset +  RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
-                    let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
-                    let start_index_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
-                    let head_bytes = spec_u64_to_le_bytes(new_head_node);
-                    let len_bytes = spec_u64_to_le_bytes(new_list_len);
-                    let start_bytes = spec_u64_to_le_bytes(new_list_start_index);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if head_addr <= pos < head_addr + 8 {
-                            head_bytes[pos - head_addr]
-                        } else if len_addr <= pos < len_addr + 8 {
-                            len_bytes[pos - len_addr]
-                        } else if start_index_addr <= pos < start_index_addr + 8 {
-                            start_bytes[pos - start_index_addr]
-                        } else {
-                            pre_byte 
-                        }
-                    });
-                    mem
-                }
-                OpLogEntryType::CreateListTableEntry{list_metadata_index, head} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    // construct a ghost entry with the values that the new entry will have so that we can obtain a CRC 
-                    let entry = ListEntryMetadata::new(head, head, 0, 0);
-                    let entry_crc = entry.spec_crc();
-                    let crc_bytes = spec_u64_to_le_bytes(entry_crc);
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let head_addr = entry_offset +  RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
-                    let head_bytes = spec_u64_to_le_bytes(entry.spec_head());
-                    // This op also implies that we need to set the tail, start index, length, and valid bytes
-                    let valid_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    let valid_bytes = spec_u64_to_le_bytes(CDB_TRUE);
-                    let length_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
-                    let length_bytes = spec_u64_to_le_bytes(entry.spec_len());
-                    let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
-                    let tail_bytes = spec_u64_to_le_bytes(entry.spec_tail()); // the head and tail are the same node in a new list
-                    let start_index_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET;
-                    let start_bytes = spec_u64_to_le_bytes(0u64);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if head_addr <= pos < head_addr + 8 {
-                            head_bytes[pos - head_addr]
-                        } else if tail_addr <= pos < tail_addr + 8 {
-                            tail_bytes[pos - tail_addr]
-                        } else if length_addr <= pos < length_addr + 8{
-                            length_bytes[pos - length_addr]
-                        } else if start_index_addr <= pos < start_index_addr + 8 {
-                            start_bytes[pos - start_index_addr]
-                        } else if valid_addr <= pos < valid_addr + 8 {
-                            valid_bytes[pos - valid_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                OpLogEntryType::DeleteListTableEntry{list_metadata_index} => {
-                    // In this case, we just have to flip the entry's CDB. We don't clear any other fields
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    let cdb_bytes = spec_u64_to_le_bytes(CDB_FALSE);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if cdb_addr <= pos < cdb_addr + 8 {
-                            cdb_bytes[pos - cdb_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                _ => mem // all other ops do not modify the metadata table
+                let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
+                Self::parse_all_lists(metadata_table_view, list_node_region_mem)
             }
         }
 
         closed spec fn replay_log_list_nodes(
             mem: Seq<u8>, 
             node_size: u64, 
-            op_log: Seq<OpLogEntryType>, 
-            list_entry_map: Map<OpLogEntryType, L>
+            op_log: Seq<OpLogEntryType<K>>, 
+            list_entry_map: Map<OpLogEntryType<K>, L>
         ) -> Seq<u8>
             decreases op_log.len() 
         {
@@ -258,8 +87,8 @@ verus! {
         closed spec fn apply_log_op_to_list_node_mem(
             mem: Seq<u8>, 
             node_size: u64, 
-            op: OpLogEntryType, 
-            list_entry_map: Map<OpLogEntryType, L>
+            op: OpLogEntryType<K>, 
+            list_entry_map: Map<OpLogEntryType<K>, L>
         ) -> Seq<u8>
         {
             match op {
@@ -315,13 +144,12 @@ verus! {
         }
 
         closed spec fn parse_all_lists(
-            metadata_header: GlobalListMetadata, 
-            metadata_table: Seq<DurableItemTableViewEntry<ListEntryMetadata, K>>,
+            metadata_table: MetadataTableView<K>,
             mem: Seq<u8>,
         ) -> Option<DurableListView<K, L, E>> 
         {
             let lists_map = Map::empty();
-            let result = Self::parse_each_list(metadata_header, metadata_table, mem, lists_map);
+            let result = Self::parse_each_list(metadata_table.get_metadata_header(), metadata_table.get_metadata_table(), mem, lists_map);
             match result {
                 Some(result) => Some(DurableListView::new(result)),
                 None => None
@@ -332,25 +160,25 @@ verus! {
         // used to help recurse over each metadata entry.
         closed spec fn parse_each_list(
             metadata_header: GlobalListMetadata,
-            metadata_entries: Seq<DurableItemTableViewEntry<ListEntryMetadata, K>>,
+            metadata_entries: Seq<MetadataTableViewEntry<K>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
         ) -> Option<Map<K, Seq<DurableListElementView<L>>>>
             decreases
                 metadata_entries.len()
         {
-            if metadata_entries.len() == 0 {
+            if metadata_entries.len() <= 0 {
                 Some(lists_map)
             } else {
                 let current_entry = metadata_entries[0];
                 let metadata_entries = metadata_entries.drop_first();
-                // Unlike in the item table, we will apply log entries later; we need to build the lists 
-                // first so that log entries can be applied to the table and the list in the correct order
-                let recovered_list = Self::parse_list(metadata_header, current_entry.get_item(), mem);
+                // // Unlike in the item table, we will apply log entries later; we need to build the lists 
+                // // first so that log entries can be applied to the table and the list in the correct order
+                let recovered_list = Self::parse_list(metadata_header, current_entry, mem);
                 match recovered_list {
                     Some(recovered_list) => {
                         let lists_map = lists_map.insert(
-                            current_entry.get_key(), 
+                            current_entry.key(),
                             recovered_list
                         );
                         Self::parse_each_list(metadata_header, metadata_entries, mem, lists_map)
@@ -362,12 +190,12 @@ verus! {
 
         closed spec fn parse_list(
             metadata_header: GlobalListMetadata, 
-            entry: ListEntryMetadata, 
+            entry: MetadataTableViewEntry<K>, 
             mem: Seq<u8>
         ) -> Option<Seq<DurableListElementView<L>>>
         {
-            let head_node_index = entry.spec_head();
-            let list_len = entry.spec_len();
+            let head_node_index = entry.list_head_index();
+            let list_len = entry.len();
             let new_list = Seq::empty();
             Self::parse_list_helper(metadata_header, head_node_index, 
                 list_len as int, new_list, mem)
@@ -406,6 +234,7 @@ verus! {
                             let new_remaining = list_len_remaining - elements_to_keep;
 
                             // We still don't check CRCs yet because we have not yet replayed the log, so some may not be correct
+                            // TODO: actually we could check CRCs now because we have replayed the log by this point
                             let parsed_elements = Seq::new(
                                 elements_to_keep,
                                 |i: int| {
@@ -589,51 +418,51 @@ verus! {
 
             let ghost mem = pm_regions@[0].committed();
 
-            let mut metadata_table_free_list: Vec<u64> = Vec::with_capacity(list_metadata_table.num_keys as usize);
             let mut list_node_region_free_list: Vec<u64> = Vec::new();
             // this list will store in-use nodes; all nodes not in this list go in the free list
             let mut list_nodes_in_use: Vec<u64> = Vec::new();
             // separate vector to help traverse the lists and fill in list_nodes_in_use
             let mut list_node_region_stack: Vec<u64> = Vec::new();
 
-            // construct allocator for the metadata table
-            for index in 0..list_metadata_table.num_keys {
-                assume(false);
-                let metadata_slot_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * metadata_slot_size;
-                let cdb_addr = metadata_slot_offset + RELATIVE_POS_OF_VALID_CDB;
-                let val: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + cdb_addr);
-                match check_cdb(&val, Ghost(mem),
-                        Ghost(pm_regions.constants().impervious_to_corruption),
-                        Ghost(cdb_addr)) {
-                    Some(false) => metadata_table_free_list.push(index),
-                    Some(true) => {
-                        // We construct the list node region allocator and return metadata
-                        // about list structures to the caller for indexing at the same time
-                        // TODO: construct info to send to the volatile index once you have a better
-                        // idea of what it will need
-                        // TODO: move the read+check CRC logic into its own function
-                        let crc_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                        let entry_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA;
-                        let key_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY;
-                        let entry_crc: &u64 = pm_regions.read_and_deserialize(0, crc_addr);
-                        let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, entry_addr);
-                        let key: &K = pm_regions.read_and_deserialize(0, key_addr);
-                        if !check_crc_two_deserialized(entry, key, entry_crc, Ghost(mem),
-                                Ghost(pm_regions.constants().impervious_to_corruption),
-                                Ghost(entry_addr),
-                                Ghost(key_addr),
-                                Ghost(crc_addr))
-                        {
-                            return Err(KvError::CRCMismatch);
-                        } else {
-                            // TODO: if the CRC check passes, add the information to the structure
-                            // we return for the volatile index to use
-                            list_node_region_stack.push(entry.get_head());
-                        }
-                    },
-                    None => return Err(KvError::CRCMismatch)
-                }
-            }
+            // // construct allocator for the metadata table
+            // let mut metadata_table_free_list: Vec<u64> = Vec::with_capacity(list_metadata_table.num_keys as usize);
+            // for index in 0..list_metadata_table.num_keys {
+            //     assume(false);
+            //     let metadata_slot_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * metadata_slot_size;
+            //     let cdb_addr = metadata_slot_offset + RELATIVE_POS_OF_VALID_CDB;
+            //     let val: &u64 = pm_regions.read_and_deserialize(0, metadata_slot_offset + cdb_addr);
+            //     match check_cdb(&val, Ghost(mem),
+            //             Ghost(pm_regions.constants().impervious_to_corruption),
+            //             Ghost(cdb_addr)) {
+            //         Some(false) => metadata_table_free_list.push(index),
+            //         Some(true) => {
+            //             // We construct the list node region allocator and return metadata
+            //             // about list structures to the caller for indexing at the same time
+            //             // TODO: construct info to send to the volatile index once you have a better
+            //             // idea of what it will need
+            //             // TODO: move the read+check CRC logic into its own function
+            //             let crc_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
+            //             let entry_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_METADATA;
+            //             let key_addr = metadata_slot_offset + RELATIVE_POS_OF_ENTRY_KEY;
+            //             let entry_crc: &u64 = pm_regions.read_and_deserialize(0, crc_addr);
+            //             let entry: &ListEntryMetadata = pm_regions.read_and_deserialize(0, entry_addr);
+            //             let key: &K = pm_regions.read_and_deserialize(0, key_addr);
+            //             if !check_crc_two_deserialized(entry, key, entry_crc, Ghost(mem),
+            //                     Ghost(pm_regions.constants().impervious_to_corruption),
+            //                     Ghost(entry_addr),
+            //                     Ghost(key_addr),
+            //                     Ghost(crc_addr))
+            //             {
+            //                 return Err(KvError::CRCMismatch);
+            //             } else {
+            //                 // TODO: if the CRC check passes, add the information to the structure
+            //                 // we return for the volatile index to use
+            //                 list_node_region_stack.push(entry.get_head());
+            //             }
+            //         },
+            //         None => return Err(KvError::CRCMismatch)
+            //     }
+            // }
 
             // construct allocator for the list node region
             // we need to use two vectors for this -- one as a stack for traversal of the lists,
@@ -692,13 +521,12 @@ verus! {
 
             Ok(Self {
                 _phantom: Ghost(spec_phantom_data()),
-                metadata_table_free_list,
                 list_node_region_free_list,
                 state: Ghost(state) // TODO: this needs to be set up properly
             })
         }
 
-        // Allocates a new list node, sets its next pointer to NULL,
+        // Allocates a new list node, sets its next pointer,
         // and sets its CRC. This operation is not logged because modifications
         // to an unused list node are tentative. Returns the offset of the
         // allocated node.
@@ -718,6 +546,14 @@ verus! {
                 // TODO
         {
             assume(false);
+
+            // 1. allocate an unused node
+            
+            // 2. set its next pointer. Since we only allocate nodes to append to the tail of 
+            // the list, we'll set its next pointer to itself
+
+            // 3. set its crc
+
             Err(KvError::NotImplemented)
         }
 
@@ -864,7 +700,7 @@ verus! {
                 num_keys: num_keys as u64,
                 version_number: LIST_METADATA_VERSION_NUMBER,
                 _padding: 0,
-                program_guid: DURABLE_LIST_METADATA_TABLE_PROGRAM_GUID
+                program_guid: METADATA_TABLE_PROGRAM_GUID
             };
             let metadata_table_header_crc = calculate_crc(&metadata_table_header);
 
@@ -945,7 +781,7 @@ verus! {
             if {
                 ||| metadata.element_size != (L::serialized_len() + CRC_SIZE) as u32
                 ||| metadata.version_number != LIST_METADATA_VERSION_NUMBER
-                ||| metadata.program_guid != DURABLE_LIST_METADATA_TABLE_PROGRAM_GUID
+                ||| metadata.program_guid != METADATA_TABLE_PROGRAM_GUID
             } {
                 return Err(KvError::InvalidListMetadata);
             }

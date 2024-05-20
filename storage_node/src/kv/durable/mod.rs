@@ -5,3 +5,4 @@ pub mod itemtable;
 pub mod logentry_t;
 pub mod logentry_v;
 pub mod oplog;
+pub mod metadata;

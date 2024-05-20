@@ -4,8 +4,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
-
-use super::layout_v::ListEntryMetadata;
+use crate::kv::durable::metadata::layout_v::*;
 
 verus! {
     pub struct TrustedListPermission

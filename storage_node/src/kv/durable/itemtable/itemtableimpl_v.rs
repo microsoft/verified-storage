@@ -73,7 +73,7 @@ verus! {
 
         pub closed spec fn recover(
             mems: Seq<Seq<u8>>, // TODO: only use Seq<u8> once we have support for that
-            op_log: Seq<OpLogEntryType>,
+            op_log: Seq<OpLogEntryType<K>>,
             kvstore_id: u128
         ) -> Option<DurableItemTableView<I, K, E>>
         {
@@ -116,7 +116,7 @@ verus! {
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // do not modify the item table.
         // TODO: check length of `mem`?
-        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
+        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType<K>>) -> Seq<u8>
             decreases op_log.len()
         {
             if op_log.len() == 0 {
@@ -130,12 +130,12 @@ verus! {
         }
 
         // TODO: refactor -- logic in both cases is the same
-        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
+        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType<K>) -> Seq<u8>
         {
             let item_entry_size = I::spec_serialized_len() + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
             match op {
-                OpLogEntryType::ItemTableEntryCommit { table_index} => {
-                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + table_index * item_entry_size;
+                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
+                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
                     let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
                     let mem = mem.map(|pos: int, pre_byte: u8| 
@@ -157,51 +157,6 @@ verus! {
                 _ => mem
             }
         }
-
-        // pub closed spec fn recover(
-        //     mems: Seq<Seq<u8>>, // TODO: only use Seq<u8> once we have support for that
-        //     op_log: Seq<OpLogEntryType>,
-        //     kvstore_id: u128
-        // ) -> Option<DurableItemTableView<I, K, E>>
-        // {
-        //     // The item table only uses one region
-        //     if mems.len() != 1 {
-        //         None
-        //     } else {
-        //         let mem = mems[0];
-        //         if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
-        //             // If the memory is not large enough to store the metadata header,
-        //             // it is not valid
-        //             None
-        //         }
-        //         else {
-        //             let metadata_header_bytes = mem.subrange(
-        //                 ABSOLUTE_POS_OF_METADATA_HEADER as int,
-        //                 ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-        //             );
-        //             let crc_bytes = mem.subrange(
-        //                 ABSOLUTE_POS_OF_HEADER_CRC as int,
-        //                 ABSOLUTE_POS_OF_HEADER_CRC + 8
-        //             );
-        //             let metadata_header = ItemTableMetadata::spec_deserialize(metadata_header_bytes);
-        //             let crc = u64::spec_deserialize(crc_bytes);
-        //             if crc != metadata_header.spec_crc() {
-        //                 // The header is invalid if the stored CRC does not match the contents
-        //                 // of the metadata header
-        //                 None
-        //             } else {
-        //                 // `parse_item_table` checks header metadata and the size of the memory region
-        //                 let item_table_view = parse_item_table(metadata_header, mem);
-        //                 if item_table_view is None {
-        //                     None
-        //                 } else {
-        //                     let item_table_view = item_table_view.unwrap();
-        //                     item_table_view.replay_log_item_table(op_log)
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
 
         // TODO: write invariants
         closed spec fn inv(self) -> bool;

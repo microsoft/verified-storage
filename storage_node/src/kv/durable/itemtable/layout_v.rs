@@ -196,21 +196,18 @@ verus! {
                     let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + 8);
                     let item_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + I::spec_serialized_len());
-                    let key_bytes = bytes.subrange(relative_key_offset, relative_key_offset + K::spec_serialized_len());
                     
                     let cdb = u64::spec_deserialize(cdb_bytes);
                     let crc = u64::spec_deserialize(crc_bytes);
                     let item = I::spec_deserialize(item_bytes);
-                    let key = K::spec_deserialize(key_bytes);
                     
-                    DurableItemTableViewEntry::new(cdb, crc, item, key)
+                    DurableItemTableViewEntry::new(cdb, crc, item)
                 }
             );
             // Finally, return None if any of the CRCs are invalid
-            // TODO: is this a reasonable way to check this, or is there a better way to do it?
             // TODO: skip invalid entries
             if !(forall |i: int| #![auto] 0 <= i < item_table_view.len() ==> 
-                item_table_view[i].get_crc() != spec_crc_u64(item_table_view[i].get_item().spec_serialize() + item_table_view[i].get_key().spec_serialize())) 
+                item_table_view[i].get_crc() != spec_crc_u64(item_table_view[i].get_item().spec_serialize())) 
             {
                 None 
             } else {

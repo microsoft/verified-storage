@@ -57,10 +57,16 @@ verus! {
     pub const LENGTH_OF_LOG_ENTRY: u64 = 48;
 
 
-    // item table entries
-    pub const RELATIVE_POS_OF_ITEM_TABLE_INDEX: u64 = 8;
-    pub const RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY: u64 = 16;
-    pub const RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY: u64 = 32;
+    // commit item table entry
+    pub const RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY: u64 = 8;
+    pub const RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY: u64 = 16;
+    pub const RELATIVE_POS_OF_CRC_COMMIT_ENTRY: u64 = 24;
+    pub const RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY: u64 = 32;
+
+    // invalidate item table entry
+    pub const RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY: u64 = 8;
+    pub const RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY: u64 = 16;
+    pub const RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY: u64 = 32;
 
     // append list node entry
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE: u64 = 8;
@@ -91,8 +97,8 @@ verus! {
     // create list entry 
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST: u64 = 8;
     pub const RELATIVE_POS_OF_HEAD_CREATE_LIST: u64 = 16;
-    pub const RELATIVE_POS_OF_PADDING_0_CREATE_LIST: u64 = 24;
-    pub const RELATIVE_POS_OF_PADDING_1_CREATE_LIST: u64 = 32;
+    pub const RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST: u64 = 24;
+    pub const RELATIVE_POS_OF_PADDING_0_CREATE_LIST: u64 = 32;
 
     // delete list entry
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST: u64 = 8;

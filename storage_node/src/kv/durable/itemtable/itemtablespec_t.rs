@@ -4,6 +4,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::serialization_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 
 verus! {
@@ -21,23 +22,21 @@ verus! {
         }
     }
 
-    pub struct DurableItemTableViewEntry<I, K>
+    pub struct DurableItemTableViewEntry<I>
     {
         valid: bool,
         crc: u64, // TODO: do we need this?
         item: I,
-        key: K,
     }
 
-    impl<I, K> DurableItemTableViewEntry<I, K>
+    impl<I> DurableItemTableViewEntry<I>
     {
-        pub closed spec fn new(valid: u64, crc: u64, item: I, key: K) -> Self
+        pub closed spec fn new(valid: u64, crc: u64, item: I) -> Self
         {
             Self {
                 valid: valid == CDB_TRUE,
                 crc,
                 item,
-                key
             }
         }
 
@@ -51,11 +50,6 @@ verus! {
             self.item
         }
 
-        pub closed spec fn get_key(self) -> K
-        {
-            self.key
-        }
-
         pub closed spec fn valid(self) -> bool 
         {
             self.valid
@@ -64,16 +58,16 @@ verus! {
 
     pub struct DurableItemTableView<I, K, E>
         where
-            K: std::fmt::Debug,
+            K: std::fmt::Debug + Serializable,
             E: std::fmt::Debug,
     {
-        item_table: Seq<DurableItemTableViewEntry<I, K>>,
-        _phantom: Option<E>
+        item_table: Seq<DurableItemTableViewEntry<I>>,
+        _phantom: Option<(K, E)>
     }
 
     impl<I, K, E> DurableItemTableView<I, K, E>
         where
-            K: std::fmt::Debug,
+            K: std::fmt::Debug + Serializable,
             E: std::fmt::Debug,
     {
         pub closed spec fn init(num_keys: int) -> Self
@@ -84,17 +78,16 @@ verus! {
                     |i: int| DurableItemTableViewEntry {
                         valid: false,
                         crc: 0,
-                        // it doesn't matter what key and item are because the 
+                        // it doesn't matter what item is because the 
                         // entry is invalid
-                        item: arbitrary(),
-                        key: arbitrary()
+                        item: arbitrary()
                     }
                 ),
                 _phantom: None
             }
         }
 
-        pub closed spec fn new(item_table: Seq<DurableItemTableViewEntry<I, K>>) -> Self
+        pub closed spec fn new(item_table: Seq<DurableItemTableViewEntry<I>>) -> Self
         {
             Self {
                 item_table,
@@ -102,7 +95,7 @@ verus! {
             }
         }
 
-        pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I, K>>
+        pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
         {
             if index < 0 || index >= self.len() 
             {
@@ -120,7 +113,7 @@ verus! {
         // Inserting an entry and committing it are two separate operations. Inserted entries
         // are invalid until they are explicitly committed. Attempting to insert at an index
         // that already has a valid entry results in an error.
-        pub closed spec fn insert(self, index: int, crc: u64, item: I, key: K) -> Result<Self, KvError<K, E>> 
+        pub closed spec fn insert(self, index: int, crc: u64, item: I) -> Result<Self, KvError<K, E>> 
         {
             if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
@@ -134,7 +127,6 @@ verus! {
                                 valid: false,
                                 crc,
                                 item,
-                                key,
                             }
                         ),
                         _phantom: None
@@ -157,8 +149,7 @@ verus! {
                         DurableItemTableViewEntry {
                             valid: true,
                             crc: old_entry.crc,
-                            item: old_entry.item,
-                            key: old_entry.key
+                            item: old_entry.item
                         }
                     ),
                     _phantom: None
@@ -180,56 +171,11 @@ verus! {
                         DurableItemTableViewEntry {
                             valid: false,
                             crc: old_entry.crc,
-                            item: old_entry.item,
-                            key: old_entry.key
+                            item: old_entry.item
                         }
                     ),
                     _phantom: None
                 })
-            }
-        }
-
-        pub closed spec fn replay_log_item_table(
-            self,
-            op_log: Seq<OpLogEntryType>
-        ) -> Option<Self>
-            decreases op_log.len()
-        {
-            if op_log.len() == 0 {
-                Some(self)
-            } else {
-                let current_op = op_log[0];
-                let op_log = op_log.drop_first();
-                let item_table_view = self.apply_log_op_to_item_table(current_op);
-                if item_table_view is None {
-                    None
-                } else {
-                    item_table_view.unwrap().replay_log_item_table(op_log)
-                }
-            }
-        }
-
-        pub closed spec fn apply_log_op_to_item_table(
-            self,
-            op: OpLogEntryType,
-        ) -> Option<Self> 
-        {
-            match op {
-                OpLogEntryType::ItemTableEntryCommit { table_index } => {
-                    let res = self.commit_entry(table_index as int);
-                    match res {
-                        Ok(table_view) => Some(table_view),
-                        Err(_)=> None
-                    }
-                }
-                OpLogEntryType::ItemTableEntryInvalidate { table_index} => {
-                    let res = self.invalidate_entry(table_index as int);
-                    match res {
-                        Ok(table_view) => Some(table_view),
-                        Err(_)=> None
-                    }
-                }
-                _ => Some(self) // other ops leave the item table unchanged
             }
         }
     }

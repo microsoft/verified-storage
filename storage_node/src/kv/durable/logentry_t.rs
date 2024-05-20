@@ -18,6 +18,9 @@ use crate::pmem::serialization_t::*;
 
 verus! {
 
+    // TODO: take out the padding, just read the type first and then deserialize 
+    // the whole thing
+
     // NOTE ABOUT PADDING: some log entries have a relatively large amount of
     // padding (i.e., unused bytes that are included as fields in the struct).
     // This ensures that we can always check CRCs *before* checking each log
@@ -50,19 +53,21 @@ verus! {
     // When this log entry is replayed, the item at the specified index should have its
     // valid bit set/cleared (depending on the entry type.)
     #[repr(C)]
-    pub struct ItemTableEntry {
+    pub struct CommitItemEntry {
         pub entry_type: u64,
-        pub table_index: u64,
-        pub _padding0: u128,
+        pub item_index: u64,
+        pub metadata_index: u64,
+        pub metadata_crc: u64,
         pub _padding1: u128,
     }
 
-    impl Serializable for ItemTableEntry {
+    impl Serializable for CommitItemEntry {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.table_index) +
-            spec_u128_to_le_bytes(self._padding0) +
+            spec_u64_to_le_bytes(self.item_index) +
+            spec_u64_to_le_bytes(self.metadata_index) + 
+            spec_u64_to_le_bytes(self.metadata_crc) +
             spec_u128_to_le_bytes(self._padding1)
         }
 
@@ -73,20 +78,25 @@ verus! {
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                 )),
-                table_index: spec_u64_from_le_bytes(
+                item_index: spec_u64_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_ITEM_TABLE_INDEX as int,
-                        RELATIVE_POS_OF_ITEM_TABLE_INDEX + 8
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY + 8
                 )),
-                _padding0: spec_u128_from_le_bytes(
+                metadata_index: spec_u64_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 16
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY + 8
+                )),
+                metadata_crc: spec_u64_from_le_bytes(
+                    bytes.subrange(
+                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY + 8
                 )),
                 _padding1: spec_u128_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 16
+                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY + 16
                 )),
             }
         }
@@ -97,7 +107,97 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_table_index = #[trigger] spec_u64_to_le_bytes(s.table_index);
+                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
+                let serialized_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
+                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
+                let serialized_entry = #[trigger] s.spec_serialize();
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
+                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
+                    ) == serialized_entry_type
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY + 8
+                    ) == serialized_item_index
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY + 8
+                    ) == serialized_metadata_index
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY + 8
+                    ) == serialized_crc
+                &&& serialized_entry.subrange(
+                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY as int,
+                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY + 16
+                    ) == serialized_padding1
+            });
+        }
+
+        proof fn lemma_auto_deserialize_serialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
+                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
+        }
+
+        proof fn lemma_auto_serialized_len()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+        }
+
+        open spec fn spec_serialized_len() -> int
+        {
+            LENGTH_OF_LOG_ENTRY as int
+        }
+
+        fn serialized_len() -> u64
+        {
+            LENGTH_OF_LOG_ENTRY
+        }
+    }
+
+    #[repr(C)]
+    pub struct InvalidateItemEntry {
+        pub entry_type: u64,
+        pub item_index: u64,
+        pub _padding0: u128,
+        pub _padding1: u128,
+    }
+
+    impl Serializable for InvalidateItemEntry {
+        open spec fn spec_serialize(self) -> Seq<u8> 
+        {
+            spec_u64_to_le_bytes(self.entry_type) +
+            spec_u64_to_le_bytes(self.item_index) +
+            spec_u128_to_le_bytes(self._padding0) +
+            spec_u128_to_le_bytes(self._padding1)
+        }
+
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
+        {
+            Self {
+                entry_type: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
+                item_index: spec_u64_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY + 8)),
+                _padding0: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY + 16)),
+                _padding1: spec_u128_from_le_bytes(
+                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY + 16)),
+            }
+        }
+
+        proof fn lemma_auto_serialize_deserialize()
+        {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            lemma_auto_spec_u128_to_from_le_bytes();
+            assert(forall |s: Self| {
+                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
+                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
                 let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
                 let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
@@ -106,16 +206,16 @@ verus! {
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                     ) == serialized_entry_type
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_ITEM_TABLE_INDEX as int,
-                        RELATIVE_POS_OF_ITEM_TABLE_INDEX + 8
-                ) == serialized_table_index
+                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY + 8
+                    ) == serialized_item_index
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_0_ITEM_TABLE_ENTRY + 16
+                        RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY as int,
+                        RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY + 16
                     ) == serialized_padding0
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_ITEM_TABLE_ENTRY + 16
+                        RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY as int,
+                        RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY + 16
                     ) == serialized_padding1
             });
         }
@@ -599,8 +699,8 @@ verus! {
         pub entry_type: u64,
         pub list_metadata_index: u64,
         pub head: u64,
-        pub _padding0: u64,
-        pub _padding1: u128,
+        pub item_index: u64,
+        pub _padding0: u128,
     }
 
     impl Serializable for CreateListEntry 
@@ -610,8 +710,8 @@ verus! {
             spec_u64_to_le_bytes(self.entry_type) + 
             spec_u64_to_le_bytes(self.list_metadata_index) + 
             spec_u64_to_le_bytes(self.head) +
-            spec_u64_to_le_bytes(self._padding0) + 
-            spec_u128_to_le_bytes(self._padding1)
+            spec_u64_to_le_bytes(self.item_index) + 
+            spec_u128_to_le_bytes(self._padding0)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
@@ -620,8 +720,8 @@ verus! {
                 entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
                 list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8)),
                 head: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_HEAD_CREATE_LIST as int, RELATIVE_POS_OF_HEAD_CREATE_LIST + 8)),
-                _padding0: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 8)),
-                _padding1: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16)),
+                item_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST as int, RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST + 8)),
+                _padding0: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 16)),
             }
         }
 
@@ -633,8 +733,8 @@ verus! {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
                 let serialized_head = #[trigger] spec_u64_to_le_bytes(s.head);
-                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
+                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
+                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -649,13 +749,13 @@ verus! {
                     RELATIVE_POS_OF_HEAD_CREATE_LIST + 8
                 ) == serialized_head 
                 &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 8
-                ) == serialized_padding0 
+                    RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST as int,
+                    RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST + 8
+                ) == serialized_item_index 
                 &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16
-                ) == serialized_padding1
+                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int,
+                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 16
+                ) == serialized_padding0
             });
         }
 

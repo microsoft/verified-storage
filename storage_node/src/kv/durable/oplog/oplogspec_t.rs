@@ -13,8 +13,15 @@ verus! {
     // We don't use an enum in the implementation so that we can have
     // control over size/layout of entries, but since this will only be
     // used in ghost code, an enum is fine.
-    pub enum OpLogEntryType {
-        ItemTableEntryCommit { table_index: u64 },
+    pub enum OpLogEntryType<K> 
+        where 
+            K: Serializable
+    {
+        ItemTableEntryCommit { 
+            item_index: u64,
+            metadata_index: u64,
+            metadata_crc: u64,
+        },
         ItemTableEntryInvalidate { table_index: u64 },
         AppendListNode {
             list_metadata_index: u64,
@@ -42,7 +49,8 @@ verus! {
         CreateListTableEntry {
             list_metadata_index: u64,
             head: u64,
-            // this will also include a key, but we write that separately
+            item_index: u64,
+            key: K,
         },
         DeleteListTableEntry {
             list_metadata_index: u64,
@@ -55,17 +63,17 @@ verus! {
     // the head pointer to the tail. Once the log has been committed
     // it is illegal to perform any additional appends until it has
     // been cleared.
+    #[verifier::reject_recursive_types(K)]
     pub struct AbstractOpLogState<K, L>
         where
             K: Serializable,
             L: Serializable
     {
         pub log_state: AbstractLogState,
-        pub op_list: Seq<OpLogEntryType>,
+        pub op_list: Seq<OpLogEntryType<K>>,
         // stored separately from op_list so that item list;s recovery fn can ignore L
-        pub list_entry_map: Map<OpLogEntryType, L>,
+        pub list_entry_map: Map<OpLogEntryType<K>, L>,
         pub op_list_committed: bool,
-        pub _phantom: Option<K>,
     }
 
     impl<K, L> AbstractOpLogState<K, L>
@@ -79,25 +87,36 @@ verus! {
                 op_list: Seq::empty(),
                 list_entry_map: Map::empty(),
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
-        // Note: this function covers both types of item table entry (commit and
-        // invalidate) because they share a concrete op log entry type. This
-        // is a bit funky because these types are represented in ghost code
-        // by separate enum variants, but this makes the spec fn cleaner.
-        pub open spec fn tentatively_append_item_table_entry(
+        pub open spec fn tentatively_append_commit_item_entry(
             self,
-            entry: &ItemTableEntry
+            entry: &CommitItemEntry
         ) -> Self
         {
             Self {
                 log_state: self.log_state.tentatively_append(entry.spec_serialize()),
-                op_list: self.op_list.push(OpLogEntryType::ItemTableEntryCommit { table_index: entry.table_index }),
+                op_list: self.op_list.push(OpLogEntryType::ItemTableEntryCommit { 
+                    item_index: entry.item_index,
+                    metadata_index: entry.metadata_index ,
+                    metadata_crc: entry.metadata_crc
+                }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
+            }
+        }
+
+        pub open spec fn tentatively_append_invalidate_item_entry(
+            self,
+            entry: &InvalidateItemEntry,
+        ) -> Self 
+        {
+            Self {
+                log_state: self.log_state.tentatively_append(entry.spec_serialize()),
+                op_list: self.op_list.push(OpLogEntryType::ItemTableEntryInvalidate { table_index: entry.item_index }),
+                list_entry_map: self.list_entry_map,
+                op_list_committed: false,
             }
         }
 
@@ -116,7 +135,6 @@ verus! {
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -135,7 +153,6 @@ verus! {
                 op_list: self.op_list.push(op_log_entry),
                 list_entry_map: self.list_entry_map.insert(op_log_entry, *list_element),
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -153,7 +170,6 @@ verus! {
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -173,7 +189,6 @@ verus! {
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -188,10 +203,11 @@ verus! {
                 op_list: self.op_list.push(OpLogEntryType::CreateListTableEntry { 
                     list_metadata_index: entry.list_metadata_index, 
                     head: entry.head,
+                    item_index: entry.item_index,
+                    key: *key
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -205,7 +221,6 @@ verus! {
                 op_list: self.op_list.push(OpLogEntryType::DeleteListTableEntry { list_metadata_index: entry.list_metadata_index }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
-                _phantom: None
             }
         }
 
@@ -216,7 +231,6 @@ verus! {
                 op_list: self.op_list,
                 list_entry_map: self.list_entry_map,
                 op_list_committed: true,
-                _phantom: None
             }
         }
 
@@ -232,7 +246,6 @@ verus! {
                     op_list: Seq::empty(),
                     list_entry_map: Map::empty(),
                     op_list_committed: false,
-                    _phantom: None
                 })
             }
         }
