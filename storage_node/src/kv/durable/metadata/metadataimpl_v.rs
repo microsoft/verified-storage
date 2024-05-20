@@ -3,22 +3,26 @@ use builtin_macros::*;
 use std::hash::Hash;
 use vstd::prelude::*;
 use vstd::bytes::*;
-use crate::kv::durable::logentry_v::RELATIVE_POS_OF_CRC_COMMIT_ENTRY;
+use crate::kv::durable::logentry_v::*;
+use crate::kv::kvimpl_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::pmemutil_v::*;
 
 verus! {
-    pub struct MetadataTable<K> {
+    pub struct MetadataTable<K, E> {
         metadata_table_free_list: Vec<u64>,
-        state: Ghost<MetadataTableView<K>>
+        state: Ghost<MetadataTableView<K>>,
+        _phantom: Option<E>
     }
 
-    impl<K> MetadataTable<K>
+    impl<K, E> MetadataTable<K, E>
         where 
-            K: Serializable
+            K: Serializable + std::fmt::Debug,
+            E: std::fmt::Debug,
     {
         pub closed spec fn view(self) -> MetadataTableView<K> 
         {
@@ -32,7 +36,6 @@ verus! {
             list_entry_map: Map<OpLogEntryType<K>, L>,
             kvstore_id: u128,
         ) -> Option<MetadataTableView<K>>
-            
         {
             if mems.len() != 1 {
                 None
@@ -226,6 +229,53 @@ verus! {
                 }
                 _ => mem // all other ops do not modify the metadata table
             }
+        }
+
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&GlobalListMetadata, KvError<K, E>>)
+            where
+                PM: PersistentMemoryRegions
+            requires
+                pm_regions.inv(),
+                // TODO
+            ensures
+                match result {
+                    Ok(output_metadata) => {
+                        let metadata_size = ListEntryMetadata::spec_serialized_len();
+                        let key_size = K::spec_serialized_len();
+                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+                        &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
+                        &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
+                    }
+                    Err(_) => true // TODO
+                }
+                // TODO
+        {
+            assume(false);
+
+            let ghost mem = pm_regions@[0].committed();
+
+            // read in the header and its CRC, check for corruption
+            let metadata: &GlobalListMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
+            let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
+
+            if !check_crc_deserialized(metadata, metadata_crc, Ghost(mem),
+                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
+                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
+                return Err(KvError::CRCMismatch);
+            }
+
+            // Since we've already checked for corruption, this condition will only fail
+            // if the caller tries to use an L with a different size than the one
+            // the list was originally set up with
+            if {
+                ||| metadata.version_number != LIST_METADATA_VERSION_NUMBER
+                ||| metadata.program_guid != METADATA_TABLE_PROGRAM_GUID
+            } {
+                return Err(KvError::InvalidListMetadata);
+            }
+
+            Ok(metadata)
         }
     }
 }

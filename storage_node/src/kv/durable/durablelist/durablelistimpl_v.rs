@@ -28,6 +28,8 @@ verus! {
     {
         _phantom: Ghost<core::marker::PhantomData<(K, L, E)>>,
         list_node_region_free_list: Vec<u64>,
+        node_size: u32,
+        num_nodes: u64,
         state: Ghost<DurableListView<K, L, E>>
     }
 
@@ -460,6 +462,8 @@ verus! {
             Ok(Self {
                 _phantom: Ghost(spec_phantom_data()),
                 list_node_region_free_list,
+                node_size: record_metadata.node_size,
+                num_nodes: list_region_metadata.num_nodes,
                 state: Ghost(state) // TODO: this needs to be set up properly
             })
         }
@@ -475,7 +479,7 @@ verus! {
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<u64, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 // TODO
@@ -486,13 +490,24 @@ verus! {
             assume(false);
 
             // 1. allocate an unused node
-            
+            let new_node_idx = match self.list_node_region_free_list.pop() {
+                Some(node) => node,
+                None => return Err(KvError::OutOfSpace)
+            };
+            let new_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * new_node_idx;
+
             // 2. set its next pointer. Since we only allocate nodes to append to the tail of 
             // the list, we'll set its next pointer to itself
+            let next_ptr_addr = new_node_addr + RELATIVE_POS_OF_NEXT_POINTER;
+            wrpm_regions.serialize_and_write(0, next_ptr_addr, &new_node_idx, Tracked(perm));
 
             // 3. set its crc
+            let crc_addr = new_node_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
+            let crc = calculate_crc(&new_node_idx);
 
-            Err(KvError::NotImplemented)
+            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+
+            Ok(new_node_idx)
         }
 
         // Takes a node that has been allocated by `alloc_and_init_list_node` and
@@ -505,25 +520,40 @@ verus! {
             &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
-            list_node_offset: u64,
+            new_tail: u64,
+            old_tail: u64,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 // TODO
+                // the new tail should be initialized but not currently in use
             ensures
                 wrpm_regions.inv()
                 // TODO
         {
             assume(false);
-            Err(KvError::NotImplemented)
+
+            // 1. obtain the address of the old tail node
+            let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * old_tail;
+
+            // 2. update the old tail node's next pointer to point to the new tail
+            let next_ptr_addr = old_tail_addr + RELATIVE_POS_OF_NEXT_POINTER;
+            wrpm_regions.serialize_and_write(0, next_ptr_addr, &new_tail, Tracked(perm));
+
+            // 3. set its crc
+            let crc_addr = old_tail_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
+            let crc = calculate_crc(&new_tail);
+            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+
+            Ok(())
         }
 
         // Writes a new element to the next free slot in the tail node and increases
         // the length of the list by one.
-        // Writing the new element to an empty slot is tentative, but updaing the list
+        // Writing the new element to an empty slot is tentative, but updating the list
         // length is committing, and we do both in this function, so the caller must have
         // already logged:
         // 1. The new list element
@@ -532,11 +562,13 @@ verus! {
             &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
+            tail_node: u64,
+            idx: u64,
             list_element: &L,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 // TODO: require that the tail node has at least one free slot
@@ -546,7 +578,29 @@ verus! {
                 // TODO
         {
             assume(false);
-            Err(KvError::NotImplemented)
+
+            // we don't check that the slot is empty before overwriting it, because 1) the caller has to prove that 
+            // it's the next slot that should be written to and 2) list element slots do not have valid bits so there 
+            // isn't a way to check this anyway
+
+            let list_element_slot_size = L::serialized_len() + CRC_SIZE;
+
+            // 1. obtain the address of the tail node
+            let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * tail_node;
+
+            // 2. obtain the address at which the new list element will be written
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size * idx;
+            let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
+
+            // 3. get the CRC of the new list element
+            let crc_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT_CRC;
+            let crc = calculate_crc(list_element);
+
+            // 4. write the new list element and its CRC
+            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+            wrpm_regions.serialize_and_write(0, element_addr, list_element, Tracked(perm));
+
+            Ok(())
         }
 
         // Updates the element at the given list index in-place.
@@ -556,12 +610,13 @@ verus! {
             &mut self,
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
-            index: u64,
+            node_idx: u64,
+            element_idx: u64,
             list_element: &L,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 // TODO: require that the index is live
@@ -571,36 +626,48 @@ verus! {
                 // TODO
         {
             assume(false);
-            Err(KvError::NotImplemented)
+
+            // The implementation of this method is pretty much the same as `append_element`, except that we specify
+            // which node to modify (rather than always writing to the tail) and the proof requirements are different,
+            // since updating an element is a committing update
+
+            let list_element_slot_size = L::serialized_len() + CRC_SIZE;
+
+            // 1. obtain the address of the tail node
+            let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_idx;
+
+            // 2. obtain the address at which the new list element will be written
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size * element_idx;
+            let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
+
+            // 3. get the CRC of the new list element
+            let crc_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT_CRC;
+            let crc = calculate_crc(list_element);
+
+            // 4. write the new list element and its CRC
+            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+            wrpm_regions.serialize_and_write(0, element_addr, list_element, Tracked(perm));
+
+            Ok(())
         }
 
-        // Trims the list by `trim_length` elements. In practice, this means updating
-        // the list's metadata with a new length and potentially a new head node and
-        // starting index offset.
-        // This function does *not* modify the contents of any nodes; however, any nodes that
-        // are removed from the list because all of their elements have been trimmed away
-        // will be added back to the free list.
-        // This is a committing update, so the caller must have already logged:
-        // 1. The update to the head, length, and start index
-        pub exec fn trim_list<PM>(
+        // Deallocates the node at the given index by adding it back into the free list.
+        // TODO: either the caller needs to prove that this node is actually free (i.e. not reachable from 
+        // a valid head node), or we need to check it here
+        // This is called as part of the `trim_list` operation, which only modifies durable state in the
+        // metadata table. 
+        pub exec fn deallocate_node(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
-            list_id: u128,
-            trim_length: u64,
-            Tracked(perm): Tracked<&TrustedListPermission>,
+            idx: u64,
         ) -> (result: Result<(), KvError<K, E>>)
-            where
-                PM: PersistentMemoryRegions
-            requires
-                old(wrpm_regions).inv(),
-                // TODO: require that trim length is valid w/ length of list
-                // TODO
-            ensures
-                wrpm_regions.inv()
-                // TODO
+            // TODO: pre and postconditions on self
         {
             assume(false);
-            Err(KvError::NotImplemented)
+            if idx >= self.num_nodes {
+                return Err(KvError::IndexOutOfRange);
+            }
+            self.list_node_region_free_list.push(idx);
+            Ok(())
         }
 
         // TODO: maybe change Serializable to return a u32 as the serialized len; can always cast up if necessary
@@ -610,7 +677,7 @@ verus! {
             node_size: u32,
         ) -> (result: Result<(), KvError<K,E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(pm_regions).inv(),
                 old(pm_regions)@.no_outstanding_writes(),
@@ -644,54 +711,6 @@ verus! {
             // reachable within a list, so its fine if they contain garbage while theyre not in use
 
             return Ok(());
-        }
-
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&GlobalListMetadata, KvError<K, E>>)
-            where
-                PM: PersistentMemoryRegions
-            requires
-                pm_regions.inv(),
-                // TODO
-            ensures
-                match result {
-                    Ok(output_metadata) => {
-                        let metadata_size = ListEntryMetadata::spec_serialized_len();
-                        let key_size = K::spec_serialized_len();
-                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-                        &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
-                        &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
-                    }
-                    Err(_) => true // TODO
-                }
-                // TODO
-        {
-            assume(false);
-
-            let ghost mem = pm_regions@[0].committed();
-
-            // read in the header and its CRC, check for corruption
-            let metadata: &GlobalListMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
-            let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
-
-            if !check_crc_deserialized(metadata, metadata_crc, Ghost(mem),
-                    Ghost(pm_regions.constants().impervious_to_corruption),
-                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
-                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
-                return Err(KvError::CRCMismatch);
-            }
-
-            // Since we've already checked for corruption, this condition will only fail
-            // if the caller tries to use an L with a different size than the one
-            // the list was originally set up with
-            if {
-                ||| metadata.element_size != (L::serialized_len() + CRC_SIZE) as u32
-                ||| metadata.version_number != LIST_METADATA_VERSION_NUMBER
-                ||| metadata.program_guid != METADATA_TABLE_PROGRAM_GUID
-            } {
-                return Err(KvError::InvalidListMetadata);
-            }
-
-            Ok(metadata)
         }
 
         fn read_list_region_header<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&ListRegionHeader, KvError<K,E>>)
