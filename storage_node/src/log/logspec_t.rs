@@ -112,4 +112,35 @@ verus! {
         }
     }
 
+    pub enum AbstractLogRequest
+    {
+        TentativelyAppend{ bytes: Seq<u8> },
+        Commit,
+        AdvanceHead{ new_head: int },
+        Read{ pos: int, len: int },
+    }
+
+    pub enum AbstractLogReply
+    {
+        TentativelyAppend,
+        Commit,
+        AdvanceHead,
+        Read{ bytes: Seq<u8> },
+    }
+
+    pub open spec fn handle_abstract_log_request(s: AbstractLogState, req: AbstractLogRequest) ->
+        (result: (AbstractLogState, AbstractLogReply))
+    {
+        match req {
+            AbstractLogRequest::TentativelyAppend{ bytes } =>
+                (s.tentatively_append(bytes), AbstractLogReply::TentativelyAppend),
+            AbstractLogRequest::Commit =>
+                (s.commit(), AbstractLogReply::Commit),
+            AbstractLogRequest::AdvanceHead{ new_head } =>
+                (s.advance_head(new_head), AbstractLogReply::AdvanceHead),
+            AbstractLogRequest::Read{ pos, len } =>
+                (s, AbstractLogReply::Read{ bytes: s.read(pos, len) }),
+        }
+    }
+
 }

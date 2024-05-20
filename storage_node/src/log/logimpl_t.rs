@@ -40,7 +40,7 @@
 use std::fmt::Write;
 
 use crate::log::logimpl_v::UntrustedLogImpl;
-use crate::log::logspec_t::AbstractLogState;
+use crate::log::logspec_t::{AbstractLogRequest, AbstractLogReply, AbstractLogState, handle_abstract_log_request};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
@@ -91,6 +91,113 @@ verus! {
     {
         forall |s| #[trigger] pm_region_view.can_crash_as(s) ==>
             UntrustedLogImpl::recover(s, log_id) == Some(state)
+    }
+
+    pub struct LogRequest
+    {
+        request: AbstractLogRequest,
+        id: int,
+    }
+
+    impl LogRequest
+    {
+        pub closed spec fn request(self) -> AbstractLogRequest
+        {
+            self.request
+        }
+
+        pub closed spec fn id(self) -> int
+        {
+            self.id
+        }
+    }
+
+    pub struct StateMachineView
+    {
+        pub state: AbstractLogState,
+        pub pending_request: Option<LogRequest>,
+        pub region: PersistentMemoryRegionView,
+        pub constants: PersistentMemoryConstants,
+    }
+
+    pub struct StateMachine<PMRegion: PersistentMemoryRegion>
+    {
+        region: PMRegion,
+    }
+
+    impl <PMRegion: PersistentMemoryRegion> StateMachine<PMRegion>
+    {
+        pub closed spec fn view(self) -> StateMachineView;
+
+        pub closed spec fn inv(self) -> bool
+        {
+            &&& self.region.inv()
+            &&& self@.constants == self.region.constants()
+            &&& self@.region == self.region@
+        }
+
+        pub closed spec fn region_view(self) -> PersistentMemoryRegionView
+        {
+            self.region@
+        }
+
+        #[verifier::external_body]
+        pub proof fn add_pending_request(&mut self, tracked req: LogRequest)
+            requires
+                old(self).inv(),
+                old(self)@.pending_request is None,
+            ensures
+                self.inv(),
+                self@.constants == old(self)@.constants,
+                self@.pending_request == Some(req),
+                self@.state == old(self)@.state,
+                self@.region == old(self)@.region,
+        ;
+
+        #[verifier::external_body]
+        pub proof fn perform_pending_request(&mut self, tracked req: LogRequest)
+            requires
+                old(self).inv(),
+                old(self)@.pending_request is Some,
+            ensures
+                ({
+                    let (new_state, reply) =
+                        handle_abstract_log_request(old(self)@.state, old(self)@.pending_request.unwrap().request());
+                    &&& self.inv()
+                    &&& self@.constants == old(self)@.constants
+                    &&& self@.state == new_state
+                    &&& self@.pending_request is None
+                    &&& self@.region == old(self)@.region
+                });
+
+        pub exec fn get_pm_region_ref(&self) -> (pm_region: &PMRegion)
+            requires
+                self.inv(),
+            ensures
+                pm_region.inv(),
+                pm_region@ == self@.region,
+                pm_region.constants() == self@.constants
+        {
+            &self.region
+        }
+
+        pub exec fn write(&mut self, addr: u64, bytes: &[u8])
+            requires
+                old(self).inv(),
+                addr + bytes@.len() <= old(self)@.region.len(),
+                addr + bytes@.len() <= u64::MAX,
+                old(self)@.region.no_outstanding_writes_in_range(addr as int, addr + bytes@.len()),
+                    // The key thing the caller must prove is that all crash states are authorized by `perm`
+                forall |s| old(self)@.region.write(addr as int, bytes@).can_crash_as(s)
+                      ==> #[trigger] perm@.check_permission(s),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                self@ == old(self)@.write(addr as int, bytes@),
+        {
+            let ghost pmr = self.pm_region;
+            self.pm_region.write(addr, bytes);
+        }
     }
 
     // A `TrustedPermission` is the type of a tracked object

@@ -215,26 +215,31 @@ pub enum FileCloseBehavior {
     Persistent,
 }
 
-// The `FileBackedPersistentMemoryRegion` struct represents a
-// persistent-memory region backed by a memory-mapped file.
-
 #[allow(dead_code)]
-pub struct FileBackedPersistentMemoryRegion
+pub struct FileBackedPersistentMemoryDevice
 {
+    id: Ghost<int>,
     mmf: MemoryMappedFile,
 }
 
-impl FileBackedPersistentMemoryRegion
+pub struct FileBackedPersistentMemoryAccessToken
+{
+    id: int,
+}
+
+impl FileBackedPersistentMemoryDevice
 {
     #[verifier::external_body]
     fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
-                    -> (result: Result<Self, PmemError>)
+                    -> (result: Result<(Self, Tracked<FileBackedPersistentMemoryAccessToken>), PmemError>)
         ensures
-            match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
-                Err(_) => true,
-            }
+            ({
+                let (dev, tok) = result;
+                &&& dev.inv()
+                &&& tok@.id() == dev.id()
+                &&& tok@@.len() == region_size
+            })
     {
         let mmf = MemoryMappedFile::from_file(
             path.into_rust_str(),
@@ -243,34 +248,41 @@ impl FileBackedPersistentMemoryRegion
             open_behavior,
             close_behavior
         )?;
-        Ok(Self { mmf })
+        Ok(Self { id: Ghost(0int), mmf })
     }
 
     pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
-               close_behavior: FileCloseBehavior) -> (result: Result<Self, PmemError>)
+               close_behavior: FileCloseBehavior)
+               -> (result: Result<(Self, Tracked<FileBackedPersistentMemoryAccessToken>), PmemError>)
         ensures
-            match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
-                Err(_) => true,
-            }
+            ({
+                let (dev, tok) = result;
+                &&& dev.inv()
+                &&& tok@.id() == dev.id()
+                &&& tok@@.len() == region_size
+            })
     {
         Self::new_internal(path, media_type, region_size, FileOpenBehavior::CreateNew, close_behavior)
     }
 
     pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64)
-               -> (result: Result<Self, PmemError>)
+                   -> (result: Result<(Self, Tracked<FileBackedPersistentMemoryAccessToken>), PmemError>)
         ensures
-            match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
-                Err(_) => true,
-            }
+            ({
+                let (dev, tok) = result;
+                &&& dev.inv()
+                &&& tok@.id() == dev.id()
+                &&& tok@@.len() == region_size
+            })
     {
         Self::new_internal(path, media_type, region_size, FileOpenBehavior::OpenExisting, FileCloseBehavior::Persistent)
     }
 }
 
-impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
+impl PersistentMemoryDevice for FileBackedPersistentMemoryDevice
 {
+    type AccessToken = FileBackedPersistentMemoryAccessToken;
+    
     closed spec fn view(&self) -> PersistentMemoryRegionView;
     closed spec fn inv(&self) -> bool;
     closed spec fn constants(&self) -> PersistentMemoryConstants;

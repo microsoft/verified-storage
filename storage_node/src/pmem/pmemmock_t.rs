@@ -7,82 +7,115 @@
 //! use actually persistent memory to implement persistent memory!
 
 use crate::pmem::pmemspec_t::{
-    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PmemError,
+    PersistentMemoryAccessToken, PersistentMemoryByte, PersistentMemoryDevice, PersistentMemoryRegionView, PmemError,
 };
 use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
 use deps_hack::rand::Rng;
 use std::convert::*;
+use std::cell::RefCell;
+use std::rc::Rc;
+use vstd::invariant::*;
 use vstd::prelude::*;
 
 verus! {
 
-    // The `VolatileMemoryMockingPersistentMemoryRegion` struct
-    // contains a vector of volatile memory to hold the contents, as
-    // well as a ghost field that keeps track of the virtual modeled
-    // state. This ghost field pretends that outstanding writes remain
-    // outstanding even though in the concrete `contents` field we
-    // actually overwrite all data in place immediately.
-    pub struct VolatileMemoryMockingPersistentMemoryRegion
+    #[verifier::external_body]
+    pub struct VolatileMemoryMockingPersistentMemoryDevice
     {
-        contents: Vec<u8>,
+        id: Ghost<int>,
+        contents: Rc<RefCell<Vec<u8>>>,
     }
 
-    impl VolatileMemoryMockingPersistentMemoryRegion
+    #[verifier::external_body]
+    pub struct VolatileMemoryMockingPersistentMemoryAccessToken
+    {
+        id: int,
+    }
+
+    impl PersistentMemoryAccessToken for VolatileMemoryMockingPersistentMemoryAccessToken
+    {
+        closed spec fn id(self) -> int
+        {
+            self.id
+        }
+
+        #[verifier::external_body]
+        closed spec fn view(self) -> PersistentMemoryRegionView;
+    }
+
+    impl VolatileMemoryMockingPersistentMemoryDevice
     {
         #[verifier::external_body]
-        fn new(region_size: u64) -> (result: Self)
+        fn new(region_size: u64) -> (result: (Self, Tracked<VolatileMemoryMockingPersistentMemoryAccessToken>))
             ensures
-                result.inv(),
-                result@.len() == region_size,
+                ({
+                    let (dev, tok) = result;
+                    &&& dev.inv()
+                    &&& tok@.id() == dev.id()
+                    &&& tok@@.len() == region_size
+                })
         {
-            let contents: Vec<u8> = vec![0; region_size as usize];
-            Self { contents }
+            let contents = vec![0u8; region_size as usize];
+            let contents = Rc::new(RefCell::new(contents));
+            let dev = VolatileMemoryMockingPersistentMemoryDevice{ id: Ghost(0int), contents };
+            let tracked tok = VolatileMemoryMockingPersistentMemoryAccessToken{ id: 0 };
+            (dev, Tracked(tok))
         }
     }
 
-    impl PersistentMemoryRegion for VolatileMemoryMockingPersistentMemoryRegion
+    impl PersistentMemoryDevice for VolatileMemoryMockingPersistentMemoryDevice
     {
-        #[verifier::external_body]
-        closed spec fn view(&self) -> PersistentMemoryRegionView;
-
-        closed spec fn inv(&self) -> bool
+        type AccessToken = VolatileMemoryMockingPersistentMemoryAccessToken;
+    
+        closed spec fn id(self) -> int
         {
-            // We maintain the invariant that our size fits in a `u64`.
-            &&& self.contents.len() <= u64::MAX
-            &&& self.contents.len() == self@.len()
-
-            // We also maintain the invariant that the contents of our
-            // volatile buffer matches the result of flushing the
-            // abstract state.
-            &&& self.contents@ == self@.flush().committed()
-        }
-
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
-
-        fn get_region_size(&self) -> (result: u64)
-        {
-            self.contents.len() as u64
+            self.id@
         }
 
         #[verifier::external_body]
-        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        closed spec fn impervious_to_corruption(self) -> bool;
+
+        closed spec fn inv(self) -> bool
+        {
+            true
+        }
+
+        #[verifier::external_body]
+        fn get_region_size(
+            &self,
+            Tracked(tok): Tracked<&Self::AccessToken>
+        ) -> (result: u64)
+        {
+            self.contents.borrow().len() as u64
+        }
+
+        #[verifier::external_body]
+        fn read(
+            &self,
+            Tracked(tok): Tracked<&Self::AccessToken>,
+            addr: u64,
+            num_bytes: u64
+        ) -> (bytes: Vec<u8>)
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-            self.contents[addr_usize..addr_usize+num_bytes_usize].to_vec()
+            self.contents.borrow()[addr_usize..addr_usize+num_bytes_usize].to_vec()
         }
 
         #[verifier::external_body]
-        fn read_and_deserialize<S>(&self, addr: u64) -> &S
+        fn read_and_deserialize<S>(
+            &self,
+            Tracked(tok): Tracked<&Self::AccessToken>,
+            addr: u64
+        ) -> &S
             where
                 S: Serializable + Sized
         {
             let addr_usize: usize = addr.try_into().unwrap();
             let num_bytes: usize = S::serialized_len().try_into().unwrap();
-            let bytes = &self.contents[addr_usize..addr_usize+num_bytes];
+            let bytes = &self.contents.borrow()[addr_usize..addr_usize+num_bytes];
             // SAFETY: The precondition of the method ensures that we do not
             // attempt to read out of bounds. The user of the mock is responsible
             // for ensuring that there is a valid S at this address and checking
@@ -96,14 +129,24 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn write(&mut self, addr: u64, bytes: &[u8])
+        fn write(
+            &self,
+            Tracked(tok): Tracked<&mut Self::AccessToken>,
+            addr: u64,
+            bytes: &[u8]
+        )
         {
             let addr_usize: usize = addr.try_into().unwrap();
-            self.contents.splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
+            self.contents.borrow_mut().splice(addr_usize..addr_usize+bytes.len(), bytes.iter().cloned());
         }
 
         #[verifier::external_body]
-        fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
+        fn serialize_and_write<S>(
+            &self,
+            Tracked(tok): Tracked<&mut Self::AccessToken>,
+            addr: u64,
+            to_write: &S
+        )
             where
                 S: Serializable + Sized
         {
@@ -118,11 +161,14 @@ verus! {
             let bytes = unsafe {
                 std::slice::from_raw_parts(bytes_pointer, num_bytes)
             };
-            self.contents.splice(addr_usize..addr_usize+num_bytes, bytes.iter().cloned());
+            self.contents.borrow_mut().splice(addr_usize..addr_usize+num_bytes, bytes.iter().cloned());
         }
 
         #[verifier::external_body]
-        fn flush(&mut self)
+        fn flush(
+            &self,
+            Tracked(tok): Tracked<&mut Self::AccessToken>
+        )
         {
         }
     }
