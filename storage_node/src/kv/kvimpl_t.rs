@@ -31,7 +31,7 @@ use super::kvimpl_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
-use crate::multilog::multilogimpl_t::*;
+use crate::log::logimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
@@ -64,7 +64,7 @@ where
     InvalidListRegionMetadata,
     EntryIsValid,
     EntryIsNotValid,
-    MultiLogErr { err: MultiLogErr }
+    LogErr { err: LogErr }
 }
 
 pub trait Item<K> : Sized {

@@ -330,7 +330,7 @@ verus! {
         pub exec fn start<PM>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
-            record_metadata: &MetadataTableHeader,
+            node_size: u32,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
@@ -369,7 +369,7 @@ verus! {
             let list_element_slot_size = list_element_size + CRC_SIZE;
 
             // region needs to fit at least one node
-            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + record_metadata.node_size as u64;
+            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
             if required_node_region_size > region_size {
                 let required = required_node_region_size as usize;
                 let actual = region_size as usize;
@@ -396,7 +396,7 @@ verus! {
                 // read the node, check its CRC; if it's fine, push its next
                 // pointer onto the stack
                 let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
-                    current_index * (record_metadata.node_size as u64);
+                    current_index * node_size as u64;
                 let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
                 let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
                 let ptr_serialized_len = u64::serialized_len();
@@ -442,7 +442,7 @@ verus! {
             Ok(Self {
                 _phantom: Ghost(spec_phantom_data()),
                 list_node_region_free_list,
-                node_size: record_metadata.node_size,
+                node_size: node_size,
                 num_nodes: list_region_metadata.num_nodes,
                 state: Ghost(state) // TODO: this needs to be set up properly
             })

@@ -22,6 +22,18 @@ verus! {
         }
     }
 
+    impl TrustedItemTablePermission
+    {
+         // TODO: REMOVE THIS
+         #[verifier::external_body]
+         pub proof fn fake_item_perm() -> (tracked perm: Self)
+         {
+             Self {
+                 is_state_allowable: |s| true
+             }
+         }
+    }
+
     pub struct DurableItemTableViewEntry<I>
     {
         valid: bool,

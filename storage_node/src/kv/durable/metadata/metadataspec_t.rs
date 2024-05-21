@@ -19,6 +19,17 @@ verus! {
         }
     }
 
+    impl TrustedMetadataPermission {
+         // TODO: REMOVE THIS
+         #[verifier::external_body]
+         pub proof fn fake_metadata_perm() -> (tracked perm: Self)
+         {
+             Self {
+                 is_state_allowable: |s| true
+             }
+         }
+    }
+
     pub struct MetadataTableViewEntry<K> {
         valid: bool,
         crc: u64,

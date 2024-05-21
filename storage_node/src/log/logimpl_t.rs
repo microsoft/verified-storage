@@ -115,6 +115,15 @@ verus! {
 
     impl TrustedPermission {
 
+        // TODO: REMOVE THIS
+        #[verifier::external_body]
+        pub proof fn fake_log_perm() -> (tracked perm: Self)
+        {
+            Self {
+                is_state_allowable: |s| true
+            }
+        }
+
         // This is one of two constructors for `TrustedPermission`.
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given

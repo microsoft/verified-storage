@@ -13,15 +13,19 @@ use crate::kv::durable::durablespec_t::*;
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
+use crate::kv::durable::metadata::metadataimpl_v::*;
+use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
 use crate::log::logimpl_v::*;
 use crate::log::logimpl_t::*;
+use crate::log::logspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 
 use crate::pmem::serialization_t::*;
+use std::fmt::Write;
 use std::hash::Hash;
 
 verus! {
@@ -37,7 +41,8 @@ verus! {
         item_table: DurableItemTable<K, I, E>,
         durable_list: DurableList<K, L, E>,
         log: UntrustedLogImpl,
-        table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
+        metadata_table: MetadataTable<K, E>,
+        item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
         list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
         log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
     }
@@ -68,93 +73,102 @@ verus! {
             true
         }
 
-        // // This function doesn't take a perm because it performs initial setup
-        // // for each structure, which we don't guarantee will be crash consistent
-        // pub fn setup(
-        //     mut pmem: PM,
-        //     kvstore_id: u128,
-        //     num_keys: u64,
-        //     node_size: u32,
-        //     // lower_bound_on_max_pages: usize,
-        // ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
-        //     requires
-        //         pmem.inv(),
-        //         ({
-        //             let metadata_size = ListEntryMetadata::spec_serialized_len();
-        //             let key_size = K::spec_serialized_len();
-        //             let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-        //             let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
-        //             &&& metadata_slot_size <= u64::MAX
-        //             &&& list_element_slot_size <= u64::MAX
-        //             &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-        //             &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
-        //         }),
-        //         L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
-        //         node_size < u32::MAX,
-        //         0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
-        //         ({
-        //             let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
-        //             &&& 0 <= item_slot_size < usize::MAX
-        //             &&& 0 <= item_slot_size * num_keys < usize::MAX
-        //             &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
-        //         })
-        //     ensures
-        //         match(result) {
-        //             Ok((log_region, list_regions, item_region)) => {
-        //                 &&& log_region.inv()
-        //                 &&& list_regions.inv()
-        //                 &&& item_region.inv()
-        //             }
-        //             Err(_) => true // TODO
-        //         }
-        // {
-        //     // TODO: what ID should we use for the new components? Should we generate a new one
-        //     // for each, or should it match the KV store?
+        // This function doesn't take a perm because it performs initial setup
+        // for each structure, which we don't guarantee will be crash consistent
+        // TODO: the handling of the PM regions is gross right now, but will get better 
+        // with the cleaner subregion approach
+        pub fn setup(
+            metadata_pmem: &mut PM,
+            item_table_pmem: &mut PM,
+            list_pmem: &mut PM,
+            log_pmem: &mut PM,
+            kvstore_id: u128,
+            num_keys: u64,
+            node_size: u32,
+        ) -> (result: Result<(), KvError<K, E>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                old(metadata_pmem).inv(),
+                old(item_table_pmem).inv(),
+                old(list_pmem).inv(),
+                old(log_pmem).inv(),
+                // TODO
+            ensures 
+               // TODO
+        {
+            // TODO: where do component IDs come from -- same as kv store? or generate new?
 
-        //     // 1. split given PM regions up so that each corresponds with one of the
-        //     // durable components
-        //     let num_regions = pmem.get_num_regions();
-        //     if num_regions < 4 {
-        //         return Err(KvError::TooFewRegions {required: 4, actual: num_regions });
-        //     } else if num_regions > 4 {
-        //         return Err(KvError::TooManyRegions {required: 4, actual: num_regions });
-        //     }
+            assume(false);
 
-        //     let mut log_region = pmem.split_off(3);
-        //     let mut list_regions = pmem.split_off(1);
-        //     let mut item_table_region = pmem;
+            // 1. Set up each component in its specified pm region
+            MetadataTable::setup(metadata_pmem, kvstore_id, num_keys, L::serialized_len() as u32, node_size)?;
+            DurableItemTable::<K, I, E>::setup(item_table_pmem, kvstore_id, num_keys as u64)?;
+            DurableList::<K, L, E>::setup(list_pmem, kvstore_id, num_keys, node_size)?;
+            if let Err(e) =  UntrustedLogImpl::setup(log_pmem, kvstore_id) {
+                return Err(KvError::LogErr { err: e });
+            };
 
-        //     // 2. set up each component
-        //     // the component setup functions will make sure that the regions are large enough
-        //     let result = UntrustedMultiLogImpl::setup(&mut log_region, kvstore_id);
-        //     if let Err(e) = result {
-        //         return Err(KvError::MultiLogErr { err: e });
-        //     }
+            Ok(())
+        }
 
-        //     DurableList::<K, L, E>::setup(&mut list_regions, kvstore_id, num_keys, node_size)?;
+        pub fn start(
+            // wrpm_regions: &mut WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM, K, I, L, E>, PM>,
+            mut metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+            mut item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
+            mut list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            mut log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
+            kvstore_id: u128,
+            num_keys: u64,
+            node_size: u32,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
+            Ghost(state): Ghost<DurableKvStoreView<K, I, L, E>>
+        ) -> (result: Result<Self, KvError<K, E>>)
+            where
+                PM: PersistentMemoryRegion,
+            requires
+                metadata_wrpm.inv(),
+                item_table_wrpm.inv(),
+                list_wrpm.inv(),
+                log_wrpm.inv(),
+                L::spec_serialized_len() + CRC_SIZE <= u32::MAX
+                // TODO
+            ensures
+                metadata_wrpm.inv(),
+                item_table_wrpm.inv(),
+                list_wrpm.inv(),
+                log_wrpm.inv(),
+                // TODO
+        {
+            assume(false);
 
-        //     DurableItemTable::<K, I, E>::setup(&mut item_table_region, kvstore_id, num_keys as u64)?;
+            // TEMPORARY, NOT CORRECT: make up a permissions struct for each component to start with. since we aren't 
+            // writing any proofs yet, we don't need the perm to be correct.
+            let tracked metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked list_perm = TrustedListPermission::fake_list_perm();
+            let tracked log_perm = TrustedPermission::fake_log_perm();
 
-        //     Ok((log_region, list_regions, item_table_region))
-        // }
+            let list_element_size = (L::serialized_len() + CRC_SIZE) as u32;
 
-        // pub fn start(
-        //     wrpm_regions: &mut WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM, K, I, L, E>, PM>,
-        //     kvstore_id: u128,
-        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        //     Ghost(state): Ghost<DurableKvStoreView<K, I, L, E>>
-        // ) -> (result: Result<Self, KvError<K, E>>)
-        //     where
-        //         PM: PersistentMemoryRegion
-        //     requires
-        //         old(wrpm_regions).inv(),
-        //         // TODO
-        //     ensures
-        //         wrpm_regions.inv()
-        //         // TODO
-        // {
-        //     return Err(KvError::NotImplemented);
-        // }
+            let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
+            let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
+            let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, Tracked(&list_perm), Ghost(DurableListView::init()))?;
+            let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
+                Ok(log) => log,
+                Err(e) => return Err(KvError::LogErr { err: e }),
+            };
+
+            Ok(Self {
+                item_table,
+                durable_list,
+                log,
+                metadata_table,
+                item_table_wrpm,
+                list_wrpm,
+                log_wrpm,
+            })
+        }
 
         pub fn create(
             &mut self,

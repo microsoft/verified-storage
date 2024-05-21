@@ -21,6 +21,18 @@ verus! {
         }
     }
 
+    impl TrustedListPermission 
+    {
+         // TODO: REMOVE THIS
+         #[verifier::external_body]
+         pub proof fn fake_list_perm() -> (tracked perm: Self)
+         {
+             Self {
+                 is_state_allowable: |s| true
+             }
+         }
+    }
+
     pub struct DurableListElementView<L>
     {
         crc: u64,
