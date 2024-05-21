@@ -32,17 +32,17 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         Perm: CheckPermission<Seq<u8>>,
         PMRegion: PersistentMemoryRegion
 {
-    pub closed spec fn view(&self) -> PersistentMemoryRegionView
+    pub closed spec fn view(self) -> PersistentMemoryRegionView
     {
         self.pm_region@
     }
 
-    pub closed spec fn inv(&self) -> bool
+    pub closed spec fn inv(self) -> bool
     {
         self.pm_region.inv()
     }
 
-    pub closed spec fn constants(&self) -> PersistentMemoryConstants
+    pub closed spec fn constants(self) -> PersistentMemoryConstants
     {
         self.pm_region.constants()
     }
@@ -96,7 +96,6 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             self.constants() == old(self).constants(),
             self@ == old(self)@.write(addr as int, bytes@),
     {
-        let ghost pmr = self.pm_region;
         self.pm_region.write(addr, bytes);
     }
 
