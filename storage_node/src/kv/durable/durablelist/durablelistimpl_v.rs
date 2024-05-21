@@ -48,7 +48,7 @@ verus! {
         closed spec fn inv(self) -> bool;
 
         pub closed spec fn recover(
-            mems: Seq<Seq<u8>>,
+            mem: Seq<u8>,
             node_size: u64,
             op_log: Seq<OpLogEntryType>,
             list_entry_map: Map<OpLogEntryType, L>,
@@ -56,16 +56,9 @@ verus! {
             kvstore_id: u128,
         ) -> Option<DurableListView<K, L, E>>
         {
-            if mems.len() != NUM_DURABLE_LIST_REGIONS {
-                None
-            } else {
-                let list_node_region_mem = mems[0];
-
-                // TODO: check list node region header for validity? or do we do that later?
-
-                let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
-                Self::parse_all_lists(metadata_table_view, list_node_region_mem)
-            }
+            // TODO: check list node region header for validity? or do we do that later?
+            let list_nodes_mem = Self::replay_log_list_nodes(mem, node_size, op_log, list_entry_map);
+            Self::parse_all_lists(metadata_table_view, mem)
         }
 
         closed spec fn replay_log_list_nodes(
@@ -273,16 +266,15 @@ verus! {
         }
 
         pub exec fn setup<PM>(
-            pm_regions: &mut PM,
+            pm_region: &mut PM,
             list_id: u128,
             num_keys: u64,
             node_size: u32,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegion,
             requires
-                old(pm_regions).inv(),
-                old(pm_regions)@.len() == NUM_DURABLE_LIST_REGIONS,
+                old(pm_region).inv(),
                 ({
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
                     let key_size = K::spec_serialized_len();
@@ -297,8 +289,8 @@ verus! {
                 // TODO: just pass it in as a u32
                 0 < node_size <= u32::MAX
             ensures
-                pm_regions.inv(),
-                pm_regions@.no_outstanding_writes(),
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
                 // TODO
         {
             // TODO: we should generate an ID to write to both regions that will
@@ -307,33 +299,26 @@ verus! {
             // from being used together
 
             // ensure that there are no outstanding writes
-            pm_regions.flush();
+            pm_region.flush();
 
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions{ required: 1, actual: num_regions });
-            } else if num_regions >12 {
-                return Err(KvError::TooManyRegions{ required: 1, actual: num_regions });
-            }
 
             // check that the regions the caller passed in are sufficiently large
-            let node_region_size = region_sizes[0];
+            let region_size = pm_region.get_region_size();
 
             let list_element_size = L::serialized_len();
             let list_element_slot_size = list_element_size + CRC_SIZE;
 
             // region needs to fit at least one node
             let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
-            if required_node_region_size > node_region_size {
+            if required_node_region_size > region_size {
                 let required = required_node_region_size as usize;
-                let actual = node_region_size as usize;
+                let actual = region_size as usize;
                 return Err(KvError::RegionTooSmall{required, actual});
             }
 
-            let result = Self::write_setup_metadata(pm_regions, num_keys, node_size);
+            let result = Self::write_setup_metadata(pm_region, num_keys, node_size);
 
-            pm_regions.flush();
+            pm_region.flush();
 
             match result {
                 Ok(()) => Ok(()),
@@ -343,16 +328,16 @@ verus! {
 
         // TODO: refactor into smaller functions
         pub exec fn start<PM>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             record_metadata: &MetadataTableHeader,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 ({
                     let metadata_size = ListEntryMetadata::spec_serialized_len();
                     let key_size = K::spec_serialized_len();
@@ -362,39 +347,36 @@ verus! {
                     &&& list_element_slot_size <= u64::MAX
                 })
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             // We assume that the caller set up the regions with `setup`, which checks that we got the
             // correct number of regions and that they are large enough, but we check again here
             // in case they didn't.
-            let pm_regions = wrpm_regions.get_pm_regions_ref();
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions{ required: 1, actual: num_regions });
-            } else if num_regions > 1 {
-                return Err(KvError::TooManyRegions{ required: 1, actual: num_regions });
+            let pm_region = wrpm_region.get_pm_region_ref();
+            let region_size = pm_region.get_region_size();
+            if region_size < ABSOLUTE_POS_OF_LIST_REGION_NODE_START {
+                let required = ABSOLUTE_POS_OF_LIST_REGION_NODE_START as usize;
+                let actual = region_size as usize;
+                return Err(KvError::RegionTooSmall{required, actual});
             }
 
             // Read the metadata headers for both regions
-            let list_region_metadata = Self::read_list_region_header(pm_regions, list_id)?;
+            let list_region_metadata = Self::read_list_region_header(pm_region, list_id)?;
 
-            // check that the regions the caller passed in are sufficiently large
-            let node_region_size = region_sizes[0];
-
+            // check that the region the caller passed in is sufficiently large
             let list_element_size = L::serialized_len();
             let list_element_slot_size = list_element_size + CRC_SIZE;
 
             // region needs to fit at least one node
             let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + record_metadata.node_size as u64;
-            if required_node_region_size > node_region_size {
+            if required_node_region_size > region_size {
                 let required = required_node_region_size as usize;
-                let actual = node_region_size as usize;
+                let actual = region_size as usize;
                 return Err(KvError::RegionTooSmall{required, actual});
             }
 
-            let ghost mem = pm_regions@[0].committed();
+            let ghost mem = pm_region@.committed();
 
             let mut list_node_region_free_list: Vec<u64> = Vec::new();
             // this list will store in-use nodes; all nodes not in this list go in the free list
@@ -405,7 +387,7 @@ verus! {
             // construct allocator for the list node region
             // we need to use two vectors for this -- one as a stack for traversal of the lists,
             // and one to record which nodes are in use
-            let ghost mem1 = pm_regions@[0].committed();
+            let ghost mem1 = pm_region@.committed();
             while list_node_region_stack.len() != 0 {
                 assume(false);
                 let current_index = list_node_region_stack.pop().unwrap();
@@ -418,10 +400,10 @@ verus! {
                 let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
                 let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
                 let ptr_serialized_len = u64::serialized_len();
-                let next_pointer: &u64 = pm_regions.read_and_deserialize(1, ptr_addr);
-                let node_header_crc: &u64 = pm_regions.read_and_deserialize(1, crc_addr);
+                let next_pointer: &u64 = pm_region.read_and_deserialize(ptr_addr);
+                let node_header_crc: &u64 = pm_region.read_and_deserialize(crc_addr);
                 if !check_crc_deserialized(next_pointer, node_header_crc, Ghost(mem1),
-                        Ghost(pm_regions.constants().impervious_to_corruption),
+                        Ghost(pm_region.constants().impervious_to_corruption),
                         Ghost(ptr_addr),
                         Ghost(ptr_serialized_len),
                         Ghost(crc_addr)
@@ -472,17 +454,17 @@ verus! {
         // allocated node.
         pub exec fn alloc_and_init_list_node<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<u64, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -497,13 +479,13 @@ verus! {
             // 2. set its next pointer. Since we only allocate nodes to append to the tail of 
             // the list, we'll set its next pointer to itself
             let next_ptr_addr = new_node_addr + RELATIVE_POS_OF_NEXT_POINTER;
-            wrpm_regions.serialize_and_write(0, next_ptr_addr, &new_node_idx, Tracked(perm));
+            wrpm_region.serialize_and_write(next_ptr_addr, &new_node_idx, Tracked(perm));
 
             // 3. set its crc
             let crc_addr = new_node_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
             let crc = calculate_crc(&new_node_idx);
 
-            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
 
             Ok(new_node_idx)
         }
@@ -516,20 +498,20 @@ verus! {
         // 2. The update to the tail node pointer in the list metadata
         pub exec fn append_list_node<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             new_tail: u64,
             old_tail: u64,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
                 // the new tail should be initialized but not currently in use
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -539,12 +521,12 @@ verus! {
 
             // 2. update the old tail node's next pointer to point to the new tail
             let next_ptr_addr = old_tail_addr + RELATIVE_POS_OF_NEXT_POINTER;
-            wrpm_regions.serialize_and_write(0, next_ptr_addr, &new_tail, Tracked(perm));
+            wrpm_region.serialize_and_write(next_ptr_addr, &new_tail, Tracked(perm));
 
             // 3. set its crc
             let crc_addr = old_tail_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
             let crc = calculate_crc(&new_tail);
-            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
 
             Ok(())
         }
@@ -558,7 +540,7 @@ verus! {
         // 2. The list length update
         pub exec fn append_element<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             tail_node: u64,
             idx: u64,
@@ -566,13 +548,13 @@ verus! {
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO: require that the tail node has at least one free slot
                 // TODO
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -595,8 +577,8 @@ verus! {
             let crc = calculate_crc(list_element);
 
             // 4. write the new list element and its CRC
-            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, element_addr, list_element, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
 
             Ok(())
         }
@@ -606,7 +588,7 @@ verus! {
         // 1. The new list element
         pub exec fn update_element<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             node_idx: u64,
             element_idx: u64,
@@ -614,13 +596,13 @@ verus! {
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO: require that the index is live
                 // TODO
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             assume(false);
@@ -643,8 +625,8 @@ verus! {
             let crc = calculate_crc(list_element);
 
             // 4. write the new list element and its CRC
-            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, element_addr, list_element, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
 
             Ok(())
         }
@@ -670,40 +652,39 @@ verus! {
 
         // TODO: maybe change Serializable to return a u32 as the serialized len; can always cast up if necessary
         pub fn write_setup_metadata<PM>(
-            pm_regions: &mut PM,
+            pm_region: &mut PM,
             num_keys: u64,
             node_size: u32,
         ) -> (result: Result<(), KvError<K,E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(pm_regions).inv(),
-                old(pm_regions)@.no_outstanding_writes(),
-                old(pm_regions)@.len() == 1,
+                old(pm_region).inv(),
+                old(pm_region)@.no_outstanding_writes(),
                 L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
                 // the second region is large enough for at least one node
-                old(pm_regions)@[0].len() >= ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size,
+                old(pm_region)@.len() >= ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size,
                 0 < node_size <= u32::MAX,
             ensures
-                pm_regions.inv(),
+                pm_region.inv(),
                 // TODO
         {
             assume(false);
             // Handle list node region
             // Initialize list region header and compute its CRC
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_nodes = (region_sizes[0] - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size as u64;
+            let region_size = pm_region.get_region_size();
+            let num_nodes = (region_size - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_size as u64;
             let list_node_region_header = ListRegionHeader {
                 num_nodes,
-                length: region_sizes[0],
+                length: region_size,
                 version_number: DURABLE_LIST_REGION_VERSION_NUMBER,
                 _padding0: 0,
                 program_guid: DURABLE_LIST_REGION_PROGRAM_GUID
             };
             let list_node_region_header_crc = calculate_crc(&list_node_region_header);
 
-            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LIST_REGION_HEADER, &list_node_region_header);
-            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC, &list_node_region_header_crc);
+            pm_region.serialize_and_write(ABSOLUTE_POS_OF_LIST_REGION_HEADER, &list_node_region_header);
+            pm_region.serialize_and_write(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC, &list_node_region_header_crc);
 
             // we don't need to do any further setup here; we only count nodes as in-use if they are
             // reachable within a list, so its fine if they contain garbage while theyre not in use
@@ -711,11 +692,11 @@ verus! {
             return Ok(());
         }
 
-        fn read_list_region_header<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&ListRegionHeader, KvError<K,E>>)
+        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<&ListRegionHeader, KvError<K,E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegion,
             requires
-                pm_regions.inv(),
+                pm_region.inv(),
             ensures
                 match result {
                     Ok(output_header) => {
@@ -727,14 +708,14 @@ verus! {
         {
             assume(false);
 
-            let ghost mem = pm_regions@[1].committed();
+            let ghost mem = pm_region@.committed();
 
             // Read the list region header and its CRC and check for corruption
-            let region_header: &ListRegionHeader = pm_regions.read_and_deserialize(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER);
-            let region_header_crc = pm_regions.read_and_deserialize(1, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC);
+            let region_header: &ListRegionHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER);
+            let region_header_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC);
 
             if !check_crc_deserialized(region_header, region_header_crc, Ghost(mem),
-                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER), Ghost(LENGTH_OF_LIST_REGION_HEADER),
                     Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC))
             {

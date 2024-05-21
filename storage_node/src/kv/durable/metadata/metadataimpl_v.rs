@@ -12,7 +12,7 @@ use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegions;
+use crate::pmem::wrpm_t::*;
 use crate::pmem::crc_t::*;
 
 verus! {
@@ -33,54 +33,48 @@ verus! {
         }
 
         pub closed spec fn recover<L>(
-            mems: Seq<Seq<u8>>,
+            mem: Seq<u8>,
             node_size: u64,
             op_log: Seq<OpLogEntryType>,
             list_entry_map: Map<OpLogEntryType, L>,
             kvstore_id: u128,
         ) -> Option<MetadataTableView<K>>
         {
-            if mems.len() != 1 {
+            if mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
+                // Invalid if the metadata table sequence is not large enough
+                // to store the metadata header. It actually needs to be big
+                // enough to store an entry for every key, but we don't know
+                // the number of keys yet.
                 None
             } else {
-                let metadata_table_mem = mems[0];
-                // let list_node_region_mem = mems[1];
-                if metadata_table_mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
-                    // Invalid if the metadata table sequence is not large enough
-                    // to store the metadata header. It actually needs to be big
-                    // enough to store an entry for every key, but we don't know
-                    // the number of keys yet.
+                // the metadata header is immutable, so we can check that is valid before doing 
+                // any log replay
+                let metadata_header_bytes = mem.subrange(
+                    ABSOLUTE_POS_OF_METADATA_HEADER as int,
+                    ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                );
+                let crc_bytes = mem.subrange(
+                    ABSOLUTE_POS_OF_HEADER_CRC as int,
+                    ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
+                );
+                let metadata_header = MetadataTableHeader::spec_deserialize(metadata_header_bytes);
+                let crc = u64::spec_deserialize(crc_bytes);
+                if crc != metadata_header.spec_crc() {
+                    // The list is invalid if the stored CRC does not match the contents
+                    // of the metadata header
                     None
                 } else {
-                    // the metadata header is immutable, so we can check that is valid before doing 
-                    // any log replay
-                    let metadata_header_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-                    );
-                    let crc_bytes = metadata_table_mem.subrange(
-                        ABSOLUTE_POS_OF_HEADER_CRC as int,
-                        ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
-                    );
-                    let metadata_header = MetadataTableHeader::spec_deserialize(metadata_header_bytes);
-                    let crc = u64::spec_deserialize(crc_bytes);
-                    if crc != metadata_header.spec_crc() {
-                        // The list is invalid if the stored CRC does not match the contents
-                        // of the metadata header
-                        None
-                    } else {
-                        // replay the log on the metadata table and the list region, then parse them into a list view
-                        let metadata_table_mem = Self::replay_log_metadata_table(metadata_table_mem, op_log);
-                        // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
+                    // replay the log on the metadata table and the list region, then parse them into a list view
+                    let mem = Self::replay_log_metadata_table(mem, op_log);
+                    // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
 
-                        // parse the item table into a mapping index->entry so that we can use it to 
-                        // construct each list.
-                        // TODO: IGNORE INVALID ENTRIES
-                        let metadata_table = parse_metadata_table(metadata_header, metadata_table_mem);
-                        match metadata_table {
-                            Some(metadata_table) => Some(MetadataTableView::new(metadata_header, metadata_table)),
-                            None => None
-                        }
+                    // parse the item table into a mapping index->entry so that we can use it to 
+                    // construct each list.
+                    // TODO: IGNORE INVALID ENTRIES
+                    let metadata_table = parse_metadata_table(metadata_header, mem);
+                    match metadata_table {
+                        Some(metadata_table) => Some(MetadataTableView::new(metadata_header, metadata_table)),
+                        None => None
                     }
                 }
             }
@@ -277,16 +271,16 @@ verus! {
 
         // this uses the old PM approach but we will switch over to the new lens approach at some point
         pub exec fn setup<PM>(
-            pm_regions: &mut PM,
+            pm_region: &mut PM,
             table_id: u128,
             num_keys: u64,
             list_element_size: u32,
             node_size: u32,
         ) -> (result: Result<(), KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(pm_regions).inv(),
+                old(pm_region).inv(),
                 ({
                     let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
                     &&& entry_slot_size <= u64::MAX
@@ -295,22 +289,14 @@ verus! {
                 list_element_size + CRC_SIZE <= u32::MAX,
                 // TODO 
             ensures 
-                pm_regions.inv(),
+                pm_region.inv(),
                 // TODO
         {
             // ensure that there are no outstanding writes
-            pm_regions.flush();
-
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions{ required: 1, actual: num_regions });
-            } else if num_regions > 1 {
-                return Err(KvError::TooManyRegions{ required: 1, actual: num_regions });
-            }
+            pm_region.flush();
 
             // check that the regions the caller passed in are sufficiently large
-            let region_size = region_sizes[0];
+            let region_size = pm_region.get_region_size();
             let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::serialized_len();
             let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + num_keys * entry_slot_size;
             if required_region_size > region_size {
@@ -319,69 +305,64 @@ verus! {
 
             let full_list_element_size = list_element_size + CRC_SIZE as u32; 
 
-            Self::write_setup_metadata(pm_regions, num_keys, full_list_element_size, node_size);
+            Self::write_setup_metadata(pm_region, num_keys, full_list_element_size, node_size);
 
             // invalidate all of the entries
             for index in 0..num_keys 
                 invariant
-                    pm_regions.inv(),
+                    pm_region.inv(),
             {
                 assume(false);
                 let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
-                pm_regions.serialize_and_write(0, entry_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
+                pm_region.serialize_and_write(entry_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
             }
 
-            pm_regions.flush();
+            pm_region.flush();
 
             Ok(())
         }
 
         pub exec fn start<PM>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
         ) -> (result: Result<Self, KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
 
             // 1. ensure that there are no outstanding writes
-            wrpm_regions.flush();
+            wrpm_region.flush();
 
-            let pm_regions = wrpm_regions.get_pm_regions_ref();
-            let ghost mem = pm_regions@[0].committed();
+            let pm_region = wrpm_region.get_pm_region_ref();
+            let ghost mem = pm_region@.committed();
 
-            // 2. check that the caller passed in a valid region. we do this in setup, but we check again here in case
-            // the caller didn't also call setup
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions{ required: 1, actual: num_regions });
-            } else if num_regions > 1 {
-                return Err(KvError::TooManyRegions{ required: 1, actual: num_regions });
+            // 2. check that the caller passed in a region that is large enough to store the metadata table header
+            // we will check that it fits the number of entries we want below
+            let region_size = pm_region.get_region_size();
+            if region_size < ABSOLUTE_POS_OF_METADATA_TABLE {
+                return Err(KvError::RegionTooSmall{ required: ABSOLUTE_POS_OF_METADATA_TABLE as usize, actual: region_size as usize });
             }
 
             // 3. read and check the header 
-            let header = Self::read_header(pm_regions, table_id)?;
+            let header = Self::read_header(pm_region, table_id)?;
 
             // finish validity checks -- check that the regions the caller passed in are sufficiently large
             // we can't do this until after reading the header since it depends on the number of keys we expect
             // to be able to store
-            let region_size = region_sizes[0];
             let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::serialized_len();
             let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + header.num_keys * entry_slot_size;
             if required_region_size > region_size {
                 return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
             }
-
 
             // 4. read valid bytes and construct the allocator 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
@@ -391,8 +372,8 @@ verus! {
                 assume(false);
                 let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
                 let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                let cdb = pm_regions.read_and_deserialize(0, cdb_addr);
-                match check_cdb(&cdb, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption), Ghost(cdb_addr)) {
+                let cdb = pm_region.read_and_deserialize(cdb_addr);
+                match check_cdb(&cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addr)) {
                     Some(false) => metadata_allocator.push(index),
                     Some(true) => {},
                     None => return Err(KvError::CRCMismatch),
@@ -410,7 +391,7 @@ verus! {
         // then flip the CDB once the log has been committed
         pub exec fn tentative_create<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             list_node_index: u64,
             item_table_index: u64,
@@ -418,12 +399,12 @@ verus! {
             Tracked(perm): Tracked<&TrustedMetadataPermission>
         ) -> (result: Result<u64, KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -451,9 +432,9 @@ verus! {
             let entry_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA;
             let key_addr = slot_addr + RELATIVE_POS_OF_ENTRY_KEY;
 
-            wrpm_regions.serialize_and_write(0, crc_addr, &crc, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, entry_addr, &entry, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, key_addr, key, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(entry_addr, &entry, Tracked(perm));
+            wrpm_region.serialize_and_write(key_addr, key, Tracked(perm));
 
             Ok(free_index)
         }
@@ -462,18 +443,18 @@ verus! {
         // Must log the commit operation before calling this function.
         pub exec fn commit_entry<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             index: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
         ) -> (result: Result<(), KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -482,25 +463,25 @@ verus! {
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
-            wrpm_regions.serialize_and_write(0, cdb_addr, &CDB_TRUE, Tracked(perm));
+            wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
 
             Ok(())
         }
 
         pub exec fn invalidate_entry<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             index: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
         ) -> (result: Result<(), KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -509,7 +490,7 @@ verus! {
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
-            wrpm_regions.serialize_and_write(0, cdb_addr, &CDB_FALSE, Tracked(perm));
+            wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
 
             Ok(())
         }
@@ -518,7 +499,7 @@ verus! {
         // themselves or by reading it from a log entry).
         pub exec fn update_list_len<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             index: u64,
             new_length: u64,
@@ -526,12 +507,12 @@ verus! {
             Tracked(perm): Tracked<&TrustedMetadataPermission>
         ) -> (result: Result<(), KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -541,15 +522,15 @@ verus! {
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
 
-            wrpm_regions.serialize_and_write(0, crc_addr, &metadata_crc, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, len_addr, &new_length, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &metadata_crc, Tracked(perm));
+            wrpm_region.serialize_and_write(len_addr, &new_length, Tracked(perm));
 
             Ok(())
         }
 
         pub exec fn trim_list<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMetadataPermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
             index: u64,
             new_head: u64,
@@ -559,12 +540,12 @@ verus! {
             Tracked(perm): Tracked<&TrustedMetadataPermission>
         ) -> (result: Result<(), KvError<K, E>>) 
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO
             ensures 
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -576,28 +557,28 @@ verus! {
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
             let start_index_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET;
 
-            wrpm_regions.serialize_and_write(0, crc_addr, &metadata_crc, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, head_addr, &new_head, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, len_addr, &new_len, Tracked(perm));
-            wrpm_regions.serialize_and_write(0, start_index_addr, &new_list_start_index, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &metadata_crc, Tracked(perm));
+            wrpm_region.serialize_and_write(head_addr, &new_head, Tracked(perm));
+            wrpm_region.serialize_and_write(len_addr, &new_len, Tracked(perm));
+            wrpm_region.serialize_and_write(start_index_addr, &new_list_start_index, Tracked(perm));
 
             Ok(())
         }
 
         exec fn write_setup_metadata<PM>(
-            pm_regions: &mut PM, 
+            pm_region: &mut PM, 
             num_keys: u64, 
             list_element_size: u32, 
             list_node_size: u32,
         )
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                old(pm_regions).inv(),
+                old(pm_region).inv(),
                 // TODO
                 // region is large enough
             ensures 
-                pm_regions.inv(),
+                pm_region.inv(),
                 // TODO
         {
             assume(false);
@@ -613,32 +594,32 @@ verus! {
             };
             let header_crc = calculate_crc(&header);
 
-            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_METADATA_HEADER, &header);
-            pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_HEADER_CRC, &header_crc);
+            pm_region.serialize_and_write( ABSOLUTE_POS_OF_METADATA_HEADER, &header);
+            pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &header_crc);
         }
 
         exec fn read_header<PM>(
-            pm_regions: &PM,
+            pm_region: &PM,
             table_id: u128
         ) -> (result: Result<&MetadataTableHeader, KvError<K, E>>)
             where 
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires 
-                pm_regions.inv(),
+                pm_region.inv(),
                 // TODO
             ensures 
                 // TODO
         {
             assume(false);
 
-            let ghost mem = pm_regions@[0].committed();
+            let ghost mem = pm_region@.committed();
 
-            let header: &MetadataTableHeader = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
-            let header_crc: &u64 = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
+            let header: &MetadataTableHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
+            let header_crc: &u64 = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
 
             // check the CRC
             if !check_crc_deserialized(header, header_crc, Ghost(mem),
-                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
                     Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
                 return Err(KvError::CRCMismatch);

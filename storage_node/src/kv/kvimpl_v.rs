@@ -34,7 +34,7 @@ verus! {
 #[verifier::reject_recursive_types(K)]
 pub struct UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
-    PM: PersistentMemoryRegions,
+    PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
     I: Serializable + Item<K> + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
@@ -50,7 +50,7 @@ where
 
 impl<PM, K, I, L, V, E> UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
-    PM: PersistentMemoryRegions,
+    PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,

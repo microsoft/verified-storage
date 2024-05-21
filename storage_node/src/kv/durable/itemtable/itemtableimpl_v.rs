@@ -27,23 +27,23 @@ verus! {
         state: Ghost<DurableItemTableView<I, K, E>>,
     }
 
-    // TODO: make a PR to Verus
-    #[verifier::opaque]
-    pub open spec fn filter_map<A, B>(seq: Seq<A>, pred: spec_fn(A) -> Option<B>) -> Seq<B>
-        decreases seq.len()
-    {
-        if seq.len() == 0 {
-            Seq::<B>::empty()
-        } else {
-            let subseq = filter_map(seq.drop_last(), pred);
-            let last = pred(seq.last());
-            if let Some(last) = last {
-                subseq.push(last)
-            } else {
-                subseq
-            }
-        }
-    }
+    // // TODO: make a PR to Verus
+    // #[verifier::opaque]
+    // pub open spec fn filter_map<A, B>(seq: Seq<A>, pred: spec_fn(A) -> Option<B>) -> Seq<B>
+    //     decreases seq.len()
+    // {
+    //     if seq.len() == 0 {
+    //         Seq::<B>::empty()
+    //     } else {
+    //         let subseq = filter_map(seq.drop_last(), pred);
+    //         let last = pred(seq.last());
+    //         if let Some(last) = last {
+    //             subseq.push(last)
+    //         } else {
+    //             subseq
+    //         }
+    //     }
+    // }
 
     impl<K, I, E> DurableItemTable<K, I, E>
         where
@@ -72,45 +72,40 @@ verus! {
         }
 
         pub closed spec fn recover(
-            mems: Seq<Seq<u8>>, // TODO: only use Seq<u8> once we have support for that
+            mem: Seq<u8>,
             op_log: Seq<OpLogEntryType>,
             kvstore_id: u128
         ) -> Option<DurableItemTableView<I, K, E>>
         {
-            // The item table only uses one region
-            if mems.len() != 1 {
+            if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
+                // If the memory is not large enough to store the metadata header,
+                // it is not valid
                 None
-            } else {
-                let mem = mems[0];
-                if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
-                    // If the memory is not large enough to store the metadata header,
-                    // it is not valid
+            }
+            else {
+                // the metadata header is immutable, so we can check that it is valid before 
+                // doing any log replay
+                let metadata_header_bytes = mem.subrange(
+                    ABSOLUTE_POS_OF_METADATA_HEADER as int,
+                    ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                );
+                let crc_bytes = mem.subrange(
+                    ABSOLUTE_POS_OF_HEADER_CRC as int,
+                    ABSOLUTE_POS_OF_HEADER_CRC + 8
+                );
+                let metadata_header = ItemTableMetadata::spec_deserialize(metadata_header_bytes);
+                let crc = u64::spec_deserialize(crc_bytes);
+                if crc != metadata_header.spec_crc() {
+                    // The header is invalid if the stored CRC does not match the contents
+                    // of the metadata header
                     None
-                }
-                else {
-                    // the metadata header is immutable, so we can check that it is valid before 
-                    // doing any log replay
-                    let metadata_header_bytes = mem.subrange(
-                        ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                        ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
-                    );
-                    let crc_bytes = mem.subrange(
-                        ABSOLUTE_POS_OF_HEADER_CRC as int,
-                        ABSOLUTE_POS_OF_HEADER_CRC + 8
-                    );
-                    let metadata_header = ItemTableMetadata::spec_deserialize(metadata_header_bytes);
-                    let crc = u64::spec_deserialize(crc_bytes);
-                    if crc != metadata_header.spec_crc() {
-                        // The header is invalid if the stored CRC does not match the contents
-                        // of the metadata header
-                        None
-                    } else {
-                        // replay the log on `mem`, then parse it into (hopefully) a valid item table view
-                        let mem = Self::replay_log_item_table(mem, op_log);
-                        parse_item_table(metadata_header, mem)
-                    }
+                } else {
+                    // replay the log on `mem`, then parse it into (hopefully) a valid item table view
+                    let mem = Self::replay_log_item_table(mem, op_log);
+                    parse_item_table(metadata_header, mem)
                 }
             }
+
         }
 
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
@@ -162,15 +157,14 @@ verus! {
         closed spec fn inv(self) -> bool;
 
         pub exec fn setup<PM>(
-            pm_regions: &mut PM,
+            pm_region: &mut PM,
             item_table_id: u128,
             num_keys: u64,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(pm_regions).inv(),
-                old(pm_regions)@.len() == 1,
+                old(pm_region).inv(),
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
                 ({
                     let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
@@ -179,36 +173,26 @@ verus! {
                     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
                 })
             ensures
-                pm_regions.inv(),
-                pm_regions@.no_outstanding_writes(),
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
                 // TODO: write the rest of the postconditions
         {
             let item_size = I::serialized_len();
 
             // ensure that there are no outstanding writes
-            pm_regions.flush();
+            pm_region.flush();
 
-            // check that the caller only passsed in one region
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions {required: 1, actual: num_regions});
-            } else if num_regions > 1 {
-                return Err(KvError::TooManyRegions {required: 1, actual: num_regions});
-            }
-
-            let table_region_size = region_sizes[0];
+            let table_region_size = pm_region.get_region_size();
             // determine if the provided region is large enough for the
             // specified number of items
             let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
-                let actual: usize = region_sizes[0] as usize;
-                return Err(KvError::RegionTooSmall {required, actual});
+                return Err(KvError::RegionTooSmall {required, actual: table_region_size as usize});
             }
 
             assume(false);
-            Self::write_setup_metadata(pm_regions, num_keys);
+            Self::write_setup_metadata(pm_region, num_keys);
 
             // we also have to set all of the valid bits of the item table slots
             // to 0 so they are not accidentally interpreted as being in use
@@ -221,24 +205,24 @@ verus! {
             {
                 assume(false);
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
-                pm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
+                pm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
             }
-            pm_regions.flush();
+            pm_region.flush();
 
             Ok(())
         }
 
         // TODO: this function doesn't do anything with state right now
         pub exec fn start<PM>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
             Ghost(state): Ghost<DurableItemTableView<I, K, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
                 ({
                     let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
@@ -247,42 +231,35 @@ verus! {
                 })
                 // TODO: recovery and permissions checks
             ensures
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO: write the rest of the postconditions
         {
             let item_size = I::serialized_len();
 
             // ensure that there are no outstanding writes
-            wrpm_regions.flush();
+            wrpm_region.flush();
 
             // check that the caller passed in one valid region. We assume that the caller has
             // set up the region with `setup`, which does these same checks, but we check here
             // again anyway in case they didn't.
-            let pm_regions = wrpm_regions.get_pm_regions_ref();
-            let ghost mem = pm_regions@[0].committed();
-            let region_sizes = get_region_sizes(pm_regions);
-            let num_regions = region_sizes.len();
-            if num_regions < 1 {
-                return Err(KvError::TooFewRegions {required: 1, actual: num_regions});
-            } else if num_regions > 1 {
-                return Err(KvError::TooManyRegions {required: 1, actual: num_regions});
+            let pm_region = wrpm_region.get_pm_region_ref();
+            let ghost mem = pm_region@.committed();
+            let table_region_size = pm_region.get_region_size();
+            if table_region_size < ABSOLUTE_POS_OF_TABLE_AREA {
+                return Err(KvError::RegionTooSmall {required: ABSOLUTE_POS_OF_TABLE_AREA as usize, actual: table_region_size as usize});
             }
-            // TODO: check that the region is large enough to store the table metadata before
-            // we attempt to read it
 
             // read and check the header metadata
-            let table_metadata = Self::read_table_metadata(pm_regions, item_table_id)?;
+            let table_metadata = Self::read_table_metadata(pm_region, item_table_id)?;
 
 
             let num_keys = table_metadata.num_keys;
-            let table_region_size = region_sizes[0];
             // determine if the provided region is large enough for the
             // specified number of items
             let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
-                let actual: usize = region_sizes[0] as usize;
-                return Err(KvError::RegionTooSmall {required, actual});
+                return Err(KvError::RegionTooSmall {required, actual: table_region_size as usize});
             }
 
             assume(false);
@@ -294,9 +271,9 @@ verus! {
                 assume(false);
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
                 let cdb_addr = item_slot_offset + RELATIVE_POS_OF_VALID_CDB;
-                let val: &u64 = pm_regions.read_and_deserialize(0, cdb_addr);
+                let val: &u64 = pm_region.read_and_deserialize(cdb_addr);
                 match check_cdb(&val, Ghost(mem),
-                            Ghost(pm_regions.constants().impervious_to_corruption),
+                            Ghost(pm_region.constants().impervious_to_corruption),
                             Ghost(cdb_addr)) {
                     Some(false) => item_table_allocator.push(index),
                     Some(true) => {}
@@ -319,15 +296,15 @@ verus! {
         // returns the index of the slot that the item was written to
         pub exec fn tentatively_write_item<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             item: &I,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
         ) -> (result: Result<u64, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 forall |i: int|  0 <= i < old(self).spec_free_list().len() ==>
                     0 <= #[trigger] old(self).spec_free_list()[i] < old(self).spec_num_keys(),
                 ({
@@ -339,7 +316,7 @@ verus! {
                 })
                 // TODO
             ensures
-                wrpm_regions.inv()
+                wrpm_region.inv()
                 // TODO
         {
             // pop a free index from the free list
@@ -354,9 +331,9 @@ verus! {
 
             // calculate and write the CRC of the provided item
             let crc = calculate_crc(item);
-            wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_ITEM_CRC, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_ITEM_CRC, &crc, Tracked(perm));
             // write the item itself
-            wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_ITEM, item, Tracked(perm));
+            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_ITEM, item, Tracked(perm));
 
             Ok(free_index)
         }
@@ -365,15 +342,15 @@ verus! {
         // must log the operation before calling this function
         pub exec fn commit_item<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             item_table_index: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 ({
                     let item_slot_size = old(self).spec_item_size() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
@@ -383,13 +360,13 @@ verus! {
                 })
                 // TODO: item update must have been logged
             ensures
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
             let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
-            wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
+            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
             Ok(())
         }
 
@@ -397,42 +374,42 @@ verus! {
         // deallocate it
         pub exec fn invalidate_item<PM>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             item_table_index: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions,
+                PM: PersistentMemoryRegion,
             requires
-                old(wrpm_regions).inv(),
+                old(wrpm_region).inv(),
                 // TODO: item invalidation must have been logged
             ensures
-                wrpm_regions.inv(),
+                wrpm_region.inv(),
                 // TODO
         {
             assume(false);
             let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
-            wrpm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE, Tracked(perm));
+            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE, Tracked(perm));
             Ok(())
         }
 
-        pub fn write_setup_metadata<PM>(pm_regions: &mut PM, num_keys: u64)
+        pub fn write_setup_metadata<PM>(pm_region: &mut PM, num_keys: u64)
         where
-            PM: PersistentMemoryRegions,
+            PM: PersistentMemoryRegion,
         requires
-            old(pm_regions).inv(),
-            old(pm_regions)@.len() == 1,
-            old(pm_regions)@.no_outstanding_writes(),
+            old(pm_region).inv(),
+            old(pm_region)@.len() == 1,
+            old(pm_region)@.no_outstanding_writes(),
             ({
                 let item_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                 let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
-                old(pm_regions)@[0].len() >= metadata_header_size + (item_size * num_keys)
+                old(pm_region)@.len() >= metadata_header_size + (item_size * num_keys)
             })
             // TODO: precondition that the region is large enough
         ensures
-            pm_regions.inv(),
+            pm_region.inv(),
             // TODO: postcondition that the table is set up correctly
     {
         // Initialize metadata header and compute its CRC
@@ -449,15 +426,15 @@ verus! {
             ItemTableMetadata::lemma_auto_serialized_len();
         }
 
-        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_header);
-        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
+        pm_region.serialize_and_write(ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_header);
+        pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
     }
 
-    pub fn read_table_metadata<PM>(pm_regions: &PM, table_id: u128) -> (result: Result<&ItemTableMetadata, KvError<K, E>>)
+    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<&ItemTableMetadata, KvError<K, E>>)
         where
-            PM: PersistentMemoryRegions
+            PM: PersistentMemoryRegion,
         requires
-            pm_regions.inv()
+            pm_region.inv()
             // TODO: finish writing preconditions
         ensures
             match result {
@@ -477,14 +454,14 @@ verus! {
         {
             assume(false);
 
-            let ghost mem = pm_regions@[0].committed();
+            let ghost mem = pm_region@.committed();
 
             // read in the metadata structure and its CRC, make sure it has not been corrupted
-            let table_metadata: &ItemTableMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
-            let table_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
+            let table_metadata: &ItemTableMetadata = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
+            let table_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
 
             if !check_crc_deserialized(table_metadata, table_crc, Ghost(mem),
-                    Ghost(pm_regions.constants().impervious_to_corruption),
+                    Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
                     Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
                 return Err(KvError::CRCMismatch);

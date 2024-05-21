@@ -27,7 +27,7 @@ verus! {
     // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
     pub struct TrustedKvPermission<PM, K, I, L, E>
         where
-            PM: PersistentMemoryRegions,
+            PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
@@ -39,7 +39,7 @@ verus! {
 
     impl<PM, K, I, L, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, E>
         where
-            PM: PersistentMemoryRegions,
+            PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
@@ -53,7 +53,7 @@ verus! {
 
     impl<PM, K, I, L, E> TrustedKvPermission<PM, K, I, L, E>
         where
-            PM: PersistentMemoryRegions,
+            PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
             I: Serializable + Item<K> + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,

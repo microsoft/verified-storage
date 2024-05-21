@@ -16,8 +16,8 @@ use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
-use crate::multilog::multilogimpl_t::*;
-use crate::multilog::multilogimpl_v::*;
+use crate::log::logimpl_v::*;
+use crate::log::logimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 
@@ -28,7 +28,7 @@ verus! {
     #[verifier::reject_recursive_types(K)]
     pub struct DurableKvStore<PM, K, I, L, E>
     where
-        PM: PersistentMemoryRegions,
+        PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
         I: Serializable + Item<K> + Sized + std::fmt::Debug,
         L: Serializable + std::fmt::Debug,
@@ -36,15 +36,15 @@ verus! {
     {
         item_table: DurableItemTable<K, I, E>,
         durable_list: DurableList<K, L, E>,
-        log: UntrustedMultiLogImpl,
-        table_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedItemTablePermission, PM>,
-        list_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
-        log_wrpm: WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PM>,
+        log: UntrustedLogImpl,
+        table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
+        list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
     }
 
     impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E>
         where
-            PM: PersistentMemoryRegions,
+            PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
             I: Serializable + Item<K> + Sized + std::fmt::Debug,
             L: Serializable + std::fmt::Debug,
@@ -139,13 +139,13 @@ verus! {
         // }
 
         // pub fn start(
-        //     wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedKvPermission<PM, K, I, L, E>, PM>,
+        //     wrpm_regions: &mut WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM, K, I, L, E>, PM>,
         //     kvstore_id: u128,
         //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
         //     Ghost(state): Ghost<DurableKvStoreView<K, I, L, E>>
         // ) -> (result: Result<Self, KvError<K, E>>)
         //     where
-        //         PM: PersistentMemoryRegions
+        //         PM: PersistentMemoryRegion
         //     requires
         //         old(wrpm_regions).inv(),
         //         // TODO

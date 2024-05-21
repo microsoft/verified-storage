@@ -9,7 +9,7 @@
 //! Note that the design of this component is different from the original
 //! verified log in that the untrusted implementation, rather than
 //! the trusted implementation in this file, owns the
-//! WriteRestrictedPersistentMemoryRegions backing the structures.
+//! WriteRestrictedPersistentMemoryRegion backing the structures.
 //! This makes the interface to the untrusted component simpler and
 //! will make it easier to distinguish between regions owned by
 //! different components.
@@ -81,11 +81,10 @@ pub trait Item<K> : Sized {
 #[verifier::reject_recursive_types(K)]
 pub struct KvStore<PM, K, I, L, V, E>
 where
-    PM: PersistentMemoryRegions,
+    PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    // D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -101,11 +100,10 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 
 impl<PM, K, I, L, V, E> KvStore<PM, K, I, L, V, E>
 where
-    PM: PersistentMemoryRegions,
+    PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
     L: Serializable + std::fmt::Debug,
-    // D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -163,23 +161,23 @@ where
     //     UntrustedKvStoreImpl::<PM, K, I, L, V, E>::untrusted_setup(pmem, kvstore_id, num_keys, node_size)
     // }
 
-    fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K, E>>)
-        requires
-            pmem.inv(),
-        ensures
-            match result {
-                Ok(restored_kv) => {
-                    let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, V, E>::recover(pmem@.committed(), kvstore_id);
-                    match restored_state {
-                        Some(restored_state) => restored_kv@ == restored_state,
-                        None => false
-                    }
-                }
-                Err(_) => true // TODO
-            }
-    {
-        Err(KvError::NotImplemented)
-    }
+    // fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K, E>>)
+    //     requires
+    //         pmem.inv(),
+    //     ensures
+    //         match result {
+    //             Ok(restored_kv) => {
+    //                 let restored_state = UntrustedKvStoreImpl::<PM, K, I, L, V, E>::recover(pmem@.committed(), kvstore_id);
+    //                 match restored_state {
+    //                     Some(restored_state) => restored_kv@ == restored_state,
+    //                     None => false
+    //                 }
+    //             }
+    //             Err(_) => true // TODO
+    //         }
+    // {
+    //     Err(KvError::NotImplemented)
+    // }
 
     fn create(&mut self, key: &K, item: I) -> (result: Result<(), KvError<K, E>>)
         requires
