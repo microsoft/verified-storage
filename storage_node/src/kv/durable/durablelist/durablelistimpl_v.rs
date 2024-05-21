@@ -161,7 +161,7 @@ verus! {
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
         closed spec fn parse_each_list(
-            metadata_header: GlobalListMetadata,
+            metadata_header: MetadataTableHeader,
             metadata_entries: Seq<MetadataTableViewEntry<K>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
@@ -191,7 +191,7 @@ verus! {
         }
 
         closed spec fn parse_list(
-            metadata_header: GlobalListMetadata, 
+            metadata_header: MetadataTableHeader, 
             entry: MetadataTableViewEntry<K>, 
             mem: Seq<u8>
         ) -> Option<Seq<DurableListElementView<L>>>
@@ -204,7 +204,7 @@ verus! {
         }
 
         closed spec fn parse_list_helper(
-            metadata_header: GlobalListMetadata,
+            metadata_header: MetadataTableHeader,
             cur_node_index: u64,
             list_len_remaining: int,
             current_list: Seq<DurableListElementView<L>>,
@@ -345,7 +345,7 @@ verus! {
         pub exec fn start<PM>(
             wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedListPermission, PM>,
             list_id: u128,
-            record_metadata: &GlobalListMetadata,
+            record_metadata: &MetadataTableHeader,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)

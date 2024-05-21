@@ -26,7 +26,7 @@ verus! {
 
     // The current version number, and the only one whose contents
     // this program can read, is the following:
-    pub const LIST_METADATA_VERSION_NUMBER: u64 = 1;
+    pub const METADATA_TABLE_VERSION_NUMBER: u64 = 1;
 
     // This GUID was generated randomly and is meant to describe the
     // durable list program, even if it has future versions.
@@ -35,7 +35,7 @@ verus! {
     // TODO: we use node size in some places and elements per node in others
     // should probably standardize this
     #[repr(C)]
-    pub struct GlobalListMetadata
+    pub struct MetadataTableHeader
     {
         pub element_size: u32, // NOTE: this includes the CRC of each element
         pub node_size: u32,
@@ -46,7 +46,7 @@ verus! {
     }
 
     // TODO: should this be trusted?
-    impl Serializable for GlobalListMetadata
+    impl Serializable for MetadataTableHeader
     {
         closed spec fn spec_serialize(self) -> Seq<u8>
         {
@@ -239,7 +239,7 @@ verus! {
         }
     }
 
-    pub open spec fn parse_metadata_table<K>(header: GlobalListMetadata, mem: Seq<u8>) -> Option<Seq<MetadataTableViewEntry<K>>>
+    pub open spec fn parse_metadata_table<K>(header: MetadataTableHeader, mem: Seq<u8>) -> Option<Seq<MetadataTableViewEntry<K>>>
         where 
             K: Serializable
     {

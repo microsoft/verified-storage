@@ -153,7 +153,7 @@ verus! {
     // `mem` is the full list node region, not just the bytes associated with this node
     pub open spec fn parse_list_node<L>(
         idx: int, 
-        metadata_header: GlobalListMetadata, 
+        metadata_header: MetadataTableHeader, 
         mem: Seq<u8>
     ) -> Option<(u64, Seq<Seq<u8>>)>
         where 

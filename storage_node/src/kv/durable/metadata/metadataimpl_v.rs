@@ -62,7 +62,7 @@ verus! {
                         ABSOLUTE_POS_OF_HEADER_CRC as int,
                         ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
                     );
-                    let metadata_header = GlobalListMetadata::spec_deserialize(metadata_header_bytes);
+                    let metadata_header = MetadataTableHeader::spec_deserialize(metadata_header_bytes);
                     let crc = u64::spec_deserialize(crc_bytes);
                     if crc != metadata_header.spec_crc() {
                         // The list is invalid if the stored CRC does not match the contents
@@ -228,7 +228,7 @@ verus! {
             }
         }
 
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&GlobalListMetadata, KvError<K, E>>)
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&MetadataTableHeader, KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions,
             requires
@@ -252,7 +252,7 @@ verus! {
             let ghost mem = pm_regions@[0].committed();
 
             // read in the header and its CRC, check for corruption
-            let metadata: &GlobalListMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
+            let metadata: &MetadataTableHeader = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
             let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
 
             if !check_crc_deserialized(metadata, metadata_crc, Ghost(mem),
@@ -266,7 +266,7 @@ verus! {
             // if the caller tries to use an L with a different size than the one
             // the list was originally set up with
             if {
-                ||| metadata.version_number != LIST_METADATA_VERSION_NUMBER
+                ||| metadata.version_number != METADATA_TABLE_VERSION_NUMBER
                 ||| metadata.program_guid != METADATA_TABLE_PROGRAM_GUID
             } {
                 return Err(KvError::InvalidListMetadata);
@@ -603,11 +603,11 @@ verus! {
             assume(false);
 
             // initialize header and compute crc
-            let header = GlobalListMetadata {
+            let header = MetadataTableHeader {
                 element_size: list_element_size,
                 node_size: list_node_size, 
                 num_keys: num_keys,
-                version_number: LIST_METADATA_VERSION_NUMBER,
+                version_number: METADATA_TABLE_VERSION_NUMBER,
                 _padding: 0,
                 program_guid: METADATA_TABLE_PROGRAM_GUID,
             };
@@ -620,7 +620,7 @@ verus! {
         exec fn read_header<PM>(
             pm_regions: &PM,
             table_id: u128
-        ) -> (result: Result<&GlobalListMetadata, KvError<K, E>>)
+        ) -> (result: Result<&MetadataTableHeader, KvError<K, E>>)
             where 
                 PM: PersistentMemoryRegions,
             requires 
@@ -633,7 +633,7 @@ verus! {
 
             let ghost mem = pm_regions@[0].committed();
 
-            let header: &GlobalListMetadata = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
+            let header: &MetadataTableHeader = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
             let header_crc: &u64 = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
 
             // check the CRC
@@ -648,7 +648,7 @@ verus! {
             // these checks should never fail
             if {
                 ||| header.program_guid != METADATA_TABLE_PROGRAM_GUID 
-                ||| header.version_number != LIST_METADATA_VERSION_NUMBER
+                ||| header.version_number != METADATA_TABLE_VERSION_NUMBER
             } {
                 Err(KvError::InvalidListMetadata)
             } else {

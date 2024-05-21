@@ -67,7 +67,7 @@ verus! {
     }
 
     pub struct MetadataTableView<K> {
-        metadata_header: GlobalListMetadata,
+        metadata_header: MetadataTableHeader,
         metadata_table: Seq<MetadataTableViewEntry<K>>,
     }
 
@@ -88,11 +88,11 @@ verus! {
                         key: arbitrary(),
                     }
                 ),
-                metadata_header: GlobalListMetadata {
+                metadata_header: MetadataTableHeader {
                     element_size,
                     node_size,
                     num_keys,
-                    version_number: LIST_METADATA_VERSION_NUMBER,
+                    version_number: METADATA_TABLE_VERSION_NUMBER,
                     _padding: 0,
                     program_guid: METADATA_TABLE_PROGRAM_GUID,
                 },
@@ -100,7 +100,7 @@ verus! {
         }
 
         pub closed spec fn new(
-            metadata_header: GlobalListMetadata, 
+            metadata_header: MetadataTableHeader, 
             metadata_table: Seq<MetadataTableViewEntry<K>>
         ) -> Self {
             Self {
@@ -109,7 +109,7 @@ verus! {
             }
         }
 
-        pub closed spec fn get_metadata_header(self) -> GlobalListMetadata
+        pub closed spec fn get_metadata_header(self) -> MetadataTableHeader
         {
             self.metadata_header
         }
