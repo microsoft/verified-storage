@@ -96,9 +96,8 @@ verus! {
 
     // create list entry 
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST: u64 = 8;
-    pub const RELATIVE_POS_OF_HEAD_CREATE_LIST: u64 = 16;
-    pub const RELATIVE_POS_OF_ITEM_INDEX_CREATE_LIST: u64 = 24;
-    pub const RELATIVE_POS_OF_PADDING_0_CREATE_LIST: u64 = 32;
+    pub const RELATIVE_POS_OF_PADDING_0_CREATE_LIST: u64 = 16;
+    pub const RELATIVE_POS_OF_PADDING_1_CREATE_LIST: u64 = 32;
 
     // delete list entry
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST: u64 = 8;

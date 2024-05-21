@@ -41,7 +41,7 @@ verus! {
         pub node_size: u32,
         pub num_keys: u64,
         pub version_number: u64,
-        pub _padding: u64,
+        pub _padding: u64, // TODO: this should be item size
         pub program_guid: u128,
     }
 
@@ -172,7 +172,14 @@ verus! {
     }
 
     impl ListEntryMetadata {
-        pub closed spec fn new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {
+        pub closed spec fn spec_new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {
+            Self {head, tail, length, first_entry_offset, item_index}
+        }
+
+        pub exec fn new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64) -> (out: Self)
+            ensures 
+                out == Self::spec_new(head, tail, length, first_entry_offset, item_index)
+        {
             Self {head, tail, length, first_entry_offset, item_index}
         }
 

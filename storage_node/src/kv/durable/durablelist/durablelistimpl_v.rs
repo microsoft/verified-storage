@@ -50,8 +50,8 @@ verus! {
         pub closed spec fn recover(
             mems: Seq<Seq<u8>>,
             node_size: u64,
-            op_log: Seq<OpLogEntryType<K>>,
-            list_entry_map: Map<OpLogEntryType<K>, L>,
+            op_log: Seq<OpLogEntryType>,
+            list_entry_map: Map<OpLogEntryType, L>,
             metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
         ) -> Option<DurableListView<K, L, E>>
@@ -71,8 +71,8 @@ verus! {
         closed spec fn replay_log_list_nodes(
             mem: Seq<u8>, 
             node_size: u64, 
-            op_log: Seq<OpLogEntryType<K>>, 
-            list_entry_map: Map<OpLogEntryType<K>, L>
+            op_log: Seq<OpLogEntryType>, 
+            list_entry_map: Map<OpLogEntryType, L>
         ) -> Seq<u8>
             decreases op_log.len() 
         {
@@ -89,8 +89,8 @@ verus! {
         closed spec fn apply_log_op_to_list_node_mem(
             mem: Seq<u8>, 
             node_size: u64, 
-            op: OpLogEntryType<K>, 
-            list_entry_map: Map<OpLogEntryType<K>, L>
+            op: OpLogEntryType, 
+            list_entry_map: Map<OpLogEntryType, L>
         ) -> Seq<u8>
         {
             match op {
@@ -309,13 +309,11 @@ verus! {
             // ensure that there are no outstanding writes
             pm_regions.flush();
 
-            // check that the caller passed in two regions
-            // one for the metadata table and one for the node region
             let region_sizes = get_region_sizes(pm_regions);
             let num_regions = region_sizes.len();
             if num_regions < 1 {
                 return Err(KvError::TooFewRegions{ required: 1, actual: num_regions });
-            } else if num_regions > 2 {
+            } else if num_regions >12 {
                 return Err(KvError::TooManyRegions{ required: 1, actual: num_regions });
             }
 

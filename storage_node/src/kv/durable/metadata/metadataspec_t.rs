@@ -6,11 +6,18 @@ use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
-
-use super::metadataimpl_v::MetadataTable;
+use crate::kv::durable::metadata::metadataimpl_v::*;
 
 verus! {
-    // TODO: permissions
+    pub struct TrustedMetadataPermission {
+        ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
+    }
+
+    impl CheckPermission<Seq<Seq<u8>>> for TrustedMetadataPermission {
+        closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool {
+            (self.is_state_allowable)(state)
+        }
+    }
 
     pub struct MetadataTableViewEntry<K> {
         valid: bool,

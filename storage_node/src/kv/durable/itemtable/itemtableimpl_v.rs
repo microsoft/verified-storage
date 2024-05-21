@@ -73,7 +73,7 @@ verus! {
 
         pub closed spec fn recover(
             mems: Seq<Seq<u8>>, // TODO: only use Seq<u8> once we have support for that
-            op_log: Seq<OpLogEntryType<K>>,
+            op_log: Seq<OpLogEntryType>,
             kvstore_id: u128
         ) -> Option<DurableItemTableView<I, K, E>>
         {
@@ -116,7 +116,7 @@ verus! {
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // do not modify the item table.
         // TODO: check length of `mem`?
-        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType<K>>) -> Seq<u8>
+        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
             decreases op_log.len()
         {
             if op_log.len() == 0 {
@@ -130,7 +130,7 @@ verus! {
         }
 
         // TODO: refactor -- logic in both cases is the same
-        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType<K>) -> Seq<u8>
+        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
         {
             let item_entry_size = I::spec_serialized_len() + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
             match op {
@@ -221,7 +221,7 @@ verus! {
             {
                 assume(false);
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
-                pm_regions.serialize_and_write(0, item_slot_offset, &CDB_FALSE);
+                pm_regions.serialize_and_write(0, item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
             }
             pm_regions.flush();
 
@@ -236,7 +236,7 @@ verus! {
             Ghost(state): Ghost<DurableItemTableView<I, K, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
@@ -403,7 +403,7 @@ verus! {
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
         ) -> (result: Result<(), KvError<K, E>>)
             where
-                PM: PersistentMemoryRegions
+                PM: PersistentMemoryRegions,
             requires
                 old(wrpm_regions).inv(),
                 // TODO: item invalidation must have been logged
@@ -420,7 +420,7 @@ verus! {
 
         pub fn write_setup_metadata<PM>(pm_regions: &mut PM, num_keys: u64)
         where
-            PM: PersistentMemoryRegions
+            PM: PersistentMemoryRegions,
         requires
             old(pm_regions).inv(),
             old(pm_regions)@.len() == 1,

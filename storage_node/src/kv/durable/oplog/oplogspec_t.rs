@@ -13,9 +13,7 @@ verus! {
     // We don't use an enum in the implementation so that we can have
     // control over size/layout of entries, but since this will only be
     // used in ghost code, an enum is fine.
-    pub enum OpLogEntryType<K> 
-        where 
-            K: Serializable
+    pub enum OpLogEntryType 
     {
         ItemTableEntryCommit { 
             item_index: u64,
@@ -46,13 +44,10 @@ verus! {
             new_list_start_index: u64,
             metadata_crc: u64,
         },
-        CreateListTableEntry {
+        CommitMetadataEntry {
             list_metadata_index: u64,
-            head: u64,
-            item_index: u64,
-            key: K,
         },
-        DeleteListTableEntry {
+        InvalidateMetadataEntry {
             list_metadata_index: u64,
         }
     }
@@ -63,22 +58,19 @@ verus! {
     // the head pointer to the tail. Once the log has been committed
     // it is illegal to perform any additional appends until it has
     // been cleared.
-    #[verifier::reject_recursive_types(K)]
-    pub struct AbstractOpLogState<K, L>
+    pub struct AbstractOpLogState<L>
         where
-            K: Serializable,
             L: Serializable
     {
         pub log_state: AbstractLogState,
-        pub op_list: Seq<OpLogEntryType<K>>,
+        pub op_list: Seq<OpLogEntryType>,
         // stored separately from op_list so that item list;s recovery fn can ignore L
-        pub list_entry_map: Map<OpLogEntryType<K>, L>,
+        pub list_entry_map: Map<OpLogEntryType, L>,
         pub op_list_committed: bool,
     }
 
-    impl<K, L> AbstractOpLogState<K, L>
+    impl<L> AbstractOpLogState<L>
         where
-            K: Serializable,
             L: Serializable
     {
         pub open spec fn initialize(capacity: int) -> Self {
@@ -194,17 +186,13 @@ verus! {
 
         pub open spec fn tentatively_append_create_list_entry(
             self,
-            entry: &CreateListEntry,
-            key: &K,
+            entry: &CommitMetadataEntry,
         ) -> Self 
         {
             Self {
-                log_state: self.log_state.tentatively_append(entry.spec_serialize() + key.spec_serialize()),
-                op_list: self.op_list.push(OpLogEntryType::CreateListTableEntry { 
+                log_state: self.log_state.tentatively_append(entry.spec_serialize()),
+                op_list: self.op_list.push(OpLogEntryType::CommitMetadataEntry { 
                     list_metadata_index: entry.list_metadata_index, 
-                    head: entry.head,
-                    item_index: entry.item_index,
-                    key: *key
                 }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
@@ -213,12 +201,12 @@ verus! {
 
         pub open spec fn tentatively_delete_list_entry(
             self,
-            entry: &DeleteListEntry
+            entry: &InvalidateMetadataEntry
         ) -> Self 
         {
             Self {
                 log_state: self.log_state.tentatively_append(entry.spec_serialize()),
-                op_list: self.op_list.push(OpLogEntryType::DeleteListTableEntry { list_metadata_index: entry.list_metadata_index }),
+                op_list: self.op_list.push(OpLogEntryType::InvalidateMetadataEntry { list_metadata_index: entry.list_metadata_index }),
                 list_entry_map: self.list_entry_map,
                 op_list_committed: false,
             }
