@@ -53,30 +53,40 @@ pub proof fn lemma_replace_with_own_subregion_is_identity(
     assert(region =~= replace_subregion_of_region_view(region, subregion_view(region, offset, len), offset));
 }
 
+pub open spec fn region_views_differ_only_at_addresses(
+    region1: PersistentMemoryRegionView,
+    region2: PersistentMemoryRegionView,
+    addrs: Set<int>,
+) -> bool
+{
+    &&& region1.len() == region2.len()
+    &&& forall |i: int| 0 <= i < region1.len() && region1.state[i] != region2.state[i] ==> #[trigger] addrs.contains(i)
+}
+
 pub struct PersistentMemorySubregion
 {
-    constants_: PersistentMemoryConstants,
     offset_: u64,
-    len_: u64,
-    initial_region_view_: PersistentMemoryRegionView,
-    is_view_allowable_: spec_fn(v: PersistentMemoryRegionView) -> bool,
+    len_: Ghost<u64>,
+    constants_: Ghost<PersistentMemoryConstants>,
+    initial_region_view_: Ghost<PersistentMemoryRegionView>,
+    is_view_allowable_: Ghost<spec_fn(v: PersistentMemoryRegionView) -> bool>,
 }
 
 impl PersistentMemorySubregion
 {
-    pub proof fn new<Perm, PMRegion>(
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: Perm,
+    pub exec fn new<Perm, PMRegion>(
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        Tracked(perm): Tracked<&Perm>,
         offset: u64,
-        len: u64,
-        is_view_allowable: spec_fn(s: PersistentMemoryRegionView) -> bool,
+        Ghost(len): Ghost<u64>,
+        Ghost(is_view_allowable): Ghost<spec_fn(s: PersistentMemoryRegionView) -> bool>,
     ) -> (result: Self)
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
             wrpm.inv(),
-            offset + len <= wrpm@.len() < u64::MAX,
+            offset + len <= wrpm@.len() <= u64::MAX,
             (is_view_allowable)(subregion_view(wrpm@, offset, len)),
             forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 &&& subregion_view.len() == len
@@ -91,20 +101,21 @@ impl PersistentMemorySubregion
             result.initial_region_view() == wrpm@,
             forall |v| result.is_view_allowable(v) <==> (is_view_allowable)(v),
             result.view(wrpm) == subregion_view(wrpm@, offset, len),
+            result.initial_subregion_view() == subregion_view(wrpm@, offset, len),
     {
-        lemma_replace_with_own_subregion_is_identity(wrpm@, offset, len);
+        proof { lemma_replace_with_own_subregion_is_identity(wrpm@, offset, len); }
         Self{
-            constants_: wrpm.constants(),
             offset_: offset,
-            len_: len,
-            initial_region_view_: wrpm@,
-            is_view_allowable_: is_view_allowable,
+            len_: Ghost(len),
+            constants_: Ghost(wrpm.constants()),
+            initial_region_view_: Ghost(wrpm@),
+            is_view_allowable_: Ghost(is_view_allowable),
         }
     }
 
     pub closed spec fn constants(self) -> PersistentMemoryConstants
     {
-        self.constants_
+        self.constants_@
     }
 
     pub closed spec fn offset(self) -> u64
@@ -114,22 +125,27 @@ impl PersistentMemorySubregion
 
     pub closed spec fn len(self) -> u64
     {
-        self.len_
+        self.len_@
     }
 
     pub closed spec fn initial_region_view(self) -> PersistentMemoryRegionView
     {
-        self.initial_region_view_
+        self.initial_region_view_@
     }
 
     pub closed spec fn is_view_allowable(self, v: PersistentMemoryRegionView) -> bool
     {
-        (self.is_view_allowable_)(v)
+        (self.is_view_allowable_@)(v)
+    }
+
+    pub closed spec fn initial_subregion_view(self) -> PersistentMemoryRegionView
+    {
+        subregion_view(self.initial_region_view(), self.offset(), self.len())
     }
 
     pub closed spec fn view<Perm, PMRegion>(
         self,
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     ) -> PersistentMemoryRegionView
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -140,8 +156,8 @@ impl PersistentMemorySubregion
 
     pub closed spec fn inv<Perm, PMRegion>(
         self,
-        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: Perm
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        perm: &Perm
     ) -> bool
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -150,7 +166,7 @@ impl PersistentMemorySubregion
         &&& wrpm.inv()
         &&& wrpm.constants() == self.constants()
         &&& wrpm@.len() == self.initial_region_view().len()
-        &&& self.initial_region_view().len() < u64::MAX
+        &&& self.initial_region_view().len() <= u64::MAX
         &&& self.offset() + self.len() <= wrpm@.len()
         &&& wrpm@ == replace_subregion_of_region_view(self.initial_region_view(), self.view(wrpm), self.offset())
         &&& self.is_view_allowable(self.view(wrpm))
@@ -163,22 +179,22 @@ impl PersistentMemorySubregion
     }
 
     pub exec fn read<Perm, PMRegion>(
-        self,
+        self: &Self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         addr: u64,
         num_bytes: u64,
-        perm: Tracked<&Perm>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (bytes: Vec<u8>)
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(*wrpm, *(perm@)),
-            addr + num_bytes <= self.view(*wrpm).len(),
-            self.view(*wrpm).no_outstanding_writes_in_range(addr as int, addr + num_bytes),
+            self.inv(wrpm, perm),
+            addr + num_bytes <= self.view(wrpm).len(),
+            self.view(wrpm).no_outstanding_writes_in_range(addr as int, addr + num_bytes),
         ensures
             ({
-                let true_bytes = self.view(*wrpm).committed().subrange(addr as int, addr + num_bytes);
+                let true_bytes = self.view(wrpm).committed().subrange(addr as int, addr + num_bytes);
                 // The addresses in `maybe_corrupted` reflect the fact
                 // that we're reading from a subregion at a certain
                 // offset.
@@ -195,58 +211,59 @@ impl PersistentMemorySubregion
                 }
             })
     {
-        let ghost true_bytes1 = self.view(*wrpm).committed().subrange(addr as int, addr + num_bytes);
+        let ghost true_bytes1 = self.view(wrpm).committed().subrange(addr as int, addr + num_bytes);
         let ghost true_bytes2 = wrpm@.committed().subrange(addr + self.offset(), addr + self.offset() + num_bytes);
         assert(true_bytes1 =~= true_bytes2);
         wrpm.get_pm_region_ref().read(addr + self.offset_, num_bytes)
     }
 
     pub exec fn write<Perm, PMRegion>(
-        self,
+        self: &Self,
         wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         addr: u64,
         bytes: &[u8],
-        perm: Tracked<&Perm>,
+        Tracked(perm): Tracked<&Perm>,
     )
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(*old(wrpm), *(perm@)),
-            addr + bytes@.len() <= self.view(*old(wrpm)).len(),
-            self.view(*old(wrpm)).no_outstanding_writes_in_range(addr as int, addr + bytes.len()),
-            self.is_view_allowable(self.view(*old(wrpm)).write(addr as int, bytes@)),
+            self.inv(&*old(wrpm), perm),
+            addr + bytes@.len() <= self.view(&*old(wrpm)).len(),
+            self.view(&*old(wrpm)).no_outstanding_writes_in_range(addr as int, addr + bytes.len()),
+            self.is_view_allowable(self.view(&*old(wrpm)).write(addr as int, bytes@)),
         ensures
-            self.inv(*wrpm, *(perm@)),
-            self.view(*wrpm) == self.view(*old(wrpm)).write(addr as int, bytes@),
+            self.inv(wrpm, perm),
+            self.view(wrpm) == self.view(&*old(wrpm)).write(addr as int, bytes@),
     {
-        let ghost subregion_view = self.view(*wrpm).write(addr as int, bytes@);
+        let ghost subregion_view = self.view(wrpm).write(addr as int, bytes@);
         assert(wrpm@.write(addr + self.offset(), bytes@) =~=
                replace_subregion_of_region_view(self.initial_region_view(), subregion_view, self.offset()));
-        assert forall |s| wrpm@.write(addr + self.offset(), bytes@).can_crash_as(s) implies perm@.check_permission(s) by {
+        assert forall |s| wrpm@.write(addr + self.offset(), bytes@).can_crash_as(s) implies perm.check_permission(s) by {
             assert(self.is_view_allowable(subregion_view));
-            assert(perm@.check_permission(s));
+            assert(perm.check_permission(s));
         }
-        wrpm.write(addr + self.offset_, bytes, perm);
-        assert(self.view(*wrpm) =~= subregion_view);
+        wrpm.write(addr + self.offset_, bytes, Tracked(perm));
+        assert(self.view(wrpm) =~= subregion_view);
     }
 
     pub proof fn lemma_implications_of_inv<Perm, PMRegion>(
         self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: Tracked<&Perm>
+        perm: &Perm
     )
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(*wrpm, *(perm@)),
+            self.inv(wrpm, perm),
         ensures
             wrpm.inv(),
             wrpm.constants() == self.constants(),
             wrpm@.len() == self.initial_region_view().len(),
-            self.is_view_allowable(self.view(*wrpm)),
-            wrpm@ == replace_subregion_of_region_view(self.initial_region_view(), self.view(*wrpm), self.offset()),
+            self.is_view_allowable(self.view(wrpm)),
+            wrpm@ == replace_subregion_of_region_view(self.initial_region_view(), self.view(wrpm), self.offset()),
+            self.initial_subregion_view() == subregion_view(self.initial_region_view(), self.offset(), self.len()),
     {
     }
 }

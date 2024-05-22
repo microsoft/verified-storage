@@ -11,6 +11,7 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -158,7 +159,7 @@ verus! {
     // `pmb` has no outstanding writes because it's past the pending
     // tail. This is useful so that, if there are further pending
     // appends, they can be written into this part of the log area.
-    pub open spec fn info_consistent_with_log_area(
+    pub open spec fn info_consistent_with_log_area_subregion(
         pm_region_view: PersistentMemoryRegionView,
         info: LogInfo,
         state: AbstractLogState,
@@ -178,11 +179,11 @@ verus! {
 
         // The log area is consistent with `info` and `state`
         &&& forall |pos_relative_to_head: int| {
-                let addr = ABSOLUTE_POS_OF_LOG_AREA +
+                let log_area_offset =
                     #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
                                                                    info.head_log_area_offset as int,
                                                                    info.log_area_len as int);
-                let pmb = pm_region_view.state[addr];
+                let pmb = pm_region_view.state[log_area_offset];
                 &&& 0 <= pos_relative_to_head < info.log_length ==> {
                       &&& pmb.state_at_last_flush == state.log[pos_relative_to_head]
                       &&& pmb.outstanding_write.is_none()
@@ -192,6 +193,46 @@ verus! {
                 &&& info.log_plus_pending_length <= pos_relative_to_head < info.log_area_len ==>
                        pmb.outstanding_write.is_none()
             }
+    }
+
+    pub open spec fn info_consistent_with_log_area(
+        pm_region_view: PersistentMemoryRegionView,
+        info: LogInfo,
+        state: AbstractLogState,
+    ) -> bool
+    {
+        &&& pm_region_view.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
+        &&& info_consistent_with_log_area_subregion(
+               subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len),
+               info,
+               state
+           )
+    }
+
+    pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
+        pm_region_view: PersistentMemoryRegionView,
+        info: LogInfo
+    )
+        requires
+            pm_region_view.len() == info.log_area_len,
+            info.head_log_area_offset < info.log_area_len,
+            info.log_area_len > 0,
+        ensures
+            forall |log_area_offset: int| #![trigger pm_region_view.state[log_area_offset]]
+                0 <= log_area_offset < info.log_area_len ==> {
+                    let pos_relative_to_head =
+                        if log_area_offset >= info.head_log_area_offset {
+                            log_area_offset - info.head_log_area_offset
+                        }
+                        else {
+                            log_area_offset - info.head_log_area_offset + info.log_area_len
+                        };
+                    &&& 0 <= pos_relative_to_head < info.log_area_len
+                    &&& log_area_offset ==
+                           relative_log_pos_to_log_area_offset(pos_relative_to_head, info.head_log_area_offset as int,
+                                                               info.log_area_len as int)
+                }
+    {
     }
 
     // This lemma proves that, for any address in the log area of the
@@ -276,8 +317,8 @@ verus! {
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
 
-        assert(extract_log(mem, info.log_area_len as int, info.head as int, info.log_length as int) =~=
-               state.drop_pending_appends().log);
+        assert(recover_log(mem, info.log_area_len as int, info.head as int, info.log_length as int)
+               =~= Some(state.drop_pending_appends()));
     }
 
     // This lemma proves that, if various invariants hold for the
@@ -523,4 +564,52 @@ verus! {
         }
     }
 
+    pub open spec fn log_area_offsets_unreachable_during_recovery(
+        head_log_area_offset: int,
+        log_area_len: int,
+        log_length: int
+    ) -> Set<int>
+    {
+        Set::<int>::new(|log_area_offset: int|
+                      log_area_offset_to_relative_log_pos(log_area_offset, head_log_area_offset,
+                                                          log_area_len) >= log_length)
+    }
+
+    pub open spec fn view_differs_only_at_unused_log_addresses(
+        baseline: PersistentMemoryRegionView,
+        head_log_area_offset: int,
+        log_length: int
+    ) -> (spec_fn(PersistentMemoryRegionView) -> bool)
+    {
+        |v: PersistentMemoryRegionView| {
+            region_views_differ_only_at_addresses(
+                v, baseline,
+                log_area_offsets_unreachable_during_recovery(head_log_area_offset, baseline.len() as int, log_length)
+            )
+        }
+    }
+
+    pub proof fn if_view_differs_only_at_unused_log_addresses_then_recovery_view_same(
+        region_view: PersistentMemoryRegionView,
+        offset: u64,
+        len: u64,
+        head_log_area_offset: u64,
+        log_length: u64,
+        log_id: u128,
+    )
+        requires
+            offset + len <= region_view.len(),
+            log_length <= len,
+            head_log_area_offset < len,
+        ensures
+            forall |v: PersistentMemoryRegionView, s: Seq<u8>| {
+                let subregion_view = subregion_view(region_view, offset, len);
+                &&& v.len() == subregion_view.len()
+                &&& view_differs_only_at_unused_log_addresses(subregion_view, head_log_area_offset as int,
+                                                            log_length as int)(v)
+                &&& replace_subregion_of_region_view(region_view, v, offset).can_crash_as(s)
+            } ==> exists |s2: Seq<u8>| region_view.can_crash_as(s2) && recover_state(s, log_id) == recover_state(s2, log_id)
+    {
+        assume(false);
+    }
 }

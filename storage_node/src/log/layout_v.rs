@@ -562,6 +562,20 @@ verus! {
         }
     }
 
+    pub open spec fn log_area_offset_to_relative_log_pos(
+        log_area_offset: int,
+        head_log_area_offset: int,
+        log_area_len: int
+    ) -> int
+    {
+        if log_area_offset >= head_log_area_offset {
+            log_area_offset - head_log_area_offset
+        }
+        else {
+            log_area_offset - head_log_area_offset + log_area_len
+        }
+    }
+
     // This function extracts the virtual log from the contents of a
     // persistent-memory region.
     //
@@ -573,11 +587,12 @@ verus! {
     //
     // `log_length` -- the current length of the virtual log past the
     // head
-    pub open spec fn extract_log(mem: Seq<u8>, log_area_len: int, head: int, log_length: int) -> Seq<u8>
+    pub open spec fn extract_log_from_log_area(log_area: Seq<u8>, head: int, log_length: int) -> Seq<u8>
     {
-        let head_log_area_offset = head % log_area_len;
-        Seq::<u8>::new(log_length as nat, |pos_relative_to_head: int| mem[ABSOLUTE_POS_OF_LOG_AREA +
-            relative_log_pos_to_log_area_offset(pos_relative_to_head, head_log_area_offset, log_area_len)])
+        let head_log_area_offset = head % (log_area.len() as int);
+        Seq::<u8>::new(log_length as nat, |pos_relative_to_head: int|
+                       log_area[relative_log_pos_to_log_area_offset(pos_relative_to_head, head_log_area_offset,
+                                                                    log_area.len() as int)])
     }
 
     /// Specification functions for recovering data and metadata from
@@ -603,25 +618,36 @@ verus! {
     //
     // `None` -- the given metadata isn't valid
     // `Some(s)` -- `s` is the abstract state represented in memory
-    pub open spec fn recover_abstract_log_from_region_given_metadata(
-        mem: Seq<u8>,
-        log_area_len: u64,
-        head: u128,
-        log_length: u64,
+    pub open spec fn recover_abstract_log_from_log_area_given_metadata(
+        log_area: Seq<u8>,
+        head: int,
+        log_length: int,
     ) -> Option<AbstractLogState>
     {
-        if log_length > log_area_len || head + log_length > u128::MAX
+        if head + log_area.len() > u128::MAX
         {
             None
         }
         else {
             Some(AbstractLogState {
-                head: head as int,
-                log: extract_log(mem, log_area_len as int, head as int, log_length as int),
+                head,
+                log: extract_log_from_log_area(log_area, head, log_length),
                 pending: Seq::<u8>::empty(),
-                capacity: log_area_len as int
+                capacity: log_area.len() as int
             })
         }
+    }
+
+    pub open spec fn recover_log(
+        mem: Seq<u8>,
+        log_area_len: int,
+        head: int,
+        log_length: int,
+    ) -> Option<AbstractLogState>
+    {
+        recover_abstract_log_from_log_area_given_metadata(
+            extract_bytes(mem, ABSOLUTE_POS_OF_LOG_AREA as int, log_area_len), head, log_length
+        )
     }
 
     // This function specifies how recovery should treat the contents
@@ -712,9 +738,8 @@ verus! {
                                     None
                                 }
                                 else {
-                                    recover_abstract_log_from_region_given_metadata(
-                                        mem, region_metadata.log_area_len, log_metadata.head,
-                                        log_metadata.log_length)
+                                    recover_log(mem, region_metadata.log_area_len as int, log_metadata.head as int,
+                                                log_metadata.log_length as int)
                                 }
                             }
                         }

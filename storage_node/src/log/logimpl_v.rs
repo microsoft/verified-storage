@@ -15,6 +15,7 @@ use crate::log::start_v::{read_cdb, read_log_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::subregion_v::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -49,6 +50,13 @@ verus! {
         pub head_log_area_offset: u64,
         pub log_length: u64,
         pub log_plus_pending_length: u64,
+    }
+
+    impl LogInfo {
+        pub open spec fn tentatively_append(self, num_bytes: u64) -> Self
+        {
+             Self{ log_plus_pending_length: (self.log_plus_pending_length + num_bytes) as u64, ..self }
+        }
     }
 
     // This structure, `UntrustedLogImpl`, implements a
@@ -313,6 +321,190 @@ verus! {
         // write is safe. That is, any such crash must put the memory
         // in a state that recovers as the current abstract state with
         // all pending appends dropped.
+        exec fn tentatively_append_subregion<PMRegion>(
+            &self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
+            subregion: &PersistentMemorySubregion,
+            bytes_to_append: &[u8],
+            Tracked(perm): Tracked<&TrustedPermission>,
+        ) -> (result: Result<u128, LogErr>)
+            where
+                PMRegion: PersistentMemoryRegion
+            requires
+                bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
+                self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
+                subregion.inv(&*old(wrpm_region), perm),
+                subregion.len() == self.info.log_area_len,
+                subregion.view(&*old(wrpm_region)).len() == subregion.len(),
+                subregion.view(&*old(wrpm_region)) == subregion.initial_subregion_view(),
+                info_consistent_with_log_area_subregion(subregion.initial_subregion_view(), self.info, self.state@),
+                forall |v| region_views_differ_only_at_addresses(
+                    v, subregion.initial_subregion_view(),
+                    log_area_offsets_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                 self.info.log_area_len as int,
+                                                                 self.info.log_length as int)
+                ) ==> #[trigger] subregion.is_view_allowable(v),
+            ensures
+                subregion.inv(wrpm_region, perm),
+                match result {
+                    Ok(offset) =>
+                        info_consistent_with_log_area_subregion(
+                            subregion.view(wrpm_region),
+                            self.info.tentatively_append(bytes_to_append.len() as u64),
+                            self.state@.tentatively_append(bytes_to_append@)
+                        ),
+                    Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
+                        &&& subregion.view(wrpm_region) == subregion.initial_subregion_view()
+                        &&& available_space < bytes_to_append@.len()
+                        &&& {
+                               ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
+                               ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
+                           }
+                    },
+                    _ => false
+                }
+        {
+            let info = &self.info;
+
+            // Compute the current logical offset of the end of the
+            // log, including any earlier pending appends. This is the
+            // offset at which we'll be logically appending, and so is
+            // the offset we're expected to return. After all, the
+            // caller wants to know what virtual log position they
+            // need to use to read this data in the future.
+
+            let old_pending_tail: u128 = info.head + info.log_plus_pending_length as u128;
+
+            // The simple case is that we're being asked to append the
+            // empty string. If so, do nothing and return.
+
+            let num_bytes: u64 = bytes_to_append.len() as u64;
+            if num_bytes == 0 {
+                assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
+                assert(bytes_to_append@ =~= Seq::<u8>::empty());
+                assert(self.info.tentatively_append(bytes_to_append.len() as u64) =~= self.info);
+                assert(self.state@.tentatively_append(bytes_to_append@) =~= self.state@);
+                assert(info_consistent_with_log_area_subregion(
+                    subregion.view(wrpm_region),
+                    self.info.tentatively_append(bytes_to_append.len() as u64),
+                    self.state@.tentatively_append(bytes_to_append@)
+                ));
+                return Ok(old_pending_tail);
+            }
+
+            let ghost state = self.state@;
+
+            // If the number of bytes in the log plus pending appends
+            // is at least as many bytes as are beyond the head in the
+            // log area, there's obviously enough room to append all
+            // the bytes without wrapping. So just write the bytes
+            // there.
+
+            if info.log_plus_pending_length >= info.log_area_len - info.head_log_area_offset {
+
+                // We could compute the address to write to with:
+                //
+                // `write_addr = old_pending_tail % info.log_area_len;`
+                //
+                // But we can replace the expensive modulo operation above with two subtraction
+                // operations as follows. This is somewhat subtle, but we have verification backing
+                // us up and proving this optimization correct.
+
+                let write_addr: u64 =
+                    info.log_plus_pending_length - (info.log_area_len - info.head_log_area_offset);
+                assert(write_addr ==
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int,
+                                                           info.log_area_len as int));
+
+                proof {
+                    lemma_tentatively_append_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
+                                                          self.info, self.state@);
+                }
+                subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+            }
+            else {
+                // We could compute the address to write to with:
+                //
+                // `write_addr = old_pending_tail % info.log_area_len`
+                //
+                // But we can replace the expensive modulo operation above with an addition
+                // operation as follows. This is somewhat subtle, but we have verification backing
+                // us up and proving this optimization correct.
+
+                let write_addr: u64 = info.log_plus_pending_length + info.head_log_area_offset;
+                assert(write_addr ==
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int,
+                                                           info.log_area_len as int));
+
+                // There's limited space beyond the pending bytes in the log area, so as we write
+                // the bytes we may have to wrap around the end of the log area. So we must compute
+                // how many bytes we can write without having to wrap:
+
+                let max_len_without_wrapping: u64 =
+                    info.log_area_len - info.head_log_area_offset - info.log_plus_pending_length;
+                assert(max_len_without_wrapping == info.log_area_len -
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int, info.log_area_len as int));
+
+                if num_bytes <= max_len_without_wrapping {
+
+                    // If there's room for all the bytes we need to write, we just need one write.
+
+                    proof {
+                        lemma_tentatively_append_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
+                                                              self.info, self.state@);
+                    }
+                    subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+                }
+                else {
+
+                    // If there isn't room for all the bytes we need to write, we need two writes,
+                    // one writing the first `max_len_without_wrapping` bytes to address
+                    // `write_addr` and the other writing the remaining bytes to the beginning of
+                    // the log area.
+                    //
+                    // There are a lot of things we have to prove about these writes, like the fact
+                    // that they're both permitted by `perm`. We offload those proofs to a lemma in
+                    // `append_v.rs` that we invoke here.
+
+                    proof {
+                        lemma_tentatively_append_wrapping_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
+                                                                       self.info, self.state@);
+                    }
+                    subregion.write(
+                        wrpm_region,
+                        write_addr,
+                        slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
+                        Tracked(perm)
+                    );
+                    subregion.write(
+                        wrpm_region,
+                        0u64,
+                        slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()),
+                        Tracked(perm)
+                    );
+                }
+            }
+
+            Ok(old_pending_tail)
+        }
+
+        
+        // The `tentatively_append` method tentatively appends
+        // `bytes_to_append` to the end of the log. It's tentative in
+        // that crashes will undo the appends, and reads aren't
+        // allowed in the tentative part of the log. See `README.md` for
+        // more documentation and examples of its use.
+        //
+        // This method is passed a write-restricted persistent memory
+        // region `wrpm_region`. This restricts how it can write
+        // `wrpm_region`. It's only given permission (in `perm`) to
+        // write if it can prove that any crash after initiating the
+        // write is safe. That is, any such crash must put the memory
+        // in a state that recovers as the current abstract state with
+        // all pending appends dropped.
         pub exec fn tentatively_append<PMRegion>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
@@ -345,15 +537,14 @@ verus! {
                            }
                     },
                     _ => false
-                }
+                },
         {
-            let info = &self.info;
-
             // One useful invariant implies that
             // `info.log_plus_pending_length <= info.log_area_len`, so
             // we know we can safely do the following subtraction
             // without underflow.
 
+            let info = &self.info;
             let available_space: u64 = info.log_area_len - info.log_plus_pending_length as u64;
 
             // Check to make sure we have enough available space, and
@@ -374,128 +565,43 @@ verus! {
                 })
             }
 
-            // Compute the current logical offset of the end of the
-            // log, including any earlier pending appends. This is the
-            // offset at which we'll be logically appending, and so is
-            // the offset we're expected to return. After all, the
-            // caller wants to know what virtual log position they
-            // need to use to read this data in the future.
-
-            let old_pending_tail: u128 = info.head + info.log_plus_pending_length as u128;
-
-            let ghost state = self.state@;
-
-            // The simple case is that we're being asked to append the
-            // empty string. If so, do nothing and return.
-
-            if num_bytes == 0 {
-                assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
-                assert(bytes_to_append@ =~= Seq::<u8>::empty());
-                assert(self@ =~= old(self)@.tentatively_append(bytes_to_append@));
-                return Ok(old_pending_tail);
+            let ghost initial_region_view =
+                subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
+            let ghost is_view_allowable = |v: PersistentMemoryRegionView| {
+                region_views_differ_only_at_addresses(
+                    v, initial_region_view,
+                    log_area_offsets_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                 self.info.log_area_len as int,
+                                                                 self.info.log_length as int)
+                )
+            };
+            assert forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
+                &&& subregion_view.len() == self.info.log_area_len
+                &&& (is_view_allowable)(subregion_view)
+                &&& replace_subregion_of_region_view(wrpm_region@, subregion_view, ABSOLUTE_POS_OF_LOG_AREA)
+                       .can_crash_as(s)
+            } implies perm.check_permission(s) by {
+                assume(false);
             }
-
-            // If the number of bytes in the log plus pending appends
-            // is at least as many bytes as are beyond the head in the
-            // log area, there's obviously enough room to append all
-            // the bytes without wrapping. So just write the bytes
-            // there.
-
-            if info.log_plus_pending_length >= info.log_area_len - info.head_log_area_offset {
-
-                // We could compute the address to write to with:
-                //
-                // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + old_pending_tail % info.log_area_len;`
-                //
-                // But we can replace the expensive modulo operation above with two subtraction
-                // operations as follows. This is somewhat subtle, but we have verification backing
-                // us up and proving this optimization correct.
-
-                let write_addr: u64 = ABSOLUTE_POS_OF_LOG_AREA +
-                    info.log_plus_pending_length - (info.log_area_len - info.head_log_area_offset);
-                assert(write_addr == ABSOLUTE_POS_OF_LOG_AREA +
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int,
-                                                           info.log_area_len as int));
-
-                proof {
-                    lemma_tentatively_append(wrpm_region@, log_id,
-                                             bytes_to_append@, self.cdb, self.info, self.state@);
-                }
-                wrpm_region.write(write_addr, bytes_to_append, Tracked(perm));
-            }
-            else {
-
-                // We could compute the address to write to with:
-                //
-                // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + old_pending_tail % info.log_area_len`
-                //
-                // But we can replace the expensive modulo operation above with an addition
-                // operation as follows. This is somewhat subtle, but we have verification backing
-                // us up and proving this optimization correct.
-
-                let write_addr: u64 = ABSOLUTE_POS_OF_LOG_AREA +
-                    info.log_plus_pending_length + info.head_log_area_offset;
-                assert(write_addr == ABSOLUTE_POS_OF_LOG_AREA +
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int,
-                                                           info.log_area_len as int));
-
-                // There's limited space beyond the pending bytes in the log area, so as we write
-                // the bytes we may have to wrap around the end of the log area. So we must compute
-                // how many bytes we can write without having to wrap:
-
-                let max_len_without_wrapping: u64 =
-                    info.log_area_len - info.head_log_area_offset - info.log_plus_pending_length;
-                assert(max_len_without_wrapping == info.log_area_len -
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int, info.log_area_len as int));
-
-                if num_bytes <= max_len_without_wrapping {
-
-                    // If there's room for all the bytes we need to write, we just need one write.
-
-                    proof {
-                        lemma_tentatively_append(wrpm_region@, log_id, bytes_to_append@, self.cdb,
-                                                 self.info, self.state@);
-                    }
-                    wrpm_region.write(write_addr, bytes_to_append, Tracked(perm));
-                }
-                else {
-
-                    // If there isn't room for all the bytes we need to write, we need two writes,
-                    // one writing the first `max_len_without_wrapping` bytes to address
-                    // `write_addr` and the other writing the remaining bytes to the beginning of
-                    // the log area (`ABSOLUTE_POS_OF_LOG_AREA`).
-                    //
-                    // There are a lot of things we have to prove about these writes, like the fact
-                    // that they're both permitted by `perm`. We offload those proofs to a lemma in
-                    // `append_v.rs` that we invoke here.
-
-                    proof {
-                        lemma_tentatively_append_wrapping(wrpm_region@, log_id,
-                                                          bytes_to_append@, self.cdb, self.info, self.state@);
-                    }
-                    wrpm_region.write(write_addr,
-                                      slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
-                                      Tracked(perm));
-                    wrpm_region.write(ABSOLUTE_POS_OF_LOG_AREA,
-                                      slice_subrange(bytes_to_append, max_len_without_wrapping as usize,
-                                                     bytes_to_append.len()),
-                                      Tracked(perm));
-                }
-            }
+                   
+            let subregion = PersistentMemorySubregion::new(wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
+                                                           Ghost(self.info.log_area_len), Ghost(is_view_allowable));
+            assume(false);
+            let result = self.tentatively_append_subregion(
+                wrpm_region, &subregion, bytes_to_append, Tracked(perm)
+            );
 
             // We now update our `info` field to reflect the new
             // `log_plus_pending_length` value.
 
-            self.info.log_plus_pending_length = (info.log_plus_pending_length + num_bytes) as u64;
+            let num_bytes: u64 = bytes_to_append.len() as u64;
+            self.info.log_plus_pending_length = (self.info.log_plus_pending_length + num_bytes) as u64;
 
             // We update our `state` field to reflect the tentative append.
 
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
 
-            Ok(old_pending_tail)
+            result
         }
 
         // This local helper method updates the log metadata on
@@ -871,6 +977,8 @@ verus! {
                     _ => false
                 }
         {
+            assume(false);
+
             // Even if we return an error code, we still have to prove that
             // upon return the states we can crash into recover into valid
             // abstract states.
