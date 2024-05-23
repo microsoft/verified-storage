@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
+use vstd::ptr::*;
 
 use deps_hack::crc64fast::Digest;
 use std::convert::TryInto;
@@ -201,9 +202,78 @@ verus! {
         //     };
         //     s_slice
         // }
+
+        fn serialize_in_place(&self) -> (out: &[u8])
+            ensures 
+                out@ == self.spec_serialize()
+                // ({
+                //     let (pptr, points_to, dealloc) = out;
+                //     &&& points_to@@.value is Some
+                //     &&& points_to@@.value.unwrap()@ == self.spec_serialize()
+                //     &&& points_to@@.value.unwrap()@.len() == Self::spec_serialized_len()
+                //     &&& N == Self::spec_serialized_len()
+                // })
+        ;
+        // {
+        //     assume(false);
+        //     let arr = [0; N];
+        //     let ptr = PPtr::new(arr);
+        //     ptr
+        // }
+        
+
+        // #[verifier::external_body]
+        // fn serialize_in_place(self); //-> (out: &[u8])
+            // ensures 
+            //     out@ == self.spec_serialize()
+        // {
+        //     // PPtr is a permissioned pointer -- essentially a wrapper around a raw pointer on the heap
+        //     let (ptr_s, Tracked(points_to), Tracked(dealloc)) = PPtr::new(self);
+        //     let usize_val = ptr_s.to_usize();
+        //     let ptr_u8: PPtr<u8> = PPtr::from_usize(usize_val);
+
+            
+
+
+        //     // serialize_helper(self)
+        //     // let s_pointer: *const Self = self;
+        //     // let s_pointer = as_ptr(self);
+        //     // let s_pointer = self as *const Self as *const u8;
+        //     // let s_slice = unsafe {
+        //     //     std::slice::from_raw_parts(s_pointer, Self::serialized_len() as usize)
+        //     // };
+        //     // s_slice
+        // }
     }
 
+    // // Verus does not support casting a reference to a raw pointer right now, so we have to do it
+    // // in an external body function. Due to issues with default external body methods and cyclic
+    // // definitions, we can't require that S is Serializable at the moment, but since we don't 
+    // // dereference the pointer, this operation is safe to do on any type.
+    // #[verifier::external_body]
+    // fn as_ptr<S>(s: &S) -> (*const u8
+    // {
+    //     s as *const S as *const u8
+    // }
+
+    // #[verifier::external_body]
+    // fn serialize_helper<S>(s: &S) -> (out: &[u8])
+    //     where
+    //         S: Serializable,
+    //     ensures
+    //         out@ == s.spec_serialize()
+    // {
+    //     let s_pointer = s as *const S as *const u8;
+    //     let s_slice = unsafe {
+    //         std::slice::from_raw_parts(s_pointer, S::serialized_len() as usize)
+    //     };
+    //     s_slice
+    // }
+
+
+
     impl Serializable for u64 {
+
         closed spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self)
@@ -253,6 +323,13 @@ verus! {
         {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
+        }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
         }
     }
 }

@@ -12,6 +12,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
+use vstd::ptr::*;
 
 use crate::kv::durable::logentry_v::*;
 use crate::pmem::serialization_t::*;
@@ -64,22 +65,6 @@ verus! {
         }
     }
 
-    // This trait indicates which types are valid log entry types so that we can have a few
-    // generic op log append functions (rather than one per op type)
-    pub trait LogEntry : Serializable {
-        // TODO: remove this method once the issue with the `Serializable` `as_bytes` method is fixed.
-        // Ideally we would not have to manually serialize/copy log entries before writing them to PM.
-        exec fn serialize_bytes(&self) -> (out: Vec<u8>)
-            ensures 
-                out@ =~= self.spec_serialize();
-
-        // exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        //     requires 
-        //         bytes@.len() == Self::spec_serialized_len()
-        //     ensures 
-        //         out == Self::spec_deserialize(bytes@);
-    }
-
     // TODO: documentation
     #[repr(C)]
     pub struct CommitItemEntry {
@@ -87,21 +72,6 @@ verus! {
         pub item_index: u64,
         pub metadata_index: u64,
         pub metadata_crc: u64,
-    }
-
-    impl LogEntry for CommitItemEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut item_index_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes.append(&mut metadata_crc_bytes);
-            bytes
-        }
     }
 
     impl Serializable for CommitItemEntry {
@@ -196,6 +166,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     #[repr(C)]
@@ -204,18 +181,8 @@ verus! {
         pub item_index: u64,
     }
 
-    impl LogEntry for InvalidateItemEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut item_index_bytes);
-            bytes
-        }
-    }
-
     impl Serializable for InvalidateItemEntry {
+
         open spec fn spec_serialize(self) -> Seq<u8> 
         {
             spec_u64_to_le_bytes(self.entry_type) +
@@ -278,6 +245,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     // This log entry represents an operation that appends a new list node
@@ -304,23 +278,6 @@ verus! {
         pub old_tail: u64,
         pub new_tail: u64,
         pub metadata_crc: u64,
-    }
-
-    impl LogEntry for AppendListNodeEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            let mut old_tail_bytes = u64_to_le_bytes(self.old_tail);
-            let mut new_tail_bytes = u64_to_le_bytes(self.new_tail);
-            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes.append(&mut old_tail_bytes);
-            bytes.append(&mut new_tail_bytes);
-            bytes.append(&mut metadata_crc_bytes);
-            bytes
-        }
     }
 
     impl Serializable for AppendListNodeEntry
@@ -410,6 +367,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     // This log entry represents an operation that writes a new list element
@@ -438,21 +402,9 @@ verus! {
         pub index_in_node: u64,
     }
 
-    impl LogEntry for InsertListElementEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut node_offset_bytes = u64_to_le_bytes(self.node_offset);
-            let mut index_in_node_bytes = u64_to_le_bytes(self.index_in_node);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut node_offset_bytes);
-            bytes.append(&mut index_in_node_bytes);
-            bytes
-        }
-    }
-
     impl Serializable for InsertListElementEntry
     {
+
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
@@ -524,6 +476,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     // This log entry represents an update to a list's length field
@@ -546,23 +505,10 @@ verus! {
         pub metadata_crc: u64
     }
 
-    impl LogEntry for UpdateListLenEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            let mut new_length_bytes = u64_to_le_bytes(self.new_length);
-            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes.append(&mut new_length_bytes);
-            bytes.append(&mut metadata_crc_bytes);
-            bytes
-        }
-    }
 
     impl Serializable for UpdateListLenEntry
     {
+
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
@@ -647,6 +593,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     // This log entry represents a list trim operation. It includes the
@@ -666,27 +619,9 @@ verus! {
         pub metadata_crc: u64, 
     }
 
-    impl LogEntry for TrimListEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            let mut new_head_node_bytes = u64_to_le_bytes(self.new_head_node);
-            let mut new_list_len_bytes = u64_to_le_bytes(self.new_list_len);
-            let mut new_list_start_index_bytes = u64_to_le_bytes(self.new_list_start_index);
-            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes.append(&mut new_head_node_bytes);
-            bytes.append(&mut new_list_len_bytes);
-            bytes.append(&mut new_list_start_index_bytes);
-            bytes.append(&mut metadata_crc_bytes);
-            bytes
-        }
-    }
-
     impl Serializable for TrimListEntry
     {
+
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
@@ -781,6 +716,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
 
     pub struct CommitMetadataEntry 
@@ -788,19 +730,6 @@ verus! {
         pub entry_type: u64,
         pub metadata_index: u64,
         pub item_index: u64, // committing a metadata entry implies committing its item
-    }
-
-    impl LogEntry for CommitMetadataEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes.append(&mut item_index_bytes);
-            bytes
-        }
     }
 
     impl CommitMetadataEntry 
@@ -817,6 +746,7 @@ verus! {
 
     impl Serializable for CommitMetadataEntry 
     {
+
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) + 
@@ -885,6 +815,13 @@ verus! {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
         }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
+        }
     }
     pub struct InvalidateMetadataEntry
     {
@@ -892,19 +829,9 @@ verus! {
         pub metadata_index: u64,
     }
 
-    impl LogEntry for InvalidateMetadataEntry {
-        exec fn serialize_bytes(&self) -> Vec<u8> {
-            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
-            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
-            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
-            bytes.append(&mut entry_type_bytes);
-            bytes.append(&mut metadata_index_bytes);
-            bytes
-        }
-    }
-
     impl Serializable for InvalidateMetadataEntry 
     {
+
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) + 
@@ -965,6 +892,13 @@ verus! {
         {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
+        }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
         }
     }
 }

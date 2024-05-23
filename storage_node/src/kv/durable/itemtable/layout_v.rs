@@ -33,6 +33,7 @@ use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
+use vstd::ptr::*;
 
 use super::itemtablespec_t::DurableItemTableView;
 use super::itemtablespec_t::DurableItemTableViewEntry;
@@ -79,6 +80,7 @@ verus! {
     // TODO: should this be trusted?
     impl Serializable for ItemTableMetadata
     {
+
         closed spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.version_number) +
@@ -166,6 +168,13 @@ verus! {
         {
             let ptr = bytes.as_ptr() as *const Self;
             unsafe { &*ptr }
+        }
+
+        #[verifier::external_body]
+        fn serialize_in_place(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
         }
     }
 

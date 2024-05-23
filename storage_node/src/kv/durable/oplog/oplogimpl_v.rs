@@ -463,16 +463,16 @@ verus! {
         // }
 
         // This function tentatively appends a log entry and its CRC to the op log.
-        pub exec fn tentatively_append_log_entry<PM, LE>(
+        pub exec fn tentatively_append_log_entry<PM, S>(
             &mut self,
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
-            log_entry: &LE,
+            log_entry: &S,
             Tracked(perm): Tracked<&TrustedPermission>,
         ) -> (result: Result<(), LogErr>)
             where 
                 PM: PersistentMemoryRegion,
-                LE: LogEntry,
+                S: Serializable,
             requires 
                 // TODO
             ensures 
@@ -483,11 +483,11 @@ verus! {
             // for us the way serialize_and_write does. We need to convert it to a byte-level 
             // representation first, then append that to the log.
             assume(false);
-            let log_entry_bytes = log_entry.serialize_bytes();
+            let log_entry_bytes = log_entry.serialize_in_place();
             let log_entry_crc = calculate_crc(log_entry);
-            let log_entry_crc_bytes = u64_to_le_bytes(log_entry_crc);
-            self.log.tentatively_append(log_wrpm, log_entry_bytes.as_slice(), Ghost(log_id), Tracked(perm))?;
-            self.log.tentatively_append(log_wrpm, log_entry_crc_bytes.as_slice(), Ghost(log_id), Tracked(perm))?;
+            let log_entry_crc_bytes = log_entry_crc.serialize_in_place();
+            self.log.tentatively_append(log_wrpm, log_entry_bytes, Ghost(log_id), Tracked(perm))?;
+            self.log.tentatively_append(log_wrpm, log_entry_crc_bytes, Ghost(log_id), Tracked(perm))?;
             Ok(())
         }
 
