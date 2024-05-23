@@ -133,6 +133,13 @@ verus! {
         {
             LENGTH_OF_LIST_REGION_HEADER
         }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
     }
 
     // Per-node relative offsets for unrolled linked list nodes

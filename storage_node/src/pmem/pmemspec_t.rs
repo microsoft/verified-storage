@@ -112,19 +112,19 @@ verus! {
     /// `y_c` is the CRC of `x_c`, then we can conclude that `x` wasn't
     /// corrupted, i.e., that `x_c == x`.
 
-    // #[verifier(external_body)]
-    // pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-    //                                      y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
-    //     requires
-    //         maybe_corrupted(x_c, x, x_addrs),
-    //         maybe_corrupted(y_c, y, y_addrs),
-    //         y == spec_crc_bytes(x),
-    //         y_c == spec_crc_bytes(x_c),
-    //         all_elements_unique(x_addrs),
-    //         all_elements_unique(y_addrs),
-    //     ensures
-    //         x == x_c
-    // {}
+    #[verifier(external_body)]
+    pub proof fn axiom_bytes_uncorrupted2(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+                                         y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
+        requires
+            maybe_corrupted(x_c, x, x_addrs),
+            maybe_corrupted(y_c, y, y_addrs),
+            spec_u64_from_le_bytes(y) == spec_crc_u64(x),
+            spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
+            all_elements_unique(x_addrs),
+            all_elements_unique(y_addrs),
+        ensures
+            x == x_c
+    {}
 
     #[verifier(external_body)]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
@@ -139,6 +139,20 @@ verus! {
         ensures
             x == x_c
     {}
+
+    // #[verifier(external_body)]
+    // pub proof fn axiom_bytes_uncorrupted2(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
+    //                                      y_c: u64, y: u64, y_addrs: Seq<int>)
+    //     requires
+    //         maybe_corrupted(x_c, x, x_addrs),
+    //         maybe_corrupted_serialized2(y_c, y, y_addrs),
+    //         y == spec_crc_u64(x),
+    //         y_c == spec_crc_u64(x_c),
+    //         all_elements_unique(x_addrs),
+    //         all_elements_unique(y_addrs),
+    //     ensures
+    //         x == x_c
+    // {}
 
     /// The second assumption, encapsulated in
     /// `axiom_corruption_detecting_boolean`, is that the values

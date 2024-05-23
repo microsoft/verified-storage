@@ -139,6 +139,13 @@ verus! {
         {
             LENGTH_OF_METADATA_HEADER
         }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
     }
 
     // Per-entry relative offsets for list entry metadata
@@ -373,6 +380,13 @@ verus! {
         fn serialized_len() -> u64
         {
             LENGTH_OF_ENTRY_METADATA_MINUS_KEY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 

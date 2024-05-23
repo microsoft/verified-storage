@@ -189,6 +189,13 @@ verus! {
         {
             LENGTH_OF_GLOBAL_METADATA
         }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
     }
 
     #[repr(C)]
@@ -291,6 +298,13 @@ verus! {
         {
             LENGTH_OF_REGION_METADATA
         }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
     }
 
     #[repr(C)]
@@ -362,6 +376,13 @@ verus! {
 
         fn serialized_len() -> u64 {
             LENGTH_OF_LOG_METADATA
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 

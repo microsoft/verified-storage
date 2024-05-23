@@ -8,7 +8,7 @@ use crate::kv::durable::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
-use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::durable::logentry_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -35,10 +35,11 @@ verus! {
         pub closed spec fn recover<L>(
             mem: Seq<u8>,
             node_size: u64,
-            op_log: Seq<OpLogEntryType>,
-            list_entry_map: Map<OpLogEntryType, L>,
+            op_log: Seq<OpLogEntryType<L>>,
             kvstore_id: u128,
         ) -> Option<MetadataTableView<K>>
+        where 
+            L: Serializable,
         {
             if mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
                 // Invalid if the metadata table sequence is not large enough
@@ -80,7 +81,9 @@ verus! {
             }
         }
 
-        closed spec fn replay_log_metadata_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
+        closed spec fn replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+            where 
+                L: Serializable,
             decreases op_log.len()
         {
             if op_log.len() == 0 {
@@ -97,7 +100,9 @@ verus! {
         // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
         // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
         // update relevant fields.
-        closed spec fn apply_log_op_to_metadata_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
+        closed spec fn apply_log_op_to_metadata_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
+            where 
+                L: Serializable,
         {
             let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
             match op {
@@ -122,10 +127,10 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::AppendListNode{list_metadata_index, old_tail, new_tail, metadata_crc} => {
+                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail, metadata_crc} => {
                     // updates the tail field and the entry's CRC. We don't use the old tail value here -- that is only used
                     // when updating list nodes
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
+                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
                     let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
                     let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
@@ -141,8 +146,8 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::UpdateListLen{list_metadata_index, new_length, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
+                OpLogEntryType::UpdateListLen{metadata_index, new_length, metadata_crc} => {
+                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
                     let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
                     let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
@@ -158,8 +163,8 @@ verus! {
                     });
                     mem
                 } 
-                OpLogEntryType::TrimList{list_metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
+                OpLogEntryType::TrimList{metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc} => {
+                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
                     let head_addr = entry_offset +  RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
                     let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
@@ -183,18 +188,10 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::CommitMetadataEntry{list_metadata_index} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
-                    // // construct a ghost entry with the values that the new entry will have so that we can obtain a CRC 
-                    // let entry = ListEntryMetadata::spec_new(head, head, 0, 0, item_index);
-                    // let entry_crc = entry.spec_crc();
-                    // let crc_bytes = spec_u64_to_le_bytes(entry_crc);
-                    // let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    // let entry_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA;
+                OpLogEntryType::CommitMetadataEntry{metadata_index, item_index} => {
+                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let cdb_bytes = spec_u64_to_le_bytes(CDB_TRUE);
                     let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    // let key_bytes = key.spec_serialize();
-                    // let key_addr = entry_offset + RELATIVE_POS_OF_ENTRY_KEY;
                     let mem = mem.map(|pos: int, pre_byte: u8| {
                         if cdb_addr <= pos < cdb_addr + 8 {
                             cdb_bytes[pos - cdb_addr]
@@ -204,9 +201,9 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::InvalidateMetadataEntry{list_metadata_index} => {
+                OpLogEntryType::InvalidateMetadataEntry{metadata_index} => {
                     // In this case, we just have to flip the entry's CDB. We don't clear any other fields
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + list_metadata_index * table_entry_slot_size;
+                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let cdb_bytes = spec_u64_to_le_bytes(CDB_FALSE);
                     let mem = mem.map(|pos: int, pre_byte: u8| {
@@ -392,7 +389,7 @@ verus! {
         pub exec fn tentative_create<PM>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
-            table_id: u128,
+            Ghost(table_id): Ghost<u128>,
             list_node_index: u64,
             item_table_index: u64,
             key: &K,

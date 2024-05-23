@@ -1,6 +1,6 @@
 use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
-use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::durable::logentry_t::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
@@ -50,22 +50,20 @@ verus! {
         pub closed spec fn recover(
             mem: Seq<u8>,
             node_size: u64,
-            op_log: Seq<OpLogEntryType>,
-            list_entry_map: Map<OpLogEntryType, L>,
+            op_log: Seq<OpLogEntryType<L>>,
             metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
         ) -> Option<DurableListView<K, L, E>>
         {
             // TODO: check list node region header for validity? or do we do that later?
-            let list_nodes_mem = Self::replay_log_list_nodes(mem, node_size, op_log, list_entry_map);
+            let list_nodes_mem = Self::replay_log_list_nodes(mem, node_size, op_log);
             Self::parse_all_lists(metadata_table_view, mem)
         }
 
         closed spec fn replay_log_list_nodes(
             mem: Seq<u8>, 
             node_size: u64, 
-            op_log: Seq<OpLogEntryType>, 
-            list_entry_map: Map<OpLogEntryType, L>
+            op_log: Seq<OpLogEntryType<L>>, 
         ) -> Seq<u8>
             decreases op_log.len() 
         {
@@ -74,20 +72,19 @@ verus! {
             } else {
                 let current_op = op_log[0];
                 let op_log = op_log.drop_first();
-                let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op, list_entry_map);
-                Self::replay_log_list_nodes(mem, node_size, op_log, list_entry_map)
+                let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op);
+                Self::replay_log_list_nodes(mem, node_size, op_log)
             }
         }
 
         closed spec fn apply_log_op_to_list_node_mem(
             mem: Seq<u8>, 
             node_size: u64, 
-            op: OpLogEntryType, 
-            list_entry_map: Map<OpLogEntryType, L>
+            op: OpLogEntryType<L>, 
         ) -> Seq<u8>
         {
             match op {
-                OpLogEntryType::AppendListNode{list_metadata_index, old_tail, new_tail, metadata_crc} => {
+                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail, metadata_crc} => {
                     // To append a node, we set both the old tail and new tail's next pointers to the new tail,
                     // plus update both of their CRCs. The `metadata_crc` field in the enum is used when updating
                     // the metadata table; we just use the CRC of the new tail index here.
@@ -115,11 +112,10 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::InsertListElement{node_offset, index_in_node} => {
+                OpLogEntryType::InsertListElement{node_offset, index_in_node, list_element} => {
                     let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_offset * node_size;
                     let crc_addr = node_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
                     let list_element_addr = node_addr + RELATIVE_POS_OF_LIST_CONTENTS_AREA;
-                    let list_element = list_entry_map[op];
                     let crc = list_element.spec_crc();
                     let list_element_bytes = list_element.spec_serialize();
                     let crc_bytes = crc.spec_serialize();
@@ -455,7 +451,7 @@ verus! {
         pub exec fn alloc_and_init_list_node<PM>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
-            list_id: u128,
+            Ghost(list_id): Ghost<u128>,
             Tracked(perm): Tracked<&TrustedListPermission>,
         ) -> (result: Result<u64, KvError<K, E>>)
             where

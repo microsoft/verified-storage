@@ -26,7 +26,65 @@ verus! {
         )
     }
 
+    pub open spec fn maybe_corrupted_serialized2<S>(
+        read_val: S,
+        true_val: S,
+        addrs: Seq<int>,
+    ) -> bool 
+        where
+            S: Serializable + Sized,
+    {
+        maybe_corrupted(
+            read_val.spec_serialize(),
+            true_val.spec_serialize(),
+            addrs
+        )
+    }
+
     // TODO: these proofs should live somewhere else
+    pub proof fn lemma_serialized_val_uncorrupted2<S>(
+        read_val: S,
+        true_val: S,
+        val_addrs: Seq<int>,
+        read_crc: u64,
+        true_crc: u64,
+        crc_addrs: Seq<int>,
+    )
+        where
+            S: Serializable + Sized,
+        requires
+            // an impl of `Serializable can override the default impl, so
+            // we have to require it here
+            read_val.spec_crc() == spec_crc_u64(read_val.spec_serialize()),
+            true_val.spec_crc() == spec_crc_u64(true_val.spec_serialize()),
+            maybe_corrupted_serialized2(read_val, true_val, val_addrs),
+            maybe_corrupted_serialized2(read_crc, true_crc, crc_addrs),
+            read_crc == read_val.spec_crc(),
+            true_crc == true_val.spec_crc(),
+            forall |i: int, j| 0 <= i < crc_addrs.len() && 0 <= j < val_addrs.len() ==> crc_addrs[i] != val_addrs[j],
+            all_elements_unique(val_addrs),
+            all_elements_unique(crc_addrs),
+        ensures
+            read_val == true_val
+    {
+        let read_val_bytes = read_val.spec_serialize();
+        let true_val_bytes = true_val.spec_serialize();
+        let read_crc_bytes = read_crc.spec_serialize();
+        let true_crc_bytes = true_crc.spec_serialize();
+        u64::lemma_auto_serialize_deserialize();
+        assert(true_crc == true_val.spec_crc());
+        assert(true_val.spec_crc() == spec_crc_u64(true_val_bytes));
+        assert(true_crc == spec_crc_u64(true_val_bytes));
+
+        axiom_bytes_uncorrupted2(read_val_bytes, true_val_bytes, val_addrs,
+                read_crc_bytes, true_crc_bytes, crc_addrs);
+        assert(read_val_bytes == true_val_bytes);
+        assert(S::spec_deserialize(read_val_bytes) == S::spec_deserialize(true_val_bytes));
+        S::lemma_auto_serialize_deserialize();
+        assert(S::spec_deserialize(read_val_bytes) == read_val);
+        assert(S::spec_deserialize(true_val_bytes) == true_val);
+    }
+
     pub proof fn lemma_serialized_val_uncorrupted<S>(
         read_val: S,
         true_val: S,
@@ -124,6 +182,25 @@ verus! {
             ensures
                 out == Self::spec_serialized_len()
         ;
+
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+            requires 
+                bytes@.len() == Self::spec_serialized_len()
+            ensures 
+                out == Self::spec_deserialize(bytes@);
+
+        // This currently causes a rustc panic; reported as an issue to Verus repo
+        // #[verifier::external_body]
+        // fn as_bytes(&self) -> (out: &[u8])
+        //     ensures 
+        //         out@ == self.spec_serialize() 
+        // {
+        //     let s_pointer = self as *const Self as *const u8;
+        //     let s_slice = unsafe {
+        //         std::slice::from_raw_parts(s_pointer, Self::serialized_len() as usize)
+        //     };
+        //     s_slice
+        // }
     }
 
     impl Serializable for u64 {
@@ -169,6 +246,13 @@ verus! {
         fn serialized_len() -> u64
         {
             8
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 }

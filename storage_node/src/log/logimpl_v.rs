@@ -1068,10 +1068,11 @@ verus! {
             pos: u128,
             len: u64,
             Ghost(log_id): Ghost<u128>,
+        // ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
         ) -> (result: Result<Vec<u8>, LogErr>)
             where
                 Perm: CheckPermission<Seq<u8>>,
-                PMRegion: PersistentMemoryRegion
+                PMRegion: PersistentMemoryRegion,
             requires
                 self.inv(wrpm_region, log_id),
                 pos + len <= u128::MAX
@@ -1079,6 +1080,7 @@ verus! {
                 ({
                     let log = self@;
                     match result {
+                        // Ok((bytes, addrs)) => {
                         Ok(bytes) => {
                             let true_bytes = self@.read(pos as int, len as int);
                             &&& pos >= log.head
@@ -1120,6 +1122,7 @@ verus! {
 
                 assert (true_bytes =~= Seq::<u8>::empty());
                 assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
+                // return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
                 return Ok(Vec::<u8>::new());
             }
 
@@ -1144,6 +1147,7 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
+                // return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
                 return Ok(pm_region.read(addr, len));
             }
 
@@ -1181,6 +1185,7 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
+                // return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
                 return Ok(pm_region.read(addr, len));
             }
 
@@ -1230,7 +1235,10 @@ verus! {
             // Append the two byte vectors together and return the result.
 
             part1.append(&mut part2);
-            Ok(part1)
+            let addrs = Ghost(Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr) + 
+                Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + ABSOLUTE_POS_OF_LOG_AREA));
+            // Ok((part1, addrs))
+            return Ok(part1)
         }
 
         // The `get_head_tail_and_capacity` method returns the head,

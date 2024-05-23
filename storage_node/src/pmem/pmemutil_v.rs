@@ -282,6 +282,94 @@ verus! {
     //     crc1 == crc2
     // }
 
+    pub fn check_crc_deserialized2<S>(
+        data_c: &S,
+        crc_c: &u64,
+        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(data_addrs): Ghost<Seq<int>>,
+        Ghost(crc_addrs): Ghost<Seq<int>>,
+    ) -> (b: bool)
+        where 
+            S: Serializable + Sized,
+        requires 
+            data_c.spec_crc() == spec_crc_u64(data_c.spec_serialize()),
+            data_addrs.len() == S::spec_serialized_len(),
+            crc_addrs.len() == CRC_SIZE,
+            all_elements_unique(data_addrs),
+            all_elements_unique(crc_addrs),
+            // data and crc addrs cannot overlap -- all addresses must be unique
+            forall |i: int, j| 0 <= i < crc_addrs.len() && 0 <= j < data_addrs.len() ==> crc_addrs[i] != data_addrs[j],
+            ({
+                let true_data_bytes = Seq::new(S::spec_serialized_len() as nat, |i: int| mem[data_addrs[i] as int]);
+                let true_data = S::spec_deserialize(true_data_bytes);
+                let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
+                let true_crc = u64::spec_deserialize(true_crc_bytes);
+                &&& if impervious_to_corruption {
+                        &&& data_c == true_data
+                        &&& crc_c == true_crc
+                    } else {
+                        &&& maybe_corrupted_serialized2(*data_c, true_data, data_addrs)
+                        &&& maybe_corrupted_serialized2(*crc_c, true_crc, crc_addrs)
+                    }
+                &&& true_data.spec_crc() == spec_crc_u64(true_data.spec_serialize())
+            })
+        ensures 
+            ({
+                let true_data_bytes = Seq::new(S::spec_serialized_len() as nat, |i: int| mem[data_addrs[i] as int]);
+                let true_data = S::spec_deserialize(true_data_bytes);
+                let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
+                let true_crc = u64::spec_deserialize(true_crc_bytes);
+                true_crc == true_data.spec_crc() ==>
+                    if b {
+                        &&& *data_c =~= true_data
+                        &&& *crc_c =~= true_crc
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
+            }),
+    {
+        // Compute the CRC of the possibly-corrupted data
+        let computed_crc = calculate_crc(data_c);
+
+        proof {
+            let true_data_bytes = Seq::new(S::spec_serialized_len() as nat, |i: int| mem[data_addrs[i] as int]);
+            let true_data = S::spec_deserialize(true_data_bytes);
+            let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
+            let true_crc = u64::spec_deserialize(true_crc_bytes);
+
+            // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
+            // we can conclude that the data matches as well. That axiom only applies in the case
+            // when all three of the following conditions hold: (1) the last-written CRC really is
+            // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
+            // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
+            // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
+            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
+            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
+            // detected corruption.
+            if {
+                &&& true_crc == true_data.spec_crc()
+                &&& !impervious_to_corruption
+                &&& crc_c == computed_crc
+            } {
+
+                lemma_serialized_val_uncorrupted2(*data_c, true_data, data_addrs, *crc_c, true_crc, crc_addrs);
+            }
+
+            // To argue that `crc1` matches `crc2` if and only if `crc_c`
+            // matches `computed_crc`, we invoke the lemma saying that
+            // `spec_u64_to_le_bytes` is the inverse of what
+            // `u64_from_le_bytes` computes.
+
+            let read_crc_alt = spec_u64_to_le_bytes(*crc_c);
+            let computed_crc_alt = spec_u64_to_le_bytes(computed_crc);
+            lemma_auto_spec_u64_to_from_le_bytes();
+        }
+
+        *crc_c == computed_crc
+    }
+
     pub fn check_crc_deserialized<S>(
         data_c: &S,
         crc_c: &u64,
@@ -305,8 +393,7 @@ verus! {
                 &&& if impervious_to_corruption {
                         &&& data_c == true_data
                         &&& crc_c == true_crc
-                    }
-                    else {
+                    } else {
                         &&& maybe_corrupted_serialized(*data_c, true_data, data_addr as int)
                         &&& maybe_corrupted_serialized(*crc_c, true_crc, crc_addr as int)
                     }

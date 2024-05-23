@@ -18,47 +18,90 @@ use crate::pmem::serialization_t::*;
 
 verus! {
 
-    // TODO: take out the padding, just read the type first and then deserialize 
-    // the whole thing
+    // Enum representing different op log entry types.
+    // The concrete types we write to the log are not enums so that we have more control 
+    // over layout; this enum is used represent log entries in ghost code and in DRAM 
+    // during log replay
+    pub enum OpLogEntryType<L>
+        where
+            L: Serializable
+    {
+        ItemTableEntryCommit { 
+            item_index: u64,
+            metadata_index: u64,
+            metadata_crc: u64,
+        },
+        ItemTableEntryInvalidate { item_index: u64 },
+        AppendListNode {
+            metadata_index: u64,
+            old_tail: u64,
+            new_tail: u64,
+            metadata_crc: u64,
+        },
+        InsertListElement {
+            node_offset: u64,
+            index_in_node: u64,
+            list_element: L
+        },
+        UpdateListLen {
+            metadata_index: u64,
+            new_length: u64,
+            metadata_crc: u64,
+        },
+        TrimList {
+            metadata_index: u64,
+            new_head_node: u64,
+            new_list_len: u64,
+            new_list_start_index: u64,
+            metadata_crc: u64,
+        },
+        CommitMetadataEntry {
+            metadata_index: u64,
+            item_index: u64,
+        },
+        InvalidateMetadataEntry {
+            metadata_index: u64,
+        }
+    }
 
-    // NOTE ABOUT PADDING: some log entries have a relatively large amount of
-    // padding (i.e., unused bytes that are included as fields in the struct).
-    // This ensures that we can always check CRCs *before* checking each log
-    // entry's type. If log entries were not of uniform size, we would have
-    // to read the log entry type to determine its size prior to doing CRC
-    // checks. However, since we haven't checked the CRC yet, the entry type
-    // could have been corrupted, and we can't prove that we are reading
-    // the entry type that we think we are. Note that when inserting list
-    // entries, the log entry and the logged list element have separate CRCs
-    // so that we can read and check them separately.
+    // This trait indicates which types are valid log entry types so that we can have a few
+    // generic op log append functions (rather than one per op type)
+    pub trait LogEntry : Serializable {
+        // TODO: remove this method once the issue with the `Serializable` `as_bytes` method is fixed.
+        // Ideally we would not have to manually serialize/copy log entries before writing them to PM.
+        exec fn serialize_bytes(&self) -> (out: Vec<u8>)
+            ensures 
+                out@ =~= self.spec_serialize();
 
-    // This log entry can either represent an item commit operation, when a
-    // new key is added or an existing item is updated, or an item invalidation
-    // operation, when a key is deleted or an existing item is updated.
-    // Both entry types only require a table index to be logged.
-    //
-    // If this entry is used to log an item commit operation, the item being
-    // added at this index should already have been written and made durable.
-    // We do not log the CRC with the item commit operation because the CRC written
-    // to the entry in should have been calculated as if the valid bit was already set.
-    // This saves us some space in the log and updates when replaying the log.
-    // It doesn't matter that the CRC is not technically correct for the entry
-    // until the valid bit is set because the entry will not be visible until
-    // the bit is set, which makes the CRC valid.
-    //
-    // If this entry is used to log an item invalidation operation, no further updates
-    // are required to deallocate the item. The old contents will be overwritten when
-    // the slot is used again.
-    //
-    // When this log entry is replayed, the item at the specified index should have its
-    // valid bit set/cleared (depending on the entry type.)
+        // exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        //     requires 
+        //         bytes@.len() == Self::spec_serialized_len()
+        //     ensures 
+        //         out == Self::spec_deserialize(bytes@);
+    }
+
+    // TODO: documentation
     #[repr(C)]
     pub struct CommitItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
         pub metadata_index: u64,
         pub metadata_crc: u64,
-        pub _padding1: u128,
+    }
+
+    impl LogEntry for CommitItemEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut item_index_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes.append(&mut metadata_crc_bytes);
+            bytes
+        }
     }
 
     impl Serializable for CommitItemEntry {
@@ -67,8 +110,7 @@ verus! {
             spec_u64_to_le_bytes(self.entry_type) +
             spec_u64_to_le_bytes(self.item_index) +
             spec_u64_to_le_bytes(self.metadata_index) + 
-            spec_u64_to_le_bytes(self.metadata_crc) +
-            spec_u128_to_le_bytes(self._padding1)
+            spec_u64_to_le_bytes(self.metadata_crc)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
@@ -80,23 +122,18 @@ verus! {
                 )),
                 item_index: spec_u64_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY + 8
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM + 8
                 )),
                 metadata_index: spec_u64_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY + 8
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM + 8
                 )),
                 metadata_crc: spec_u64_from_le_bytes(
                     bytes.subrange(
-                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY + 8
-                )),
-                _padding1: spec_u128_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY + 16
+                        RELATIVE_POS_OF_CRC_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_CRC_COMMIT_ITEM + 8
                 )),
             }
         }
@@ -104,34 +141,28 @@ verus! {
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
                 let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
                 let serialized_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                     ) == serialized_entry_type
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ENTRY + 8
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM + 8
                     ) == serialized_item_index
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ENTRY + 8
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM + 8
                     ) == serialized_metadata_index
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_CRC_COMMIT_ENTRY + 8
+                        RELATIVE_POS_OF_CRC_COMMIT_ITEM as int,
+                        RELATIVE_POS_OF_CRC_COMMIT_ITEM + 8
                     ) == serialized_crc
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_COMMIT_ENTRY + 16
-                    ) == serialized_padding1
             });
         }
 
@@ -151,12 +182,19 @@ verus! {
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_COMMIT_ITEM_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_COMMIT_ITEM_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
@@ -164,17 +202,24 @@ verus! {
     pub struct InvalidateItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
-        pub _padding0: u128,
-        pub _padding1: u128,
+    }
+
+    impl LogEntry for InvalidateItemEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut item_index_bytes);
+            bytes
+        }
     }
 
     impl Serializable for InvalidateItemEntry {
         open spec fn spec_serialize(self) -> Seq<u8> 
         {
             spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.item_index) +
-            spec_u128_to_le_bytes(self._padding0) +
-            spec_u128_to_le_bytes(self._padding1)
+            spec_u64_to_le_bytes(self.item_index)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
@@ -183,47 +228,31 @@ verus! {
                 entry_type: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
                 item_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY + 8)),
-                _padding0: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY + 16)),
-                _padding1: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY as int, RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY + 16)),
+                    bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM as int, RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM + 8)),
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
-                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                     ) == serialized_entry_type
                 &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ENTRY + 8
+                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM as int,
+                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM + 8
                     ) == serialized_item_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_0_INVALIDATE_ENTRY + 16
-                    ) == serialized_padding0
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY as int,
-                        RELATIVE_POS_OF_PADDING_1_INVALIDATE_ENTRY + 16
-                    ) == serialized_padding1
             });
         }
 
         proof fn lemma_auto_deserialize_serialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -231,23 +260,29 @@ verus! {
         proof fn lemma_auto_serialized_len()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_INVALIDATE_ITEM_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_INVALIDATE_ITEM_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
     // This log entry represents an operation that appends a new list node
     // (i.e., an array of list elements, plus a next pointer and CRC) to
-    // the list associated with the index at `list_metadata_index`.
+    // the list associated with the index at `metadata_index`.
     //
     // Writing this entry to the log should be preceded by the allocation
     // of the new tail node (i.e., setting its next pointer to null and updating
@@ -265,11 +300,27 @@ verus! {
     #[repr(C)]
     pub struct AppendListNodeEntry {
         pub entry_type: u64,
-        pub list_metadata_index: u64,
+        pub metadata_index: u64,
         pub old_tail: u64,
         pub new_tail: u64,
         pub metadata_crc: u64,
-        pub _padding0: u64,
+    }
+
+    impl LogEntry for AppendListNodeEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            let mut old_tail_bytes = u64_to_le_bytes(self.old_tail);
+            let mut new_tail_bytes = u64_to_le_bytes(self.new_tail);
+            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes.append(&mut old_tail_bytes);
+            bytes.append(&mut new_tail_bytes);
+            bytes.append(&mut metadata_crc_bytes);
+            bytes
+        }
     }
 
     impl Serializable for AppendListNodeEntry
@@ -277,18 +328,17 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.list_metadata_index) +
+            spec_u64_to_le_bytes(self.metadata_index) +
             spec_u64_to_le_bytes(self.old_tail) +
             spec_u64_to_le_bytes(self.new_tail) +
-            spec_u64_to_le_bytes(self.metadata_crc) +
-            spec_u64_to_le_bytes(self._padding0)
+            spec_u64_to_le_bytes(self.metadata_crc)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
             Self {
                 entry_type: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                list_metadata_index: spec_u64_from_le_bytes(
+                metadata_index: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE + 8)),
                 old_tail: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE + 8)),
@@ -296,8 +346,6 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE + 8)),
                 metadata_crc: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int, RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8)),
-                _padding0: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_APPEND_NODE as int, RELATIVE_POS_OF_PADDING_0_APPEND_NODE + 8))
             }
         }
 
@@ -306,11 +354,10 @@ verus! {
             lemma_auto_spec_u64_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
                 let serialized_old_tail = #[trigger] spec_u64_to_le_bytes(s.old_tail);
                 let serialized_new_tail = #[trigger] spec_u64_to_le_bytes(s.new_tail);
                 let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding0);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -319,7 +366,7 @@ verus! {
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE as int,
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE + 8
-                    ) == serialized_list_metadata_index
+                    ) == serialized_metadata_index
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE as int,
                         RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE + 8
@@ -332,10 +379,6 @@ verus! {
                         RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int,
                         RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8
                     ) == serialized_metadata_crc
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_APPEND_NODE as int,
-                        RELATIVE_POS_OF_PADDING_0_APPEND_NODE + 8
-                    ) == serialized_padding
             });
         }
 
@@ -353,12 +396,19 @@ verus! {
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_APPEND_NODE_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_APPEND_NODE_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
@@ -386,8 +436,19 @@ verus! {
         pub entry_type: u64,
         pub node_offset: u64,
         pub index_in_node: u64,
-        pub _padding0: u64,
-        pub _padding1: u128,
+    }
+
+    impl LogEntry for InsertListElementEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut node_offset_bytes = u64_to_le_bytes(self.node_offset);
+            let mut index_in_node_bytes = u64_to_le_bytes(self.index_in_node);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut node_offset_bytes);
+            bytes.append(&mut index_in_node_bytes);
+            bytes
+        }
     }
 
     impl Serializable for InsertListElementEntry
@@ -396,9 +457,7 @@ verus! {
         {
             spec_u64_to_le_bytes(self.entry_type) +
             spec_u64_to_le_bytes(self.node_offset) +
-            spec_u64_to_le_bytes(self.index_in_node) +
-            spec_u64_to_le_bytes(self._padding0) +
-            spec_u128_to_le_bytes(self._padding1)
+            spec_u64_to_le_bytes(self.index_in_node)
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
@@ -410,23 +469,16 @@ verus! {
                     bytes.subrange(RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT + 8)),
                 index_in_node: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT + 8)),
-                _padding0: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT + 8)),
-                _padding1: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 16))
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
                 let serialized_node_offset = #[trigger] spec_u64_to_le_bytes(s.node_offset);
                 let serialized_index_in_node = #[trigger] spec_u64_to_le_bytes(s.index_in_node);
-                let serialized_padding0 = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -440,14 +492,6 @@ verus! {
                         RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT as int,
                         RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT + 8
                     ) == serialized_index_in_node
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT as int,
-                        RELATIVE_POS_OF_PADDING_0_INSERT_LIST_ELEMENT + 8
-                    ) == serialized_padding0
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT as int,
-                        RELATIVE_POS_OF_PADDING_1_INSERT_LIST_ELEMENT + 16
-                    ) == serialized_padding1
             });
         }
 
@@ -462,17 +506,23 @@ verus! {
         proof fn lemma_auto_serialized_len()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
@@ -491,10 +541,24 @@ verus! {
     #[repr(C)]
     pub struct UpdateListLenEntry {
         pub entry_type: u64,
-        pub list_metadata_index: u64,
+        pub metadata_index: u64,
         pub new_length: u64,
-        pub metadata_crc: u64,
-        pub _padding0: u128,
+        pub metadata_crc: u64
+    }
+
+    impl LogEntry for UpdateListLenEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            let mut new_length_bytes = u64_to_le_bytes(self.new_length);
+            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes.append(&mut new_length_bytes);
+            bytes.append(&mut metadata_crc_bytes);
+            bytes
+        }
     }
 
     impl Serializable for UpdateListLenEntry
@@ -502,10 +566,9 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.list_metadata_index) +
+            spec_u64_to_le_bytes(self.metadata_index) +
             spec_u64_to_le_bytes(self.new_length) +
-            spec_u64_to_le_bytes(self.metadata_crc) +
-            spec_u128_to_le_bytes(self._padding0)
+            spec_u64_to_le_bytes(self.metadata_crc) 
             
         }
 
@@ -514,14 +577,12 @@ verus! {
             Self {
                 entry_type: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                list_metadata_index: spec_u64_from_le_bytes(
+                metadata_index: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN + 8)),
                 new_length: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8)),
                 metadata_crc: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8)),
-                _padding0: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 16)),
             }
         }
 
@@ -531,10 +592,9 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
                 let serialized_new_len = #[trigger] spec_u64_to_le_bytes(s.new_length);
                 let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
@@ -543,7 +603,7 @@ verus! {
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN as int,
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN + 8
-                    ) == serialized_list_metadata_index
+                    ) == serialized_metadata_index
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN as int,
                         RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8
@@ -552,11 +612,7 @@ verus! {
                         RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int,
                         RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8
                     ) == serialized_metadata_crc
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_PADDING_0_UPDATE_LIST_LEN + 16
-                    ) == serialized_padding0
-                
+             
             });
         }
 
@@ -577,12 +633,19 @@ verus! {
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_UPDATE_LIST_LEN_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_UPDATE_LIST_LEN_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
@@ -596,11 +659,30 @@ verus! {
     #[repr(C)]
     pub struct TrimListEntry {
         pub entry_type: u64,
-        pub list_metadata_index: u64,
+        pub metadata_index: u64,
         pub new_head_node: u64,
         pub new_list_len: u64,
         pub new_list_start_index: u64,
         pub metadata_crc: u64, 
+    }
+
+    impl LogEntry for TrimListEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            let mut new_head_node_bytes = u64_to_le_bytes(self.new_head_node);
+            let mut new_list_len_bytes = u64_to_le_bytes(self.new_list_len);
+            let mut new_list_start_index_bytes = u64_to_le_bytes(self.new_list_start_index);
+            let mut metadata_crc_bytes = u64_to_le_bytes(self.metadata_crc);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes.append(&mut new_head_node_bytes);
+            bytes.append(&mut new_list_len_bytes);
+            bytes.append(&mut new_list_start_index_bytes);
+            bytes.append(&mut metadata_crc_bytes);
+            bytes
+        }
     }
 
     impl Serializable for TrimListEntry
@@ -608,7 +690,7 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.list_metadata_index) +
+            spec_u64_to_le_bytes(self.metadata_index) +
             spec_u64_to_le_bytes(self.new_head_node) +
             spec_u64_to_le_bytes(self.new_list_len) +
             spec_u64_to_le_bytes(self.new_list_start_index) +
@@ -620,7 +702,7 @@ verus! {
             Self {
                 entry_type: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                list_metadata_index: spec_u64_from_le_bytes(
+                metadata_index: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST + 8)),
                 new_head_node: spec_u64_from_le_bytes(
                     bytes.subrange(RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST as int, RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST + 8)),
@@ -638,7 +720,7 @@ verus! {
             lemma_auto_spec_u64_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
                 let serialized_new_head_node = #[trigger] spec_u64_to_le_bytes(s.new_head_node);
                 let serialized_new_list_len = #[trigger] spec_u64_to_le_bytes(s.new_list_len);
                 let serialized_new_list_start_index = #[trigger] spec_u64_to_le_bytes(s.new_list_start_index);
@@ -651,7 +733,7 @@ verus! {
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST as int,
                         RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST + 8
-                    ) == serialized_list_metadata_index
+                    ) == serialized_metadata_index
                 &&& serialized_entry.subrange(
                         RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST as int,
                         RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST + 8
@@ -685,21 +767,52 @@ verus! {
 
         open spec fn spec_serialized_len() -> int
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_TRIM_LIST_ENTRY as int
         }
 
         fn serialized_len() -> u64
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_TRIM_LIST_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 
     pub struct CommitMetadataEntry 
     {
         pub entry_type: u64,
-        pub list_metadata_index: u64,
-        pub _padding0: u128,
-        pub _padding1: u128,
+        pub metadata_index: u64,
+        pub item_index: u64, // committing a metadata entry implies committing its item
+    }
+
+    impl LogEntry for CommitMetadataEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            let mut item_index_bytes = u64_to_le_bytes(self.item_index);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes.append(&mut item_index_bytes);
+            bytes
+        }
+    }
+
+    impl CommitMetadataEntry 
+    {
+        pub exec fn new(metadata_index: u64, item_index: u64) -> Self 
+        {
+            Self {
+                entry_type: COMMIT_METADATA_ENTRY,
+                metadata_index,
+                item_index,
+            }
+        }
     }
 
     impl Serializable for CommitMetadataEntry 
@@ -707,47 +820,39 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) + 
-            spec_u64_to_le_bytes(self.list_metadata_index) + 
-            spec_u128_to_le_bytes(self._padding0) +
-            spec_u128_to_le_bytes(self._padding1) 
+            spec_u64_to_le_bytes(self.metadata_index) + 
+            spec_u64_to_le_bytes(self.item_index) 
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
         {
             Self {
                 entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8)),
-                _padding0: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 16)),
-                _padding1: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int, RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16)),
+                metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA + 8)),
+                item_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA as int, RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA + 8)),
             }
         }
 
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
-                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
+                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                 ) == serialized_entry_type 
                 &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST as int,
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_CREATE_LIST + 8
-                ) == serialized_list_metadata_index
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA as int,
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA + 8
+                ) == serialized_metadata_index
                 &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_0_CREATE_LIST + 16
-                ) == serialized_padding0
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_1_CREATE_LIST + 16
-                ) == serialized_padding1
+                    RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA as int,
+                    RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA + 8
+                ) == serialized_item_index
             });
         }
 
@@ -762,27 +867,40 @@ verus! {
         proof fn lemma_auto_serialized_len() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int 
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_COMMIT_METADATA_ENTRY as int
         }
 
         fn serialized_len() -> u64 
         {
-            LENGTH_OF_LOG_ENTRY
+            LENGTH_OF_COMMIT_METADATA_ENTRY
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
-
-
     pub struct InvalidateMetadataEntry
     {
         pub entry_type: u64,
-        pub list_metadata_index: u64,
-        pub _padding0: u128,
-        pub _padding1: u128,
+        pub metadata_index: u64,
+    }
+
+    impl LogEntry for InvalidateMetadataEntry {
+        exec fn serialize_bytes(&self) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(Self::serialized_len() as usize);
+            let mut entry_type_bytes = u64_to_le_bytes(self.entry_type);
+            let mut metadata_index_bytes = u64_to_le_bytes(self.metadata_index);
+            bytes.append(&mut entry_type_bytes);
+            bytes.append(&mut metadata_index_bytes);
+            bytes
+        }
     }
 
     impl Serializable for InvalidateMetadataEntry 
@@ -790,18 +908,14 @@ verus! {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
             spec_u64_to_le_bytes(self.entry_type) + 
-            spec_u64_to_le_bytes(self.list_metadata_index) +
-            spec_u128_to_le_bytes(self._padding0) +
-            spec_u128_to_le_bytes(self._padding1) 
+            spec_u64_to_le_bytes(self.metadata_index) 
         }
 
         open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
         {
             Self {
                 entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                list_metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST + 8)),
-                _padding0: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 16)),
-                _padding1: spec_u128_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int, RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 16)),
+                metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA + 8)),
             }
         }
 
@@ -811,33 +925,22 @@ verus! {
             lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |s: Self| {
                 let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_list_metadata_index = #[trigger] spec_u64_to_le_bytes(s.list_metadata_index);
-                let serialized_padding0 = #[trigger] spec_u128_to_le_bytes(s._padding0);
-                let serialized_padding1 = #[trigger] spec_u128_to_le_bytes(s._padding1);
+                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
                 let serialized_entry = #[trigger] s.spec_serialize();
                 &&& serialized_entry.subrange(
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
                     RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
                 ) == serialized_entry_type 
                 &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST as int,
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_DELETE_LIST + 8
-                ) == serialized_list_metadata_index
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_0_DELETE_LIST + 16
-                ) == serialized_padding0 
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST as int,
-                    RELATIVE_POS_OF_PADDING_1_DELETE_LIST + 16
-                ) == serialized_padding1
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA as int,
+                    RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA + 8
+                ) == serialized_metadata_index
             });
         }
 
         proof fn lemma_auto_deserialize_serialize() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
             assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
                 bytes =~= Self::spec_deserialize(bytes).spec_serialize());
         }
@@ -845,17 +948,23 @@ verus! {
         proof fn lemma_auto_serialized_len() 
         {
             lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
         }
 
         open spec fn spec_serialized_len() -> int 
         {
-            LENGTH_OF_LOG_ENTRY as int
+            LENGTH_OF_INVALIDATE_METADATA_ENTRY as int
         }
 
         fn serialized_len() -> u64 
         {
-            LENGTH_OF_LOG_ENTRY   
+            LENGTH_OF_INVALIDATE_METADATA_ENTRY   
+        }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
         }
     }
 }

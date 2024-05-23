@@ -64,6 +64,7 @@ where
     InvalidListRegionMetadata,
     EntryIsValid,
     EntryIsNotValid,
+    InvalidLogEntryType,
     LogErr { err: LogErr }
 }
 
@@ -84,7 +85,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    L: Serializable + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -103,7 +104,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    L: Serializable + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -179,7 +180,7 @@ where
     //     Err(KvError::NotImplemented)
     // }
 
-    fn create(&mut self, key: &K, item: I) -> (result: Result<(), KvError<K, E>>)
+    fn create(&mut self, key: &K, item: &I, Ghost(kvstore_id): Ghost<u128>,) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
             key == item.spec_key(),
@@ -187,7 +188,7 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == old(self)@.create(*key, item).unwrap()
+                    &&& self@ == old(self)@.create(*key, *item).unwrap()
                 }
                 Err(KvError::KeyAlreadyExists) => {
                     &&& old(self)@.contents.contains_key(*key)
@@ -200,8 +201,8 @@ where
             Err(KvError::KeyAlreadyExists)
         } else {
             let tracked perm =
-                TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, item).unwrap());
-            self.untrusted_kv_impl.untrusted_create(key, item, Tracked(&perm))
+                TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
+            self.untrusted_kv_impl.untrusted_create(key, item, Ghost(kvstore_id), Tracked(&perm))
         }
     }
 

@@ -37,7 +37,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
     I: Serializable + Item<K> + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    L: Serializable + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -53,7 +53,7 @@ where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
     I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    L: Serializable + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -140,7 +140,8 @@ where
     pub fn untrusted_create(
         &mut self,
         key: &K,
-        item: I,
+        item: &I,
+        Ghost(kvstore_id): Ghost<u128>,
         perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
@@ -150,7 +151,7 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& self@ == old(self)@.create(*key, item).unwrap()
+                    &&& self@ == old(self)@.create(*key, *item).unwrap()
                 }
                 Err(KvError::KeyAlreadyExists) => {
                     &&& old(self)@.contents.contains_key(*key)
@@ -170,13 +171,13 @@ where
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
-        let offset = self.durable_store.create(item, perm)?;
+        let offset = self.durable_store.create(&item, &key, Ghost(kvstore_id), perm)?;
         self.volatile_index.insert_item_offset(key, offset)?;
 
         proof {
             // the volatile index and durable store match after creating the new entry in both
-            lemma_volatile_matches_durable_after_create(old_durable_state, old_volatile_state, offset as int, *key, item);
-            let new_kv_state = old_kv_state.create(*key, item).unwrap();
+            lemma_volatile_matches_durable_after_create(old_durable_state, old_volatile_state, offset as int, *key, *item);
+            let new_kv_state = old_kv_state.create(*key, *item).unwrap();
             // the kv state reflects the new volatile and durable store states
             assert(new_kv_state.contents =~= AbstractKvStoreState::construct_view_contents(
                     self.volatile_index@, self.durable_store@));

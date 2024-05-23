@@ -10,11 +10,13 @@ use crate::kv::durable::durablelist::durablelistimpl_v::*;
 use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::durablespec_t::*;
+use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
+use crate::kv::durable::logentry_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
@@ -35,16 +37,17 @@ verus! {
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
         I: Serializable + Item<K> + Sized + std::fmt::Debug,
-        L: Serializable + std::fmt::Debug,
+        L: Serializable + std::fmt::Debug + Copy,
         E: std::fmt::Debug,
     {
         item_table: DurableItemTable<K, I, E>,
         durable_list: DurableList<K, L, E>,
-        log: UntrustedLogImpl,
+        log: UntrustedOpLog<K, L, E>,
         metadata_table: MetadataTable<K, E>,
         item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
         list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
         log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
+        metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>
     }
 
     impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E>
@@ -52,7 +55,7 @@ verus! {
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
             I: Serializable + Item<K> + Sized + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug,
+            L: Serializable + std::fmt::Debug + Copy,
             E: std::fmt::Debug,
     {
         // TODO: write this based on specs of the other structures
@@ -113,7 +116,6 @@ verus! {
         }
 
         pub fn start(
-            // wrpm_regions: &mut WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM, K, I, L, E>, PM>,
             mut metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             mut item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             mut list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
@@ -144,20 +146,22 @@ verus! {
 
             // TEMPORARY, NOT CORRECT: make up a permissions struct for each component to start with. since we aren't 
             // writing any proofs yet, we don't need the perm to be correct.
-            let tracked metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            let tracked item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked list_perm = TrustedListPermission::fake_list_perm();
-            let tracked log_perm = TrustedPermission::fake_log_perm();
+            // These perms should actually be derived from the higher-level kv permission
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
 
             let list_element_size = (L::serialized_len() + CRC_SIZE) as u32;
 
-            let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
-            let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
-            let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, Tracked(&list_perm), Ghost(DurableListView::init()))?;
-            let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
-                Ok(log) => log,
-                Err(e) => return Err(KvError::LogErr { err: e }),
-            };
+            let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
+            let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
+            let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;
+            let log = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            // let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
+            //     Ok(log) => log,
+            //     Err(e) => return Err(KvError::LogErr { err: e }),
+            // };
 
             Ok(Self {
                 item_table,
@@ -167,13 +171,16 @@ verus! {
                 item_table_wrpm,
                 list_wrpm,
                 log_wrpm,
+                metadata_wrpm
             })
         }
 
         pub fn create(
             &mut self,
-            item: I,
-            perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
+            item: &I,
+            key: &K,
+            Ghost(kvstore_id): Ghost<u128>,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
                 old(self).valid(),
@@ -182,7 +189,7 @@ verus! {
                 ({
                     match result {
                         Ok(offset) => {
-                            let spec_result = old(self)@.create(offset as int, item);
+                            let spec_result = old(self)@.create(offset as int, *item);
                             match spec_result {
                                 Ok(spec_result) => {
                                     &&& self@.len() == old(self)@.len() + 1
@@ -198,6 +205,42 @@ verus! {
                 })
         {
             assume(false);
+
+            // 1. find a free slot in the item table and tentatively write the new item there
+            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            let item_index = self.item_table.tentatively_write_item(
+                &mut self.item_table_wrpm, 
+                Ghost(kvstore_id), 
+                &item, 
+                Tracked(&fake_item_table_perm)
+            )?;
+
+            // 2. allocate and initialize a head node for this entry; this is tentative since the node is 
+            // not yet accessible 
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            let head_index = self.durable_list.alloc_and_init_list_node(
+                &mut self.list_wrpm, 
+                Ghost(kvstore_id), 
+                Tracked(&fake_list_perm)
+            )?;
+
+            // 3. find a free slot in the metadata table and tentatively write a new entry to it
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let metadata_index = self.metadata_table.tentative_create(
+                &mut self.metadata_wrpm, 
+                Ghost(kvstore_id), 
+                item_index, 
+                head_index, 
+                key,
+                Tracked(&fake_metadata_perm)
+            )?;
+
+            // 2. tentatively append the new item's commit op to the log. Metadata entry commit 
+            // implies item commit and also makes the list accessible so we can append to it
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            let log_entry = CommitMetadataEntry::new(metadata_index, item_index);
+
+
             Err(KvError::NotImplemented)
         }
 

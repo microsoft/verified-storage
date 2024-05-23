@@ -160,6 +160,13 @@ verus! {
         {
             LENGTH_OF_METADATA_HEADER
         }
+
+        #[verifier::external_body]
+        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
+        {
+            let ptr = bytes.as_ptr() as *const Self;
+            unsafe { &*ptr }
+        }
     }
 
     pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;

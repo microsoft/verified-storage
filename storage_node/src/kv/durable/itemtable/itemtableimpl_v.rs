@@ -1,6 +1,6 @@
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
-use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::durable::logentry_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -71,11 +71,13 @@ verus! {
             self.free_list@
         }
 
-        pub closed spec fn recover(
+        pub closed spec fn recover<L>(
             mem: Seq<u8>,
-            op_log: Seq<OpLogEntryType>,
+            op_log: Seq<OpLogEntryType<L>>,
             kvstore_id: u128
         ) -> Option<DurableItemTableView<I, K, E>>
+            where 
+                L: Serializable,
         {
             if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
                 // If the memory is not large enough to store the metadata header,
@@ -111,8 +113,10 @@ verus! {
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // do not modify the item table.
         // TODO: check length of `mem`?
-        closed spec fn replay_log_item_table(mem: Seq<u8>, op_log: Seq<OpLogEntryType>) -> Seq<u8>
-            decreases op_log.len()
+        closed spec fn replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+            where 
+                L: Serializable,
+            decreases op_log.len(),
         {
             if op_log.len() == 0 {
                 mem
@@ -125,7 +129,9 @@ verus! {
         }
 
         // TODO: refactor -- logic in both cases is the same
-        closed spec fn apply_log_op_to_item_table_mem(mem: Seq<u8>, op: OpLogEntryType) -> Seq<u8>
+        closed spec fn apply_log_op_to_item_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
+            where 
+                L: Serializable,
         {
             let item_entry_size = I::spec_serialized_len() + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
             match op {
@@ -139,12 +145,23 @@ verus! {
                                                     );
                     mem
                 }
-                OpLogEntryType::ItemTableEntryInvalidate { table_index } => {
-                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + table_index * item_entry_size;
+                OpLogEntryType::ItemTableEntryInvalidate { item_index } => {
+                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
                     let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let invalid_cdb = spec_u64_to_le_bytes(CDB_FALSE);
                     let mem = mem.map(|pos: int, pre_byte: u8| 
                                                         if addr <= pos < addr + invalid_cdb.len() { invalid_cdb[pos - addr]}
+                                                        else { pre_byte }
+                                                    );
+                    mem
+                }
+                OpLogEntryType::CommitMetadataEntry{metadata_index, item_index} => {
+                    // committing a metadata entry implies that the corresponding item needs to be committed as well
+                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
+                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
+                    let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
+                    let mem = mem.map(|pos: int, pre_byte: u8| 
+                                                        if addr <= pos < addr + valid_cdb.len() { valid_cdb[pos - addr]}
                                                         else { pre_byte }
                                                     );
                     mem
@@ -297,7 +314,7 @@ verus! {
         pub exec fn tentatively_write_item<PM>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
-            item_table_id: u128,
+            Ghost(item_table_id): Ghost<u128>,
             item: &I,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
         ) -> (result: Result<u64, KvError<K, E>>)
