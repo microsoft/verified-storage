@@ -347,12 +347,14 @@ verus! {
             ensures
                 subregion.inv(wrpm_region, perm),
                 match result {
-                    Ok(offset) =>
-                        info_consistent_with_log_area_subregion(
+                    Ok(offset) => {
+                        &&& offset == self.info.head + self.info.log_plus_pending_length
+                        &&& info_consistent_with_log_area_subregion(
                             subregion.view(wrpm_region),
                             self.info.tentatively_append(bytes_to_append.len() as u64),
                             self.state@.tentatively_append(bytes_to_append@)
-                        ),
+                        )
+                    },
                     Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                         &&& subregion.view(wrpm_region) == subregion.initial_subregion_view()
                         &&& available_space < bytes_to_append@.len()
@@ -565,31 +567,45 @@ verus! {
                 })
             }
 
-            let ghost initial_region_view =
+            let ghost initial_region_view = wrpm_region@;
+            let ghost initial_log_area_view =
                 subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
-            let ghost is_view_allowable = |v: PersistentMemoryRegionView| {
-                region_views_differ_only_at_addresses(
-                    v, initial_region_view,
-                    log_area_offsets_unreachable_during_recovery(self.info.head_log_area_offset as int,
-                                                                 self.info.log_area_len as int,
-                                                                 self.info.log_length as int)
-                )
-            };
+            let ghost is_view_allowable =
+                view_differs_only_at_unused_log_addresses(initial_log_area_view,
+                                                          self.info.head_log_area_offset as int,
+                                                          self.info.log_length as int);
             assert forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 &&& subregion_view.len() == self.info.log_area_len
                 &&& (is_view_allowable)(subregion_view)
                 &&& replace_subregion_of_region_view(wrpm_region@, subregion_view, ABSOLUTE_POS_OF_LOG_AREA)
                        .can_crash_as(s)
             } implies perm.check_permission(s) by {
-                assume(false);
+                lemma_if_view_differs_only_at_unused_log_addresses_then_recover_state_matches(
+                    wrpm_region@,
+                    log_id,
+                    self.cdb,
+                    self.info,
+                    self.state@,
+                );
             }
                    
             let subregion = PersistentMemorySubregion::new(wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
                                                            Ghost(self.info.log_area_len), Ghost(is_view_allowable));
-            assume(false);
             let result = self.tentatively_append_subregion(
                 wrpm_region, &subregion, bytes_to_append, Tracked(perm)
             );
+            proof {
+                subregion.lemma_implications_of_inv(wrpm_region, perm);
+            }
+            let ghost current_log_view = subregion.view(wrpm_region);
+            assert(wrpm_region@ == replace_subregion_of_region_view(initial_region_view, current_log_view,
+                                                                    ABSOLUTE_POS_OF_LOG_AREA));
+            assert(no_outstanding_writes_to_metadata(wrpm_region@));
+            proof {
+                lemma_establish_extract_bytes_equivalence(initial_region_view.committed(), wrpm_region@.committed());
+                assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
+                assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, self.info));
+            }
 
             // We now update our `info` field to reflect the new
             // `log_plus_pending_length` value.
@@ -600,6 +616,7 @@ verus! {
             // We update our `state` field to reflect the tentative append.
 
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
+            assert(info_consistent_with_log_area(wrpm_region@, self.info, self.state@));
 
             result
         }
@@ -977,8 +994,6 @@ verus! {
                     _ => false
                 }
         {
-            assume(false);
-
             // Even if we return an error code, we still have to prove that
             // upon return the states we can crash into recover into valid
             // abstract states.

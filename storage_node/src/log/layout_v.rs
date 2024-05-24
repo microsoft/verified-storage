@@ -624,7 +624,7 @@ verus! {
         log_length: int,
     ) -> Option<AbstractLogState>
     {
-        if head + log_area.len() > u128::MAX
+        if head + log_length > u128::MAX
         {
             None
         }

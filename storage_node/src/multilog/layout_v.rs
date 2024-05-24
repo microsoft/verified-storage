@@ -969,7 +969,7 @@ verus! {
     //
     // holds, then
     //
-    // `extract_bytes(mem1, i, n) == mem2.extract_bytes(mem2, i, n)`
+    // `extract_bytes(mem1, i, n) == extract_bytes(mem2, i, n)`
     //
     // also holds.
     //
