@@ -266,50 +266,12 @@ verus! {
                         };
                     &&& 0 <= pos_relative_to_head < info.log_area_len
                     &&& addr == ABSOLUTE_POS_OF_LOG_AREA +
-                              relative_log_pos_to_log_area_offset(pos_relative_to_head, info.head_log_area_offset as int,
+                              relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                  info.head_log_area_offset as int,
                                                                   info.log_area_len as int)
                 }
     {
     }
-
-    proof fn lemma_info_consistent_with_log_area_subregion_implications_after_crash(
-        pm_region_view: PersistentMemoryRegionView,
-        s: Seq<u8>,
-        info: LogInfo,
-        state: AbstractLogState
-    )
-        requires
-            pm_region_view.len() == info.log_area_len,
-            info_consistent_with_log_area_subregion(pm_region_view, info, state),
-            pm_region_view.can_crash_as(s),
-        ensures
-            recover_abstract_log_from_log_area_given_metadata(s, info.head as int, info.log_length as int)
-            == Some(state.drop_pending_appends())
-    {
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-        assert(recover_abstract_log_from_log_area_given_metadata(s, info.head as int, info.log_length as int)
-               =~= Some(state.drop_pending_appends()));
-    }
-
-    /*
-    proof fn lemma_info_consistent_with_log_area_subregion_implications(
-        pm_region_view: PersistentMemoryRegionView,
-        info: LogInfo,
-        state: AbstractLogState
-    )
-        requires
-            pm_region_view.len() == info.log_area_len,
-            info_consistent_with_log_area_subregion(pm_region_view, info, state),
-        ensures
-            recover_abstract_log_from_log_area_given_metadata(pm_region_view.committed(), info.head as int,
-                                                              info.log_length as int)
-            == Some(state.drop_pending_appends())
-    {
-        assert(recover_abstract_log_from_log_area_given_metadata(pm_region_view.committed(), info.head as int,
-                                                                 info.log_length as int)
-               =~= Some(state.drop_pending_appends()));
-    }
-     */
 
     // This lemma proves that, if various invariants hold for the
     // given persistent-memory view `pm_region_view` and abstract log state

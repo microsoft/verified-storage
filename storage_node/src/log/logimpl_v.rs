@@ -407,8 +407,7 @@ verus! {
                                                            info.log_area_len as int));
 
                 proof {
-                    lemma_tentatively_append_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
-                                                          self.info, self.state@);
+                    lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@, self.info, self.state@);
                 }
                 subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
             }
@@ -442,8 +441,8 @@ verus! {
                     // If there's room for all the bytes we need to write, we just need one write.
 
                     proof {
-                        lemma_tentatively_append_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
-                                                              self.info, self.state@);
+                        lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@,
+                                                 self.info, self.state@);
                     }
                     subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
                 }
@@ -459,9 +458,8 @@ verus! {
                     // `append_v.rs` that we invoke here.
 
                     proof {
-                        lemma_tentatively_append_wrapping_to_subregion(subregion.view(wrpm_region),
-                                                                       bytes_to_append@,
-                                                                       self.info, self.state@);
+                        lemma_tentatively_append_wrapping(subregion.view(wrpm_region),
+                                                          bytes_to_append@, self.info, self.state@);
                     }
                     subregion.write(
                         wrpm_region,
@@ -714,7 +712,8 @@ verus! {
             let ghost wrpm_region_new = wrpm_region@.write(unused_metadata_pos as int, log_metadata_bytes);
             assert forall |crash_bytes| wrpm_region_new.can_crash_as(crash_bytes)
                        implies #[trigger] perm.check_permission(crash_bytes) by {
-                lemma_invariants_imply_crash_recover_forall(wrpm_region_new, log_id, self.cdb, prev_info, prev_state);
+                lemma_invariants_imply_crash_recover_forall(wrpm_region_new, log_id, self.cdb,
+                                                            prev_info, prev_state);
             }
 
             // Write the new metadata to the inactive header (without the CRC)
@@ -793,7 +792,8 @@ verus! {
                 u64::lemma_auto_serialize_deserialize();
                 u64::lemma_auto_serialized_len();
                 let flushed_region = pm_region_after_write.flush();
-                lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+                lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
+                                                            new_cdb_bytes);
                 assert(deserialize_log_cdb(flushed_region.committed()) == new_cdb);
             }
 
