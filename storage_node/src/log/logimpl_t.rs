@@ -484,7 +484,8 @@ verus! {
                     }
                 })
         {
-            self.untrusted_log_impl.read(&self.wrpm_region, pos, len, self.log_id)
+            let (bytes, addrs) = self.untrusted_log_impl.read(&self.wrpm_region, pos, len, self.log_id)?;
+            Ok(bytes)
         }
 
         // The `get_head_tail_and_capacity` method returns three

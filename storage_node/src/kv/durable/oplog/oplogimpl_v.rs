@@ -36,11 +36,27 @@ verus! {
             // use log's recover method to recover the log state, then parse it into operations
             match UntrustedLogImpl::recover(mem, kvstore_id) {
                 Some(log) => {
-                    Self::parse_log_ops(log.log)
+                    if log.log.len() == 0 {
+                        Some(AbstractOpLogState {
+                            op_list: Seq::empty(),
+                            op_list_committed: true
+                        })
+                    } else {
+                        let log_entries_bytes = log.log.subrange(0, log.log.len() - CRC_SIZE as int);
+                        let crc = spec_u64_from_le_bytes(log.log.subrange(log.log.len() - CRC_SIZE as int, log.log.len() as int));
+                        // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
+                        if crc != spec_crc_u64(log_entries_bytes) {
+                            None
+                        } else {
+                            Self::parse_log_ops(log_entries_bytes)
+                        }
+                    }
+                    
                 }
                 None => None
             }
         }
+
 
         closed spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<AbstractOpLogState<L>>
         {
@@ -58,7 +74,6 @@ verus! {
             }
         }
 
-        // TODO: update for addition of per-entry CRCs
         closed spec fn parse_log_ops_helper(
             log_contents: Seq<u8>, 
             op_log_seq: Seq<OpLogEntryType<L>>, 
@@ -213,6 +228,42 @@ verus! {
                 _phantom: None
             })
         }
+
+        pub exec fn read_op_log<PM>(
+            log: &UntrustedLogImpl,
+            wrpm_region: &WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
+            log_id: u128,
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                log.inv(wrpm_region, log_id),
+            ensures 
+                // TODO
+        {
+            assume(false);
+
+            // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
+            let (head, tail, capacity) = match log.get_head_tail_and_capacity(wrpm_region, Ghost(log_id)) {
+                Ok((head, tail, capacity)) => (head, tail, capacity),
+                Err(e) => return Err(KvError::LogErr { err: e }),
+            };
+
+            // TODO: check for errors on the cast (or take a u128 as len?)
+            let len = (tail - head) as u64;
+            let log_bytes = match log.read(wrpm_region, head, len, Ghost(log_id)) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { err: e }),
+            };
+            let crc_bytes = match log.read(wrpm_region, tail - CRC_SIZE as u128, CRC_SIZE, Ghost(log_id)) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { err: e }),
+            };
+
+            Err(KvError::NotImplemented)
+            
+        }
+        
 
         // // reads the op log, checks the CRC of each entry, and returns a vector of entries for replay
         // // it would be faster to read them on demand, but this would be harder to prove correct.

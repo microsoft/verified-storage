@@ -1068,8 +1068,7 @@ verus! {
             pos: u128,
             len: u64,
             Ghost(log_id): Ghost<u128>,
-        // ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
-        ) -> (result: Result<Vec<u8>, LogErr>)
+        ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
             where
                 Perm: CheckPermission<Seq<u8>>,
                 PMRegion: PersistentMemoryRegion,
@@ -1080,8 +1079,7 @@ verus! {
                 ({
                     let log = self@;
                     match result {
-                        // Ok((bytes, addrs)) => {
-                        Ok(bytes) => {
+                        Ok((bytes, addrs)) => {
                             let true_bytes = self@.read(pos as int, len as int);
                             &&& pos >= log.head
                             &&& pos + len <= log.head + log.log.len()
@@ -1122,8 +1120,7 @@ verus! {
 
                 assert (true_bytes =~= Seq::<u8>::empty());
                 assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
-                // return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
-                return Ok(Vec::<u8>::new());
+                return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
             }
 
             let pm_region = wrpm_region.get_pm_region_ref();
@@ -1147,8 +1144,7 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                // return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
-                return Ok(pm_region.read(addr, len));
+                return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // The log area wraps past the point we're reading from, so we
@@ -1185,8 +1181,7 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                // return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
-                return Ok(pm_region.read(addr, len));
+                return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // Case 3: We're reading enough bytes that we have to wrap.
@@ -1237,8 +1232,7 @@ verus! {
             part1.append(&mut part2);
             let addrs = Ghost(Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr) + 
                 Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + ABSOLUTE_POS_OF_LOG_AREA));
-            // Ok((part1, addrs))
-            return Ok(part1)
+            Ok((part1, addrs))
         }
 
         // The `get_head_tail_and_capacity` method returns the head,
