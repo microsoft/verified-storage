@@ -480,7 +480,6 @@ verus! {
 
             Ok(old_pending_tail)
         }
-
         
         // The `tentatively_append` method tentatively appends
         // `bytes_to_append` to the end of the log. It's tentative in
@@ -555,29 +554,37 @@ verus! {
                 })
             }
 
+            // Create a `PersistentMemorySubregion` that only provides
+            // access to the log area, and that places a simpler
+            // restriction on writes: one can only use it to overwrite
+            // log addresses not accessed by the recovery view. That
+            // is, one can only use it to overwrite parts of the log
+            // beyond the current tail.
+
             let ghost initial_log_area_view =
                 subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
-            let ghost is_view_allowable =
-                view_differs_only_at_unused_log_addresses(initial_log_area_view,
-                                                          self.info.head_log_area_offset as int,
-                                                          self.info.log_length as int);
+            let ghost is_view_allowable = |v: PersistentMemoryRegionView|
+                view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+                    v, initial_log_area_view, self.info.head_log_area_offset as int, self.info.log_length as int
+                );
             assert forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 &&& subregion_view.len() == self.info.log_area_len
                 &&& (is_view_allowable)(subregion_view)
                 &&& replace_subregion_of_region_view(wrpm_region@, subregion_view, ABSOLUTE_POS_OF_LOG_AREA)
                        .can_crash_as(s)
             } implies perm.check_permission(s) by {
-                lemma_if_view_differs_only_at_unused_log_addresses_then_recover_state_matches(
-                    wrpm_region@,
-                    log_id,
-                    self.cdb,
-                    self.info,
-                    self.state@,
+                lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
+                    wrpm_region@, log_id, self.cdb, self.info, self.state@
                 );
             }
-                   
             let subregion = PersistentMemorySubregion::new(wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
                                                            Ghost(self.info.log_area_len), Ghost(is_view_allowable));
+
+            // Call `tentatively_append_to_log` to do the real work of this function,
+            // providing it the subregion created above so it doesn't have to think
+            // about anything but the log area and so it doesn't have to reason about
+            // the overall recovery view to perform writes.
+            
             let result = self.tentatively_append_to_log(wrpm_region, &subregion, bytes_to_append, Tracked(perm));
 
             // We now update our `info` field to reflect the new

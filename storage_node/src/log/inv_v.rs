@@ -620,21 +620,20 @@ verus! {
                                                           log_area_len) >= log_length)
     }
 
-    pub open spec fn view_differs_only_at_unused_log_addresses(
+    pub open spec fn view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+        v: PersistentMemoryRegionView,
         baseline: PersistentMemoryRegionView,
         head_log_area_offset: int,
         log_length: int
-    ) -> (spec_fn(PersistentMemoryRegionView) -> bool)
+    ) -> bool
     {
-        |v: PersistentMemoryRegionView| {
-            region_views_differ_only_at_addresses(
-                v, baseline,
-                log_area_offsets_unreachable_during_recovery(head_log_area_offset, baseline.len() as int, log_length)
-            )
-        }
+        region_views_differ_only_at_addresses(
+            v, baseline,
+            log_area_offsets_unreachable_during_recovery(head_log_area_offset, baseline.len() as int, log_length)
+        )
     }
 
-    pub proof fn lemma_if_view_differs_only_at_unused_log_addresses_then_recover_log_matches(
+    pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
         region_view: PersistentMemoryRegionView,
         info: LogInfo,
         state: AbstractLogState,
@@ -646,8 +645,9 @@ verus! {
             forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                 &&& alt_log_view.len() == log_view.len()
-                &&& view_differs_only_at_unused_log_addresses(log_view, info.head_log_area_offset as int,
-                                                            info.log_length as int)(alt_log_view)
+                &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+                      alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
+                   )
                 &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
                     .can_crash_as(s)
             } ==> {
@@ -660,8 +660,9 @@ verus! {
         assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
                    let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                    &&& alt_log_view.len() == log_view.len()
-                   &&& view_differs_only_at_unused_log_addresses(log_view, info.head_log_area_offset as int,
-                                                                info.log_length as int)(alt_log_view)
+                   &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+                         alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
+                      )
                    &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view,
                                                                   ABSOLUTE_POS_OF_LOG_AREA).can_crash_as(s)
                 } implies
@@ -700,7 +701,7 @@ verus! {
         };
     }
 
-    pub proof fn lemma_if_view_differs_only_at_unused_log_addresses_then_recover_state_matches(
+    pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
         region_view: PersistentMemoryRegionView,
         log_id: u128,
         cdb: bool,
@@ -716,8 +717,9 @@ verus! {
             forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                 &&& alt_log_view.len() == log_view.len()
-                &&& view_differs_only_at_unused_log_addresses(log_view, info.head_log_area_offset as int,
-                                                            info.log_length as int)(alt_log_view)
+                &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+                      alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
+                   )
                 &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
                     .can_crash_as(s)
             } ==> {
@@ -729,8 +731,9 @@ verus! {
         assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
                    let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                    &&& alt_log_view.len() == log_view.len()
-                   &&& view_differs_only_at_unused_log_addresses(log_view, info.head_log_area_offset as int,
-                                                                info.log_length as int)(alt_log_view)
+                   &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
+                          alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
+                      )
                    &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view,
                                                                   ABSOLUTE_POS_OF_LOG_AREA).can_crash_as(s)
                 } implies
@@ -742,8 +745,9 @@ verus! {
              let s2 = region_view.committed();
              assert(recover_log(s, info.log_area_len as int, info.head as int, info.log_length as int)
                     == recover_log(s2, info.log_area_len as int, info.head as int, info.log_length as int)) by {
-                 lemma_if_view_differs_only_at_unused_log_addresses_then_recover_log_matches(region_view, info,
-                                                                                             state);
+                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
+                     region_view, info, state
+                 );
              }
              lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(
                  replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
