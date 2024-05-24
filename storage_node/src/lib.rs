@@ -1,3 +1,6 @@
+#![feature(auto_traits)]
+
+
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
