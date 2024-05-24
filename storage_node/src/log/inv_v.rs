@@ -203,7 +203,7 @@ verus! {
     {
         &&& pm_region_view.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
         &&& info_consistent_with_log_area_subregion(
-               subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len),
+               get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len),
                info,
                state
            )
@@ -317,7 +317,7 @@ verus! {
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
 
-        let log_view = subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
         assert(recover_abstract_log_from_log_area_given_metadata(log_view.committed(), info.head as int,
                                                                  info.log_length as int)
@@ -603,7 +603,7 @@ verus! {
             info_consistent_with_log_area(region_view, info, state),
         ensures
             forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+                let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                 &&& alt_log_view.len() == log_view.len()
                 &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
                       alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
@@ -618,7 +618,7 @@ verus! {
             },
     {
         assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                   let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+                   let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                    &&& alt_log_view.len() == log_view.len()
                    &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
                          alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
@@ -632,7 +632,7 @@ verus! {
                     &&& recover_log(s, info.log_area_len as int, info.head as int, info.log_length as int)
                        == recover_log(s2, info.log_area_len as int, info.head as int, info.log_length as int)
                 } by {
-            let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+            let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
             assert(ABSOLUTE_POS_OF_LOG_AREA + alt_log_view.len() <= region_view.len());
             let s2 = region_view.committed();
             let s_log = extract_bytes(s, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
@@ -672,7 +672,7 @@ verus! {
             info_consistent_with_log_area(region_view, info, state),
         ensures
             forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+                let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                 &&& alt_log_view.len() == log_view.len()
                 &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
                       alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
@@ -686,7 +686,7 @@ verus! {
             },
     {
         assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                   let log_view = subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+                   let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
                    &&& alt_log_view.len() == log_view.len()
                    &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
                           alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int

@@ -560,7 +560,7 @@ verus! {
             // beyond the current tail.
 
             let ghost initial_log_area_view =
-                subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
+                get_subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
             let ghost is_view_allowable = |v: PersistentMemoryRegionView|
                 view_differs_only_in_log_area_parts_not_accessed_by_recovery(
                     v, initial_log_area_view, self.info.head_log_area_offset as int, self.info.log_length as int

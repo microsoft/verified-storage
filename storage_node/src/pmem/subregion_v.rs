@@ -29,7 +29,7 @@ pub open spec fn replace_subregion_of_region_view(
     }
 }
 
-pub open spec fn subregion_view(
+pub open spec fn get_subregion_view(
     region: PersistentMemoryRegionView,
     offset: u64,
     len: u64,
@@ -48,9 +48,9 @@ pub proof fn lemma_replace_with_own_subregion_is_identity(
     requires
         offset + len <= region.len(),
     ensures
-        region == replace_subregion_of_region_view(region, subregion_view(region, offset, len), offset)
+        region == replace_subregion_of_region_view(region, get_subregion_view(region, offset, len), offset)
 {
-    assert(region =~= replace_subregion_of_region_view(region, subregion_view(region, offset, len), offset));
+    assert(region =~= replace_subregion_of_region_view(region, get_subregion_view(region, offset, len), offset));
 }
 
 pub open spec fn region_views_differ_only_at_addresses(
@@ -87,7 +87,7 @@ impl PersistentMemorySubregion
         requires
             wrpm.inv(),
             offset + len <= wrpm@.len() <= u64::MAX,
-            (is_view_allowable)(subregion_view(wrpm@, offset, len)),
+            (is_view_allowable)(get_subregion_view(wrpm@, offset, len)),
             forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
                 &&& subregion_view.len() == len
                 &&& #[trigger] (is_view_allowable)(subregion_view)
@@ -100,8 +100,8 @@ impl PersistentMemorySubregion
             result.len() == len,
             result.initial_region_view() == wrpm@,
             forall |v| result.is_view_allowable(v) <==> (is_view_allowable)(v),
-            result.view(wrpm) == subregion_view(wrpm@, offset, len),
-            result.initial_subregion_view() == subregion_view(wrpm@, offset, len),
+            result.view(wrpm) == get_subregion_view(wrpm@, offset, len),
+            result.initial_subregion_view() == get_subregion_view(wrpm@, offset, len),
     {
         proof { lemma_replace_with_own_subregion_is_identity(wrpm@, offset, len); }
         Self{
@@ -140,7 +140,7 @@ impl PersistentMemorySubregion
 
     pub closed spec fn initial_subregion_view(self) -> PersistentMemoryRegionView
     {
-        subregion_view(self.initial_region_view(), self.offset(), self.len())
+        get_subregion_view(self.initial_region_view(), self.offset(), self.len())
     }
 
     pub closed spec fn view<Perm, PMRegion>(
@@ -151,7 +151,7 @@ impl PersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
     {
-        subregion_view(wrpm@, self.offset(), self.len())
+        get_subregion_view(wrpm@, self.offset(), self.len())
     }
 
     pub closed spec fn inv<Perm, PMRegion>(
@@ -263,7 +263,7 @@ impl PersistentMemorySubregion
             wrpm@.len() == self.initial_region_view().len(),
             self.is_view_allowable(self.view(wrpm)),
             wrpm@ == replace_subregion_of_region_view(self.initial_region_view(), self.view(wrpm), self.offset()),
-            self.initial_subregion_view() == subregion_view(self.initial_region_view(), self.offset(), self.len()),
+            self.initial_subregion_view() == get_subregion_view(self.initial_region_view(), self.offset(), self.len()),
     {
     }
 }
