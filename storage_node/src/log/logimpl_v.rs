@@ -308,20 +308,7 @@ verus! {
             Ok(Self{ cdb, info, state: Ghost(state) })
         }
 
-        // The `tentatively_append` method tentatively appends
-        // `bytes_to_append` to the end of the log. It's tentative in
-        // that crashes will undo the appends, and reads aren't
-        // allowed in the tentative part of the log. See `README.md` for
-        // more documentation and examples of its use.
-        //
-        // This method is passed a write-restricted persistent memory
-        // region `wrpm_region`. This restricts how it can write
-        // `wrpm_region`. It's only given permission (in `perm`) to
-        // write if it can prove that any crash after initiating the
-        // write is safe. That is, any such crash must put the memory
-        // in a state that recovers as the current abstract state with
-        // all pending appends dropped.
-        exec fn tentatively_append_subregion<PMRegion>(
+        exec fn tentatively_append_to_log<PMRegion>(
             &self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
             subregion: &PersistentMemorySubregion,
@@ -472,7 +459,8 @@ verus! {
                     // `append_v.rs` that we invoke here.
 
                     proof {
-                        lemma_tentatively_append_wrapping_to_subregion(subregion.view(wrpm_region), bytes_to_append@,
+                        lemma_tentatively_append_wrapping_to_subregion(subregion.view(wrpm_region),
+                                                                       bytes_to_append@,
                                                                        self.info, self.state@);
                     }
                     subregion.write(
@@ -567,7 +555,6 @@ verus! {
                 })
             }
 
-            let ghost initial_region_view = wrpm_region@;
             let ghost initial_log_area_view =
                 subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
             let ghost is_view_allowable =
@@ -591,21 +578,7 @@ verus! {
                    
             let subregion = PersistentMemorySubregion::new(wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
                                                            Ghost(self.info.log_area_len), Ghost(is_view_allowable));
-            let result = self.tentatively_append_subregion(
-                wrpm_region, &subregion, bytes_to_append, Tracked(perm)
-            );
-            proof {
-                subregion.lemma_implications_of_inv(wrpm_region, perm);
-            }
-            let ghost current_log_view = subregion.view(wrpm_region);
-            assert(wrpm_region@ == replace_subregion_of_region_view(initial_region_view, current_log_view,
-                                                                    ABSOLUTE_POS_OF_LOG_AREA));
-            assert(no_outstanding_writes_to_metadata(wrpm_region@));
-            proof {
-                lemma_establish_extract_bytes_equivalence(initial_region_view.committed(), wrpm_region@.committed());
-                assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
-                assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, self.info));
-            }
+            let result = self.tentatively_append_to_log(wrpm_region, &subregion, bytes_to_append, Tracked(perm));
 
             // We now update our `info` field to reflect the new
             // `log_plus_pending_length` value.
@@ -616,7 +589,15 @@ verus! {
             // We update our `state` field to reflect the tentative append.
 
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
-            assert(info_consistent_with_log_area(wrpm_region@, self.info, self.state@));
+
+            proof {
+                subregion.lemma_implications_of_inv(wrpm_region, perm);
+                assert(wrpm_region@ == replace_subregion_of_region_view(subregion.initial_region_view(),
+                                                                        subregion.view(wrpm_region),
+                                                                        ABSOLUTE_POS_OF_LOG_AREA));
+                lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
+                                                          wrpm_region@.committed());
+            }
 
             result
         }
