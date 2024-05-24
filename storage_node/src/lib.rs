@@ -9,8 +9,8 @@ pub mod log;
 //pub mod multilog;
 pub mod pmem;
 
-/*
 use crate::log::logimpl_t::*;
+/*
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
 use crate::multilog::multilogimpl_v::*;
@@ -24,10 +24,9 @@ use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 
-/*
-
 mod tests {
 
+    /*
 use super::*;
 /// This test ensures that the hardcoded constant size of each metadata structure
 /// matches the actual size at runtime. This helps ensure that the serde specification
@@ -54,10 +53,12 @@ fn check_layout() {
 fn check_multilog_in_volatile_memory() {
     assert!(test_multilog_in_volatile_memory());
 }
+    */
     
 }
 
 verus! {
+    /*
 // this function is defined outside of the test module so that we can both
 // run verification on it and call it in a test to ensure that all operations
 // succeed
@@ -215,6 +216,7 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
     }
     Some(())
 }
+    */
 
 fn test_log_on_memory_mapped_file() -> Option<()>
 {
@@ -307,13 +309,11 @@ fn test_log_on_memory_mapped_file() -> Option<()>
 #[allow(dead_code)]
 fn main()
 {
+    /*
     test_multilog_in_volatile_memory();
     test_multilog_on_memory_mapped_file();
+    */
     test_log_on_memory_mapped_file();
 }
-*/
-
-#[allow(dead_code)]
-fn main()
-{
 }
+
