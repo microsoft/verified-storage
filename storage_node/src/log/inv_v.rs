@@ -243,8 +243,7 @@ verus! {
     // It's useful to call this lemma because it takes facts that
     // trigger `pm_region_view.state[addr]` and turns them into facts
     // that trigger `relative_log_pos_to_log_area_offset`. That's the
-    // trigger used in `info_consistent_with_log_area` and
-    // `each_info_consistent_with_log_area`.
+    // trigger used in `info_consistent_with_log_area`.
     pub proof fn lemma_addresses_in_log_area_correspond_to_relative_log_positions(
         pm_region_view: PersistentMemoryRegionView,
         info: LogInfo
@@ -320,7 +319,6 @@ verus! {
 
         let log_view = subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
-//        lemma_info_consistent_with_log_area_subregion_implications(log_view, info, state);
         assert(recover_abstract_log_from_log_area_given_metadata(log_view.committed(), info.head as int,
                                                                  info.log_length as int)
                =~= Some(state.drop_pending_appends()));
@@ -647,9 +645,6 @@ verus! {
             by {
                 let log_area_offset = relative_log_pos_to_log_area_offset(i, info.head_log_area_offset as int,
                                                                           info.log_area_len as int);
-                assert(log_area_offset_to_relative_log_pos(log_area_offset,
-                                                           info.head_log_area_offset as int,
-                                                           info.log_area_len as int) == i);
                 assert(!log_area_offsets_unreachable_during_recovery(info.head_log_area_offset as int,
                                                                      info.log_area_len as int,
                                                                      info.log_length as int)
