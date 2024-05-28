@@ -19,6 +19,8 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use crate::kv::durable::metadata::layout_v::*;
+use crate::pmem::markers::PmSafe;
+use deps_hack::PmSafe;
 
 
 verus! {
@@ -44,6 +46,7 @@ verus! {
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct ListRegionHeader {
         pub num_nodes: u64,
         pub length: u64,
@@ -54,81 +57,13 @@ verus! {
 
     impl Serializable for ListRegionHeader {
 
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.num_nodes) +
-            spec_u64_to_le_bytes(self.length) + 
-            spec_u64_to_le_bytes(self.version_number) +
-            spec_u64_to_le_bytes(self._padding0) + 
-            spec_u128_to_le_bytes(self.program_guid)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                num_nodes: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NUM_NODES as int, RELATIVE_POS_OF_NUM_NODES + 8)),
-                length: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_REGION_LEN as int, RELATIVE_POS_OF_LIST_REGION_LEN + 8)),
-                version_number: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_VERSION_NUMBER as int, RELATIVE_POS_OF_LIST_VERSION_NUMBER + 8)),
-                _padding0: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING as int, RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING + 8)),
-                program_guid: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_PROGRAM_GUID as int, RELATIVE_POS_OF_LIST_PROGRAM_GUID + 16))
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
-                let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
-                let serialized_len = #[trigger] spec_u64_to_le_bytes(s.length);
-                let serialized_num_nodes = #[trigger] spec_u64_to_le_bytes(s.num_nodes);
-                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding0);
-                let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_NUM_NODES as int,
-                        RELATIVE_POS_OF_NUM_NODES + 8
-                    ) == serialized_num_nodes
-                &&& serialized_metadata.subrange(
-                            RELATIVE_POS_OF_LIST_REGION_LEN as int,
-                            RELATIVE_POS_OF_LIST_REGION_LEN + 8
-                    ) == serialized_len
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LIST_VERSION_NUMBER as int,
-                        RELATIVE_POS_OF_LIST_VERSION_NUMBER + 8
-                    ) == serialized_version
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING as int,
-                        RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING + 8
-                    ) == serialized_padding
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LIST_PROGRAM_GUID as int,
-                        RELATIVE_POS_OF_LIST_PROGRAM_GUID + 16
-                    ) == serialized_guid
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_LIST_REGION_HEADER as int
+            LENGTH_OF_LIST_REGION_HEADER as nat
         }
 
         fn serialized_len() -> u64

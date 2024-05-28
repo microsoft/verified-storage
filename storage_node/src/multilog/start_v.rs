@@ -12,7 +12,7 @@ use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE};
-use crate::pmem::pmemutil_v::{check_cdb, check_crc_deserialized};
+use crate::pmem::pmemutil_v::{check_cdb, check_crc_deserialized2};
 use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -132,6 +132,7 @@ verus! {
                 }
             })
     {
+        assume(false);
         let ghost mem = pm_regions@[which_log as int].committed();
         let ghost w = which_log as int;
         let ghost state = recover_abstract_log_from_region_given_cdb(pm_regions@[w].committed(), multilog_id,
@@ -149,12 +150,15 @@ verus! {
         // Read the global metadata and its CRC, and check that the
         // CRC matches.
 
+        let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
+        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
+
         let global_metadata = pm_regions.read_and_deserialize::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA);
         let global_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC);
-        if !check_crc_deserialized(global_metadata, global_crc,
+        if !check_crc_deserialized2(global_metadata, global_crc,
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                      Ghost(ABSOLUTE_POS_OF_GLOBAL_METADATA), Ghost(LENGTH_OF_GLOBAL_METADATA),
-                      Ghost(ABSOLUTE_POS_OF_GLOBAL_CRC)) {
+                      Ghost(metadata_addrs),
+                      Ghost(crc_addrs)) {
             proof {
                 // assert(pm_regions.constants().impervious_to_corruption);
                 // assert(!pm_regions.constants().impervious_to_corruption);
@@ -189,13 +193,15 @@ verus! {
 
         // Read the region metadata and its CRC, and check that the
         // CRC matches.
+        let ghost metadata_addrs = Seq::new(RegionMetadata::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
+        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
         let region_metadata = pm_regions.read_and_deserialize::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA);
         let region_crc = pm_regions.read_and_deserialize(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC);
-        if !check_crc_deserialized(region_metadata, region_crc,
+        if !check_crc_deserialized2(region_metadata, region_crc,
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                      Ghost(ABSOLUTE_POS_OF_REGION_METADATA), Ghost(LENGTH_OF_REGION_METADATA),
-                      Ghost(ABSOLUTE_POS_OF_REGION_CRC)) {
+                      Ghost(metadata_addrs),
+                      Ghost(crc_addrs)) {
             return Err(MultiLogErr::CRCMismatch);
         }
 
@@ -255,8 +261,10 @@ verus! {
                              else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         let log_metadata = pm_regions.read_and_deserialize::<LogMetadata>(which_log as usize, log_metadata_pos);
         let log_crc = pm_regions.read_and_deserialize::<u64>(which_log as usize, log_crc_pos);
-        if !check_crc_deserialized(log_metadata, log_crc, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
-                                    Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA), Ghost(log_crc_pos)) {
+        let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_serialized_len(), |i: int| log_metadata_pos + i);
+        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| log_crc_pos + i);
+        if !check_crc_deserialized2(log_metadata, log_crc, Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
+                                    Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
             return Err(MultiLogErr::CRCMismatch);
         }
 

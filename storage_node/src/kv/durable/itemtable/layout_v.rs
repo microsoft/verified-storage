@@ -38,6 +38,10 @@ use vstd::ptr::*;
 use super::itemtablespec_t::DurableItemTableView;
 use super::itemtablespec_t::DurableItemTableViewEntry;
 
+use crate::pmem::markers::*;
+use deps_hack::PmSafe;
+use crate::log::layout_v::GlobalMetadata;
+
 verus! {
     // Constants
 
@@ -68,6 +72,7 @@ verus! {
     pub const ITEM_TABLE_VERSION_NUMBER: u64 = 1;
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -80,82 +85,13 @@ verus! {
     // TODO: should this be trusted?
     impl Serializable for ItemTableMetadata
     {
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        closed spec fn spec_serialize(self) -> Seq<u8>
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
+
+        open spec fn spec_serialized_len() -> nat
         {
-            spec_u64_to_le_bytes(self.version_number) +
-            spec_u64_to_le_bytes(self.item_size) +
-            spec_u64_to_le_bytes(self.num_keys) +
-            spec_u64_to_le_bytes(self._padding) +
-            spec_u128_to_le_bytes(self.program_guid)
-        }
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                version_number: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_VERSION_NUMBER as int, RELATIVE_POS_OF_VERSION_NUMBER + 8)),
-                item_size: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_ITEM_SIZE as int, RELATIVE_POS_OF_ITEM_SIZE + 8)),
-                num_keys: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NUM_KEYS as int, RELATIVE_POS_OF_NUM_KEYS + 8)),
-                _padding: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PADDING as int, RELATIVE_POS_OF_PADDING + 8)),
-                program_guid: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_PROGRAM_GUID as int, RELATIVE_POS_OF_PROGRAM_GUID + 16))
-            }
-        }
-
-        proof fn lemma_auto_serialize_deserialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
-                let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
-                let serialized_item_size = #[trigger] spec_u64_to_le_bytes(s.item_size);
-                let serialized_num_keys = #[trigger] spec_u64_to_le_bytes(s.num_keys);
-                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
-                let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_VERSION_NUMBER as int,
-                        RELATIVE_POS_OF_VERSION_NUMBER + 8
-                    ) == serialized_version
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_ITEM_SIZE as int,
-                        RELATIVE_POS_OF_ITEM_SIZE + 8
-                    ) == serialized_item_size
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_NUM_KEYS as int,
-                        RELATIVE_POS_OF_NUM_KEYS + 8
-                    ) == serialized_num_keys
-                &&& serialized_metadata.subrange(
-                    RELATIVE_POS_OF_PADDING as int,
-                    RELATIVE_POS_OF_PADDING + 8
-                ) == serialized_padding
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_PROGRAM_GUID as int,
-                        RELATIVE_POS_OF_PROGRAM_GUID + 16
-                    ) == serialized_guid
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_METADATA_HEADER as int
+            LENGTH_OF_METADATA_HEADER as nat
         }
 
         fn serialized_len() -> u64

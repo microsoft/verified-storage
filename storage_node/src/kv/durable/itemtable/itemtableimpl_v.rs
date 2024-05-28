@@ -439,10 +439,6 @@ verus! {
         };
         let metadata_crc = calculate_crc(&metadata_header);
 
-        proof {
-            ItemTableMetadata::lemma_auto_serialized_len();
-        }
-
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_header);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
     }
@@ -477,10 +473,13 @@ verus! {
             let table_metadata: &ItemTableMetadata = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
             let table_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
 
-            if !check_crc_deserialized(table_metadata, table_crc, Ghost(mem),
+            let ghost header_addrs = Seq::new(ItemTableMetadata::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
+            if !check_crc_deserialized2(table_metadata, table_crc, Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
-                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
-                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
+                    Ghost(header_addrs), 
+                    Ghost(crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }
 

@@ -55,6 +55,8 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::markers::PmSafe;
+use deps_hack::PmSafe;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -109,6 +111,7 @@ verus! {
     // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
@@ -117,65 +120,12 @@ verus! {
 
     impl Serializable for GlobalMetadata {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.version_number) +
-                spec_u64_to_le_bytes(self.length_of_region_metadata) +
-                spec_u128_to_le_bytes(self.program_guid)
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                version_number: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int, RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER + 8)),
-                length_of_region_metadata: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int, RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA + 8)),
-                program_guid: spec_u128_from_le_bytes(bytes.subrange(
-                    RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int, RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID + 16)),
-            }
-        }
-
-        proof fn lemma_auto_serialize_deserialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_guid = #[trigger] spec_u128_to_le_bytes(s.program_guid);
-                let serialized_version = #[trigger] spec_u64_to_le_bytes(s.version_number);
-                let serialized_region_len = #[trigger] spec_u64_to_le_bytes(s.length_of_region_metadata);
-                let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER as int,
-                        RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER + 8
-                    ) == serialized_version
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA as int,
-                        RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA + 8
-                    ) == serialized_region_len
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID as int,
-                        RELATIVE_POS_OF_GLOBAL_PROGRAM_GUID + 16
-                    ) == serialized_guid
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int {
-            LENGTH_OF_GLOBAL_METADATA as int
+        open spec fn spec_serialized_len() -> nat {
+            LENGTH_OF_GLOBAL_METADATA as nat
         }
 
         fn serialized_len() -> u64
@@ -200,6 +150,7 @@ verus! {
     }
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct RegionMetadata {
         pub region_size: u64,
         pub log_area_len: u64,
@@ -208,67 +159,13 @@ verus! {
 
     impl Serializable for RegionMetadata {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.region_size) + spec_u64_to_le_bytes(self.log_area_len) +
-                spec_u128_to_le_bytes(self.log_id)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                region_size: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_REGION_SIZE as int, RELATIVE_POS_OF_REGION_REGION_SIZE + 8)),
-                log_area_len: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int, RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8)),
-                log_id: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_REGION_LOG_ID as int, RELATIVE_POS_OF_REGION_LOG_ID + 16)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u32_to_from_le_bytes();
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_region_size = #[trigger] spec_u64_to_le_bytes(s.region_size);
-                let serialized_len = #[trigger] spec_u64_to_le_bytes(s.log_area_len);
-                let serialized_id = #[trigger] spec_u128_to_le_bytes(s.log_id);
-                let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_REGION_SIZE as int,
-                        RELATIVE_POS_OF_REGION_REGION_SIZE + 8
-                    ) == serialized_region_size
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA as int,
-                        RELATIVE_POS_OF_REGION_LENGTH_OF_LOG_AREA + 8
-                    ) == serialized_len
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_REGION_LOG_ID as int,
-                        RELATIVE_POS_OF_REGION_LOG_ID + 16
-                    ) == serialized_id
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() {
-            lemma_auto_spec_u32_to_from_le_bytes();
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u32_to_from_le_bytes();
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_REGION_METADATA as int
+            LENGTH_OF_REGION_METADATA as nat
         }
 
         fn serialized_len() -> u64
@@ -292,6 +189,7 @@ verus! {
     }
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,
@@ -300,63 +198,13 @@ verus! {
 
     impl Serializable for LogMetadata {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.log_length) + spec_u64_to_le_bytes(self._padding) + spec_u128_to_le_bytes(self.head)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                log_length: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_LOG_LENGTH as int, RELATIVE_POS_OF_LOG_LOG_LENGTH + 8)),
-                _padding: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_PADDING as int, RELATIVE_POS_OF_LOG_PADDING + 8)),
-                head: spec_u128_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_HEAD as int, RELATIVE_POS_OF_LOG_HEAD + 16)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        open spec fn spec_serialized_len() -> int
+        open spec fn spec_serialized_len() -> nat
         {
-            LENGTH_OF_LOG_METADATA as int
-        }
-
-        proof fn lemma_auto_serialize_deserialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_log_length = #[trigger] spec_u64_to_le_bytes(s.log_length);
-                let serialized_padding = #[trigger] spec_u64_to_le_bytes(s._padding);
-                let serialized_head = #[trigger] spec_u128_to_le_bytes(s.head);
-                let serialized_metadata = #[trigger] s.spec_serialize();
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LOG_LOG_LENGTH as int,
-                        RELATIVE_POS_OF_LOG_LOG_LENGTH + 8,
-                    ) == serialized_log_length
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LOG_PADDING as int,
-                        RELATIVE_POS_OF_LOG_PADDING + 8
-                    ) == serialized_padding
-                &&& serialized_metadata.subrange(
-                        RELATIVE_POS_OF_LOG_HEAD as int,
-                        RELATIVE_POS_OF_LOG_HEAD + 16
-                    ) == serialized_head
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
+            LENGTH_OF_LOG_METADATA as nat
         }
 
         fn serialized_len() -> u64 {

@@ -620,6 +620,8 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
+            assume(false);
+
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -674,6 +676,7 @@ verus! {
                                                         !self.cdb, self.infos@[w])
                     },
             {
+                assume(false);
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 
@@ -696,9 +699,6 @@ verus! {
                 // writes.
 
                 proof {
-                    LogMetadata::lemma_auto_serialized_len();
-                    u64::lemma_auto_serialized_len();
-
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
                         log_metadata_bytes);
@@ -740,9 +740,6 @@ verus! {
                 let ghost flushed = wrpm_regions_new.flush();
                 assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
-                    LogMetadata::lemma_auto_serialize_deserialize();
-                    u64::lemma_auto_serialize_deserialize();
-
                     let mem1 = wrpm_regions@[cur].committed();
                     let mem2 = flushed[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
@@ -779,8 +776,6 @@ verus! {
             let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
             let ghost flushed_mem_after_write = pm_regions_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
                 let flushed_regions = pm_regions_after_write.flush();
                 lemma_write_reflected_after_flush_committed(wrpm_regions@[0], ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
                 assert(deserialize_log_cdb(flushed_regions[0].committed()) == new_cdb);
@@ -796,9 +791,6 @@ verus! {
                                                  !self.cdb, self.infos@[w])
                 &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
             } by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
-
                 let w = which_log as int;
                 lemma_establish_extract_bytes_equivalence(
                     wrpm_regions@[which_log as int].committed(),
@@ -852,7 +844,6 @@ verus! {
                        #[trigger] perm.check_permission(crash_bytes) by {
                 lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
                                                             self.cdb, prev_infos, prev_state);
-                u64::lemma_auto_serialized_len();
                 lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
                                                                    ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
             }

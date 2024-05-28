@@ -394,15 +394,16 @@ verus! {
                 let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
                     current_index * node_size as u64;
                 let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
+                let ghost ptr_addrs = Seq::new(u64::spec_serialized_len(), |i: int| ptr_addr as int + i);
                 let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
+                let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| crc_addr as int + i);
                 let ptr_serialized_len = u64::serialized_len();
                 let next_pointer: &u64 = pm_region.read_and_deserialize(ptr_addr);
                 let node_header_crc: &u64 = pm_region.read_and_deserialize(crc_addr);
-                if !check_crc_deserialized(next_pointer, node_header_crc, Ghost(mem1),
+                if !check_crc_deserialized2(next_pointer, node_header_crc, Ghost(mem1),
                         Ghost(pm_region.constants().impervious_to_corruption),
-                        Ghost(ptr_addr),
-                        Ghost(ptr_serialized_len),
-                        Ghost(crc_addr)
+                        Ghost(ptr_addrs),
+                        Ghost(crc_addrs)
                 ) {
                     return Err(KvError::CRCMismatch);
                 }
@@ -710,10 +711,13 @@ verus! {
             let region_header: &ListRegionHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER);
             let region_header_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC);
 
-            if !check_crc_deserialized(region_header, region_header_crc, Ghost(mem),
+            let ghost header_addrs = Seq::new(ListRegionHeader::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER as int + i);
+            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int + i);
+
+            if !check_crc_deserialized2(region_header, region_header_crc, Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
-                    Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER), Ghost(LENGTH_OF_LIST_REGION_HEADER),
-                    Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC))
+                    Ghost(header_addrs),
+                    Ghost(crc_addrs))
             {
                 return Err(KvError::CRCMismatch);
             }

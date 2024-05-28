@@ -118,8 +118,10 @@ verus! {
         requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
-            spec_u64_from_le_bytes(y) == spec_crc_u64(x),
-            spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
+            // spec_u64_from_le_bytes(y) == spec_crc_u64(x),
+            // spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
+            u64::spec_deserialize(y_c) == spec_crc_u64(x_c),
+            u64::spec_deserialize(y) == spec_crc_u64(x),
             all_elements_unique(x_addrs),
             all_elements_unique(y_addrs),
         ensures
@@ -442,7 +444,7 @@ verus! {
                 if self.constants().impervious_to_corruption {
                     output == true_val
                 } else {
-                    maybe_corrupted_serialized(*output, true_val, addr as int)
+                    maybe_corrupted_serialized2(*output, true_val, addrs)
                 }
             })
         ;

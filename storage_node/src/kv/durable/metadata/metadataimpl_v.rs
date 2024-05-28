@@ -246,10 +246,13 @@ verus! {
             let metadata: &MetadataTableHeader = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
             let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
 
-            if !check_crc_deserialized(metadata, metadata_crc, Ghost(mem),
+            let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
+            if !check_crc_deserialized2(metadata, metadata_crc, Ghost(mem),
                     Ghost(pm_regions.constants().impervious_to_corruption),
-                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
-                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
+                    Ghost(metadata_addrs),
+                    Ghost(crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }
 
@@ -614,11 +617,14 @@ verus! {
             let header: &MetadataTableHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
             let header_crc: &u64 = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
 
+            let ghost header_addrs = Seq::new(u64::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost header_crc_addrs = Seq::new(u64::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
             // check the CRC
-            if !check_crc_deserialized(header, header_crc, Ghost(mem),
+            if !check_crc_deserialized2(header, header_crc, Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
-                    Ghost(ABSOLUTE_POS_OF_METADATA_HEADER), Ghost(LENGTH_OF_METADATA_HEADER),
-                    Ghost(ABSOLUTE_POS_OF_HEADER_CRC)) {
+                    Ghost(header_addrs),
+                    Ghost(header_crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }   
 

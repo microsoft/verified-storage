@@ -16,6 +16,8 @@ use vstd::ptr::*;
 
 use crate::kv::durable::logentry_v::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::markers::PmSafe;
+use deps_hack::PmSafe;
 
 verus! {
 
@@ -67,6 +69,7 @@ verus! {
 
     // TODO: documentation
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct CommitItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
@@ -75,84 +78,13 @@ verus! {
     }
 
     impl Serializable for CommitItemEntry {
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.item_index) +
-            spec_u64_to_le_bytes(self.metadata_index) + 
-            spec_u64_to_le_bytes(self.metadata_crc)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                )),
-                item_index: spec_u64_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM + 8
-                )),
-                metadata_index: spec_u64_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM + 8
-                )),
-                metadata_crc: spec_u64_from_le_bytes(
-                    bytes.subrange(
-                        RELATIVE_POS_OF_CRC_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_CRC_COMMIT_ITEM + 8
-                )),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM + 8
-                    ) == serialized_item_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM + 8
-                    ) == serialized_metadata_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_CRC_COMMIT_ITEM as int,
-                        RELATIVE_POS_OF_CRC_COMMIT_ITEM + 8
-                    ) == serialized_crc
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_COMMIT_ITEM_ENTRY as int
+            LENGTH_OF_COMMIT_ITEM_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -176,6 +108,7 @@ verus! {
     }
 
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct InvalidateItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
@@ -183,55 +116,13 @@ verus! {
 
     impl Serializable for InvalidateItemEntry {
 
-        open spec fn spec_serialize(self) -> Seq<u8> 
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.item_index)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                item_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM as int, RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM + 8)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM as int,
-                        RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM + 8
-                    ) == serialized_item_index
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_INVALIDATE_ITEM_ENTRY as int
+            LENGTH_OF_INVALIDATE_ITEM_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -272,6 +163,7 @@ verus! {
     // this log entry is idempotent in cases where the list metadata struct's tail
     // field was updated before this entry is replayed.
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct AppendListNodeEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -282,78 +174,13 @@ verus! {
 
     impl Serializable for AppendListNodeEntry
     {
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.metadata_index) +
-            spec_u64_to_le_bytes(self.old_tail) +
-            spec_u64_to_le_bytes(self.new_tail) +
-            spec_u64_to_le_bytes(self.metadata_crc)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                metadata_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE + 8)),
-                old_tail: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE + 8)),
-                new_tail: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE as int, RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE + 8)),
-                metadata_crc: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int, RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_old_tail = #[trigger] spec_u64_to_le_bytes(s.old_tail);
-                let serialized_new_tail = #[trigger] spec_u64_to_le_bytes(s.new_tail);
-                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE as int,
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE + 8
-                    ) == serialized_metadata_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE as int,
-                        RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE + 8
-                    ) == serialized_old_tail
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE as int,
-                        RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE + 8
-                    ) == serialized_new_tail
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE as int,
-                        RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE + 8
-                    ) == serialized_metadata_crc
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_APPEND_NODE_ENTRY as int
+            LENGTH_OF_APPEND_NODE_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -396,6 +223,7 @@ verus! {
     // to be logged. This entry type only needs to be used for in-place updates
     // of in-bounds indices.
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct InsertListElementEntry {
         pub entry_type: u64,
         pub node_offset: u64,
@@ -405,64 +233,13 @@ verus! {
     impl Serializable for InsertListElementEntry
     {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.node_offset) +
-            spec_u64_to_le_bytes(self.index_in_node)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                node_offset: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT + 8)),
-                index_in_node: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT as int, RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT + 8)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_node_offset = #[trigger] spec_u64_to_le_bytes(s.node_offset);
-                let serialized_index_in_node = #[trigger] spec_u64_to_le_bytes(s.index_in_node);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT as int,
-                        RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT + 8
-                    ) == serialized_node_offset
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT as int,
-                        RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT + 8
-                    ) == serialized_index_in_node
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as int
+            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -498,6 +275,7 @@ verus! {
     // The new list element should be written tentatively to an out-of-bounds
     // slot; it will become visible when the list length update is applied.
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct UpdateListLenEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -509,77 +287,13 @@ verus! {
     impl Serializable for UpdateListLenEntry
     {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.metadata_index) +
-            spec_u64_to_le_bytes(self.new_length) +
-            spec_u64_to_le_bytes(self.metadata_crc) 
-            
-        }
+        open spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                metadata_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN + 8)),
-                new_length: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8)),
-                metadata_crc: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int, RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8)),
-            }
-        }
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_new_len = #[trigger] spec_u64_to_le_bytes(s.new_length);
-                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN + 8
-                    ) == serialized_metadata_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN + 8
-                    ) == serialized_new_len
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN as int,
-                        RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN + 8
-                    ) == serialized_metadata_crc
-             
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_UPDATE_LIST_LEN_ENTRY as int
+            LENGTH_OF_UPDATE_LIST_LEN_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -610,6 +324,7 @@ verus! {
     //    length, and start index fields updated with those in the log entry,
     //    as well as a corresponding CRC update.
     #[repr(C)]
+    #[derive(PmSafe)]
     pub struct TrimListEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -622,87 +337,13 @@ verus! {
     impl Serializable for TrimListEntry
     {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) +
-            spec_u64_to_le_bytes(self.metadata_index) +
-            spec_u64_to_le_bytes(self.new_head_node) +
-            spec_u64_to_le_bytes(self.new_list_len) +
-            spec_u64_to_le_bytes(self.new_list_start_index) +
-            spec_u64_to_le_bytes(self.metadata_crc)
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                metadata_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST + 8)),
-                new_head_node: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST as int, RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST + 8)),
-                new_list_len: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST as int, RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST + 8)),
-                new_list_start_index: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST as int, RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST + 8)),
-                metadata_crc: spec_u64_from_le_bytes(
-                    bytes.subrange(RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST as int, RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST + 8))
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_new_head_node = #[trigger] spec_u64_to_le_bytes(s.new_head_node);
-                let serialized_new_list_len = #[trigger] spec_u64_to_le_bytes(s.new_list_len);
-                let serialized_new_list_start_index = #[trigger] spec_u64_to_le_bytes(s.new_list_start_index);
-                let serialized_metadata_crc = #[trigger] spec_u64_to_le_bytes(s.metadata_crc);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                        RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                    ) == serialized_entry_type
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST as int,
-                        RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST + 8
-                    ) == serialized_metadata_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST as int,
-                        RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST + 8
-                    ) == serialized_new_head_node
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST as int,
-                        RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST + 8
-                    ) == serialized_new_list_len
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST as int,
-                        RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST + 8
-                    ) == serialized_new_list_start_index
-                &&& serialized_entry.subrange(
-                        RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST as int,
-                        RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST + 8
-                    ) == serialized_metadata_crc
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len()
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int
-        {
-            LENGTH_OF_TRIM_LIST_ENTRY as int
+            LENGTH_OF_TRIM_LIST_ENTRY as nat
         }
 
         fn serialized_len() -> u64
@@ -725,6 +366,8 @@ verus! {
         }
     }
 
+    #[repr(C)]
+    #[derive(PmSafe)]
     pub struct CommitMetadataEntry 
     {
         pub entry_type: u64,
@@ -747,61 +390,13 @@ verus! {
     impl Serializable for CommitMetadataEntry 
     {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) + 
-            spec_u64_to_le_bytes(self.metadata_index) + 
-            spec_u64_to_le_bytes(self.item_index) 
-        }
+        closed spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA + 8)),
-                item_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA as int, RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA + 8)),
-            }
-        }
+        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat 
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_item_index = #[trigger] spec_u64_to_le_bytes(s.item_index);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                    RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                ) == serialized_entry_type 
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA as int,
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA + 8
-                ) == serialized_metadata_index
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA as int,
-                    RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA + 8
-                ) == serialized_item_index
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() 
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len() 
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int 
-        {
-            LENGTH_OF_COMMIT_METADATA_ENTRY as int
+            LENGTH_OF_COMMIT_METADATA_ENTRY as nat
         }
 
         fn serialized_len() -> u64 
@@ -823,6 +418,9 @@ verus! {
             unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
         }
     }
+
+    #[repr(C)]
+    #[derive(PmSafe)]
     pub struct InvalidateMetadataEntry
     {
         pub entry_type: u64,
@@ -832,54 +430,13 @@ verus! {
     impl Serializable for InvalidateMetadataEntry 
     {
 
-        open spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self.entry_type) + 
-            spec_u64_to_le_bytes(self.metadata_index) 
-        }
+        open spec fn spec_serialize(self) -> Seq<u8>;
 
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self 
-        {
-            Self {
-                entry_type: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LOG_ENTRY_TYPE as int, RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8)),
-                metadata_index: spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA as int, RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA + 8)),
-            }
-        }
+        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
-        proof fn lemma_auto_serialize_deserialize()
+        open spec fn spec_serialized_len() -> nat 
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            lemma_auto_spec_u128_to_from_le_bytes();
-            assert(forall |s: Self| {
-                let serialized_entry_type = #[trigger] spec_u64_to_le_bytes(s.entry_type);
-                let serialized_metadata_index = #[trigger] spec_u64_to_le_bytes(s.metadata_index);
-                let serialized_entry = #[trigger] s.spec_serialize();
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LOG_ENTRY_TYPE as int,
-                    RELATIVE_POS_OF_LOG_ENTRY_TYPE + 8
-                ) == serialized_entry_type 
-                &&& serialized_entry.subrange(
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA as int,
-                    RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA + 8
-                ) == serialized_metadata_index
-            });
-        }
-
-        proof fn lemma_auto_deserialize_serialize() 
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |bytes: Seq<u8>| #![auto] bytes.len() == Self::spec_serialized_len() ==>
-                bytes =~= Self::spec_deserialize(bytes).spec_serialize());
-        }
-
-        proof fn lemma_auto_serialized_len() 
-        {
-            lemma_auto_spec_u64_to_from_le_bytes();
-        }
-
-        open spec fn spec_serialized_len() -> int 
-        {
-            LENGTH_OF_INVALIDATE_METADATA_ENTRY as int
+            LENGTH_OF_INVALIDATE_METADATA_ENTRY as nat
         }
 
         fn serialized_len() -> u64 
