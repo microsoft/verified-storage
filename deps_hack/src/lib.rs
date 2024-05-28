@@ -27,6 +27,8 @@ pub use winapi::um::winnt::{
     GENERIC_WRITE, PAGE_READWRITE, ULARGE_INTEGER,
 };
 
+pub use pmsafe::PmSafe;
+
 #[cfg(target_os = "linux")]
 pub mod pmem;
 
