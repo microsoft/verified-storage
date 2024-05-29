@@ -218,7 +218,7 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
 }
     */
 
-fn test_log_on_memory_mapped_file() -> Option<()>
+    fn test_log_on_memory_mapped_file() -> Option<()>
 {
     let region_size = 1024;
 

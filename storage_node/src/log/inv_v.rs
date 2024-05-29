@@ -569,97 +569,52 @@ verus! {
         }
     }
 
-    pub open spec fn log_area_offsets_unreachable_during_recovery(
+    pub open spec fn log_area_offset_unreachable_during_recovery(
         head_log_area_offset: int,
         log_area_len: int,
-        log_length: int
-    ) -> Set<int>
-    {
-        Set::<int>::new(|log_area_offset: int|
-                      log_area_offset_to_relative_log_pos(log_area_offset, head_log_area_offset,
-                                                          log_area_len) >= log_length)
-    }
-
-    pub open spec fn view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-        v: PersistentMemoryRegionView,
-        baseline: PersistentMemoryRegionView,
-        head_log_area_offset: int,
-        log_length: int
+        log_length: int,
+        log_area_offset: int,
     ) -> bool
     {
-        region_views_differ_only_at_addresses(
-            v, baseline,
-            log_area_offsets_unreachable_during_recovery(head_log_area_offset, baseline.len() as int, log_length)
-        )
+        log_area_offset_to_relative_log_pos(log_area_offset, head_log_area_offset, log_area_len) >= log_length
     }
 
     pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
         region_view: PersistentMemoryRegionView,
+        alt_region_view: PersistentMemoryRegionView,
+        crash_state: Seq<u8>,
         info: LogInfo,
         state: AbstractLogState,
     )
         requires
             ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= region_view.len(),
             info_consistent_with_log_area(region_view, info, state),
+            alt_region_view.can_crash_as(crash_state),
+            region_view.len() == alt_region_view.len(),
+            forall |addr: int| 0 <= addr < info.log_area_len &&
+                !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                             info.log_area_len as int,
+                                                             info.log_length as int,
+                                                             addr) ==>
+                region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA] ==
+                alt_region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA]
         ensures
-            forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
-                &&& alt_log_view.len() == log_view.len()
-                &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-                      alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
-                   )
-                &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
-                    .can_crash_as(s)
-            } ==> {
-                let s2 = region_view.committed();
-                &&& region_view.can_crash_as(s2)
-                &&& recover_log(s, info.log_area_len as int, info.head as int, info.log_length as int)
-                   == recover_log(s2, info.log_area_len as int, info.head as int, info.log_length as int)
-            },
+            region_view.can_crash_as(region_view.committed()),
+            recover_log(crash_state, info.log_area_len as int, info.head as int, info.log_length as int)
+                == recover_log(region_view.committed(), info.log_area_len as int, info.head as int, info.log_length as int),
     {
-        assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                   let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
-                   &&& alt_log_view.len() == log_view.len()
-                   &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-                         alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
-                      )
-                   &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view,
-                                                                  ABSOLUTE_POS_OF_LOG_AREA).can_crash_as(s)
-                } implies
-                {
-                    let s2 = region_view.committed();
-                    &&& region_view.can_crash_as(s2)
-                    &&& recover_log(s, info.log_area_len as int, info.head as int, info.log_length as int)
-                       == recover_log(s2, info.log_area_len as int, info.head as int, info.log_length as int)
-                } by {
-            let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
-            assert(ABSOLUTE_POS_OF_LOG_AREA + alt_log_view.len() <= region_view.len());
-            let s2 = region_view.committed();
-            let s_log = extract_bytes(s, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
-            let s2_log = extract_bytes(s2, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
-            assert forall |i| 0 <= i < info.log_length as int implies
-                        #[trigger] s_log[relative_log_pos_to_log_area_offset(i, info.head_log_area_offset as int,
-                                                                          info.log_area_len as int)] ==
-                        s2_log[relative_log_pos_to_log_area_offset(i, info.head_log_area_offset as int,
-                                                               info.log_area_len as int)]
-            by {
-                let log_area_offset = relative_log_pos_to_log_area_offset(i, info.head_log_area_offset as int,
-                                                                          info.log_area_len as int);
-                assert(!log_area_offsets_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                                     info.log_area_len as int,
-                                                                     info.log_length as int)
-                        .contains(log_area_offset));
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(
-                    replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
-                );
-            }
-            assert(extract_log_from_log_area(s_log, info.head as int, info.log_length as int) =~=
-                   extract_log_from_log_area(s2_log, info.head as int, info.log_length as int));
-        };
+        let crash_state_log = extract_bytes(crash_state, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
+        let region_view_committed_log = extract_bytes(region_view.committed(), ABSOLUTE_POS_OF_LOG_AREA as int,
+                                                      info.log_area_len as int);
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(alt_region_view);
+        assert(extract_log_from_log_area(crash_state_log, info.head as int, info.log_length as int) =~=
+               extract_log_from_log_area(region_view_committed_log, info.head as int, info.log_length as int));
     }
 
     pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
         region_view: PersistentMemoryRegionView,
+        alt_region_view: PersistentMemoryRegionView,
+        crash_state: Seq<u8>,
         log_id: u128,
         cdb: bool,
         info: LogInfo,
@@ -670,47 +625,31 @@ verus! {
             memory_matches_deserialized_cdb(region_view, cdb),
             metadata_consistent_with_info(region_view, log_id, cdb, info),
             info_consistent_with_log_area(region_view, info, state),
+            ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= region_view.len(),
+            alt_region_view.can_crash_as(crash_state),
+            region_view.len() == alt_region_view.len(),
+            forall |addr: int| 0 <= addr < info.log_area_len &&
+                !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                             info.log_area_len as int,
+                                                             info.log_length as int,
+                                                             addr) ==>
+                region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA] ==
+                alt_region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA],
+            forall |addr: int| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA ==>
+                region_view.state[addr] == alt_region_view.state[addr],
         ensures
-            forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
-                &&& alt_log_view.len() == log_view.len()
-                &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-                      alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
-                   )
-                &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
-                    .can_crash_as(s)
-            } ==> {
-                let s2 = region_view.committed();
-                &&& region_view.can_crash_as(s2)
-                &&& recover_state(s, log_id) == recover_state(s2, log_id)
-            },
+            region_view.can_crash_as(region_view.committed()),
+            recover_state(crash_state, log_id) == recover_state(region_view.committed(), log_id),
     {
-        assert forall |alt_log_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                   let log_view = get_subregion_view(region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
-                   &&& alt_log_view.len() == log_view.len()
-                   &&& view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-                          alt_log_view, log_view, info.head_log_area_offset as int, info.log_length as int
-                      )
-                   &&& #[trigger] replace_subregion_of_region_view(region_view, alt_log_view,
-                                                                  ABSOLUTE_POS_OF_LOG_AREA).can_crash_as(s)
-                } implies
-                {
-                    let s2 = region_view.committed();
-                    &&& region_view.can_crash_as(s2)
-                    &&& recover_state(s, log_id) == recover_state(s2, log_id)
-                } by {
-             let s2 = region_view.committed();
-             assert(recover_log(s, info.log_area_len as int, info.head as int, info.log_length as int)
-                    == recover_log(s2, info.log_area_len as int, info.head as int, info.log_length as int)) by {
-                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
-                     region_view, info, state
-                 );
-             }
-             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(
-                 replace_subregion_of_region_view(region_view, alt_log_view, ABSOLUTE_POS_OF_LOG_AREA)
+        assert(recover_log(crash_state, info.log_area_len as int, info.head as int, info.log_length as int)
+                == recover_log(region_view.committed(), info.log_area_len as int, info.head as int,
+                               info.log_length as int)) by {
+             lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
+                 region_view, alt_region_view, crash_state, info, state
              );
-             lemma_establish_extract_bytes_equivalence(s, s2);
-             assert(recover_state(s, log_id) =~= recover_state(s2, log_id));
         }
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(alt_region_view);
+        lemma_establish_extract_bytes_equivalence(crash_state, region_view.committed());
+        assert(recover_state(crash_state, log_id) =~= recover_state(region_view.committed(), log_id));
     }
 }

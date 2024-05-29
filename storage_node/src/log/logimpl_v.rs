@@ -322,15 +322,14 @@ verus! {
                 self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
                 subregion.inv(&*old(wrpm_region), perm),
                 subregion.len() == self.info.log_area_len,
-                subregion.view(&*old(wrpm_region)).len() == subregion.len(),
                 subregion.view(&*old(wrpm_region)) == subregion.initial_subregion_view(),
                 info_consistent_with_log_area_subregion(subregion.initial_subregion_view(), self.info, self.state@),
-                forall |v| region_views_differ_only_at_addresses(
-                    v, subregion.initial_subregion_view(),
-                    log_area_offsets_unreachable_during_recovery(self.info.head_log_area_offset as int,
-                                                                 self.info.log_area_len as int,
-                                                                 self.info.log_length as int)
-                ) ==> #[trigger] subregion.is_view_allowable(v),
+                forall |log_area_offset: int|
+                    #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
+                    log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                self.info.log_area_len as int,
+                                                                self.info.log_length as int,
+                                                                log_area_offset),
             ensures
                 subregion.inv(wrpm_region, perm),
                 match result {
@@ -409,7 +408,7 @@ verus! {
                 proof {
                     lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@, self.info, self.state@);
                 }
-                subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+                subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
             }
             else {
                 // We could compute the address to write to with:
@@ -444,7 +443,7 @@ verus! {
                         lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@,
                                                  self.info, self.state@);
                     }
-                    subregion.write(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+                    subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
                 }
                 else {
 
@@ -461,13 +460,13 @@ verus! {
                         lemma_tentatively_append_wrapping(subregion.view(wrpm_region),
                                                           bytes_to_append@, self.info, self.state@);
                     }
-                    subregion.write(
+                    subregion.write_relative(
                         wrpm_region,
                         write_addr,
                         slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
                         Tracked(perm)
                     );
-                    subregion.write(
+                    subregion.write_relative(
                         wrpm_region,
                         0u64,
                         slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()),
@@ -561,22 +560,25 @@ verus! {
 
             let ghost initial_log_area_view =
                 get_subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
-            let ghost is_view_allowable = |v: PersistentMemoryRegionView|
-                view_differs_only_in_log_area_parts_not_accessed_by_recovery(
-                    v, initial_log_area_view, self.info.head_log_area_offset as int, self.info.log_length as int
-                );
-            assert forall |subregion_view: PersistentMemoryRegionView, s: Seq<u8>| {
-                &&& subregion_view.len() == self.info.log_area_len
-                &&& (is_view_allowable)(subregion_view)
-                &&& replace_subregion_of_region_view(wrpm_region@, subregion_view, ABSOLUTE_POS_OF_LOG_AREA)
-                       .can_crash_as(s)
-            } implies perm.check_permission(s) by {
+            let ghost is_writable_absolute_addr =
+                |addr: int| log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                      self.info.log_area_len as int,
+                                                                      self.info.log_length as int,
+                                                                      addr - ABSOLUTE_POS_OF_LOG_AREA);
+            assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
+                &&& #[trigger] alt_region_view.can_crash_as(crash_state)
+                &&& wrpm_region@.len() == alt_region_view.len()
+                &&& forall |addr: int| 0 <= addr < wrpm_region@.len() && !is_writable_absolute_addr(addr) ==>
+                       wrpm_region@.state[addr] == #[trigger] alt_region_view.state[addr]
+            } implies perm.check_permission(crash_state) by {
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-                    wrpm_region@, log_id, self.cdb, self.info, self.state@
+                    wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@
                 );
             }
-            let subregion = PersistentMemorySubregion::new(wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-                                                           Ghost(self.info.log_area_len), Ghost(is_view_allowable));
+            let subregion = PersistentMemorySubregion::new(
+                wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
+                Ghost(self.info.log_area_len), Ghost(is_writable_absolute_addr)
+            );
 
             // Call `tentatively_append_to_log` to do the real work of this function,
             // providing it the subregion created above so it doesn't have to think
@@ -596,7 +598,7 @@ verus! {
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
 
             proof {
-                subregion.lemma_implications_of_inv(wrpm_region, perm);
+                subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
                 assert(wrpm_region@ == replace_subregion_of_region_view(subregion.initial_region_view(),
                                                                         subregion.view(wrpm_region),
                                                                         ABSOLUTE_POS_OF_LOG_AREA));
