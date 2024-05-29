@@ -585,21 +585,20 @@ verus! {
         crash_state: Seq<u8>,
         info: LogInfo,
         state: AbstractLogState,
+        is_writable_absolute_addr: spec_fn(int) -> bool,
     )
         requires
             ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= region_view.len(),
             info_consistent_with_log_area(region_view, info, state),
             alt_region_view.can_crash_as(crash_state),
             region_view.len() == alt_region_view.len(),
-            forall |addr: int| {
-                ||| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA
-                ||| ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= addr < region_view.len()
-                ||| ABSOLUTE_POS_OF_LOG_AREA <= addr < ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len &&
-                  !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                               info.log_area_len as int,
-                                                               info.log_length as int,
-                                                               addr - ABSOLUTE_POS_OF_LOG_AREA)
-            } ==> region_view.state[addr] == alt_region_view.state[addr],
+            forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> 
+                log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                            info.log_area_len as int,
+                                                            info.log_length as int,
+                                                            addr - ABSOLUTE_POS_OF_LOG_AREA),
+            views_differ_only_where_subregion_allows(region_view, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
+                                                     info.log_area_len, is_writable_absolute_addr),
         ensures
             region_view.can_crash_as(region_view.committed()),
             recover_log(crash_state, info.log_area_len as int, info.head as int, info.log_length as int)
@@ -621,6 +620,7 @@ verus! {
         cdb: bool,
         info: LogInfo,
         state: AbstractLogState,
+        is_writable_absolute_addr: spec_fn(int) -> bool,
     )
         requires
             no_outstanding_writes_to_metadata(region_view),
@@ -630,15 +630,13 @@ verus! {
             ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= region_view.len(),
             alt_region_view.can_crash_as(crash_state),
             region_view.len() == alt_region_view.len(),
-            forall |addr: int| {
-                ||| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA
-                ||| ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= addr < region_view.len()
-                ||| ABSOLUTE_POS_OF_LOG_AREA <= addr < ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len &&
-                  !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                               info.log_area_len as int,
-                                                               info.log_length as int,
-                                                               addr - ABSOLUTE_POS_OF_LOG_AREA)
-            } ==> region_view.state[addr] == alt_region_view.state[addr],
+            forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> 
+                  log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                              info.log_area_len as int,
+                                                              info.log_length as int,
+                                                              addr - ABSOLUTE_POS_OF_LOG_AREA),
+            views_differ_only_where_subregion_allows(region_view, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
+                                                     info.log_area_len, is_writable_absolute_addr),
         ensures
             region_view.can_crash_as(region_view.committed()),
             recover_state(crash_state, log_id) == recover_state(region_view.committed(), log_id),
@@ -647,7 +645,7 @@ verus! {
                 == recover_log(region_view.committed(), info.log_area_len as int, info.head as int,
                                info.log_length as int)) by {
              lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_log_matches(
-                 region_view, alt_region_view, crash_state, info, state
+                 region_view, alt_region_view, crash_state, info, state, is_writable_absolute_addr
              );
         }
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(alt_region_view);

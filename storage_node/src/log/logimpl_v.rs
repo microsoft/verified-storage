@@ -566,15 +566,12 @@ verus! {
             assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
-                &&& forall |addr: int| {
-                    ||| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA
-                    ||| ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= addr < wrpm_region@.len()
-                    ||| ABSOLUTE_POS_OF_LOG_AREA <= addr < ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len &&
-                      !is_writable_absolute_addr(addr)
-                   } ==> wrpm_region@.state[addr] == #[trigger] alt_region_view.state[addr]
+                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
+                                                            info.log_area_len, is_writable_absolute_addr)
             } implies perm.check_permission(crash_state) by {
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-                    wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@
+                    wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
+                    is_writable_absolute_addr
                 );
             }
             let subregion = PersistentMemorySubregion::new(
