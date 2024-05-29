@@ -591,13 +591,15 @@ verus! {
             info_consistent_with_log_area(region_view, info, state),
             alt_region_view.can_crash_as(crash_state),
             region_view.len() == alt_region_view.len(),
-            forall |addr: int| 0 <= addr < info.log_area_len &&
-                !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                             info.log_area_len as int,
-                                                             info.log_length as int,
-                                                             addr) ==>
-                region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA] ==
-                alt_region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA]
+            forall |addr: int| {
+                ||| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA
+                ||| ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= addr < region_view.len()
+                ||| ABSOLUTE_POS_OF_LOG_AREA <= addr < ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len &&
+                  !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                               info.log_area_len as int,
+                                                               info.log_length as int,
+                                                               addr - ABSOLUTE_POS_OF_LOG_AREA)
+            } ==> region_view.state[addr] == alt_region_view.state[addr],
         ensures
             region_view.can_crash_as(region_view.committed()),
             recover_log(crash_state, info.log_area_len as int, info.head as int, info.log_length as int)
@@ -628,15 +630,15 @@ verus! {
             ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= region_view.len(),
             alt_region_view.can_crash_as(crash_state),
             region_view.len() == alt_region_view.len(),
-            forall |addr: int| 0 <= addr < info.log_area_len &&
-                !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                             info.log_area_len as int,
-                                                             info.log_length as int,
-                                                             addr) ==>
-                region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA] ==
-                alt_region_view.state[addr + ABSOLUTE_POS_OF_LOG_AREA],
-            forall |addr: int| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA ==>
-                region_view.state[addr] == alt_region_view.state[addr],
+            forall |addr: int| {
+                ||| 0 <= addr < ABSOLUTE_POS_OF_LOG_AREA
+                ||| ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= addr < region_view.len()
+                ||| ABSOLUTE_POS_OF_LOG_AREA <= addr < ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len &&
+                  !log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                                               info.log_area_len as int,
+                                                               info.log_length as int,
+                                                               addr - ABSOLUTE_POS_OF_LOG_AREA)
+            } ==> region_view.state[addr] == alt_region_view.state[addr],
         ensures
             region_view.can_crash_as(region_view.committed()),
             recover_state(crash_state, log_id) == recover_state(region_view.committed(), log_id),

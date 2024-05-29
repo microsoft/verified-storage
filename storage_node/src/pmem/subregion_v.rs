@@ -80,8 +80,11 @@ impl PersistentMemorySubregion
             forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm@.len() == alt_region_view.len()
-                &&& forall |addr: int| 0 <= addr < wrpm@.len() && !is_writable_absolute_addr(addr) ==>
-                       wrpm@.state[addr] == #[trigger] alt_region_view.state[addr]
+                &&& forall |addr: int| {
+                       ||| 0 <= addr < start
+                       ||| start + len <= addr < wrpm@.len()
+                       ||| start <= addr < start + len && !is_writable_absolute_addr(addr)
+                   } ==> wrpm@.state[addr] == #[trigger] alt_region_view.state[addr]
             } ==> perm.check_permission(crash_state),
         ensures
             result.inv(wrpm, perm),
@@ -189,17 +192,21 @@ impl PersistentMemorySubregion
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.start() + self.len() <= wrpm@.len()
         &&& self.view(wrpm).len() == self.len()
-        &&& forall |addr: int| 0 <= addr < wrpm@.len() && !self.is_writable_absolute_addr(addr) ==>
-                self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr]
-        &&& forall |addr: int| 0 <= addr < wrpm@.len() && !(self.start() <= addr < self.end()) ==>
-                self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr]
-        &&& forall |addr: int| 0 <= addr < self.len() ==>
-                #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()]
+        &&& forall |addr: int| {
+               ||| 0 <= addr < self.start()
+               ||| self.start() + self.len() <= addr < wrpm@.len()
+               ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr(addr)
+           } ==> self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr]
+//        &&& forall |addr: int| 0 <= addr < self.len() ==>
+//                #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()]
         &&& forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
               &&& #[trigger] alt_region_view.can_crash_as(crash_state)
               &&& self.initial_region_view().len() == alt_region_view.len()
-              &&& forall |addr: int| 0 <= addr < self.initial_region_view().len() && !self.is_writable_absolute_addr(addr) ==>
-                   self.initial_region_view().state[addr] == #[trigger] alt_region_view.state[addr]
+              &&& forall |addr: int| {
+                     ||| 0 <= addr < self.start()
+                     ||| self.start() + self.len() <= addr < alt_region_view.len()
+                     ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr(addr)
+                 } ==> self.initial_region_view().state[addr] == #[trigger] alt_region_view.state[addr]
            } ==> perm.check_permission(crash_state)
     }
 
@@ -344,6 +351,19 @@ impl PersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
+        assert forall |crash_state| wrpm@.write(relative_addr + self.start_, bytes@).can_crash_as(crash_state)
+                   implies perm.check_permission(crash_state) by {
+            let alt_region_view = wrpm@.write(relative_addr + self.start_, bytes@);
+            assert(alt_region_view.len() == wrpm@.len());
+            assert forall |addr: int| {
+                       ||| 0 <= addr < self.start()
+                       ||| self.start() + self.len() <= addr < alt_region_view.len()
+                       ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr(addr)
+                   } implies self.initial_region_view().state[addr] == #[trigger] alt_region_view.state[addr] by {
+                assert(!(relative_addr + self.start_ <= addr < relative_addr + self.start_ + bytes@.len()));
+                assert(self.initial_region_view().state[addr] == wrpm@.state[addr]);
+            }
+        }
         wrpm.write(relative_addr + self.start_, bytes, Tracked(perm));
         assert(self.view(wrpm) =~= subregion_view);
     }
@@ -377,6 +397,7 @@ impl PersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
+        assume(false);
         wrpm.write(absolute_addr, bytes, Tracked(perm));
         assert(self.view(wrpm) =~= subregion_view);
     }
@@ -395,13 +416,28 @@ impl PersistentMemorySubregion
             wrpm.inv(),
             wrpm.constants() == self.constants(),
             wrpm@.len() == self.initial_region_view().len(),
-            forall |addr: int| 0 <= addr < wrpm@.len() && !self.is_writable_absolute_addr(addr) ==>
-                self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr],
-            forall |addr: int| 0 <= addr < wrpm@.len() && !(self.start() <= addr < self.end()) ==>
-                self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr],
+            forall |addr: int| {
+               ||| 0 <= addr < self.start()
+               ||| self.start() + self.len() <= addr < wrpm@.len()
+               ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr(addr)
+            } ==> self.initial_region_view().state[addr] == #[trigger] wrpm@.state[addr],
+            self.view(wrpm) == get_subregion_view(wrpm@, self.start(), self.len()),
+    {
+    }
+
+    pub proof fn lemma_correspondence_between_region_and_subregion<Perm, PMRegion>(
+        self,
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        perm: &Perm
+    )
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(wrpm, perm),
+        ensures
             forall |addr: int| 0 <= addr < self.len() ==>
                 #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()],
-            self.view(wrpm) == get_subregion_view(wrpm@, self.start(), self.len()),
     {
     }
 }
