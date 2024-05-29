@@ -8,7 +8,7 @@ use crate::pmem::serialization_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
-use crate::pmem::markers::PmSafe;
+use crate::pmem::markers_t::PmSafe;
 use deps_hack::PmSafe;
 
 verus! {
@@ -38,7 +38,7 @@ verus! {
     // TODO: we use node size in some places and elements per node in others
     // should probably standardize this
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct MetadataTableHeader
     {
         pub element_size: u32, // NOTE: this includes the CRC of each element
@@ -50,36 +50,7 @@ verus! {
     }
 
     // TODO: should this be trusted?
-    impl Serializable for MetadataTableHeader
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_METADATA_HEADER as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_METADATA_HEADER
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for MetadataTableHeader {}
 
     // Per-entry relative offsets for list entry metadata
     // The list metadata region is an array of list entry metadata
@@ -102,7 +73,7 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct ListEntryMetadata
     {
         head: u64,
@@ -235,36 +206,6 @@ verus! {
     }
 
 
-    impl Serializable for ListEntryMetadata
-    {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_ENTRY_METADATA_MINUS_KEY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_ENTRY_METADATA_MINUS_KEY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for ListEntryMetadata {}
 
 }

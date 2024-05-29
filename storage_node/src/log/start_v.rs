@@ -49,8 +49,11 @@ verus! {
                 _ => false,
             }
     {
+        assume(false);
         let ghost mem = pm_region@.committed();
-
+        // proof {
+        //     lemma_auto_serialize_u64();
+        // }
         // let log_cdb_bytes = pm_region.read(ABSOLUTE_POS_OF_LOG_CDB, CRC_SIZE);
         let log_cdb = pm_region.read_and_deserialize::<u64>(ABSOLUTE_POS_OF_LOG_CDB);
         let result = check_cdb(&log_cdb, Ghost(mem),

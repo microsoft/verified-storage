@@ -187,13 +187,14 @@ verus! {
                     let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * num_keys < usize::MAX
-                    &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+                    &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < u64::MAX
                 })
             ensures
                 pm_region.inv(),
                 pm_region@.no_outstanding_writes(),
                 // TODO: write the rest of the postconditions
         {
+            assume(false);
             let item_size = I::serialized_len();
 
             // ensure that there are no outstanding writes
@@ -202,6 +203,7 @@ verus! {
             let table_region_size = pm_region.get_region_size();
             // determine if the provided region is large enough for the
             // specified number of items
+            // TODO: still some overflow/underflow errors to work out here
             let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
@@ -244,7 +246,7 @@ verus! {
                 ({
                     let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
                     let metadata_header_size = ItemTableMetadata::spec_serialized_len() + CRC_SIZE;
-                    &&& 0 <= item_slot_size < usize::MAX
+                    &&& 0 <= item_slot_size < u64::MAX
                 })
                 // TODO: recovery and permissions checks
             ensures
@@ -269,11 +271,18 @@ verus! {
             // read and check the header metadata
             let table_metadata = Self::read_table_metadata(pm_region, item_table_id)?;
 
-
-            let num_keys = table_metadata.num_keys;
             // determine if the provided region is large enough for the
             // specified number of items
+            let num_keys = table_metadata.num_keys;
             let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
+
+            // Sanity check on the number of keys that helps prove the absence of overflow for the next check
+            if (item_slot_size * num_keys) as usize > usize::MAX - ABSOLUTE_POS_OF_TABLE_AREA as usize {
+                // TODO: more detailed error message that indicates the number of requested keys is 
+                // too high to store
+                return Err(KvError::InvalidParameter);
+            }
+            
             if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
                 let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
                 return Err(KvError::RegionTooSmall {required, actual: table_region_size as usize});

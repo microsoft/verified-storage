@@ -38,7 +38,7 @@ use vstd::ptr::*;
 use super::itemtablespec_t::DurableItemTableView;
 use super::itemtablespec_t::DurableItemTableViewEntry;
 
-use crate::pmem::markers::*;
+use crate::pmem::markers_t::*;
 use deps_hack::PmSafe;
 use crate::log::layout_v::GlobalMetadata;
 
@@ -72,7 +72,7 @@ verus! {
     pub const ITEM_TABLE_VERSION_NUMBER: u64 = 1;
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -83,36 +83,7 @@ verus! {
     }
 
     // TODO: should this be trusted?
-    impl Serializable for ItemTableMetadata
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_METADATA_HEADER as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_METADATA_HEADER
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for ItemTableMetadata {}
 
     pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
     pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 8;

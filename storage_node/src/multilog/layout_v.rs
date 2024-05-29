@@ -59,7 +59,7 @@ use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::markers::PmSafe;
+use crate::pmem::markers_t::PmSafe;
 use deps_hack::PmSafe;
 use builtin::*;
 use builtin_macros::*;
@@ -120,46 +120,17 @@ verus! {
 
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
         pub program_guid: u128,
     }
 
-    impl Serializable for GlobalMetadata {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_GLOBAL_METADATA as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_GLOBAL_METADATA
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for GlobalMetadata {}
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct RegionMetadata {
         pub num_logs: u32,
         pub which_log: u32,
@@ -169,74 +140,17 @@ verus! {
         pub multilog_id: u128,
     }
 
-    impl Serializable for RegionMetadata {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_REGION_METADATA as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_REGION_METADATA
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for RegionMetadata {}
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,
         pub head: u128,
     }
 
-    impl Serializable for LogMetadata {
-
-        open spec fn spec_serialize(self) -> Seq<u8>;
-
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_LOG_METADATA as nat
-        }
-
-        fn serialized_len() -> u64 {
-            LENGTH_OF_LOG_METADATA
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for LogMetadata {}
 
 
     /// Specification functions for extracting metadata from a

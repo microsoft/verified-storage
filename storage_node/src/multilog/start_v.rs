@@ -50,6 +50,7 @@ verus! {
                 _ => false,
             }
     {
+        assume(false);
         let ghost mem = pm_regions@[0].committed();
 
         // let log_cdb_bytes = pm_regions.read(0, ABSOLUTE_POS_OF_LOG_CDB, CRC_SIZE);

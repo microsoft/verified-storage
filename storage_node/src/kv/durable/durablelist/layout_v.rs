@@ -19,7 +19,7 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use crate::kv::durable::metadata::layout_v::*;
-use crate::pmem::markers::PmSafe;
+use crate::pmem::markers_t::PmSafe;
 use deps_hack::PmSafe;
 
 
@@ -46,7 +46,7 @@ verus! {
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct ListRegionHeader {
         pub num_nodes: u64,
         pub length: u64,
@@ -55,36 +55,7 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Serializable for ListRegionHeader {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_LIST_REGION_HEADER as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_LIST_REGION_HEADER
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for ListRegionHeader {}
 
     // Per-node relative offsets for unrolled linked list nodes
     // Most list metadata is stored in the ListEntryMetadata structure,

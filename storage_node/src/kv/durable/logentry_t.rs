@@ -16,7 +16,7 @@ use vstd::ptr::*;
 
 use crate::kv::durable::logentry_v::*;
 use crate::pmem::serialization_t::*;
-use crate::pmem::markers::PmSafe;
+use crate::pmem::markers_t::PmSafe;
 use deps_hack::PmSafe;
 
 verus! {
@@ -69,7 +69,7 @@ verus! {
 
     // TODO: documentation
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct CommitItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
@@ -77,73 +77,16 @@ verus! {
         pub metadata_crc: u64,
     }
 
-    impl Serializable for CommitItemEntry {
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_COMMIT_ITEM_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_COMMIT_ITEM_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for CommitItemEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct InvalidateItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
     }
 
-    impl Serializable for InvalidateItemEntry {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_INVALIDATE_ITEM_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_INVALIDATE_ITEM_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for InvalidateItemEntry {}
 
     // This log entry represents an operation that appends a new list node
     // (i.e., an array of list elements, plus a next pointer and CRC) to
@@ -163,7 +106,7 @@ verus! {
     // this log entry is idempotent in cases where the list metadata struct's tail
     // field was updated before this entry is replayed.
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct AppendListNodeEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -172,36 +115,7 @@ verus! {
         pub metadata_crc: u64,
     }
 
-    impl Serializable for AppendListNodeEntry
-    {
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_APPEND_NODE_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_APPEND_NODE_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for AppendListNodeEntry {}
 
     // This log entry represents an operation that writes a new list element
     // to the specified index in the specified ULL node. Note that the index
@@ -223,44 +137,14 @@ verus! {
     // to be logged. This entry type only needs to be used for in-place updates
     // of in-bounds indices.
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct InsertListElementEntry {
         pub entry_type: u64,
         pub node_offset: u64,
         pub index_in_node: u64,
     }
 
-    impl Serializable for InsertListElementEntry
-    {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for InsertListElementEntry {}
 
     // This log entry represents an update to a list's length field
     // in its metadata structure. The log entry should contain the actual
@@ -275,7 +159,7 @@ verus! {
     // The new list element should be written tentatively to an out-of-bounds
     // slot; it will become visible when the list length update is applied.
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct UpdateListLenEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -284,37 +168,7 @@ verus! {
     }
 
 
-    impl Serializable for UpdateListLenEntry
-    {
-
-        open spec fn spec_serialize(self) -> Seq<u8>;
-
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_UPDATE_LIST_LEN_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_UPDATE_LIST_LEN_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for UpdateListLenEntry {}
 
     // This log entry represents a list trim operation. It includes the
     // values with which to update the corresponding list metadata structure,
@@ -324,7 +178,7 @@ verus! {
     //    length, and start index fields updated with those in the log entry,
     //    as well as a corresponding CRC update.
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct TrimListEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -334,40 +188,10 @@ verus! {
         pub metadata_crc: u64, 
     }
 
-    impl Serializable for TrimListEntry
-    {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat
-        {
-            LENGTH_OF_TRIM_LIST_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64
-        {
-            LENGTH_OF_TRIM_LIST_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for TrimListEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct CommitMetadataEntry 
     {
         pub entry_type: u64,
@@ -387,75 +211,15 @@ verus! {
         }
     }
 
-    impl Serializable for CommitMetadataEntry 
-    {
-
-        closed spec fn spec_serialize(self) -> Seq<u8>;
-
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat 
-        {
-            LENGTH_OF_COMMIT_METADATA_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64 
-        {
-            LENGTH_OF_COMMIT_METADATA_ENTRY
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for CommitMetadataEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe)]
+    #[derive(PmSafe, Copy, Clone)]
     pub struct InvalidateMetadataEntry
     {
         pub entry_type: u64,
         pub metadata_index: u64,
     }
 
-    impl Serializable for InvalidateMetadataEntry 
-    {
-
-        open spec fn spec_serialize(self) -> Seq<u8>;
-
-        open spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        open spec fn spec_serialized_len() -> nat 
-        {
-            LENGTH_OF_INVALIDATE_METADATA_ENTRY as nat
-        }
-
-        fn serialized_len() -> u64 
-        {
-            LENGTH_OF_INVALIDATE_METADATA_ENTRY   
-        }
-
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: &Self) 
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { &*ptr }
-        }
-
-        #[verifier::external_body]
-        fn serialize_in_place(&self) -> (out: &[u8])
-        {
-            let ptr = self as *const Self;
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::serialized_len() as usize) }
-        }
-    }
+    impl Serializable for InvalidateMetadataEntry {}
 }
