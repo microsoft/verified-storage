@@ -89,6 +89,7 @@ impl PersistentMemorySubregion
             result.start() == start,
             result.len() == len,
             result.initial_region_view() == wrpm@,
+            result.init(wrpm, perm, start, len),
             forall |addr: int| result.is_writable_absolute_addr(addr) <==> is_writable_absolute_addr(addr),
             result.view(wrpm) == get_subregion_view(wrpm@, start, len),
             result.initial_subregion_view() == get_subregion_view(wrpm@, start, len),
@@ -103,6 +104,23 @@ impl PersistentMemorySubregion
         };
         assert(is_writable_absolute_addr =~= |addr| result.is_writable_absolute_addr(addr));
         result
+    }
+
+    pub open spec fn init<Perm, PMRegion>(
+        self,
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        perm: &Perm,
+        start: u64,
+        len: u64,
+    ) -> bool
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+    {
+        &&& self.inv(wrpm, perm)
+        &&& self.len() == len
+        &&& self.start() == start
+        &&& self.view(wrpm) == self.initial_subregion_view()
     }
 
     pub closed spec fn constants(self) -> PersistentMemoryConstants

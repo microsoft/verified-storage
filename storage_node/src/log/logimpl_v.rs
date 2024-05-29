@@ -320,10 +320,8 @@ verus! {
             requires
                 bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
                 self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
-                subregion.inv(&*old(wrpm_region), perm),
-                subregion.len() == self.info.log_area_len,
-                subregion.view(&*old(wrpm_region)) == subregion.initial_subregion_view(),
-                info_consistent_with_log_area_subregion(subregion.initial_subregion_view(), self.info, self.state@),
+                subregion.init(&*old(wrpm_region), perm, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len),
+                info_consistent_with_log_area_subregion(subregion.view(&*old(wrpm_region)), self.info, self.state@),
                 forall |log_area_offset: int|
                     #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
                     log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
@@ -342,7 +340,7 @@ verus! {
                         )
                     },
                     Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
-                        &&& subregion.view(wrpm_region) == subregion.initial_subregion_view()
+                        &&& subregion.view(wrpm_region) == subregion.view(&*old(wrpm_region))
                         &&& available_space < bytes_to_append@.len()
                         &&& {
                                ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
