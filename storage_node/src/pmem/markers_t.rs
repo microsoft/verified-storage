@@ -1,7 +1,7 @@
 use builtin_macros::*;
 use builtin::*;
 use vstd::prelude::*;
-
+use deps_hack::PmSafe;
 pub unsafe trait PmSafe {}
 
 // Numeric types and arrays are all always PmSafe.
@@ -28,7 +28,6 @@ unsafe impl PmSafe for isize {}
 // unsafe impl PmSafe for f32 {} // are these safe?
 // unsafe impl PmSafe for f64 {}
 unsafe impl<T: PmSafe, const N: usize> PmSafe for [T; N] {}
-
 
 verus! {
     #[verifier::external_trait_specification]
