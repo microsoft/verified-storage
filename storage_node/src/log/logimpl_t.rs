@@ -235,24 +235,6 @@ verus! {
             &&& can_only_crash_as_state(self.wrpm_region@, self.log_id@, self@.drop_pending_appends())
         }
 
-        proof fn lemma_valid_implies_wrpm_inv(self)
-            requires
-                self.valid()
-            ensures
-                self.wrpm_region.inv()
-        {
-            self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_region, self.log_id@);
-        }
-
-        proof fn lemma_untrusted_log_inv_implies_valid(self)
-            requires
-                self.untrusted_log_impl.inv(&self.wrpm_region, self.log_id@)
-            ensures
-                self.valid()
-        {
-            self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_region, self.log_id@);
-        }
-
         // The `setup` method sets up persistent memory regions
         // `pm_region` to store an initial empty log. It returns a
         // vector listing the capacity of the log as well as a
