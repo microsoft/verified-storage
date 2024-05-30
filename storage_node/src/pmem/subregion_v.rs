@@ -11,24 +11,6 @@ use vstd::seq_lib::*;
 
 verus! {
 
-pub open spec fn replace_subregion_of_region_view(
-    region: PersistentMemoryRegionView,
-    subregion: PersistentMemoryRegionView,
-    start: u64,
-) -> PersistentMemoryRegionView
-    recommends
-        start + subregion.len() <= region.len(),
-{
-    PersistentMemoryRegionView{
-        state:
-            Seq::<PersistentMemoryByte>::new(
-                region.len(),
-                |i: int| if start <= i < start + subregion.len() { subregion.state[i - start] }
-                       else { region.state[i] },
-            )
-    }
-}
-
 pub open spec fn get_subregion_view(
     region: PersistentMemoryRegionView,
     start: u64,
@@ -38,19 +20,6 @@ pub open spec fn get_subregion_view(
         start + len <= region.len(),
 {
     PersistentMemoryRegionView{ state: region.state.subrange(start as int, start + len) }
-}
-
-pub proof fn lemma_replace_with_own_subregion_is_identity(
-    region: PersistentMemoryRegionView,
-    start: u64,
-    len: u64,
-)
-    requires
-        start + len <= region.len(),
-    ensures
-        region == replace_subregion_of_region_view(region, get_subregion_view(region, start, len), start)
-{
-    assert(region =~= replace_subregion_of_region_view(region, get_subregion_view(region, start, len), start));
 }
 
 pub open spec fn views_differ_only_where_subregion_allows(
