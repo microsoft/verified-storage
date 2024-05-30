@@ -558,8 +558,6 @@ verus! {
             // is, one can only use it to overwrite parts of the log
             // beyond the current tail.
 
-            let ghost initial_log_area_view =
-                get_subregion_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len);
             let ghost is_writable_absolute_addr =
                 |addr: int| log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
                                                                       self.info.log_area_len as int,
