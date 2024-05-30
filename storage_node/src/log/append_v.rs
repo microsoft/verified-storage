@@ -18,8 +18,9 @@ verus! {
     // This lemma establishes useful facts about performing a
     // contiguous write to effect a tentative append:
     //
-    // 1) It's permitted because a crash after the write is initiated
-    //    doesn't affect the post-recovery abstract state.
+    // 1) The write is permitted because, for each address written to,
+    //    there's no outstanding write and it's unreachable during
+    //    recovery.
     //
     // 2) It maintains invariants, if `info` and `state` are updated
     //    in a certain way.
@@ -70,8 +71,13 @@ verus! {
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
                 let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append);
-                &&& info_consistent_with_log_area_subregion(pm_region_view2, new_info, new_state)
                 &&& pm_region_view.no_outstanding_writes_in_range(write_addr, write_addr + num_bytes)
+                &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + num_bytes ==>
+                       log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
+                                                                   prev_info.log_area_len as int,
+                                                                   prev_info.log_length as int,
+                                                                   log_area_offset)
+                &&& info_consistent_with_log_area_subregion(pm_region_view2, new_info, new_state)
             }),
     {
         let new_state = prev_state.tentatively_append(bytes_to_append);
@@ -96,11 +102,11 @@ verus! {
     // contiguous writes, one at the end of the log area and one at
     // the beginning, to effect a tentative append:
     //
-    // 1) Each write is permitted because a crash after it's initiated
-    // doesn't affect the post-recovery abstract state.
+    // 1) Each write is permitted because there are no outstanding writes
+    //    to the range of addresses to write to.
     //
     // 2) The pair of writes maintains invariants, if `infos` and
-    // `state` are updated in a certain way.
+    //    `state` are updated in a certain way.
     //
     // Parameters:
     //
@@ -152,12 +158,25 @@ verus! {
                                                         log_area_len as int);
                 let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append_part1);
                 let pm_region_view3 = pm_region_view2.write(0int, bytes_to_append_part2);
-                &&& info_consistent_with_log_area_subregion(pm_region_view3, new_info, new_state)
                 // The first write doesn't conflict with any outstanding writes
                 &&& pm_region_view.no_outstanding_writes_in_range(write_addr,
                                                                  write_addr + bytes_to_append_part1.len())
+                // The first write is only to log area offsets unreachable during recovery
+                &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + bytes_to_append_part1.len() ==>
+                       log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
+                                                                   prev_info.log_area_len as int,
+                                                                   prev_info.log_length as int,
+                                                                   log_area_offset)
                 // The second write also doesn't conflict with any outstanding writes
                 &&& pm_region_view2.no_outstanding_writes_in_range(0int, bytes_to_append_part2.len() as int)
+                // The second write is also only to log area offsets unreachable during recovery
+                &&& forall |log_area_offset: int| 0 <= log_area_offset < bytes_to_append_part2.len() ==>
+                       log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
+                                                                   prev_info.log_area_len as int,
+                                                                   prev_info.log_length as int,
+                                                                   log_area_offset)
+                // After the writes, the log area will be consistent with an updated info and state.
+                &&& info_consistent_with_log_area_subregion(pm_region_view3, new_info, new_state)
             }),
     {
         let log_area_len = prev_info.log_area_len;
