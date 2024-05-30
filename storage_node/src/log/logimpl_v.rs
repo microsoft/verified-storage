@@ -320,7 +320,9 @@ verus! {
             requires
                 bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
                 self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
-                subregion.init(&*old(wrpm_region), perm, ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len),
+                subregion.inv(&*old(wrpm_region), perm),
+                subregion.start() == ABSOLUTE_POS_OF_LOG_AREA,
+                subregion.len() == self.info.log_area_len,
                 info_consistent_with_log_area_subregion(subregion.view(&*old(wrpm_region)), self.info, self.state@),
                 forall |log_area_offset: int|
                     #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
