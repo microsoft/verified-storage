@@ -112,7 +112,7 @@ fn test_multilog_on_memory_mapped_file() -> Option<()>
     region_sizes.push(1024);
 
     // Create the multipersistent memory out of the two regions.
-    let file_name = vstd::string::new_strlit("test_multilog");
+    let file_name = "test_multilog";
     #[cfg(target_os = "windows")]
     let mut pm_regions = FileBackedPersistentMemoryRegions::new(
         &file_name,
@@ -217,7 +217,7 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     let region_size = 1024;
 
     // Create the memory out of a single file.
-    let file_name = vstd::string::new_strlit("test_log");
+    let file_name = "test_log";
     #[cfg(target_os = "windows")]
     let mut pm_region = FileBackedPersistentMemoryRegion::new(
         &file_name, MemoryMappedFileMediaType::SSD,
