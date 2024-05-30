@@ -106,6 +106,7 @@ impl PersistentMemorySubregion
             result.initial_region_view() == wrpm@,
             result.is_writable_absolute_addr() == is_writable_absolute_addr,
             result.view(wrpm) == result.initial_subregion_view(),
+            result.view(wrpm) == get_subregion_view(wrpm@, start, len),
     {
         let result = Self{
             start_: start,

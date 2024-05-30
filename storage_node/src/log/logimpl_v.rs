@@ -585,7 +585,7 @@ verus! {
             // providing it the subregion created above so it doesn't have to think
             // about anything but the log area and so it doesn't have to reason about
             // the overall recovery view to perform writes.
-            
+
             let result = self.tentatively_append_to_log(wrpm_region, &subregion, bytes_to_append, Tracked(perm));
 
             // We now update our `info` field to reflect the new
