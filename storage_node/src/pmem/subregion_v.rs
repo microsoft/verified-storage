@@ -383,7 +383,6 @@ impl PersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
-        assume(false);
         wrpm.write(absolute_addr, bytes, Tracked(perm));
         assert(self.view(wrpm) =~= subregion_view);
     }
@@ -405,20 +404,6 @@ impl PersistentMemorySubregion
             views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(), self.len(),
                                                      self.is_writable_absolute_addr()),
             self.view(wrpm) == get_subregion_view(wrpm@, self.start(), self.len()),
-    {
-    }
-
-    pub proof fn lemma_correspondence_between_region_and_subregion<Perm, PMRegion>(
-        self,
-        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: &Perm
-    )
-        where
-            Perm: CheckPermission<Seq<u8>>,
-            PMRegion: PersistentMemoryRegion,
-        requires
-            self.inv(wrpm, perm),
-        ensures
             forall |addr: int| 0 <= addr < self.len() ==>
                 #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()],
     {

@@ -600,9 +600,6 @@ verus! {
 
             proof {
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-                assert(wrpm_region@ == replace_subregion_of_region_view(subregion.initial_region_view(),
-                                                                        subregion.view(wrpm_region),
-                                                                        ABSOLUTE_POS_OF_LOG_AREA));
                 lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
                                                           wrpm_region@.committed());
             }
