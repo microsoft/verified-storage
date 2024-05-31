@@ -398,20 +398,31 @@ verus! {
                 let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
                 let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| crc_addr as int + i);
                 let ptr_serialized_len = u64::serialized_len();
-                let next_pointer: &u64 = pm_region.read_and_deserialize(ptr_addr);
-                let node_header_crc: &u64 = pm_region.read_and_deserialize(crc_addr);
-                if !check_crc_deserialized2(next_pointer, node_header_crc, Ghost(mem1),
+
+                // The true next pointer and CRC are the deserializations of the bytes we originally wrote to these addresses.
+                // To prove that the values we read are uncorrupted and initialized, we need to prove that they match these true values
+                // using check_crc.
+                let ghost true_next_pointer = choose |val: u64| val.spec_serialize() == mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_serialized_len());
+                let ghost true_crc = choose |val: u64| val.spec_serialize() == mem1.subrange(crc_addr as int, crc_addr + CRC_SIZE);
+
+                let next_pointer = pm_region.read_aligned::<u64>(ptr_addr, Ghost(true_next_pointer)).map_err(|e| KvError::PmemErr { err: e })?;
+                let node_header_crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).map_err(|e| KvError::PmemErr { err: e })?;
+                
+                if !check_crc(next_pointer.as_slice(), node_header_crc.as_slice(), Ghost(mem1),
                         Ghost(pm_region.constants().impervious_to_corruption),
                         Ghost(ptr_addrs),
                         Ghost(crc_addrs)
                 ) {
                     return Err(KvError::CRCMismatch);
                 }
+  
+                let next_pointer = next_pointer.assume_init(Ghost(true_next_pointer));
+
                 // If the CRC check passes, then the next pointer is valid.
                 // If a node's next pointer points to itself, we've reached the end of the list;
                 // otherwise, push the next pointer onto the stack
-                if *next_pointer != current_index {
-                    list_node_region_stack.push(*next_pointer);
+                if next_pointer != current_index {
+                    list_node_region_stack.push(next_pointer);
                 }
             }
 
@@ -689,7 +700,7 @@ verus! {
             return Ok(());
         }
 
-        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<&ListRegionHeader, KvError<K,E>>)
+        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<ListRegionHeader, KvError<K,E>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -707,20 +718,26 @@ verus! {
 
             let ghost mem = pm_region@.committed();
 
+            let ghost true_region_header = choose |header: ListRegionHeader| header.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_serialized_len());
+            let ghost true_crc = choose |val: u64| val.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + CRC_SIZE);
+
             // Read the list region header and its CRC and check for corruption
-            let region_header: &ListRegionHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER);
-            let region_header_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC);
+            let region_header = pm_region.read_aligned::<ListRegionHeader>(ABSOLUTE_POS_OF_LIST_REGION_HEADER, Ghost(true_region_header)).map_err(|e| KvError::PmemErr { err: e })?;
+            let region_header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { err: e })?;
 
             let ghost header_addrs = Seq::new(ListRegionHeader::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER as int + i);
             let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int + i);
 
-            if !check_crc_deserialized2(region_header, region_header_crc, Ghost(mem),
+            if !check_crc(region_header.as_slice(), region_header_crc.as_slice(), Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(header_addrs),
                     Ghost(crc_addrs))
             {
                 return Err(KvError::CRCMismatch);
             }
+
+            // let region_header: &ListRegionHeader = cast_bytes(&region_header_bytes);
+            let region_header = region_header.assume_init(Ghost(true_region_header));
 
             if {
                 ||| region_header.version_number != DURABLE_LIST_REGION_VERSION_NUMBER

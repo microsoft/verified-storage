@@ -1321,7 +1321,8 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_regions.read(which_log as usize, addr, len));
+                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                return Ok(bytes);
             }
 
             // The log area wraps past the point we're reading from, so we
@@ -1358,7 +1359,8 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_regions.read(which_log as usize, addr, len));
+                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                return Ok(bytes);
             }
 
             // Case 3: We're reading enough bytes that we have to wrap.
@@ -1371,7 +1373,7 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_regions.read(which_log as usize, addr, max_len_without_wrapping);
+            let mut part1 = pm_regions.read_unaligned(which_log as usize, addr, max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
             proof {
                 self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log,
@@ -1380,8 +1382,7 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_regions.read(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA,
-                                            len - max_len_without_wrapping);
+            let mut part2 = pm_regions.read_unaligned(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that

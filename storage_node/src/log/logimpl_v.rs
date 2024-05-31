@@ -1134,7 +1134,9 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
+                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                // TODO: don't convert to vec?
+                return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // The log area wraps past the point we're reading from, so we
@@ -1171,7 +1173,9 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                return Ok((pm_region.read(addr, len), Ghost(Seq::new(len as nat, |i: int| i + addr))));
+                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                // TODO: don't convert to vec?
+                return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // Case 3: We're reading enough bytes that we have to wrap.
@@ -1184,7 +1188,7 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_region.read(addr, max_len_without_wrapping);
+            let mut part1 = pm_region.read_unaligned(addr, max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
 
             proof {
                 self.lemma_read_of_continuous_range(pm_region@, log_id,
@@ -1193,8 +1197,7 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_region.read(ABSOLUTE_POS_OF_LOG_AREA,
-                                            len - max_len_without_wrapping);
+            let mut part2 = pm_region.read_unaligned(addr, len - max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that

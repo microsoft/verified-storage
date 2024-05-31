@@ -65,7 +65,8 @@ where
     EntryIsValid,
     EntryIsNotValid,
     InvalidLogEntryType,
-    LogErr { err: LogErr }
+    LogErr { err: LogErr },
+    PmemErr { err: PmemError },
 }
 
 pub trait Item<K> : Sized {

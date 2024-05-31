@@ -219,7 +219,7 @@ verus! {
             }
         }
 
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<&MetadataTableHeader, KvError<K, E>>)
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<MetadataTableHeader, KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions,
             requires
@@ -243,18 +243,23 @@ verus! {
             let ghost mem = pm_regions@[0].committed();
 
             // read in the header and its CRC, check for corruption
-            let metadata: &MetadataTableHeader = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_METADATA_HEADER);
-            let metadata_crc = pm_regions.read_and_deserialize(0, ABSOLUTE_POS_OF_HEADER_CRC);
+            let ghost true_metadata = choose |metadata: MetadataTableHeader| metadata.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_serialized_len());
+            let ghost true_crc = choose |val: u64| val.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+
+            let metadata = pm_regions.read_aligned::<MetadataTableHeader>(0, ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata)).map_err(|e| KvError::PmemErr { err: e })?;
+            let metadata_crc = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { err: e })?;
 
             let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
 
-            if !check_crc_deserialized2(metadata, metadata_crc, Ghost(mem),
+            if !check_crc(metadata.as_slice(), metadata_crc.as_slice(), Ghost(mem),
                     Ghost(pm_regions.constants().impervious_to_corruption),
                     Ghost(metadata_addrs),
                     Ghost(crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }
+
+            let metadata = metadata.assume_init(Ghost(true_metadata));
 
             // Since we've already checked for corruption, this condition will only fail
             // if the caller tries to use an L with a different size than the one
@@ -372,8 +377,10 @@ verus! {
                 assume(false);
                 let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
                 let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                let cdb = pm_region.read_and_deserialize(cdb_addr);
-                match check_cdb(&cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addr)) {
+                let ghost true_cdb = choose |val: u64| val.spec_serialize() == mem.subrange(cdb_addr as int, cdb_addr + CDB_SIZE);
+                let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { err: e })?;
+                let ghost cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| cdb_addr + i);
+                match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index),
                     Some(true) => {},
                     None => return Err(KvError::CRCMismatch),
@@ -382,7 +389,7 @@ verus! {
 
             Ok(Self {
                 metadata_table_free_list: metadata_allocator,
-                state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
+                state: Ghost(MetadataTableView::new(header, parse_metadata_table(header, mem).unwrap())),
                 _phantom: None
             })
         }
@@ -601,7 +608,7 @@ verus! {
         exec fn read_header<PM>(
             pm_region: &PM,
             table_id: u128
-        ) -> (result: Result<&MetadataTableHeader, KvError<K, E>>)
+        ) -> (result: Result<MetadataTableHeader, KvError<K, E>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -614,19 +621,24 @@ verus! {
 
             let ghost mem = pm_region@.committed();
 
-            let header: &MetadataTableHeader = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
-            let header_crc: &u64 = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
+            let ghost true_header = choose |header: MetadataTableHeader| header.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_serialized_len());  
+            let ghost true_crc = choose |val: u64| val.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+            
+            let header = pm_region.read_aligned::<MetadataTableHeader>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_header)).map_err(|e| KvError::PmemErr { err: e })?;
+            let header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { err: e })?;
 
             let ghost header_addrs = Seq::new(u64::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost header_crc_addrs = Seq::new(u64::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
 
             // check the CRC
-            if !check_crc_deserialized2(header, header_crc, Ghost(mem),
+            if !check_crc(header.as_slice(), header_crc.as_slice(), Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(header_addrs),
                     Ghost(header_crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }   
+
+            let header = header.assume_init(Ghost(true_header));
 
             // check that the contents of the header make sense; since we've already checked for corruption,
             // these checks should never fail

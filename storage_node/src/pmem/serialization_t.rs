@@ -1,6 +1,7 @@
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
+use vstd::bytes;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
@@ -8,7 +9,10 @@ use vstd::layout::*;
 use crate::pmem::markers_t::PmSafe;
 
 use deps_hack::crc64fast::Digest;
+use core::slice;
 use std::convert::TryInto;
+use std::ptr;
+use std::mem::MaybeUninit;
 
 verus! {
     // TODO: is this enough to prevent someone from creating an
@@ -307,6 +311,101 @@ verus! {
         // // }
     }
 
+
+    // is this name confusing?
+    #[verifier::external_body]
+    #[verifier::reject_recursive_types(S)]
+    pub struct MaybeCorrupted<S>
+        where 
+            S: Serializable
+    {
+        val: MaybeUninit<S>,
+    }
+
+    impl<S> MaybeCorrupted<S>
+        where 
+            S: Serializable 
+    {
+        // The constructor doesn't have a postcondition because we do not know anything about 
+        // the state of the bytes yet
+        #[verifier::external_body]
+        pub exec fn new() -> (out: Self)
+        {
+            MaybeCorrupted { 
+                val: MaybeUninit::uninit()
+            }
+        }
+        pub closed spec fn view(self) -> Seq<u8>;
+
+        #[verifier::external_body]
+        pub exec fn copy_from_slice(
+            &mut self, 
+            bytes: &[u8], 
+            Ghost(true_val): Ghost<S>,
+            Ghost(addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>
+        )
+            requires 
+                if impervious_to_corruption {
+                    bytes@ == true_val.spec_serialize()
+                } else {
+                    maybe_corrupted(bytes@, true_val.spec_serialize(), addrs)
+                },
+                bytes@.len() == S::spec_serialized_len(),
+            ensures 
+                self@ == bytes@
+        {
+            self.copy_from_slice_helper(bytes, Ghost(true_val), Ghost(addrs), Ghost(impervious_to_corruption));
+        }
+
+        // TODO: remove this helper function and move its body back into `copy_from_slice` once 
+        // https://github.com/verus-lang/verus/issues/1151 is fixed
+        #[verifier::external]
+        #[inline(always)]
+        fn copy_from_slice_helper(
+            &mut self, 
+            bytes: &[u8], 
+            Ghost(true_val): Ghost<S>,
+            Ghost(addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>
+        ) 
+        {
+            // convert the MaybeUninit<S> to a mutable slice of `MaybeUninit<u8>`
+            let mut self_bytes = self.val.as_bytes_mut();
+            // copy bytes from the given slice to the mutable slice of `MaybeUninit<u8>`.
+            // This returns a slice of initialized bytes, but it does NOT change the fact that 
+            // the original S is still MaybeUninit
+            // TODO: in newer versions of Rust, write_slice is renamed to copy_from_slice
+            MaybeUninit::write_slice(self_bytes, bytes);
+        }
+
+
+        #[verifier::external_body]
+        pub exec fn as_slice(&self) -> (out: &[u8])
+            ensures 
+                out@ == self@
+        {
+            let bytes = self.val.as_bytes();
+            // SAFETY: even if we haven't initialized the bytes, there are no invalid values of u8, so we can 
+            // safely assume that these bytes are initialized (even if the S may not be)
+            unsafe { MaybeUninit::slice_assume_init_ref(bytes) }
+        }
+
+        #[verifier::external_body]
+        pub exec fn assume_init(self, Ghost(true_val): Ghost<S>) -> (out: S)
+            requires 
+                self@ == true_val.spec_serialize()
+            ensures 
+                out == true_val
+        {
+            // SAFETY: The precondition establishes that self@ -- the ghost view of the maybe-corrupted bytes
+            // written to self.val -- are equivalent to the serialization of the true value; i.e., we must have 
+            // proven that the bytes are not corrupted, and therefore self.val is initialized.
+            unsafe { self.val.assume_init() }
+        }
+    }
+
+    
     // pub proof fn lemma_auto_serialize_u64()
     //     ensures 
     //         forall |v: u64| #![auto] v.spec_serialize() == spec_u64_to_le_bytes(v),
@@ -315,5 +414,206 @@ verus! {
     //         forall |v: u64| #[trigger] v.spec_serialize().len() == 8
     // {
     //     lemma_auto_spec_u64_to_from_le_bytes();
+    // }
+
+    // // uninterpreted function indicating whether a buffer is aligned for a given Serializable type
+    // // TODO: can you use something in vstd layout for this?
+    // pub closed spec fn is_aligned<S>(bytes: &[u8]) -> bool
+    //     where 
+    //         S: Serializable;
+
+    // pub closed spec fn vec_is_aligned<S>(bytes: Vec<u8>) -> bool
+    //     where 
+    //         S: Serializable;
+
+    // // Uninterpreted function indicating whether a buffer is in volatile memory or PM. 
+    // // Some operations, like CRC checking, are only valid on volatile buffers.
+    // pub closed spec fn slice_is_volatile(bytes: &[u8]) -> bool;
+
+    // Right now unaligned reads return vecs and Verus can't easily switch between Vec/slice,
+    // so we use a separate spec fn to specify that a vector lives in volatile memory (even
+    // though that should always be the case anyway)
+    pub closed spec fn vec_is_volatile(bytes: Vec<u8>) -> bool;
+
+    // // Allocates a buffer that is the same size as, and has the same alignment as, 
+    // // a given serializable type. This buffer is meant to be used as the destination of 
+    // // read bytes in DRAM so that they can be CRC checked and cast to the correct type.
+    // // #[verifier::external_body]
+    // pub exec fn allocate_aligned<S>() -> (out: OwnedAlignedBytes)
+    //     where 
+    //         S: Serializable,
+    //     requires 
+    //         S::spec_serialized_len() <= isize::MAX
+    //     ensures 
+    //         // out@.len() == S::spec_serialized_len(),
+    //         // out@.len() == size_of::<S>(), // could probably be combined with the above
+    //         out.is_aligned::<S>(),
+    //         out.is_volatile(),
+    //         out@ == Seq::<u8>::empty()
+    // {
+    //     unsafe { OwnedAlignedBytes::new::<S>() }
+
+    //     // // SAFETY: Zeroing the structure is unsafe because zeroes may not be valid for all types,
+    //     // // but the buffer will not be used until we copy into it, so the zeroed bytes will 
+    //     // // never be accessed.
+    //     // // let mut val: S = unsafe { core::mem::zeroed() };
+    //     // // let layout = std::alloc::Layout::from_size_align(S::serialized_len(), core::mem::align_of::<S>()).unwrap(); // TODO handle error
+    //     // let layout = std::alloc::Layout::new::<S>();
+    //     // let ptr = unsafe { std::alloc::alloc(layout) };
+    //     // // let ptr = &mut val as *mut S as *mut u8;
+
+    //     // // SAFETY: We just allocated the buffer with the specified size, so it's safe to cast to a byte slice.
+    //     // // OwnedAlignedBytes::new::<S>(unsafe { std::slice::from_raw_parts_mut(ptr, S::serialized_len() as usize) })
+
+
+    //     // // SAFETY: This is a very unsafe function. It's safe here because:
+    //     // // 1. ptr was just allocated from the global allocator via `alloc::alloc`
+    //     // // 2. 
+    //     // unsafe { 
+    //     //     OwnedAlignedBytes::new(Vec::from_raw_parts(ptr, 0, S::serialized_len() as usize))
+    //     // }
+    // }
+
+    // pub struct OwnedAlignedBytes {
+    //     bytes: Vec<u8>
+    // }
+
+    // impl !Copy for OwnedAlignedBytes {}
+
+    // impl OwnedAlignedBytes {
+    //     #[verifier::external_body]
+    //     exec fn new<S>() -> (out: Self) 
+    //         where 
+    //             S: Serializable,
+    //         ensures 
+    //             out.is_aligned::<S>(),
+    //             out.is_volatile(),
+    //             out@ == Seq::<u8>::empty(),
+    //             out@.len() == 0,
+    //     {
+    //         // TODO: documentation, this is so unsafe
+    //         // SAFETY:
+    //         // 1. ptr was allocated using the global allocator 
+    //         // 2. 
+    //         // 3. size of u8 * capacity is the same size the memory was originally allocated with
+    //         // 4. length (0) is less than capacity (S::serialized_len())
+    //         // 5. length is 0, so the vector has no elements that need to be initialized
+    //         // 6. we cast the vector from raw parts using the same capacity the memory was allocated with
+    //         // 7. 
+    //         let layout = std::alloc::Layout::new::<S>();
+    //         let ptr = unsafe { std::alloc::alloc(layout) };
+    //         let vec = unsafe { Vec::from_raw_parts(ptr, 0, S::serialized_len() as usize) };
+    //         OwnedAlignedBytes { bytes: vec }
+    //     }
+
+    //     pub closed spec fn view(&self) -> Seq<u8>;
+
+    //     pub exec fn len(&self) -> usize 
+    //     {
+    //         self.bytes.len()
+    //     }
+
+    //     pub exec fn extend_from_slice(&mut self, s: &[u8]) 
+    //         requires 
+    //             old(self)@ == Seq::<u8>::empty()
+    //         ensures 
+    //             self@ == s@,
+    //             self@.len() == s@.len(),
+    //     {
+    //         self.bytes.extend_from_slice(s);
+    //     }
+
+    //     pub closed spec fn is_aligned<S>(&self) -> bool
+    //         where 
+    //             S: Serializable
+    //     {
+    //         vec_is_aligned::<S>(self.bytes)
+    //     }
+
+    //     pub closed spec fn is_volatile(&self) -> bool {
+    //         vec_is_volatile(self.bytes)
+    //     }
+
+    //     #[verifier::external_body]
+    //     pub exec fn as_slice(&self) -> (out: &[u8])
+    //         ensures 
+    //             out@ == self@,
+    //             slice_is_volatile(out),
+    //             out@.len() == self@.len()
+    //     {
+    //         &self.bytes
+    //     }
+    // }
+
+    // impl<'a> OwnedAlignedBytes<'a> {
+    //     #[verifier::external_body]
+    //     fn new<S>(s: &'a mut [u8]) -> (out: Self) 
+    //         where 
+    //             S: Serializable,
+    //         requires 
+    //             is_aligned::<S>(old(s)),
+    //             slice_is_volatile(old(s)),
+    //         ensures 
+    //             out@.len() == s@.len(),
+    //             owned_bytes_are_aligned::<S>(out),
+    //             owned_bytes_are_volatile(out),
+    //     {
+    //         OwnedAlignedBytes { bytes: s }
+    //     }
+
+    //     pub closed spec fn view(self) -> Seq<u8>;
+
+    //     fn len(&self) -> (result: usize) 
+    //         ensures 
+    //             result == self.spec_len()
+    //     {
+    //         self.bytes.len()
+    //     }
+
+    //     closed spec fn spec_len(&self) -> nat;
+
+    //     pub fn copy_from_slice(&mut self, src: &[u8]) 
+    //         requires 
+    //             src.len() == self.len()
+    //         ensures 
+    //             self@ == src@
+    //     {
+    //         self.bytes.copy_from_slice(src);
+    //     }
+
+    //     pub fn to_slice<S>(self) -> (out: &'a [u8])
+    //         where 
+    //             S: Serializable,
+    //         requires 
+    //             owned_bytes_are_aligned::<S>(self),
+    //             owned_bytes_are_volatile(self),
+    //         ensures 
+    //             out@ == self@,
+    //             is_aligned::<S>(out),
+    //             slice_is_volatile(out)
+    //     {
+    //         self.bytes
+    //     }
+    // }
+
+    // // TODO: does this precondition ensure that we have checked CRCs before casting?
+    // // we need to do that or risk casting corrupted data
+    // // TODO: pass in a Ghost<S>?
+    // #[verifier::external_body]
+    // pub exec fn cast_bytes<'a, S>(bytes: &OwnedAlignedBytes) -> (out: &S)
+    //     where 
+    //         S: Serializable,
+    //     requires 
+    //         bytes@.len() == S::spec_serialized_len(),
+    //         bytes.is_aligned::<S>(),
+    //         // This precondition ensures that the bytes are a serialization of some valid S
+    //         // TODO: is that true or do we need a way to specify that s is valid?
+    //         exists |s: S| s.spec_serialize() == bytes@,
+    //         bytes.is_volatile(),
+    //     ensures 
+    //         out == S::spec_deserialize(bytes@)
+    // {
+    //     // SAFETY: The precondition guarantees that the bytes are aligned and the correct length.
+    //     unsafe { &*(bytes.as_slice().as_ptr() as *const S) }
     // }
 }

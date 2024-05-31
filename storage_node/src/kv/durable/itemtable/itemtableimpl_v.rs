@@ -297,10 +297,12 @@ verus! {
                 assume(false);
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
                 let cdb_addr = item_slot_offset + RELATIVE_POS_OF_VALID_CDB;
-                let val: &u64 = pm_region.read_and_deserialize(cdb_addr);
-                match check_cdb(&val, Ghost(mem),
+                let ghost cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| cdb_addr + i);
+                let ghost true_cdb = choose |val: u64| val.spec_serialize() == mem.subrange(cdb_addr as int, cdb_addr + CDB_SIZE);
+                let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { err: e })?;
+                match check_cdb(cdb, Ghost(true_cdb), Ghost(mem),
                             Ghost(pm_region.constants().impervious_to_corruption),
-                            Ghost(cdb_addr)) {
+                            Ghost(cdb_addrs)) {
                     Some(false) => item_table_allocator.push(index),
                     Some(true) => {}
                     None => return Err(KvError::CRCMismatch)
@@ -452,7 +454,7 @@ verus! {
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
     }
 
-    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<&ItemTableMetadata, KvError<K, E>>)
+    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<ItemTableMetadata, KvError<K, E>>)
         where
             PM: PersistentMemoryRegion,
         requires
@@ -479,18 +481,24 @@ verus! {
             let ghost mem = pm_region@.committed();
 
             // read in the metadata structure and its CRC, make sure it has not been corrupted
-            let table_metadata: &ItemTableMetadata = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_METADATA_HEADER);
-            let table_crc = pm_region.read_and_deserialize(ABSOLUTE_POS_OF_HEADER_CRC);
+
+            let ghost true_metadata_table = choose |metadata: ItemTableMetadata| metadata.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_serialized_len());
+            let ghost true_crc = choose |crc: u64| crc.spec_serialize() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+
+            let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata_table)).map_err(|e| KvError::PmemErr { err: e })?;
+            let table_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { err: e })?;
 
             let ghost header_addrs = Seq::new(ItemTableMetadata::spec_serialized_len(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
 
-            if !check_crc_deserialized2(table_metadata, table_crc, Ghost(mem),
+            if !check_crc(table_metadata.as_slice(), table_crc.as_slice(), Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
                     Ghost(header_addrs), 
                     Ghost(crc_addrs)) {
                 return Err(KvError::CRCMismatch);
             }
+
+            let table_metadata = table_metadata.assume_init(Ghost(true_metadata_table));
 
             // Since we've already checked for corruption, this condition should never fail
             if {

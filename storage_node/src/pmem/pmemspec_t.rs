@@ -406,48 +406,109 @@ verus! {
                 result == self@.len()
         ;
 
-        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        // fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        //     requires
+        //         self.inv(),
+        //         addr + num_bytes <= self@.len(),
+        //         // Reads aren't permitted where there are still outstanding writes
+        //         self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
+        //     ensures
+        //         ({
+        //             let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
+        //             let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
+        //             // If the persistent memory regions are impervious
+        //             // to corruption, read returns the last bytes
+        //             // written. Otherwise, it returns a
+        //             // possibly-corrupted version of those bytes.
+        //             if self.constants().impervious_to_corruption {
+        //                 bytes@ == true_bytes
+        //             }
+        //             else {
+        //                 maybe_corrupted(bytes@, true_bytes, addrs)
+        //             }
+        //         })
+        // ;
+
+        // This function takes a ghost `true_val` representing the value we originally wrote to this location, rather than 
+        // choosing it internally, so that the caller can get more specific information about this structure if they want.
+        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+            where 
+                S: Serializable + Sized,
             requires
+                self.inv(),
+                0 <= addr < addr + S::spec_serialized_len() <= self@.len(),
+                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+                // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
+                self@.committed().subrange(addr as int, addr + S::spec_serialized_len()) == true_val.spec_serialize(),
+            ensures
+                match bytes {
+                    Ok(bytes) => {
+                        let true_bytes = self@.committed().subrange(addr as int, addr + S::spec_serialized_len());
+                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                        // If the persistent memory regions are impervious
+                        // to corruption, read returns the last bytes
+                        // written. Otherwise, it returns a
+                        // possibly-corrupted version of those bytes.
+                        if self.constants().impervious_to_corruption {
+                            bytes@ == true_bytes
+                        }
+                        else {
+                            maybe_corrupted(bytes@, true_bytes, addrs)
+                        }
+                    }
+                    Err(e) => {
+                        e == PmemError::AccessOutOfRange
+                    }
+                }
+            ;
+
+        fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) 
+            requires 
                 self.inv(),
                 addr + num_bytes <= self@.len(),
-                // Reads aren't permitted where there are still outstanding writes
                 self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
-            ensures
-                ({
-                    let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
-                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    // If the persistent memory regions are impervious
-                    // to corruption, read returns the last bytes
-                    // written. Otherwise, it returns a
-                    // possibly-corrupted version of those bytes.
-                    if self.constants().impervious_to_corruption {
-                        bytes@ == true_bytes
+            ensures 
+                match bytes {
+                    Ok(bytes) => {
+                        let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
+                        let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
+                        &&& // If the persistent memory regions are impervious
+                            // to corruption, read returns the last bytes
+                            // written. Otherwise, it returns a
+                            // possibly-corrupted version of those bytes.
+                            if self.constants().impervious_to_corruption {
+                                bytes@ == true_bytes
+                            }
+                            else {
+                                maybe_corrupted(bytes@, true_bytes, addrs)
+                            }
+                        }
+                    Err(e) => {
+                        e == PmemError::AccessOutOfRange
                     }
-                    else {
-                        maybe_corrupted(bytes@, true_bytes, addrs)
-                    }
-                })
+                }
+                
         ;
 
-        fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
-            where
-                S: Serializable + Sized
-            requires
-                self.inv(),
-                addr + S::spec_serialized_len() <= self@.len(),
-                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
-            ensures
-            ({
-                let true_val = S::spec_deserialize(
-                    self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-                if self.constants().impervious_to_corruption {
-                    output == true_val
-                } else {
-                    maybe_corrupted_serialized2(*output, true_val, addrs)
-                }
-            })
-        ;
+        // fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
+        //     where
+        //         S: Serializable + Sized
+        //     requires
+        //         self.inv(),
+        //         addr + S::spec_serialized_len() <= self@.len(),
+        //         self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+        //     ensures
+        //     ({
+        //         let true_val = S::spec_deserialize(
+        //             self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
+        //         let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+        //         if self.constants().impervious_to_corruption {
+        //             output == true_val
+        //         } else {
+        //             maybe_corrupted_serialized2(*output, true_val, addrs)
+        //         }
+        //     })
+        // ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
@@ -512,52 +573,67 @@ verus! {
                 result == self@[index as int].len(),
         ;
 
-        fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-            requires
+        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+            where 
+                S: Serializable,
+            requires 
                 self.inv(),
                 index < self@.len(),
-                addr + num_bytes <= self@[index as int].len(),
-                // Reads aren't permitted where there are still outstanding writes
-                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + num_bytes),
-            ensures
-                ({
-                    let true_bytes = self@[index as int].committed().subrange(addr as int, addr + num_bytes);
-                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    // If the persistent memory regions are impervious
-                    // to corruption, read returns the last bytes
-                    // written. Otherwise, it returns a
-                    // possibly-corrupted version of those bytes.
-                    if self.constants().impervious_to_corruption {
-                        bytes@ == true_bytes
+                0 <= addr < addr + S::spec_serialized_len() <= self@.len(),
+                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
+                self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()) == true_val.spec_serialize(),
+            ensures 
+                match bytes {
+                    Ok(bytes) => {
+                        // let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len());
+                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                        &&& // If the persistent memory regions are impervious
+                            // to corruption, read returns the last bytes
+                            // written. Otherwise, it returns a
+                            // possibly-corrupted version of those bytes.
+                            if self.constants().impervious_to_corruption {
+                                bytes@ == true_val.spec_serialize()
+                            }
+                            else {
+                                maybe_corrupted(bytes@, true_val.spec_serialize(), addrs)
+                            }
+                        }
+                    Err(e) => {
+                        // TODO: stronger checks
+                        e == PmemError::AccessOutOfRange
                     }
-                    else {
-                        maybe_corrupted(bytes@, true_bytes, addrs)
-                    }
-                })
+                }
         ;
 
-        // TODO: should we be able to read more than one S with a single read call?
-        // Note that addr is a regular offset in terms of bytes, but the result is of type S
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> (output: &S)
-            where
-                S: Serializable + Sized
-            requires
+        fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
+            requires 
                 self.inv(),
                 index < self@.len(),
-                addr + S::spec_serialized_len() <= self@[index as int].len(),
-                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
-                // TODO: should require that we have previously written an S to this address
-            ensures
-            ({
-                let true_val = S::spec_deserialize(
-                    self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()));
-                let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-                if self.constants().impervious_to_corruption {
-                    output == true_val
-                } else {
-                    maybe_corrupted_serialized(*output, true_val, addr as int)
+                addr + num_bytes <= self@.len(),
+                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + num_bytes),
+            ensures 
+            match bytes {
+                Ok(bytes) => {
+                    let true_bytes = self@[index as int].committed().subrange(addr as int, addr + num_bytes);
+                    let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
+                    &&& vec_is_volatile(bytes)
+                    &&& // If the persistent memory regions are impervious
+                        // to corruption, read returns the last bytes
+                        // written. Otherwise, it returns a
+                        // possibly-corrupted version of those bytes.
+                        if self.constants().impervious_to_corruption {
+                            bytes@ == true_bytes
+                        }
+                        else {
+                            maybe_corrupted(bytes@, true_bytes, addrs)
+                        }
+                    }
+                Err(e) => {
+                    // TODO: stronger checks
+                    e == PmemError::AccessOutOfRange
                 }
-            })
+            }
         ;
 
         // TODO: remove and fully replace with serialize_and_write
@@ -583,7 +659,7 @@ verus! {
         // Note that addr is a regular offset in terms of bytes, but to_write is type S
         fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: Serializable + Sized,
             requires
                 old(self).inv(),
                 index < old(self)@.len(),
