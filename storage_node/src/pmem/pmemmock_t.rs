@@ -75,10 +75,10 @@ verus! {
             let pm_slice = &self.contents[addr as usize..addr as usize + S::serialized_len() as usize];
             let ghost addrs = Seq::new(S::spec_serialized_len(), |i: int| addr + i);
 
-            let maybe_corrupted = MaybeCorrupted::new();
-            maybe_corrupted.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
+            let mut maybe_corrupted_val = MaybeCorrupted::new();
+            maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
 
-            Ok(maybe_corrupted)
+            Ok(maybe_corrupted_val)
         }
 
         #[verifier::external_body]

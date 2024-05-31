@@ -406,29 +406,6 @@ verus! {
                 result == self@.len()
         ;
 
-        // fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
-        //     requires
-        //         self.inv(),
-        //         addr + num_bytes <= self@.len(),
-        //         // Reads aren't permitted where there are still outstanding writes
-        //         self@.no_outstanding_writes_in_range(addr as int, addr + num_bytes),
-        //     ensures
-        //         ({
-        //             let true_bytes = self@.committed().subrange(addr as int, addr + num_bytes);
-        //             let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-        //             // If the persistent memory regions are impervious
-        //             // to corruption, read returns the last bytes
-        //             // written. Otherwise, it returns a
-        //             // possibly-corrupted version of those bytes.
-        //             if self.constants().impervious_to_corruption {
-        //                 bytes@ == true_bytes
-        //             }
-        //             else {
-        //                 maybe_corrupted(bytes@, true_bytes, addrs)
-        //             }
-        //         })
-        // ;
-
         // This function takes a ghost `true_val` representing the value we originally wrote to this location, rather than 
         // choosing it internally, so that the caller can get more specific information about this structure if they want.
         fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
@@ -489,26 +466,6 @@ verus! {
                 }
                 
         ;
-
-        // fn read_and_deserialize<S>(&self, addr: u64) -> (output: &S)
-        //     where
-        //         S: Serializable + Sized
-        //     requires
-        //         self.inv(),
-        //         addr + S::spec_serialized_len() <= self@.len(),
-        //         self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
-        //     ensures
-        //     ({
-        //         let true_val = S::spec_deserialize(
-        //             self@.committed().subrange(addr as int, addr + S::spec_serialized_len()));
-        //         let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
-        //         if self.constants().impervious_to_corruption {
-        //             output == true_val
-        //         } else {
-        //             maybe_corrupted_serialized2(*output, true_val, addrs)
-        //         }
-        //     })
-        // ;
 
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
@@ -650,12 +607,6 @@ verus! {
                 self@ == old(self)@.write(index as int, addr as int, bytes@),
         ;
 
-        // TODO: should this take a &[S] or just S?
-        // We should probably only be able to write an S to this address if we can be sure
-        // that we are not partially overwriting another structure? since a subsequent
-        // read would make that structure invalid.
-        // how to represent that though? need to map addresses to types in spec code...
-        // or something similar...
         // Note that addr is a regular offset in terms of bytes, but to_write is type S
         fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
