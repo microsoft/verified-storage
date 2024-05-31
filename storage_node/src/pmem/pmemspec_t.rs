@@ -128,34 +128,6 @@ verus! {
             x == x_c
     {}
 
-    #[verifier(external_body)]
-    pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-                                         y_c: u64, y: u64, y_addr: int)
-        requires
-            maybe_corrupted(x_c, x, x_addrs),
-            maybe_corrupted_serialized(y_c, y, y_addr),
-            y == spec_crc_u64(x),
-            y_c == spec_crc_u64(x_c),
-            all_elements_unique(x_addrs),
-            // all_elements_unique(y_addrs),
-        ensures
-            x == x_c
-    {}
-
-    // #[verifier(external_body)]
-    // pub proof fn axiom_bytes_uncorrupted2(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
-    //                                      y_c: u64, y: u64, y_addrs: Seq<int>)
-    //     requires
-    //         maybe_corrupted(x_c, x, x_addrs),
-    //         maybe_corrupted_serialized2(y_c, y, y_addrs),
-    //         y == spec_crc_u64(x),
-    //         y_c == spec_crc_u64(x_c),
-    //         all_elements_unique(x_addrs),
-    //         all_elements_unique(y_addrs),
-    //     ensures
-    //         x == x_c
-    // {}
-
     /// The second assumption, encapsulated in
     /// `axiom_corruption_detecting_boolean`, is that the values
     /// `CDB_FALSE` and `CDB_TRUE` are so randomly different from each
