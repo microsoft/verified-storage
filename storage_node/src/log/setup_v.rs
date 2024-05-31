@@ -230,7 +230,8 @@ verus! {
                    =~= Some(AbstractLogState::initialize(log_capacity as int))) by {
                 assert(pm_region_committed.len() == pm_region@.len());
                 assert(pm_region_committed == pm_region@.flush().committed());
-                assert(extract_log(pm_region_committed, log_capacity as int, 0int, 0int) =~= Seq::<u8>::empty());
+                assert(recover_log(pm_region_committed, log_capacity as int, 0int, 0int) =~=
+                       Some(AbstractLogState::initialize(log_capacity as int)));
             }
 
             // Second, establish that the flush we're about to do

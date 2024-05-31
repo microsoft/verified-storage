@@ -114,7 +114,7 @@ verus! {
                 match result {
                     Ok(info) => state.is_Some() ==> {
                         &&& metadata_consistent_with_info(pm_region@, log_id, cdb, info)
-                        &&& info_consistent_with_log_area(pm_region@, info, state.unwrap())
+                        &&& info_consistent_with_log_area_in_region(pm_region@, info, state.unwrap())
                     },
                     Err(LogErr::CRCMismatch) =>
                         state.is_Some() ==> !pm_region.constants().impervious_to_corruption,

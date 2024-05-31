@@ -277,7 +277,7 @@ pub struct FileBackedPersistentMemoryRegion
 impl FileBackedPersistentMemoryRegion
 {
     #[verifier::external_body]
-    fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
+    fn new_internal(path: &str, media_type: MemoryMappedFileMediaType, region_size: u64,
                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
                     -> (result: Result<Self, PmemError>)
         ensures
@@ -287,7 +287,7 @@ impl FileBackedPersistentMemoryRegion
             }
     {
         let mmf = MemoryMappedFile::from_file(
-            path.into_rust_str(),
+            path,
             region_size as usize,
             media_type,
             open_behavior,
@@ -299,7 +299,7 @@ impl FileBackedPersistentMemoryRegion
         Ok(Self { section })
     }
 
-    pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64,
+    pub fn new(path: &str, media_type: MemoryMappedFileMediaType, region_size: u64,
                close_behavior: FileCloseBehavior) -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -310,7 +310,7 @@ impl FileBackedPersistentMemoryRegion
         Self::new_internal(path, media_type, region_size, FileOpenBehavior::CreateNew, close_behavior)
     }
 
-    pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_size: u64)
+    pub fn restore(path: &str, media_type: MemoryMappedFileMediaType, region_size: u64)
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -436,7 +436,7 @@ pub struct FileBackedPersistentMemoryRegions
 
 impl FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
-    fn new_internal(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
+    fn new_internal(path: &str, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
                     open_behavior: FileOpenBehavior, close_behavior: FileCloseBehavior)
                     -> (result: Result<Self, PmemError>)
         ensures
@@ -460,7 +460,7 @@ impl FileBackedPersistentMemoryRegions {
             total_size += region_size;
         }
         let mmf = MemoryMappedFile::from_file(
-            path.into_rust_str(),
+            path,
             total_size,
             media_type.clone(),
             open_behavior,
@@ -490,7 +490,7 @@ impl FileBackedPersistentMemoryRegions {
     // `region_sizes[i]` is the length of file `log<i>`
     //
     // `close_behavior` -- what to do when the file is closed
-    pub fn new(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
+    pub fn new(path: &str, media_type: MemoryMappedFileMediaType, region_sizes: &[u64],
                close_behavior: FileCloseBehavior)
                -> (result: Result<Self, PmemError>)
         ensures
@@ -517,7 +517,7 @@ impl FileBackedPersistentMemoryRegions {
     //
     // `region_sizes` -- a vector of region sizes, where
     // `region_sizes[i]` is the length of file `log<i>`
-    pub fn restore(path: &StrSlice, media_type: MemoryMappedFileMediaType, region_sizes: &[u64])
+    pub fn restore(path: &str, media_type: MemoryMappedFileMediaType, region_sizes: &[u64])
                    -> (result: Result<Self, PmemError>)
         ensures
             match result {

@@ -144,7 +144,7 @@ pub struct FileBackedPersistentMemoryRegion
 impl FileBackedPersistentMemoryRegion
 {
     #[verifier::external_body]
-    fn new_internal(path: &StrSlice, region_size: u64, open_behavior: FileOpenBehavior,
+    fn new_internal(path: &str, region_size: u64, open_behavior: FileOpenBehavior,
                     persistent_memory_check: PersistentMemoryCheck)
                     -> (result: Result<Self, PmemError>)
         ensures
@@ -154,7 +154,7 @@ impl FileBackedPersistentMemoryRegion
             }
     {
         let mmf = MemoryMappedFile::from_file(
-            path.into_rust_str(),
+            path,
             region_size as usize,
             open_behavior,
             persistent_memory_check,
@@ -164,7 +164,7 @@ impl FileBackedPersistentMemoryRegion
         Ok(Self { section })
     }
 
-    pub fn new(path: &StrSlice, region_size: u64, persistent_memory_check: PersistentMemoryCheck)
+    pub fn new(path: &str, region_size: u64, persistent_memory_check: PersistentMemoryCheck)
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -175,7 +175,7 @@ impl FileBackedPersistentMemoryRegion
         Self::new_internal(path, region_size, FileOpenBehavior::CreateNew, persistent_memory_check)
     }
 
-    pub fn restore(path: &StrSlice, region_size: u64) -> (result: Result<Self, PmemError>)
+    pub fn restore(path: &str, region_size: u64) -> (result: Result<Self, PmemError>)
         ensures
             match result {
                 Ok(region) => region.inv() && region@.len() == region_size,
@@ -362,8 +362,8 @@ impl FileBackedPersistentMemoryRegions {
     // TODO: detailed information for error returns
     #[verifier::external_body]
     #[allow(dead_code)]
-    pub fn new_internal<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64], open_behavior: FileOpenBehavior,
-                            persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
+    pub fn new_internal(path: &str, region_sizes: &[u64], open_behavior: FileOpenBehavior,
+                        persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
         ensures
             match result {
                 Ok(regions) => {
@@ -384,7 +384,7 @@ impl FileBackedPersistentMemoryRegions {
             total_size += region_size;
         }
         let mmf = MemoryMappedFile::from_file(
-            file_to_map.into_rust_str(),
+            path,
             total_size,
             open_behavior,
             persistent_memory_check,
@@ -400,8 +400,9 @@ impl FileBackedPersistentMemoryRegions {
         Ok(Self { regions })
     }
     
-    pub fn new<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64],
-                   persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
+    pub fn new(path: &str, region_sizes: &[u64],
+ persistent_memory_check: PersistentMemoryCheck)
+               -> (result: Result<Self, PmemError>)
         ensures
             match result {
                 Ok(regions) => {
@@ -413,11 +414,12 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true,
             }
     {
-        Self::new_internal(file_to_map, region_sizes, FileOpenBehavior::CreateNew, persistent_memory_check)
+        Self::new_internal(path, region_sizes, FileOpenBehavior::CreateNew, persistent_memory_check)
     }
     
-    pub fn restore<'a>(file_to_map: &StrSlice<'a>, region_sizes: &[u64],
-                       persistent_memory_check: PersistentMemoryCheck) -> (result: Result<Self, PmemError>)
+    pub fn restore(path: &str, region_sizes: &[u64],
+ persistent_memory_check: PersistentMemoryCheck)
+                   -> (result: Result<Self, PmemError>)
         ensures
             match result {
                 Ok(regions) => {
@@ -429,7 +431,7 @@ impl FileBackedPersistentMemoryRegions {
                 Err(_) => true,
             }
     {
-        Self::new_internal(file_to_map, region_sizes, FileOpenBehavior::OpenExisting, persistent_memory_check)
+        Self::new_internal(path, region_sizes, FileOpenBehavior::OpenExisting, persistent_memory_check)
     }
 }
 

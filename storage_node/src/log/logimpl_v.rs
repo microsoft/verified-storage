@@ -15,6 +15,7 @@ use crate::log::start_v::{read_cdb, read_log_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
+use crate::pmem::subregion_v::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -49,6 +50,13 @@ verus! {
         pub head_log_area_offset: u64,
         pub log_length: u64,
         pub log_plus_pending_length: u64,
+    }
+
+    impl LogInfo {
+        pub open spec fn tentatively_append(self, num_bytes: u64) -> Self
+        {
+             Self{ log_plus_pending_length: (self.log_plus_pending_length + num_bytes) as u64, ..self }
+        }
     }
 
     // This structure, `UntrustedLogImpl`, implements a
@@ -94,7 +102,7 @@ verus! {
             &&& no_outstanding_writes_to_metadata(wrpm_region@)
             &&& memory_matches_deserialized_cdb(wrpm_region@, self.cdb)
             &&& metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, self.info)
-            &&& info_consistent_with_log_area(wrpm_region@, self.info, self.state@)
+            &&& info_consistent_with_log_area_in_region(wrpm_region@, self.info, self.state@)
             &&& can_only_crash_as_state(wrpm_region@, log_id, self.state@.drop_pending_appends())
         }
 
@@ -300,6 +308,181 @@ verus! {
             Ok(Self{ cdb, info, state: Ghost(state) })
         }
 
+        // The `tentatively_append_to_log` method is called by
+        // `tentatively_append` to perform writes to the log area.
+        // It's passed a `subregion` that frames access to only that
+        // log area, and only to offsets within that log area that are
+        // unreachable during recovery.
+        exec fn tentatively_append_to_log<PMRegion>(
+            &self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
+            subregion: &PersistentMemorySubregion,
+            bytes_to_append: &[u8],
+            Tracked(perm): Tracked<&TrustedPermission>,
+        ) -> (result: Result<u128, LogErr>)
+            where
+                PMRegion: PersistentMemoryRegion
+            requires
+                bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
+                self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
+                subregion.inv(&*old(wrpm_region), perm),
+                subregion.start() == ABSOLUTE_POS_OF_LOG_AREA,
+                subregion.len() == self.info.log_area_len,
+                info_consistent_with_log_area(subregion.view(&*old(wrpm_region)), self.info, self.state@),
+                forall |log_area_offset: int|
+                    #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
+                    log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                self.info.log_area_len as int,
+                                                                self.info.log_length as int,
+                                                                log_area_offset),
+            ensures
+                subregion.inv(wrpm_region, perm),
+                match result {
+                    Ok(offset) => {
+                        &&& offset == self.info.head + self.info.log_plus_pending_length
+                        &&& info_consistent_with_log_area(
+                            subregion.view(wrpm_region),
+                            self.info.tentatively_append(bytes_to_append.len() as u64),
+                            self.state@.tentatively_append(bytes_to_append@)
+                        )
+                    },
+                    Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
+                        &&& subregion.view(wrpm_region) == subregion.view(&*old(wrpm_region))
+                        &&& available_space < bytes_to_append@.len()
+                        &&& {
+                               ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
+                               ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
+                           }
+                    },
+                    _ => false
+                }
+        {
+            let info = &self.info;
+
+            // Compute the current logical offset of the end of the
+            // log, including any earlier pending appends. This is the
+            // offset at which we'll be logically appending, and so is
+            // the offset we're expected to return. After all, the
+            // caller wants to know what virtual log position they
+            // need to use to read this data in the future.
+
+            let old_pending_tail: u128 = info.head + info.log_plus_pending_length as u128;
+
+            // The simple case is that we're being asked to append the
+            // empty string. If so, do nothing and return.
+
+            let num_bytes: u64 = bytes_to_append.len() as u64;
+            if num_bytes == 0 {
+                assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
+                assert(bytes_to_append@ =~= Seq::<u8>::empty());
+                assert(self.info.tentatively_append(bytes_to_append.len() as u64) =~= self.info);
+                assert(self.state@.tentatively_append(bytes_to_append@) =~= self.state@);
+                assert(info_consistent_with_log_area(
+                    subregion.view(wrpm_region),
+                    self.info.tentatively_append(bytes_to_append.len() as u64),
+                    self.state@.tentatively_append(bytes_to_append@)
+                ));
+                return Ok(old_pending_tail);
+            }
+
+            let ghost state = self.state@;
+
+            // If the number of bytes in the log plus pending appends
+            // is at least as many bytes as are beyond the head in the
+            // log area, there's obviously enough room to append all
+            // the bytes without wrapping. So just write the bytes
+            // there.
+
+            if info.log_plus_pending_length >= info.log_area_len - info.head_log_area_offset {
+
+                // We could compute the address to write to with:
+                //
+                // `write_addr = old_pending_tail % info.log_area_len;`
+                //
+                // But we can replace the expensive modulo operation above with two subtraction
+                // operations as follows. This is somewhat subtle, but we have verification backing
+                // us up and proving this optimization correct.
+
+                let write_addr: u64 =
+                    info.log_plus_pending_length - (info.log_area_len - info.head_log_area_offset);
+                assert(write_addr ==
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int,
+                                                           info.log_area_len as int));
+
+                proof {
+                    lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@, self.info, self.state@);
+                }
+                subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+            }
+            else {
+                // We could compute the address to write to with:
+                //
+                // `write_addr = old_pending_tail % info.log_area_len`
+                //
+                // But we can replace the expensive modulo operation above with an addition
+                // operation as follows. This is somewhat subtle, but we have verification backing
+                // us up and proving this optimization correct.
+
+                let write_addr: u64 = info.log_plus_pending_length + info.head_log_area_offset;
+                assert(write_addr ==
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int,
+                                                           info.log_area_len as int));
+
+                // There's limited space beyond the pending bytes in the log area, so as we write
+                // the bytes we may have to wrap around the end of the log area. So we must compute
+                // how many bytes we can write without having to wrap:
+
+                let max_len_without_wrapping: u64 =
+                    info.log_area_len - info.head_log_area_offset - info.log_plus_pending_length;
+                assert(max_len_without_wrapping == info.log_area_len -
+                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                           info.head_log_area_offset as int, info.log_area_len as int));
+
+                if num_bytes <= max_len_without_wrapping {
+
+                    // If there's room for all the bytes we need to write, we just need one write.
+
+                    proof {
+                        lemma_tentatively_append(subregion.view(wrpm_region), bytes_to_append@,
+                                                 self.info, self.state@);
+                    }
+                    subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+                }
+                else {
+
+                    // If there isn't room for all the bytes we need to write, we need two writes,
+                    // one writing the first `max_len_without_wrapping` bytes to address
+                    // `write_addr` and the other writing the remaining bytes to the beginning of
+                    // the log area.
+                    //
+                    // There are a lot of things we have to prove about these writes, like the fact
+                    // that they're both permitted by `perm`. We offload those proofs to a lemma in
+                    // `append_v.rs` that we invoke here.
+
+                    proof {
+                        lemma_tentatively_append_wrapping(subregion.view(wrpm_region),
+                                                          bytes_to_append@, self.info, self.state@);
+                    }
+                    subregion.write_relative(
+                        wrpm_region,
+                        write_addr,
+                        slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
+                        Tracked(perm)
+                    );
+                    subregion.write_relative(
+                        wrpm_region,
+                        0u64,
+                        slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()),
+                        Tracked(perm)
+                    );
+                }
+            }
+
+            Ok(old_pending_tail)
+        }
+        
         // The `tentatively_append` method tentatively appends
         // `bytes_to_append` to the end of the log. It's tentative in
         // that crashes will undo the appends, and reads aren't
@@ -345,15 +528,14 @@ verus! {
                            }
                     },
                     _ => false
-                }
+                },
         {
-            let info = &self.info;
-
             // One useful invariant implies that
             // `info.log_plus_pending_length <= info.log_area_len`, so
             // we know we can safely do the following subtraction
             // without underflow.
 
+            let info = &self.info;
             let available_space: u64 = info.log_area_len - info.log_plus_pending_length as u64;
 
             // Check to make sure we have enough available space, and
@@ -374,128 +556,58 @@ verus! {
                 })
             }
 
-            // Compute the current logical offset of the end of the
-            // log, including any earlier pending appends. This is the
-            // offset at which we'll be logically appending, and so is
-            // the offset we're expected to return. After all, the
-            // caller wants to know what virtual log position they
-            // need to use to read this data in the future.
+            // Create a `PersistentMemorySubregion` that only provides
+            // access to the log area, and that places a simpler
+            // restriction on writes: one can only use it to overwrite
+            // log addresses not accessed by the recovery view. That
+            // is, one can only use it to overwrite parts of the log
+            // beyond the current tail.
 
-            let old_pending_tail: u128 = info.head + info.log_plus_pending_length as u128;
-
-            let ghost state = self.state@;
-
-            // The simple case is that we're being asked to append the
-            // empty string. If so, do nothing and return.
-
-            if num_bytes == 0 {
-                assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
-                assert(bytes_to_append@ =~= Seq::<u8>::empty());
-                assert(self@ =~= old(self)@.tentatively_append(bytes_to_append@));
-                return Ok(old_pending_tail);
+            let ghost is_writable_absolute_addr =
+                |addr: int| log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                                                                      self.info.log_area_len as int,
+                                                                      self.info.log_length as int,
+                                                                      addr - ABSOLUTE_POS_OF_LOG_AREA);
+            assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
+                &&& #[trigger] alt_region_view.can_crash_as(crash_state)
+                &&& wrpm_region@.len() == alt_region_view.len()
+                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
+                                                            info.log_area_len, is_writable_absolute_addr)
+            } implies perm.check_permission(crash_state) by {
+                lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
+                    wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
+                    is_writable_absolute_addr
+                );
             }
+            let subregion = PersistentMemorySubregion::new(
+                wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
+                Ghost(self.info.log_area_len), Ghost(is_writable_absolute_addr)
+            );
 
-            // If the number of bytes in the log plus pending appends
-            // is at least as many bytes as are beyond the head in the
-            // log area, there's obviously enough room to append all
-            // the bytes without wrapping. So just write the bytes
-            // there.
+            // Call `tentatively_append_to_log` to do the real work of this function,
+            // providing it the subregion created above so it doesn't have to think
+            // about anything but the log area and so it doesn't have to reason about
+            // the overall recovery view to perform writes.
 
-            if info.log_plus_pending_length >= info.log_area_len - info.head_log_area_offset {
-
-                // We could compute the address to write to with:
-                //
-                // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + old_pending_tail % info.log_area_len;`
-                //
-                // But we can replace the expensive modulo operation above with two subtraction
-                // operations as follows. This is somewhat subtle, but we have verification backing
-                // us up and proving this optimization correct.
-
-                let write_addr: u64 = ABSOLUTE_POS_OF_LOG_AREA +
-                    info.log_plus_pending_length - (info.log_area_len - info.head_log_area_offset);
-                assert(write_addr == ABSOLUTE_POS_OF_LOG_AREA +
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int,
-                                                           info.log_area_len as int));
-
-                proof {
-                    lemma_tentatively_append(wrpm_region@, log_id,
-                                             bytes_to_append@, self.cdb, self.info, self.state@);
-                }
-                wrpm_region.write(write_addr, bytes_to_append, Tracked(perm));
-            }
-            else {
-
-                // We could compute the address to write to with:
-                //
-                // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + old_pending_tail % info.log_area_len`
-                //
-                // But we can replace the expensive modulo operation above with an addition
-                // operation as follows. This is somewhat subtle, but we have verification backing
-                // us up and proving this optimization correct.
-
-                let write_addr: u64 = ABSOLUTE_POS_OF_LOG_AREA +
-                    info.log_plus_pending_length + info.head_log_area_offset;
-                assert(write_addr == ABSOLUTE_POS_OF_LOG_AREA +
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int,
-                                                           info.log_area_len as int));
-
-                // There's limited space beyond the pending bytes in the log area, so as we write
-                // the bytes we may have to wrap around the end of the log area. So we must compute
-                // how many bytes we can write without having to wrap:
-
-                let max_len_without_wrapping: u64 =
-                    info.log_area_len - info.head_log_area_offset - info.log_plus_pending_length;
-                assert(max_len_without_wrapping == info.log_area_len -
-                       relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
-                                                           info.head_log_area_offset as int, info.log_area_len as int));
-
-                if num_bytes <= max_len_without_wrapping {
-
-                    // If there's room for all the bytes we need to write, we just need one write.
-
-                    proof {
-                        lemma_tentatively_append(wrpm_region@, log_id, bytes_to_append@, self.cdb,
-                                                 self.info, self.state@);
-                    }
-                    wrpm_region.write(write_addr, bytes_to_append, Tracked(perm));
-                }
-                else {
-
-                    // If there isn't room for all the bytes we need to write, we need two writes,
-                    // one writing the first `max_len_without_wrapping` bytes to address
-                    // `write_addr` and the other writing the remaining bytes to the beginning of
-                    // the log area (`ABSOLUTE_POS_OF_LOG_AREA`).
-                    //
-                    // There are a lot of things we have to prove about these writes, like the fact
-                    // that they're both permitted by `perm`. We offload those proofs to a lemma in
-                    // `append_v.rs` that we invoke here.
-
-                    proof {
-                        lemma_tentatively_append_wrapping(wrpm_region@, log_id,
-                                                          bytes_to_append@, self.cdb, self.info, self.state@);
-                    }
-                    wrpm_region.write(write_addr,
-                                      slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize),
-                                      Tracked(perm));
-                    wrpm_region.write(ABSOLUTE_POS_OF_LOG_AREA,
-                                      slice_subrange(bytes_to_append, max_len_without_wrapping as usize,
-                                                     bytes_to_append.len()),
-                                      Tracked(perm));
-                }
-            }
+            let result = self.tentatively_append_to_log(wrpm_region, &subregion, bytes_to_append, Tracked(perm));
 
             // We now update our `info` field to reflect the new
             // `log_plus_pending_length` value.
 
-            self.info.log_plus_pending_length = (info.log_plus_pending_length + num_bytes) as u64;
+            let num_bytes: u64 = bytes_to_append.len() as u64;
+            self.info.log_plus_pending_length = (self.info.log_plus_pending_length + num_bytes) as u64;
 
             // We update our `state` field to reflect the tentative append.
 
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
 
-            Ok(old_pending_tail)
+            proof {
+                subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
+                lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
+                                                          wrpm_region@.committed());
+            }
+
+            result
         }
 
         // This local helper method updates the log metadata on
@@ -541,8 +653,8 @@ verus! {
                 memory_matches_deserialized_cdb(old(wrpm_region)@, old(self).cdb),
                 no_outstanding_writes_to_metadata(old(wrpm_region)@),
                 metadata_consistent_with_info(old(wrpm_region)@, log_id, old(self).cdb, prev_info),
-                info_consistent_with_log_area(old(wrpm_region)@.flush(), old(self).info, old(self).state@),
-                info_consistent_with_log_area(old(wrpm_region)@, prev_info, prev_state),
+                info_consistent_with_log_area_in_region(old(wrpm_region)@.flush(), old(self).info, old(self).state@),
+                info_consistent_with_log_area_in_region(old(wrpm_region)@, prev_info, prev_state),
                 old(self).info.log_area_len == prev_info.log_area_len,
                 forall |s| {
                           ||| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends())
@@ -602,7 +714,8 @@ verus! {
             let ghost wrpm_region_new = wrpm_region@.write(unused_metadata_pos as int, log_metadata_bytes);
             assert forall |crash_bytes| wrpm_region_new.can_crash_as(crash_bytes)
                        implies #[trigger] perm.check_permission(crash_bytes) by {
-                lemma_invariants_imply_crash_recover_forall(wrpm_region_new, log_id, self.cdb, prev_info, prev_state);
+                lemma_invariants_imply_crash_recover_forall(wrpm_region_new, log_id, self.cdb,
+                                                            prev_info, prev_state);
             }
 
             // Write the new metadata to the inactive header (without the CRC)
@@ -645,8 +758,8 @@ verus! {
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
             assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
             assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, prev_info));
-            assert(info_consistent_with_log_area(wrpm_region@, prev_info, prev_state));
-            assert(info_consistent_with_log_area(wrpm_region@.flush(), self.info, self.state@));
+            assert(info_consistent_with_log_area_in_region(wrpm_region@, prev_info, prev_state));
+            assert(info_consistent_with_log_area_in_region(wrpm_region@.flush(), self.info, self.state@));
             assert(forall |s| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends()) ==>
                        #[trigger] perm.check_permission(s));
             assert(self.info.log_area_len == prev_info.log_area_len);
@@ -676,7 +789,8 @@ verus! {
             let ghost flushed_mem_after_write = pm_region_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
                 let flushed_region = pm_region_after_write.flush();
-                lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+                lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
+                                                            new_cdb_bytes);
                 assert(deserialize_log_cdb(flushed_region.committed()) == new_cdb);
             }
 
@@ -686,7 +800,7 @@ verus! {
             let ghost pm_region_after_flush = pm_region_after_write.flush();
             assert ({
                 &&& metadata_consistent_with_info(pm_region_after_flush, log_id, !self.cdb, self.info)
-                &&& info_consistent_with_log_area(pm_region_after_flush, self.info, self.state@)
+                &&& info_consistent_with_log_area_in_region(pm_region_after_flush, self.info, self.state@)
             }) by {
                 lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
                                                           pm_region_after_flush.committed());
@@ -794,9 +908,9 @@ verus! {
 
             assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
             assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, prev_info));
-            assert(info_consistent_with_log_area(wrpm_region@, prev_info, prev_state));
+            assert(info_consistent_with_log_area_in_region(wrpm_region@, prev_info, prev_state));
             assert(self.state@ == prev_state.commit());
-            assert(info_consistent_with_log_area(wrpm_region@.flush(), self.info, self.state@));
+            assert(info_consistent_with_log_area_in_region(wrpm_region@.flush(), self.info, self.state@));
 
             // Update the inactive metadata on all regions and flush, then
             // swap the CDB to its opposite.
@@ -805,6 +919,87 @@ verus! {
                                      Ghost(prev_state), Tracked(perm));
 
             Ok(())
+        }
+
+        // This lemma, used by `advance_head`, gives a mathematical
+        // proof that one can compute `new_head % log_area_len`
+        // using only linear math operations (`+` and `-`).
+        proof fn lemma_check_fast_way_to_compute_head_mod_log_area_len(
+            info: LogInfo,
+            state: AbstractLogState,
+            new_head: u128,
+        )
+            requires
+                info.head <= new_head,
+                new_head - info.head <= info.log_length as u128,
+                info.log_area_len >= MIN_LOG_AREA_SIZE,
+                info.log_length <= info.log_plus_pending_length <= info.log_area_len,
+                info.head_log_area_offset == info.head as int % info.log_area_len as int,
+            ensures
+                ({
+                    let amount_of_advancement: u64 = (new_head - info.head) as u64;
+                    new_head as int % info.log_area_len as int ==
+                        if amount_of_advancement < info.log_area_len - info.head_log_area_offset {
+                            amount_of_advancement + info.head_log_area_offset
+                        }
+                        else {
+                            amount_of_advancement - (info.log_area_len - info.head_log_area_offset)
+                        }
+                }),
+        {
+            let amount_of_advancement: u64 = (new_head - info.head) as u64;
+            let new_head_log_area_offset =
+                if amount_of_advancement < info.log_area_len - info.head_log_area_offset {
+                    amount_of_advancement + info.head_log_area_offset
+                }
+                else {
+                    amount_of_advancement - (info.log_area_len - info.head_log_area_offset)
+                };
+
+            let n = info.log_area_len as int;
+            let advancement = amount_of_advancement as int;
+            let head = info.head as int;
+            let head_mod_n = info.head_log_area_offset as int;
+            let supposed_new_head_mod_n = new_head_log_area_offset as int;
+
+            // First, observe that `advancement` plus `head` is
+            // congruent modulo n to `advancement` plus `head` % n.
+
+            assert((advancement + head) % n == (advancement + head_mod_n) % n) by {
+                assert(head == n * (head / n) + head % n) by {
+                    lemma_fundamental_div_mod(head, n);
+                }
+                assert((n * (head / n) + (advancement + head_mod_n)) % n == (advancement + head_mod_n) % n) by {
+                    lemma_mod_multiples_vanish(head / n, advancement + head_mod_n, n);
+                }
+            }
+
+            // Next, observe that `advancement` + `head` % n is
+            // congruent modulo n to itself minus n. This is
+            // relevant because there are two cases for computing
+            // `new_head_mod_log_area_offset`. In one case, it's
+            // computed as `advancement` + `head` % n. In the
+            // other case, it's that quantity minus n.
+
+            assert((advancement + head % n) % n == (advancement + head_mod_n - n) % n) by {
+                lemma_mod_sub_multiples_vanish(advancement + head_mod_n, n);
+            }
+
+            // So we know that in either case, `new_head` % n ==
+            // `new_head_mod_log_area_offset` % n.
+
+            assert(new_head as int % n == supposed_new_head_mod_n % n);
+
+            // But what we want to prove is that `new_head` % n ==
+            // `new_head_mod_log_area_offset`. So we need to show
+            // that `new_head_mod_log_area_offset` % n ==
+            // `new_head_mod_log_area_offset`.  We can deduce this
+            // from the fact that 0 <= `new_head_mod_log_area_offset`
+            // < n.
+
+            assert(supposed_new_head_mod_n % n == supposed_new_head_mod_n) by {
+                lemma_small_mod(supposed_new_head_mod_n as nat, n as nat);
+            }
         }
 
         // The `advance_head` method advances the head of the log,
@@ -902,54 +1097,7 @@ verus! {
                 };
 
             assert(new_head_log_area_offset == new_head as int % self.info.log_area_len as int) by {
-                // Here's a mathematical proof that doing the above
-                // calculation of `new_head_log_area_offset` achieves the
-                // desired computation of `new_head % log_area_len`.
-
-                let n = self.info.log_area_len as int;
-                let advancement = amount_of_advancement as int;
-                let head = self.info.head as int;
-                let head_mod_n = self.info.head_log_area_offset as int;
-                let supposed_new_head_mod_n = new_head_log_area_offset as int;
-
-                // First, observe that `advancement` plus `head` is
-                // congruent modulo n to `advancement` plus `head` % n.
-
-                assert((advancement + head) % n == (advancement + head_mod_n) % n) by {
-                    assert(head == n * (head / n) + head % n) by {
-                        lemma_fundamental_div_mod(head, n);
-                    }
-                    assert((n * (head / n) + (advancement + head_mod_n)) % n == (advancement + head_mod_n) % n) by {
-                        lemma_mod_multiples_vanish(head / n, advancement + head_mod_n, n);
-                    }
-                }
-
-                // Next, observe that `advancement` + `head` % n is
-                // congruent modulo n to itself minus n. This is
-                // relevant because there are two cases for computing
-                // `new_head_mod_log_area_offset`. In one case, it's
-                // computed as `advancement` + `head` % n. In the
-                // other case, it's that quantity minus n.
-
-                assert((advancement + head % n) % n == (advancement + head_mod_n - n) % n) by {
-                    lemma_mod_sub_multiples_vanish(advancement + head_mod_n, n);
-                }
-
-                // So we know that in either case, `new_head` % n ==
-                // `new_head_mod_log_area_offset` % n.
-
-                assert(new_head as int % n == supposed_new_head_mod_n % n);
-
-                // But what we want to prove is that `new_head` % n ==
-                // `new_head_mod_log_area_offset`. So we need to show
-                // that `new_head_mod_log_area_offset` % n ==
-                // `new_head_mod_log_area_offset`.  We can deduce this
-                // from the fact that 0 <= `new_head_mod_log_area_offset`
-                // < n.
-
-                assert(supposed_new_head_mod_n % n == supposed_new_head_mod_n) by {
-                    lemma_small_mod(supposed_new_head_mod_n as nat, n as nat);
-                }
+                Self::lemma_check_fast_way_to_compute_head_mod_log_area_len(self.info, self.state@, new_head);
             }
 
             // Update `self.self.info` to reflect the change to the head
@@ -977,7 +1125,7 @@ verus! {
             // connects those together is that they both talk about the
             // same addresses in the log area.
 
-            assert (info_consistent_with_log_area(wrpm_region@.flush(), self.info, self.state@)) by {
+            assert (info_consistent_with_log_area_in_region(wrpm_region@.flush(), self.info, self.state@)) by {
                 lemma_addresses_in_log_area_correspond_to_relative_log_positions(wrpm_region@, prev_info);
             }
 
@@ -1011,7 +1159,7 @@ verus! {
             requires
                 len > 0,
                 metadata_consistent_with_info(pm_region_view, log_id, self.cdb, self.info),
-                info_consistent_with_log_area(pm_region_view, self.info, self.state@),
+                info_consistent_with_log_area_in_region(pm_region_view, self.info, self.state@),
                 ({
                     let info = self.info;
                     let max_len_without_wrapping = info.log_area_len -
