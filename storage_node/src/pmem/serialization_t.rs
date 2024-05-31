@@ -31,20 +31,6 @@ verus! {
             ensures 
                 out == Self::spec_serialized_len() as u64;
 
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: Self) 
-            where 
-                Self: Sized, // Verus requires this even though it's already a bound on Serializable
-            requires 
-                bytes@.len() == Self::spec_serialized_len()
-            ensures 
-                out == Self::spec_deserialize(bytes@),
-                out == Self::spec_deserialize(out.spec_serialize()),
-                out.spec_crc() == spec_crc_u64(out.spec_serialize()),
-                out.spec_serialize().len() == Self::spec_serialized_len(),
-                forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()),
-                forall |bytes: Seq<u8>, s: Self| bytes == s.spec_serialize() ==> 
-                    s == Self::spec_deserialize(bytes);
-
         exec fn serialize_in_place(&self) -> (out: &[u8])
             ensures 
                 out@ == self.spec_serialize();
@@ -67,14 +53,6 @@ verus! {
         fn serialized_len() -> u64
         {
             core::mem::size_of::<Self>() as u64
-        }
-
-        // This method returns an owned copy of the deserialized bytes in DRAM
-        #[verifier::external_body]
-        exec fn deserialize_bytes(bytes: &[u8]) -> (out: Self)  
-        {
-            let ptr = bytes.as_ptr() as *const Self;
-            unsafe { *ptr }
         }
 
         #[verifier::external_body]
