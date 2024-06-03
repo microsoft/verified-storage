@@ -103,19 +103,19 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
     #[allow(unused_variables)]
     pub exec fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S, perm: Tracked<&Perm>)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
         requires
             old(self).inv(),
             index < old(self)@.len(),
-            addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
-            old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+            addr + S::spec_size_of() <= old(self)@[index as int].len(),
+            old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
-            forall |s| old(self)@.write(index as int, addr as int, to_write.spec_serialize()).can_crash_as(s)
+            forall |s| old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
+            self@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
     {
         self.pm_regions.serialize_and_write(index, addr, to_write);
     }
@@ -223,18 +223,18 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     #[allow(unused_variables)]
     pub exec fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S, perm: Tracked<&Perm>)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
         requires
             old(self).inv(),
-            addr + S::spec_serialized_len() <= old(self)@.len(),
-            old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+            addr + S::spec_size_of() <= old(self)@.len(),
+            old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
-            forall |s| old(self)@.write(addr as int, to_write.spec_serialize()).can_crash_as(s)
+            forall |s| old(self)@.write(addr as int, to_write.spec_to_bytes()).can_crash_as(s)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
+            self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
     {
         self.pm_region.serialize_and_write(addr, to_write);
     }

@@ -248,12 +248,12 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 
     fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
         where
-            S: Serializable 
+            S: PmCopy 
     {
         assume(false);
 
-        let pm_slice = self.get_slice_at_offset(addr, S::serialized_len())?;
-        let ghost addrs = Seq::new(S::spec_serialized_len(), |i: int| addr + i);
+        let pm_slice = self.get_slice_at_offset(addr, S::size_of())?;
+        let ghost addrs = Seq::new(S::spec_size_of(), |i: int| addr + i);
         let mut maybe_corrupted_val = MaybeCorrupted::new();
 
         maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
@@ -307,9 +307,9 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[allow(unused_variables)]
     fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
-        let num_bytes: usize = S::serialized_len() as usize;
+        let num_bytes: usize = S::size_of() as usize;
 
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -400,8 +400,7 @@ impl FileBackedPersistentMemoryRegions {
         Ok(Self { regions })
     }
     
-    pub fn new(path: &str, region_sizes: &[u64],
- persistent_memory_check: PersistentMemoryCheck)
+    pub fn new(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -417,8 +416,7 @@ impl FileBackedPersistentMemoryRegions {
         Self::new_internal(path, region_sizes, FileOpenBehavior::CreateNew, persistent_memory_check)
     }
     
-    pub fn restore(path: &str, region_sizes: &[u64],
- persistent_memory_check: PersistentMemoryCheck)
+    pub fn restore(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
                    -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -455,7 +453,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
         where
-            S: Serializable
+            S: PmCopy
     {
         self.regions[index].read_aligned::<S>(addr, Ghost(true_val))
     }
@@ -475,7 +473,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].serialize_and_write(addr, to_write);
     }

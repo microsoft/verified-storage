@@ -28,9 +28,9 @@ verus! {
     pub struct TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug + Copy,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
             E: std::fmt::Debug,
     {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
@@ -40,9 +40,9 @@ verus! {
     impl<PM, K, I, L, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug + Copy,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
             E: std::fmt::Debug,
     {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
@@ -54,9 +54,9 @@ verus! {
     impl<PM, K, I, L, E> TrustedKvPermission<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug + Copy,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
             E: std::fmt::Debug,
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures

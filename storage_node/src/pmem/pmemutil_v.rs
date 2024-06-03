@@ -213,7 +213,7 @@ verus! {
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                let true_crc = u64::spec_deserialize(true_crc_bytes);
+                let true_crc = u64::spec_from_bytes(true_crc_bytes);
                 if impervious_to_corruption {
                     &&& data_c@ == true_data_bytes
                     &&& crc_c@ == true_crc_bytes
@@ -227,7 +227,7 @@ verus! {
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
-                let true_crc = u64::spec_deserialize(true_crc_bytes);
+                let true_crc = u64::spec_from_bytes(true_crc_bytes);
                 true_crc == spec_crc_u64(true_data_bytes) ==>
                 if b {
                     &&& data_c@ == true_data_bytes
@@ -250,7 +250,7 @@ verus! {
         proof {
             let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
             let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-            let true_crc = u64::spec_deserialize(true_crc_bytes);
+            let true_crc = u64::spec_from_bytes(true_crc_bytes);
 
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
@@ -325,7 +325,7 @@ verus! {
             forall |i: int| 0 <= i < cdb_addrs.len() ==> cdb_addrs[i] <= mem.len(),
             ({
                 let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
-                &&& true_cdb.spec_serialize() == true_cdb_bytes
+                &&& true_cdb.spec_to_bytes() == true_cdb_bytes
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
                 &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
                         else { maybe_corrupted(cdb_c@, true_cdb_bytes, cdb_addrs) }
@@ -333,7 +333,7 @@ verus! {
         ensures
             ({
                 let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
-                let true_cdb = u64::spec_deserialize(true_cdb_bytes);
+                let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
                                else { true_cdb == CDB_FALSE },
@@ -348,7 +348,7 @@ verus! {
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            let ghost cdb_c_val = u64::spec_deserialize(cdb_c@);
+            let ghost cdb_c_val = u64::spec_from_bytes(cdb_c@);
 
             if !impervious_to_corruption && (cdb_c_val == CDB_FALSE || cdb_c_val == CDB_TRUE) {
                 let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
@@ -356,7 +356,7 @@ verus! {
             }
         }
 
-        let cdb_val = cdb_c.assume_init(Ghost(true_cdb));
+        let cdb_val = cdb_c.extract_init_val(Ghost(true_cdb));
 
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
@@ -517,18 +517,18 @@ verus! {
                bytes);
     }
 
-    // Calculates the CRC for a single `Serializable` object.
+    // Calculates the CRC for a single `PmCopy` object.
     pub fn calculate_crc<S>(val: &S) -> (out: u64)
         where
-            S: Serializable + Sized,
+            S: PmCopy + Sized,
         requires
             // this is true in the default implementation of `spec_crc`, but
-            // an impl of `Serializable` can override the default impl, so
+            // an impl of `PmCopy` can override the default impl, so
             // we have to require it here
-            val.spec_crc() == spec_crc_u64(val.spec_serialize())
+            val.spec_crc() == spec_crc_u64(val.spec_to_bytes())
         ensures
             val.spec_crc() == out,
-            spec_crc_u64(val.spec_serialize()) == out,
+            spec_crc_u64(val.spec_to_bytes()) == out,
     {
         let mut digest = CrcDigest::new();
         digest.write(val);

@@ -1,7 +1,7 @@
-//! This file contains the definitions and `Serializable`
+//! This file contains the definitions and `PmCopy`
 //! implementations for various log entry types for the
 //! durable store. These are trusted because their structure,
-//! and `Serializable` implementations, need to be manually
+//! and `PmCopy` implementations, need to be manually
 //! audited to ensure they accurately reflect their
 //! byte-level Rust representations.
 //!
@@ -27,7 +27,7 @@ verus! {
     // during log replay
     pub enum OpLogEntryType<L>
         where
-            L: Serializable
+            L: PmCopy
     {
         ItemTableEntryCommit { 
             item_index: u64,
@@ -77,7 +77,7 @@ verus! {
         pub metadata_crc: u64,
     }
 
-    impl Serializable for CommitItemEntry {}
+    impl PmCopy for CommitItemEntry {}
 
     #[repr(C)]
     #[derive(PmSafe, Copy, Clone)]
@@ -86,7 +86,7 @@ verus! {
         pub item_index: u64,
     }
 
-    impl Serializable for InvalidateItemEntry {}
+    impl PmCopy for InvalidateItemEntry {}
 
     // This log entry represents an operation that appends a new list node
     // (i.e., an array of list elements, plus a next pointer and CRC) to
@@ -115,7 +115,7 @@ verus! {
         pub metadata_crc: u64,
     }
 
-    impl Serializable for AppendListNodeEntry {}
+    impl PmCopy for AppendListNodeEntry {}
 
     // This log entry represents an operation that writes a new list element
     // to the specified index in the specified ULL node. Note that the index
@@ -144,7 +144,7 @@ verus! {
         pub index_in_node: u64,
     }
 
-    impl Serializable for InsertListElementEntry {}
+    impl PmCopy for InsertListElementEntry {}
 
     // This log entry represents an update to a list's length field
     // in its metadata structure. The log entry should contain the actual
@@ -168,7 +168,7 @@ verus! {
     }
 
 
-    impl Serializable for UpdateListLenEntry {}
+    impl PmCopy for UpdateListLenEntry {}
 
     // This log entry represents a list trim operation. It includes the
     // values with which to update the corresponding list metadata structure,
@@ -188,7 +188,7 @@ verus! {
         pub metadata_crc: u64, 
     }
 
-    impl Serializable for TrimListEntry {}
+    impl PmCopy for TrimListEntry {}
 
     #[repr(C)]
     #[derive(PmSafe, Copy, Clone)]
@@ -211,7 +211,7 @@ verus! {
         }
     }
 
-    impl Serializable for CommitMetadataEntry {}
+    impl PmCopy for CommitMetadataEntry {}
 
     #[repr(C)]
     #[derive(PmSafe, Copy, Clone)]
@@ -221,5 +221,5 @@ verus! {
         pub metadata_index: u64,
     }
 
-    impl Serializable for InvalidateMetadataEntry {}
+    impl PmCopy for InvalidateMetadataEntry {}
 }

@@ -14,7 +14,7 @@ use std::hash::Hash;
 verus! {
     pub trait VolatileKvIndex<K, E> : Sized
     where
-        K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
+        K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
         E: std::fmt::Debug,
     {
         spec fn view(&self) -> VolatileKvIndexView<K>;

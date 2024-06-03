@@ -118,7 +118,7 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Serializable for GlobalMetadata {}
+    impl PmCopy for GlobalMetadata {}
 
     #[repr(C)]
     #[derive(PmSafe, Copy, Clone)]
@@ -128,7 +128,7 @@ verus! {
         pub log_id: u128,
     }
 
-    impl Serializable for RegionMetadata {}
+    impl PmCopy for RegionMetadata {}
 
     #[repr(C)]
     #[derive(PmSafe, Copy, Clone)]
@@ -138,7 +138,7 @@ verus! {
         pub head: u128,
     }
 
-    impl Serializable for LogMetadata {}
+    impl PmCopy for LogMetadata {}
 
 
     /// Specification functions for extracting metadata from a
@@ -162,7 +162,7 @@ verus! {
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
     {
         let bytes = extract_global_metadata(mem);
-        GlobalMetadata::spec_deserialize(bytes)
+        GlobalMetadata::spec_from_bytes(bytes)
     }
 
     // This function extracts the CRC of the global metadata from the
@@ -175,7 +175,7 @@ verus! {
     pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
     {
         let bytes = extract_global_crc(mem);
-        u64::spec_deserialize(bytes)
+        u64::spec_from_bytes(bytes)
     }
 
     // This function extracts the bytes encoding region metadata
@@ -188,7 +188,7 @@ verus! {
     pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
     {
         let bytes = extract_region_metadata(mem);
-        RegionMetadata::spec_deserialize(bytes)
+        RegionMetadata::spec_from_bytes(bytes)
     }
 
     // This function extracts the CRC of the region metadata from the
@@ -201,7 +201,7 @@ verus! {
     pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
     {
         let bytes = extract_region_crc(mem);
-        u64::spec_deserialize(bytes)
+        u64::spec_from_bytes(bytes)
     }
 
     // This function extracts the bytes encoding the log metadata's
@@ -237,7 +237,7 @@ verus! {
     pub open spec fn deserialize_log_cdb(mem: Seq<u8>) -> u64
     {
         let bytes = extract_log_cdb(mem);
-        u64::spec_deserialize(bytes)
+        u64::spec_from_bytes(bytes)
     }
 
     pub open spec fn deserialize_and_check_log_cdb(mem: Seq<u8>) -> Option<bool>
@@ -283,7 +283,7 @@ verus! {
     pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
     {
         let bytes = extract_log_metadata(mem, cdb);
-        LogMetadata::spec_deserialize(bytes)
+        LogMetadata::spec_from_bytes(bytes)
     }
 
     // This function extracts the CRC of the log metadata from the
@@ -300,7 +300,7 @@ verus! {
     pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
     {
         let bytes = extract_log_crc(mem, cdb);
-        u64::spec_deserialize(bytes)
+        u64::spec_from_bytes(bytes)
     }
 
     // This function returns the 4-byte unsigned integer (i.e., u32)
@@ -754,10 +754,10 @@ verus! {
 
     pub proof fn lemma_same_bytes_same_deserialization<S>(mem1: Seq<u8>, mem2: Seq<u8>)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
         ensures
             forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
-                S::spec_deserialize(#[trigger] extract_bytes(mem1, i, n)) == S::spec_deserialize(#[trigger] extract_bytes(mem2, i, n))
+                S::spec_from_bytes(#[trigger] extract_bytes(mem1, i, n)) == S::spec_from_bytes(#[trigger] extract_bytes(mem2, i, n))
     {}
 
     // This lemma establishes that if the given persistent memory

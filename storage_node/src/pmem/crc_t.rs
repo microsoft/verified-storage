@@ -17,7 +17,7 @@ verus! {
         digest: Digest
     }
 
-    // A structure for obtaining CRCs of multiple serializable objects
+    // A structure for obtaining CRCs of multiple PmCopy objects
     // and writing proofs about them.
     pub struct CrcDigest
     {
@@ -46,16 +46,16 @@ verus! {
         #[verifier::external_body]
         pub fn write<S>(&mut self, val: &S)
             where
-                S: Serializable,
+                S: PmCopy,
             ensures
-                self.bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_serialize())
+                self.bytes_in_digest() == old(self).bytes_in_digest().push(val.spec_to_bytes())
         {
             // Cast `val` to bytes, then add them to the digest.
             // The crc64fast crate that we use computes the CRC iteratively and does
             // not store copies of the bytes we write to the digest, so this
             // will (hopefully) not incur any copying beyond what is directly
             // necessary to compute the CRC.
-            let num_bytes: usize = S::serialized_len().try_into().unwrap();
+            let num_bytes: usize = S::size_of().try_into().unwrap();
             let s_pointer = val as *const S;
             let bytes_pointer = s_pointer as *const u8;
             // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized

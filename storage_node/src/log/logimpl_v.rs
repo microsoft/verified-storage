@@ -688,8 +688,8 @@ verus! {
             };
             let log_crc = calculate_crc(&log_metadata);
 
-            let ghost log_metadata_bytes = log_metadata.spec_serialize();
-            let ghost log_crc_bytes = log_crc.spec_serialize();
+            let ghost log_metadata_bytes = log_metadata.spec_to_bytes();
+            let ghost log_crc_bytes = log_crc.spec_to_bytes();
 
             // Prove that updating the inactive metadata+CRC maintains
             // all invariants that held before. We prove this separately
@@ -781,7 +781,7 @@ verus! {
             // Next, compute the new encoded CDB to write.
 
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
-            let ghost new_cdb_bytes = new_cdb.spec_serialize();
+            let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 

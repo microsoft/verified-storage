@@ -70,10 +70,10 @@ verus! {
         #[verifier::external_body]
         fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
             where 
-                S: Serializable 
+                S: PmCopy 
         {
-            let pm_slice = &self.contents[addr as usize..addr as usize + S::serialized_len() as usize];
-            let ghost addrs = Seq::new(S::spec_serialized_len(), |i: int| addr + i);
+            let pm_slice = &self.contents[addr as usize..addr as usize + S::size_of() as usize];
+            let ghost addrs = Seq::new(S::spec_size_of(), |i: int| addr + i);
 
             let mut maybe_corrupted_val = MaybeCorrupted::new();
             maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
@@ -100,10 +100,10 @@ verus! {
         #[verifier::external_body]
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: PmCopy + Sized
         {
             let addr_usize: usize = addr.try_into().unwrap();
-            let num_bytes: usize = S::serialized_len().try_into().unwrap();
+            let num_bytes: usize = S::size_of().try_into().unwrap();
             let s_pointer = to_write as *const S;
             let bytes_pointer = s_pointer as *const u8;
             // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
@@ -187,7 +187,7 @@ verus! {
         #[verifier::external_body]
         fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
             where 
-                S: Serializable
+                S: PmCopy
         {
             self.regions[index].read_aligned::<S>(addr, Ghost(true_val))
         }
@@ -207,7 +207,7 @@ verus! {
         #[verifier::external_body]
         fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: PmCopy + Sized
         {
             self.regions[index].serialize_and_write(addr, to_write);
         }

@@ -35,9 +35,9 @@ verus! {
     pub struct DurableKvStore<PM, K, I, L, E>
     where
         PM: PersistentMemoryRegion,
-        K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-        I: Serializable + Item<K> + Sized + std::fmt::Debug,
-        L: Serializable + std::fmt::Debug + Copy,
+        K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+        I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+        L: PmCopy + std::fmt::Debug + Copy,
         E: std::fmt::Debug,
     {
         item_table: DurableItemTable<K, I, E>,
@@ -53,9 +53,9 @@ verus! {
     impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-            I: Serializable + Item<K> + Sized + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug + Copy,
+            K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+            I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
             E: std::fmt::Debug,
     {
         // TODO: write this based on specs of the other structures
@@ -105,11 +105,11 @@ verus! {
             assume(false);
 
             // 1. Set up each component in its specified pm region
-            MetadataTable::setup(metadata_pmem, kvstore_id, num_keys, L::serialized_len() as u32, node_size)?;
+            MetadataTable::setup(metadata_pmem, kvstore_id, num_keys, L::size_of() as u32, node_size)?;
             DurableItemTable::<K, I, E>::setup(item_table_pmem, kvstore_id, num_keys as u64)?;
             DurableList::<K, L, E>::setup(list_pmem, kvstore_id, num_keys, node_size)?;
             if let Err(e) =  UntrustedLogImpl::setup(log_pmem, kvstore_id) {
-                return Err(KvError::LogErr { err: e });
+                return Err(KvError::LogErr { log_err: e });
             };
 
             Ok(())
@@ -133,7 +133,7 @@ verus! {
                 item_table_wrpm.inv(),
                 list_wrpm.inv(),
                 log_wrpm.inv(),
-                L::spec_serialized_len() + CRC_SIZE <= u32::MAX
+                L::spec_size_of() + CRC_SIZE <= u32::MAX
                 // TODO
             ensures
                 metadata_wrpm.inv(),
@@ -152,7 +152,7 @@ verus! {
             let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
 
-            let list_element_size = (L::serialized_len() + CRC_SIZE) as u32;
+            let list_element_size = (L::size_of() + CRC_SIZE) as u32;
 
             let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
             let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
@@ -160,7 +160,7 @@ verus! {
             let log = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
             // let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
             //     Ok(log) => log,
-            //     Err(e) => return Err(KvError::LogErr { err: e }),
+            //     Err(e) => return Err(KvError::LogErr { log_err: e }),
             // };
 
             Ok(Self {

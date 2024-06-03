@@ -55,7 +55,7 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Serializable for ListRegionHeader {}
+    impl PmCopy for ListRegionHeader {}
 
     // Per-node relative offsets for unrolled linked list nodes
     // Most list metadata is stored in the ListEntryMetadata structure,
@@ -79,9 +79,9 @@ verus! {
         mem: Seq<u8>
     ) -> Option<(u64, Seq<Seq<u8>>)>
         where 
-            L: Serializable 
+            L: PmCopy 
     {
-        let list_entry_size = L::spec_serialized_len() + CRC_SIZE;
+        let list_entry_size = L::spec_size_of() + CRC_SIZE;
         // let node_size = (mem.len() - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / metadata_header.num_nodes;
         // let elements_per_node = (node_size - LENGTH_OF_LIST_NODE_HEADER) / list_entry_size;
         // check that the metadata in the header makes sense/is valid
@@ -95,9 +95,9 @@ verus! {
             None
         } else {
             let node_region_header_bytes = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + LENGTH_OF_LIST_REGION_HEADER);
-            let node_region_header = ListRegionHeader::spec_deserialize(node_region_header_bytes);
+            let node_region_header = ListRegionHeader::spec_from_bytes(node_region_header_bytes);
             let node_region_header_crc = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + 8);
-            let node_region_crc = u64::spec_deserialize(node_region_header_crc);
+            let node_region_crc = u64::spec_from_bytes(node_region_header_crc);
             // check that node region header is valid
             if node_region_crc != node_region_header.spec_crc() {
                 None
@@ -117,8 +117,8 @@ verus! {
                     let next_pointer_bytes = node_bytes.subrange(RELATIVE_POS_OF_NEXT_POINTER as int, RELATIVE_POS_OF_NEXT_POINTER + 8);
                     let next_crc_bytes = node_bytes.subrange(RELATIVE_POS_OF_LIST_NODE_CRC as int, RELATIVE_POS_OF_LIST_NODE_CRC + 8);
                     // check the next pointer CRC
-                    let next_pointer = u64::spec_deserialize(next_pointer_bytes);
-                    let crc = u64::spec_deserialize(next_crc_bytes);
+                    let next_pointer = u64::spec_from_bytes(next_pointer_bytes);
+                    let crc = u64::spec_from_bytes(next_crc_bytes);
                     if crc != next_pointer.spec_crc() {
                         None 
                     } else {

@@ -50,7 +50,7 @@ verus! {
     }
 
     // TODO: should this be trusted?
-    impl Serializable for MetadataTableHeader {}
+    impl PmCopy for MetadataTableHeader {}
 
     // Per-entry relative offsets for list entry metadata
     // The list metadata region is an array of list entry metadata
@@ -125,9 +125,9 @@ verus! {
 
     pub open spec(checked) fn parse_metadata_entry<K>(bytes: Seq<u8>) -> Option<(K, ListEntryMetadata)>
         where 
-            K: Serializable,
+            K: PmCopy,
         recommends
-            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_serialized_len(),
+            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_size_of(),
             RELATIVE_POS_OF_VALID_CDB + CDB_SIZE <= bytes.len(),
             RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE <= bytes.len(),
             RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY <= bytes.len(),
@@ -135,9 +135,9 @@ verus! {
         let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE));
         let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE));
         let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
-        let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len());
-        let metadata = ListEntryMetadata::spec_deserialize(metadata_bytes);
-        let key = K::spec_deserialize(key_bytes);
+        let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
+        let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
+        let key = K::spec_from_bytes(key_bytes);
     
         if cdb == CDB_FALSE {
             None 
@@ -153,9 +153,9 @@ verus! {
 
     pub open spec fn parse_metadata_table<K>(header: MetadataTableHeader, mem: Seq<u8>) -> Option<Seq<MetadataTableViewEntry<K>>>
         where 
-            K: Serializable
+            K: PmCopy
     {
-        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_serialized_len();
+        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_size_of();
         // check that the metadata in the header makes sense/is valid
         if {
             ||| header.program_guid != METADATA_TABLE_PROGRAM_GUID 
@@ -172,12 +172,12 @@ verus! {
                     let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE);
                     let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
-                    let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_serialized_len());
+                    let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
 
-                    let cdb = u64::spec_deserialize(cdb_bytes);
-                    let crc = u64::spec_deserialize(crc_bytes);
-                    let entry = ListEntryMetadata::spec_deserialize(entry_bytes);
-                    let key = K::spec_deserialize(key_bytes);
+                    let cdb = u64::spec_from_bytes(cdb_bytes);
+                    let crc = u64::spec_from_bytes(crc_bytes);
+                    let entry = ListEntryMetadata::spec_from_bytes(entry_bytes);
+                    let key = K::spec_from_bytes(key_bytes);
 
                     // we can't check CRCs in this closure, since its return value is only used to construct the Seq
                     // we can't construct the view here because we need to check the CRCs, so just return a tuple with all 
@@ -190,7 +190,7 @@ verus! {
             // TODO: don't check CRC of invalid entries
             if !(forall |i: int| 0 <= i < table_view.len() ==> {
                 let (cdb, crc, entry, key) = #[trigger] table_view[i];
-                cdb == CDB_TRUE ==> crc == spec_crc_u64(entry.spec_serialize() + key.spec_serialize())
+                cdb == CDB_TRUE ==> crc == spec_crc_u64(entry.spec_to_bytes() + key.spec_to_bytes())
             }) {
                 None
             } else {
@@ -206,6 +206,6 @@ verus! {
     }
 
 
-    impl Serializable for ListEntryMetadata {}
+    impl PmCopy for ListEntryMetadata {}
 
 }

@@ -35,9 +35,9 @@ verus! {
 pub struct UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-    I: Serializable + Item<K> + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug + Copy,
+    K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    I: PmCopy + Item<K> + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -51,9 +51,9 @@ where
 impl<PM, K, I, L, V, E> UntrustedKvStoreImpl<PM, K, I, L, V, E>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug + Copy,
+    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
 {
@@ -106,20 +106,20 @@ where
     //     requires
     //         pmem.inv(),
     //         ({
-    //             let metadata_size = ListEntryMetadata::spec_serialized_len();
-    //             let key_size = K::spec_serialized_len();
+    //             let metadata_size = ListEntryMetadata::spec_size_of();
+    //             let key_size = K::spec_size_of();
     //             let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-    //             let list_element_slot_size = L::spec_serialized_len() + CRC_SIZE;
+    //             let list_element_slot_size = L::spec_size_of() + CRC_SIZE;
     //             &&& metadata_slot_size <= u64::MAX
     //             &&& list_element_slot_size <= u64::MAX
     //             &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
     //             &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
     //         }),
-    //         L::spec_serialized_len() + CRC_SIZE < u32::MAX, // serialized_len is u64, but we store it in a u32 here
+    //         L::spec_size_of() + CRC_SIZE < u32::MAX, // size_of is u64, but we store it in a u32 here
     //         node_size < u32::MAX,
-    //         0 <= ItemTableMetadata::spec_serialized_len() + CRC_SIZE < usize::MAX,
+    //         0 <= ItemTableMetadata::spec_size_of() + CRC_SIZE < usize::MAX,
     //         ({
-    //             let item_slot_size = I::spec_serialized_len() + CDB_SIZE + CRC_SIZE;
+    //             let item_slot_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
     //             &&& 0 <= item_slot_size < usize::MAX
     //             &&& 0 <= item_slot_size * num_keys < usize::MAX
     //             &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX

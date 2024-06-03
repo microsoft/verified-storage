@@ -70,7 +70,7 @@ verus! {
 
     pub struct DurableItemTableView<I, K, E>
         where
-            K: std::fmt::Debug + Serializable,
+            K: std::fmt::Debug + PmCopy,
             E: std::fmt::Debug,
     {
         item_table: Seq<DurableItemTableViewEntry<I>>,
@@ -79,7 +79,7 @@ verus! {
 
     impl<I, K, E> DurableItemTableView<I, K, E>
         where
-            K: std::fmt::Debug + Serializable,
+            K: std::fmt::Debug + PmCopy,
             E: std::fmt::Debug,
     {
         pub closed spec fn init(num_keys: int) -> Self

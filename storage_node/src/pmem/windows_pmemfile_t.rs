@@ -353,7 +353,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn read_and_deserialize<S>(&self, addr: u64) -> &S
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -370,7 +370,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         // Cast the pointer to PM bytes to an S pointer
         let s_pointer: *const S = addr_on_pm as *const S;
 
-        // SAFETY: The precondition establishes that `S::serialized_len()` bytes
+        // SAFETY: The precondition establishes that `S::size_of()` bytes
         // after the offset specified by `addr` are valid PM bytes, so it is
         // safe to dereference s_pointer. The borrow checker should treat this object
         // as borrowed from the FileBackedPersistentMemoryRegion object,
@@ -393,9 +393,9 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[allow(unused_variables)]
     fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
-        let num_bytes: usize = S::serialized_len().try_into().unwrap();
+        let num_bytes: usize = S::size_of().try_into().unwrap();
 
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -561,7 +561,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].read_and_deserialize(addr)
     }
@@ -575,7 +575,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].serialize_and_write(addr, to_write);
     }

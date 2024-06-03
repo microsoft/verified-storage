@@ -43,6 +43,29 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
+    // map_err
+    #[verifier::external_fn_specification]
+    pub fn map_err<T, E, F, O: FnOnce(E) -> F>(result: Result<T, E>, op: O) -> (mapped_result: Result<T, F>)
+        requires 
+            result.is_err() ==> op.requires((result.get_Err_0(),)), 
+        ensures 
+            result.is_err() ==> mapped_result.is_err() && op.ensures(
+                (result.get_Err_0(),),
+                mapped_result.get_Err_0(),
+            ),
+            result.is_ok() ==> mapped_result == Result::<T, F>::Ok(result.get_Ok_0()),
+    {
+        result.map_err(op)
+    }
+
+    #[verifier::external_fn_specification]
+    pub fn ex_vec_extend_from_slice<T: Clone, A: core::alloc::Allocator>(vec: &mut Vec<T, A>, slice: &[T])
+        ensures
+            vec@ == old(vec)@ + slice@,
+    {
+        vec.extend_from_slice(slice)
+    }
+
     #[derive(Debug, Eq, PartialEq, Clone)]
     pub enum PmemError {
         InvalidFileName,
@@ -120,8 +143,8 @@ verus! {
             maybe_corrupted(y_c, y, y_addrs),
             // spec_u64_from_le_bytes(y) == spec_crc_u64(x),
             // spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
-            u64::spec_deserialize(y_c) == spec_crc_u64(x_c),
-            u64::spec_deserialize(y) == spec_crc_u64(x),
+            u64::spec_from_bytes(y_c) == spec_crc_u64(x_c),
+            u64::spec_from_bytes(y) == spec_crc_u64(x),
             all_elements_unique(x_addrs),
             all_elements_unique(y_addrs),
         ensures
@@ -382,18 +405,18 @@ verus! {
         // choosing it internally, so that the caller can get more specific information about this structure if they want.
         fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
             where 
-                S: Serializable + Sized,
+                S: PmCopy + Sized,
             requires
                 self.inv(),
-                0 <= addr < addr + S::spec_serialized_len() <= self@.len(),
-                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+                0 <= addr < addr + S::spec_size_of() <= self@.len(),
+                self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
-                self@.committed().subrange(addr as int, addr + S::spec_serialized_len()) == true_val.spec_serialize(),
+                self@.committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
             ensures
                 match bytes {
                     Ok(bytes) => {
-                        let true_bytes = self@.committed().subrange(addr as int, addr + S::spec_serialized_len());
-                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                        let true_bytes = self@.committed().subrange(addr as int, addr + S::spec_size_of());
+                        let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
                         // If the persistent memory regions are impervious
                         // to corruption, read returns the last bytes
                         // written. Otherwise, it returns a
@@ -454,15 +477,15 @@ verus! {
 
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: PmCopy + Sized
             requires
                 old(self).inv(),
-                addr + S::spec_serialized_len() <= old(self)@.len(),
-                old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_serialized_len()),
+                addr + S::spec_size_of() <= old(self)@.len(),
+                old(self)@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@ == old(self)@.write(addr as int, to_write.spec_serialize()),
+                self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
         ;
 
 
@@ -504,28 +527,28 @@ verus! {
 
         fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
             where 
-                S: Serializable,
+                S: PmCopy,
             requires 
                 self.inv(),
                 index < self@.len(),
-                0 <= addr < addr + S::spec_serialized_len() <= self@.len(),
-                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                0 <= addr < addr + S::spec_size_of() <= self@.len(),
+                self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
-                self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len()) == true_val.spec_serialize(),
+                self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
             ensures 
                 match bytes {
                     Ok(bytes) => {
-                        // let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_serialized_len());
-                        let addrs = Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + addr);
+                        // let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of());
+                        let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
                         &&& // If the persistent memory regions are impervious
                             // to corruption, read returns the last bytes
                             // written. Otherwise, it returns a
                             // possibly-corrupted version of those bytes.
                             if self.constants().impervious_to_corruption {
-                                bytes@ == true_val.spec_serialize()
+                                bytes@ == true_val.spec_to_bytes()
                             }
                             else {
-                                maybe_corrupted(bytes@, true_val.spec_serialize(), addrs)
+                                maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
                             }
                         }
                     Err(e) => {
@@ -582,16 +605,16 @@ verus! {
         // Note that addr is a regular offset in terms of bytes, but to_write is type S
         fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized,
+                S: PmCopy + Sized,
             requires
                 old(self).inv(),
                 index < old(self)@.len(),
-                addr + S::spec_serialized_len() <= old(self)@[index as int].len(),
-                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_serialized_len()),
+                addr + S::spec_size_of() <= old(self)@[index as int].len(),
+                old(self)@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@ == old(self)@.write(index as int, addr as int, to_write.spec_serialize()),
+                self@ == old(self)@.write(index as int, addr as int, to_write.spec_to_bytes()),
         ;
 
         fn flush(&mut self)

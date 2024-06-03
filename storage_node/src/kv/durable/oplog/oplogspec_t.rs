@@ -18,7 +18,7 @@ verus! {
     // been cleared.
     pub struct AbstractOpLogState<L>
         where
-            L: Serializable
+            L: PmCopy
     {
         pub op_list: Seq<OpLogEntryType<L>>,
         pub op_list_committed: bool,
@@ -26,7 +26,7 @@ verus! {
 
     impl<L> AbstractOpLogState<L>
         where
-            L: Serializable
+            L: PmCopy
     {
         pub open spec fn initialize(capacity: int) -> Self {
             Self {
