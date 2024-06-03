@@ -119,36 +119,39 @@ verus! {
     // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct GlobalMetadata {
-        pub version_number: u64,
-        pub length_of_region_metadata: u64,
-        pub program_guid: u128,
+    pm_sized!{
+        pub struct GlobalMetadata {
+            pub version_number: u64,
+            pub length_of_region_metadata: u64,
+            pub program_guid: u128,
+        }
     }
+    
 
     impl PmCopy for GlobalMetadata {}
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct RegionMetadata {
-        pub num_logs: u32,
-        pub which_log: u32,
-        pub _padding: u64,
-        pub region_size: u64,
-        pub log_area_len: u64,
-        pub multilog_id: u128,
+    pm_sized! {
+        pub struct RegionMetadata {
+            pub num_logs: u32,
+            pub which_log: u32,
+            pub _padding: u64,
+            pub region_size: u64,
+            pub log_area_len: u64,
+            pub multilog_id: u128,
+        }
     }
+    
 
     impl PmCopy for RegionMetadata {}
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct LogMetadata {
-        pub log_length: u64,
-        pub _padding: u64,
-        pub head: u128,
+    pm_sized! {
+        pub struct LogMetadata {
+            pub log_length: u64,
+            pub _padding: u64,
+            pub head: u128,
+        }
     }
+    
 
     impl PmCopy for LogMetadata {}
 

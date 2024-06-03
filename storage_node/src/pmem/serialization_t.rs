@@ -17,13 +17,13 @@ use std::mem::MaybeUninit;
 verus! {
     // TODO: better name? "PmCopy" is not really accurate anymore. PmCopy?
     // Objects can only be written to PM if they derive PmSafe
-    pub trait PmCopy : Sized + PmSafe + Copy {}
+    pub trait PmCopy : PmSized + Sized + PmSafe + Copy {}
     pub trait PmCopyHelper : PmCopy {
         spec fn spec_to_bytes(self) -> Seq<u8>;
 
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        spec fn spec_size_of() -> nat;
+        // spec fn spec_size_of() -> nat;
 
         spec fn spec_crc(self) -> u64;
 
@@ -34,6 +34,17 @@ verus! {
         exec fn as_byte_slice(&self) -> (out: &[u8])
             ensures 
                 out@ == self.spec_to_bytes();
+
+        spec fn size_inv(bytes: Seq<u8>) -> bool;
+
+        proof fn axiom_bytes_len()
+            ensures 
+                forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
+
+        // this seems like it might not be safe...
+        proof fn axiom_to_from_bytes(self, bytes: Seq<u8>)
+            ensures 
+                self.spec_to_bytes() == bytes <==> self == Self::spec_from_bytes(bytes);
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
@@ -41,9 +52,7 @@ verus! {
 
         closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        closed spec fn spec_size_of() -> nat {
-            size_of_as_usize::<Self>() as nat
-        }
+        // closed spec fn spec_size_of() -> nat;
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
@@ -61,21 +70,36 @@ verus! {
             let ptr = self as *const Self;
             unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::size_of() as usize) }
         }
+
+        open spec fn size_inv(bytes: Seq<u8>) -> bool
+        {
+            bytes.len() == Self::spec_size_of()
+        }
+
+        #[verifier::external_body]
+        proof fn axiom_bytes_len() {}
+
+        
+        #[verifier::external_body]
+        proof fn axiom_to_from_bytes(self, bytes: Seq<u8>) {}
+
+
     }
 
-    // This should be true for every PmCopy type, but making it default does not automatically
-    // make it true for all implementors and we can't put it in pre/postconditions of PmCopy
-    // methods due to cycle checking.
-    pub open spec fn spec_PmCopy_inv<S: PmCopy>() -> bool 
-    {
-        &&& forall |s: S| {
-                &&& #[trigger] s.spec_to_bytes().len() == S::spec_size_of()
-                &&& #[trigger] s.spec_crc() == #[trigger] spec_crc_u64(s.spec_to_bytes())
-                &&& s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
-            }
-        &&& forall |bytes: Seq<u8>, s: S| bytes == s.spec_to_bytes() ==> s == S::spec_from_bytes(bytes)        
-    }
+    // // This should be true for every PmCopy type, but making it default does not automatically
+    // // make it true for all implementors and we can't put it in pre/postconditions of PmCopy
+    // // methods due to cycle checking.
+    // pub open spec fn spec_pmcopy_inv<S: PmCopy>() -> bool 
+    // {
+    //     &&& forall |s: S| {
+    //             &&& #[trigger] s.spec_to_bytes().len() == S::spec_size_of()
+    //             &&& #[trigger] s.spec_crc() == #[trigger] spec_crc_u64(s.spec_to_bytes())
+    //             &&& s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
+    //         }
+    //     &&& forall |bytes: Seq<u8>, s: S| bytes == s.spec_to_bytes() ==> s == S::spec_from_bytes(bytes)        
+    // }
 
+    // u64 must implement PmCopy for CRC management
     impl PmCopy for u64 {}
 
 
@@ -175,4 +199,128 @@ verus! {
     // though that should always be the case anyway)
     // TODO: is this actually necessary? NO- remove
     pub closed spec fn vec_is_volatile(bytes: Vec<u8>) -> bool;
+
+
+    pub trait PmSized: PmSafe {
+        spec fn spec_size_of() -> nat;
+    }
+
+    global size_of usize == 8;
+    global size_of isize == 8;
+
+    // TODO: this macro doesn't work if there are any non-pub fields.
+    macro_rules! pm_sized{
+        ($v:vis struct $name:ident { $(pub $f_name:ident: $f_type:ty),* $(,)? }) => {
+            ::builtin_macros::verus! {
+                #[repr(C)]
+                #[derive(PmSafe, Copy, Clone)]
+                $v struct $name { 
+                    $(
+                    pub $f_name: $f_type,
+                    )*
+                }
+                impl PmSized for $name {
+                    open spec fn spec_size_of() -> nat {
+                        $(
+                            (<$f_type>::spec_size_of())+
+                        )*
+                        0
+                    }
+                }
+            }
+        };
+    }
+
+    pub(crate) use pm_sized;
+
+    // Manual trusted implementations of PmSized for safe primitive types.
+    // The sizes of all other types are derived from these. They should be audited
+    // to ensure they match the actual sizes of the types. We specify earlier 
+    // that usize and isize are 8 bytes
+    impl PmSized for u8 {
+        open spec fn spec_size_of() -> nat {
+            1
+        }
+    }
+    impl PmSized for u16 {
+        open spec fn spec_size_of() -> nat {
+            2
+        }
+    }
+    impl PmSized for u32 {
+        open spec fn spec_size_of() -> nat {
+            4
+        }
+    }
+    impl PmSized for u64 {
+        open spec fn spec_size_of() -> nat {
+            8
+        }
+    }
+    impl PmSized for u128 {
+        open spec fn spec_size_of() -> nat {
+            16
+        }
+    }
+    impl PmSized for usize {
+        open spec fn spec_size_of() -> nat {
+            8
+        }
+    }
+    impl PmSized for i8 {
+        open spec fn spec_size_of() -> nat {
+            1
+        }
+    }
+    impl PmSized for i16 {
+        open spec fn spec_size_of() -> nat {
+            2
+        }
+    }
+    impl PmSized for i32 {
+        open spec fn spec_size_of() -> nat {
+            4
+        }
+    }
+    impl PmSized for i64 {
+        open spec fn spec_size_of() -> nat {
+            8
+        }
+    }
+    impl PmSized for i128 {
+        open spec fn spec_size_of() -> nat {
+            16
+        }
+    }
+    impl PmSized for isize {
+        open spec fn spec_size_of() -> nat {
+            8
+        }
+    }
+    impl<T: PmSized, const N: usize> PmSized for [T; N] {
+        open spec fn spec_size_of() -> nat {
+            (N * T::spec_size_of()) as nat
+        }
+    }
+    impl PmSized for bool {
+        open spec fn spec_size_of() -> nat {
+            1
+        }
+    }
+    impl PmSized for char {
+        open spec fn spec_size_of() -> nat {
+            4
+        }
+    }
+    // impl PmSized for f32 {
+    //     open spec fn spec_size_of() -> nat {
+    //         4
+    //     }
+    // }
+    // impl PmSized for f64 {
+    //     open spec fn spec_size_of() -> nat {
+    //         8
+    //     }
+    // }
+
 }

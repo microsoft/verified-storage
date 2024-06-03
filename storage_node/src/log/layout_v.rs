@@ -55,6 +55,7 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
+// use crate::pm_sized;
 use crate::pmem::markers_t::PmSafe;
 use deps_hack::PmSafe;
 use builtin::*;
@@ -109,35 +110,38 @@ verus! {
     // These structs represent the different levels of metadata.
     // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct GlobalMetadata {
-        pub version_number: u64,
-        pub length_of_region_metadata: u64,
-        pub program_guid: u128,
+    pm_sized!{
+        pub struct GlobalMetadata {
+            pub version_number: u64,
+            pub length_of_region_metadata: u64,
+            pub program_guid: u128,
+        }
     }
 
     impl PmCopy for GlobalMetadata {}
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct RegionMetadata {
-        pub region_size: u64,
-        pub log_area_len: u64,
-        pub log_id: u128,
+    
+    
+    pm_sized! {
+        pub struct RegionMetadata {
+            pub region_size: u64,
+            pub log_area_len: u64,
+            pub log_id: u128,
+        }
     }
 
     impl PmCopy for RegionMetadata {}
 
-    #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
-    pub struct LogMetadata {
-        pub log_length: u64,
-        pub _padding: u64,
-        pub head: u128,
+    pm_sized! {
+        pub struct LogMetadata {
+            pub log_length: u64,
+            pub _padding: u64,
+            pub head: u128,
+        }
     }
 
     impl PmCopy for LogMetadata {}
+
 
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.
@@ -154,7 +158,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
@@ -180,7 +184,7 @@ verus! {
     // from the contents `mem` of a persistent memory region.
     pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
@@ -275,7 +279,7 @@ verus! {
     pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
         let pos = get_log_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LENGTH_OF_LOG_METADATA as int)
+        extract_bytes(mem, pos as int, LogMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata

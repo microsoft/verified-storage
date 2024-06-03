@@ -533,5 +533,4 @@ verus! {
         }
         digest.sum64()
     }
-
 }

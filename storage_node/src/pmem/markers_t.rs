@@ -2,6 +2,7 @@ use builtin_macros::*;
 use builtin::*;
 use vstd::prelude::*;
 use deps_hack::PmSafe;
+
 pub unsafe trait PmSafe {}
 
 // Numeric types and arrays are all always PmSafe.
