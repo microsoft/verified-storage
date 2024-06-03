@@ -1,6 +1,7 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use core::ffi::c_void;
+use core::slice;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};
 
 use builtin::*;
@@ -90,7 +91,7 @@ pub struct MemoryMappedFileSection {
 
 impl MemoryMappedFileSection
 {
-    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
+    fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
     {
         let mut mmf_borrowed = mmf.borrow_mut();
         let offset = mmf_borrowed.num_bytes_sectioned;
@@ -116,7 +117,7 @@ impl MemoryMappedFileSection
             mmf,
             virt_addr: new_virt_addr,
             size: len,
-        };
+        };
         Ok(section)
     }
 }
@@ -190,13 +191,54 @@ impl FileBackedPersistentMemoryRegion
     {
         Self{ section }
     }
+
+    #[verifier::external_body]
+    fn get_slice_at_offset(&self, addr: u64, len: u64) -> (result: Result<&[u8], PmemError>)
+        requires 
+            0 <= addr + len <= self@.len()
+        ensures 
+            match result {
+                Ok(slice) => if self.constants().impervious_to_corruption {
+                    slice@ == self@.committed().subrange(addr as int, addr + len)
+                } else {
+                    let addrs = Seq::new(len as nat, |i: int| addr + i);
+                    maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
+                }
+                Err(e) => e == PmemError::AccessOutOfRange // TODO: what do we guarantee in the error case? virt_addr is not visible to verifier
+            }
+    {
+        let raw_addr = addr as isize;
+        if addr + len > self.section.size as u64 || raw_addr > isize::MAX - len as isize {
+            return Err(PmemError::AccessOutOfRange);
+        }
+
+        // SAFETY: The `offset` method is safe as long as both the start
+        // and resulting pointer are in bounds and the computed offset does
+        // not overflow `isize`. The precondition ensures that addr + len is 
+        // in bounds and the above if statement (which may be unnecessary?)
+        // makes absolutely certain that we won't overflow isize.
+        let addr_on_pm: *const u8 = unsafe {
+            self.section.virt_addr.offset(addr.try_into().unwrap())
+        };
+
+        // SAFETY: The precondition establishes that num_bytes bytes
+        // from addr_on_pmem are valid bytes on PM. The bytes will not 
+        // be modified during this call since the system is single threaded.
+        let pm_slice: &[u8] = unsafe {
+            std::slice::from_raw_parts(addr_on_pm, len as usize)
+        };
+
+        Ok(pm_slice)
+    }
 }
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
 {
     closed spec fn view(&self) -> PersistentMemoryRegionView;
-    closed spec fn inv(&self) -> bool;
-    closed spec fn constants(&self) -> PersistentMemoryConstants;
+
+    closed spec fn inv(&self) -> bool;
+
+    closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
     fn get_region_size(&self) -> u64
@@ -204,60 +246,30 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         self.section.size as u64
     }
 
-    #[verifier::external_body]
-    fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+    fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        where
+            S: PmCopy 
     {
-        // SAFETY: The `offset` method is safe as long as both the start
-        // and resulting pointer are in bounds and the computed offset does
-        // not overflow `isize`. `addr` and `num_bytes` are unsigned and
-        // the precondition requires that `addr + num_bytes` is in bounds.
-        // The precondition does not technically prevent overflowing `isize`
-        // but the value is large enough (assuming a 64-bit architecture)
-        // that we will not violate this restriction in practice.
-        // TODO: put it in the precondition anyway
-        let addr_on_pm: *const u8 = unsafe {
-            self.section.virt_addr.offset(addr.try_into().unwrap())
-        };
+        assume(false);
 
-        // SAFETY: The precondition establishes that `num_bytes as usize` bytes
-        // from `addr_on_pm` are valid bytes on PM. We do not modify the
-        // bytes backing this slice while the slice is live because
-        // this function does not modify them and it returns a copy of the bytes,
-        // not a direct reference to them.
-        let pm_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(addr_on_pm, num_bytes as usize)
-        };
+        let pm_slice = self.get_slice_at_offset(addr, S::size_of())?;
+        let ghost addrs = Seq::new(S::spec_size_of(), |i: int| addr + i);
+        let mut maybe_corrupted_val = MaybeCorrupted::new();
 
-        // `to_vec` clones the bytes in `pm_slice`
-        pm_slice.to_vec()
+        maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
+        
+        Ok(maybe_corrupted_val)
     }
 
-    #[verifier::external_body]
-    fn read_and_deserialize<S>(&self, addr: u64) -> &S
-        where
-            S: Serializable + Sized
+    fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
     {
-        // SAFETY: The `offset` method is safe as long as both the start
-        // and resulting pointer are in bounds and the computed offset does
-        // not overflow `isize`. `addr` and `num_bytes` are unsigned and
-        // the precondition requires that `addr + num_bytes` is in bounds.
-        // The precondition does not technically prevent overflowing `isize`
-        // but the value is large enough (assuming a 64-bit architecture)
-        // that we will not violate this restriction in practice.
-        // TODO: put it in the precondition anyway
-        let addr_on_pm: *const u8 = unsafe {
-            self.section.virt_addr.offset(addr.try_into().unwrap())
-        };
+        let pm_slice = self.get_slice_at_offset(addr, num_bytes)?;
 
-        // Cast the pointer to PM bytes to an S pointer
-        let s_pointer: *const S = addr_on_pm as *const S;
+        // Allocate an unaligned buffer to copy the bytes into
+        let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
+        unaligned_buffer.extend_from_slice(pm_slice);
 
-        // SAFETY: The precondition establishes that `S::serialized_len()` bytes
-        // after the offset specified by `addr` are valid PM bytes, so it is
-        // safe to dereference s_pointer. The borrow checker should treat this object
-        // as borrowed from the FileBackedPersistentMemoryRegion object, preventing mutable borrows of any
-        // other part of the object until this one is dropped.
-        unsafe { &(*s_pointer) }
+        Ok(unaligned_buffer)
     }
 
     #[verifier::external_body]
@@ -295,9 +307,9 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[allow(unused_variables)]
     fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
-        let num_bytes: usize = S::serialized_len() as usize;
+        let num_bytes: usize = S::size_of() as usize;
 
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -388,7 +400,7 @@ impl FileBackedPersistentMemoryRegions {
         Ok(Self { regions })
     }
     
-    pub fn new(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
+    pub fn new(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -404,7 +416,7 @@ impl FileBackedPersistentMemoryRegions {
         Self::new_internal(path, region_sizes, FileOpenBehavior::CreateNew, persistent_memory_check)
     }
     
-    pub fn restore(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
+    pub fn restore(path: &str, region_sizes: &[u64], persistent_memory_check: PersistentMemoryCheck)
                    -> (result: Result<Self, PmemError>)
         ensures
             match result {
@@ -439,17 +451,17 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     }
 
     #[verifier::external_body]
-    fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+    fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        where
+            S: PmCopy
     {
-        self.regions[index].read(addr, num_bytes)
+        self.regions[index].read_aligned::<S>(addr, Ghost(true_val))
     }
 
     #[verifier::external_body]
-    fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
-        where
-            S: Serializable + Sized
+    fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
     {
-        self.regions[index].read_and_deserialize(addr)
+        self.regions[index].read_unaligned(addr, num_bytes)
     }
 
     #[verifier::external_body]
@@ -461,7 +473,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].serialize_and_write(addr, to_write);
     }

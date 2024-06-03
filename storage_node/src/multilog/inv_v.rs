@@ -135,8 +135,8 @@ verus! {
         infos: Seq<LogInfo>,
     )
         requires
-            new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_serialize(),
-            new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_serialize(),
+            new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
+            new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
             new_cdb_bytes.len() == CRC_SIZE,
             old_pm_region_view.no_outstanding_writes(),
             new_pm_region_view.no_outstanding_writes(),

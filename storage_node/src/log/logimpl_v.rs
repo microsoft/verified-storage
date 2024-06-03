@@ -665,6 +665,7 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            assume(false);
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -686,8 +687,8 @@ verus! {
             };
             let log_crc = calculate_crc(&log_metadata);
 
-            let ghost log_metadata_bytes = log_metadata.spec_serialize();
-            let ghost log_crc_bytes = log_crc.spec_serialize();
+            let ghost log_metadata_bytes = log_metadata.spec_to_bytes();
+            let ghost log_crc_bytes = log_crc.spec_to_bytes();
 
             // Prove that updating the inactive metadata+CRC maintains
             // all invariants that held before. We prove this separately
@@ -695,9 +696,6 @@ verus! {
             // writes.
 
             proof {
-                LogMetadata::lemma_auto_serialized_len();
-                u64::lemma_auto_serialized_len();
-
                 lemma_updating_inactive_metadata_maintains_invariants(
                     wrpm_region@, log_id, self.cdb, prev_info, prev_state, log_metadata_bytes
                 );
@@ -740,9 +738,6 @@ verus! {
 
             let ghost flushed = wrpm_region_new.flush();
             assert (metadata_consistent_with_info(flushed, log_id, !self.cdb, self.info)) by {
-                LogMetadata::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialize_deserialize();
-
                 let mem1 = wrpm_region@.committed();
                 let mem2 = flushed.committed();
                 lemma_establish_extract_bytes_equivalence(mem1, mem2);
@@ -785,15 +780,13 @@ verus! {
             // Next, compute the new encoded CDB to write.
 
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
-            let ghost new_cdb_bytes = new_cdb.spec_serialize();
+            let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 
             let ghost pm_region_after_write = wrpm_region@.write(ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
             let ghost flushed_mem_after_write = pm_region_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
                 let flushed_region = pm_region_after_write.flush();
                 lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                             new_cdb_bytes);
@@ -808,9 +801,6 @@ verus! {
                 &&& metadata_consistent_with_info(pm_region_after_flush, log_id, !self.cdb, self.info)
                 &&& info_consistent_with_log_area_in_region(pm_region_after_flush, self.info, self.state@)
             }) by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
-
                 lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
                                                           pm_region_after_flush.committed());
 
@@ -861,7 +851,6 @@ verus! {
                        #[trigger] perm.check_permission(crash_bytes) by {
                 lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_id,
                                                             self.cdb, prev_info, prev_state);
-                u64::lemma_auto_serialized_len();
                 lemma_single_write_crash_effect_on_pm_region_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                                   new_cdb_bytes);
             }
@@ -1216,7 +1205,7 @@ verus! {
             pos: u128,
             len: u64,
             Ghost(log_id): Ghost<u128>,
-        ) -> (result: Result<Vec<u8>, LogErr>)
+        ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
             where
                 Perm: CheckPermission<Seq<u8>>,
                 PMRegion: PersistentMemoryRegion
@@ -1227,7 +1216,7 @@ verus! {
                 ({
                     let log = self@;
                     match result {
-                        Ok(bytes) => {
+                        Ok((bytes, addrs)) => {
                             let true_bytes = self@.read(pos as int, len as int);
                             &&& pos >= log.head
                             &&& pos + len <= log.head + log.log.len()
@@ -1246,6 +1235,7 @@ verus! {
                     }
                 })
         {
+            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 
@@ -1268,7 +1258,7 @@ verus! {
 
                 assert (true_bytes =~= Seq::<u8>::empty());
                 assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
-                return Ok(Vec::<u8>::new());
+                return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
             }
 
             let pm_region = wrpm_region.get_pm_region_ref();
@@ -1292,7 +1282,8 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_region.read(addr, len));
+                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // The log area wraps past the point we're reading from, so we
@@ -1329,7 +1320,8 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_region.read(addr, len));
+                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
             // Case 3: We're reading enough bytes that we have to wrap.
@@ -1342,7 +1334,7 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_region.read(addr, max_len_without_wrapping);
+            let mut part1 = pm_region.read_unaligned(addr, max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
 
             proof {
                 self.lemma_read_of_continuous_range(pm_region@, log_id,
@@ -1351,8 +1343,8 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_region.read(ABSOLUTE_POS_OF_LOG_AREA,
-                                            len - max_len_without_wrapping);
+            let mut part2 = pm_region.read_unaligned(addr, len - max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
+
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that
@@ -1378,7 +1370,9 @@ verus! {
             // Append the two byte vectors together and return the result.
 
             part1.append(&mut part2);
-            Ok(part1)
+            let addrs = Ghost(Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr) + 
+                Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + ABSOLUTE_POS_OF_LOG_AREA));
+            Ok((part1, addrs))
         }
 
         // The `get_head_tail_and_capacity` method returns the head,

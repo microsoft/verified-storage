@@ -69,9 +69,9 @@ pub trait Item<K> : Sized {
 pub struct KvStore<PM, K, I, L, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug,
     D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,
@@ -89,9 +89,9 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 impl<PM, K, I, L, D, V, E> KvStore<PM, K, I, L, D, V, E>
 where
     PM: PersistentMemoryRegions,
-    K: Hash + Eq + Clone + Serializable + Sized + std::fmt::Debug,
-    I: Serializable + Item<K> + Sized + std::fmt::Debug,
-    L: Serializable + std::fmt::Debug,
+    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug,
     D: DurableKvStore<PM, K, I, L, E>,
     V: VolatileKvIndex<K, E>,
     E: std::fmt::Debug,

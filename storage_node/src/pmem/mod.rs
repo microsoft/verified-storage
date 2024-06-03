@@ -8,3 +8,5 @@ pub mod pmemutil_v;
 pub mod serialization_t;
 pub mod subregion_v;
 pub mod wrpm_t;
+pub mod crc_t;
+pub mod markers_t;

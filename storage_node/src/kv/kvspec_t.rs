@@ -28,9 +28,9 @@ verus! {
     pub struct TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug,
             D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
@@ -41,9 +41,9 @@ verus! {
     impl<PM, K, I, L, D, E> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug,
             D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {
@@ -56,9 +56,9 @@ verus! {
     impl<PM, K, I, L, D, E> TrustedKvPermission<PM, K, I, L, D, E>
         where
             PM: PersistentMemoryRegions,
-            K: Hash + Eq + Clone + Serializable + std::fmt::Debug,
-            I: Serializable + Item<K> + std::fmt::Debug,
-            L: Serializable + std::fmt::Debug,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + Item<K> + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug,
             D: DurableKvStore<PM, K, I, L, E>,
             E: std::fmt::Debug,
     {

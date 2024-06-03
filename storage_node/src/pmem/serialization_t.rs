@@ -1,157 +1,178 @@
 use crate::pmem::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
+use vstd::bytes;
 use vstd::bytes::*;
 use vstd::prelude::*;
+use vstd::ptr::*;
+use vstd::layout::*;
+use crate::pmem::markers_t::PmSafe;
 
 use deps_hack::crc64fast::Digest;
+use core::slice;
 use std::convert::TryInto;
+use std::ptr;
+use std::mem::MaybeUninit;
 
 verus! {
-    // TODO: is this enough to prevent someone from creating an
-    // S from different data and passing it off as one that was
-    // read normally?
-    pub closed spec fn maybe_corrupted_serialized<S>(
-        read_val: S,
-        true_val: S,
-        start_addr: int
-    ) -> bool
-        where
-            S: Serializable + Sized
-    {
-        maybe_corrupted(
-            read_val.spec_serialize(),
-            true_val.spec_serialize(),
-            Seq::<int>::new(S::spec_serialized_len() as nat, |i: int| i + start_addr)
-        )
-    }
+    // TODO: better name? "PmCopy" is not really accurate anymore. PmCopy?
+    // Objects can only be written to PM if they derive PmSafe
+    pub trait PmCopy : Sized + PmSafe + Copy {}
+    pub trait PmCopyHelper : PmCopy {
+        spec fn spec_to_bytes(self) -> Seq<u8>;
 
-    #[verifier::external_body]
-    pub proof fn axiom_serialized_val_uncorrupted<S>(
-        read_val: S,
-        true_val: S,
-        val_addr: int,
-        read_crc: u64,
-        true_crc: u64,
-        crc_addr: int,
-    )
-        where
-            S: Serializable + Sized
-        requires
-            maybe_corrupted_serialized(read_val, true_val, val_addr),
-            maybe_corrupted_serialized(read_crc, true_crc, crc_addr),
-            read_crc == read_val.spec_crc(),
-            true_crc == true_val.spec_crc(),
-            crc_addr < crc_addr + CRC_SIZE <= val_addr || crc_addr >= val_addr + S::spec_serialized_len()
-            // TODO: is this enough to make sure the crc and read val are physically distinct?
-        ensures
-            read_val == true_val
-    {}
+        spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-    // TODO: maybe use a specific type for the CDB?
-    pub proof fn axiom_corruption_detecting_boolean_serialized(
-        read_cdb: u64,
-        true_cdb: u64,
-        addr: int,
-    )
-        requires
-            maybe_corrupted_serialized(read_cdb, true_cdb, addr),
-            read_cdb == CDB_FALSE || read_cdb == CDB_TRUE,
-            true_cdb == CDB_FALSE || true_cdb == CDB_TRUE,
-        ensures
-            read_cdb == true_cdb
-    {
-        let addrs = Seq::<int>::new(u64::spec_serialized_len() as nat, |i: int| i + addr);
-        let read_cdb_bytes = read_cdb.spec_serialize();
-        let true_cdb_bytes = true_cdb.spec_serialize();
-        assert(maybe_corrupted(read_cdb_bytes, true_cdb_bytes, addrs));
-        u64::lemma_auto_serialize_deserialize();
-        axiom_corruption_detecting_boolean(read_cdb_bytes, true_cdb_bytes, addrs);
-    }
-
-    pub trait Serializable : Sized {
-        spec fn spec_serialize(self) -> Seq<u8>;
-
-        spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
-
-        proof fn lemma_auto_serialize_deserialize()
-            ensures
-                forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize())
-        ;
-
-        proof fn lemma_auto_serialized_len()
-            ensures
-                forall |s: Self| #![auto] s.spec_serialize().len() == Self::spec_serialized_len()
-        ;
-
-        // TODO: this should really be a constant, but verus doesn't
-        // support associated constants right now
-        spec fn spec_serialized_len() -> u64;
+        spec fn spec_size_of() -> nat;
 
         spec fn spec_crc(self) -> u64;
 
-        fn serialized_len() -> (out: u64)
-            ensures
-                out == Self::spec_serialized_len()
-        ;
+        exec fn size_of() -> (out: u64)
+            ensures 
+                out == Self::spec_size_of() as u64;
+
+        exec fn as_byte_slice(&self) -> (out: &[u8])
+            ensures 
+                out@ == self.spec_to_bytes();
     }
 
-    impl Serializable for u64 {
-        closed spec fn spec_serialize(self) -> Seq<u8>
-        {
-            spec_u64_to_le_bytes(self)
+    impl<T> PmCopyHelper for T where T: PmCopy {
+        closed spec fn spec_to_bytes(self) -> Seq<u8>;
+
+        closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
+
+        closed spec fn spec_size_of() -> nat {
+            size_of_as_usize::<Self>() as nat
         }
 
-        closed spec fn spec_deserialize(bytes: Seq<u8>) -> Self
-        {
-            spec_u64_from_le_bytes(bytes)
+        open spec fn spec_crc(self) -> u64 {
+            spec_crc_u64(self.spec_to_bytes())
         }
 
-        proof fn lemma_auto_serialize_deserialize()
+        #[verifier::external_body]
+        fn size_of() -> u64
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize()));
+            core::mem::size_of::<Self>() as u64
         }
 
-        proof fn lemma_auto_serialized_len()
+        #[verifier::external_body]
+        exec fn as_byte_slice(&self) -> (out: &[u8])
         {
-            lemma_auto_spec_u64_to_from_le_bytes();
-            assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);
-            assert(Self::spec_serialized_len() == 8);
-        }
-
-        open spec fn spec_serialized_len() -> u64
-        {
-            8
-        }
-
-        closed spec fn spec_crc(self) -> u64;
-
-        fn serialized_len() -> u64
-        {
-            8
+            let ptr = self as *const Self;
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::size_of() as usize) }
         }
     }
 
-    #[verifier::external_body]
-    pub fn calculate_crc<S>(val: &S) -> (out: u64)
-        where
-            S: Serializable + Sized
-        ensures
-            val.spec_crc() == out@
+    // This should be true for every PmCopy type, but making it default does not automatically
+    // make it true for all implementors and we can't put it in pre/postconditions of PmCopy
+    // methods due to cycle checking.
+    pub open spec fn spec_PmCopy_inv<S: PmCopy>() -> bool 
     {
-        let num_bytes: usize = S::serialized_len().try_into().unwrap();
-        let s_pointer = val as *const S;
-        let bytes_pointer = s_pointer as *const u8;
-        // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
-        // bytes because it was obtained by casting a regular Rust object reference
-        // to a raw pointer.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(bytes_pointer, num_bytes)
-        };
-
-        let mut digest = Digest::new();
-        digest.write(bytes);
-        digest.sum64()
+        &&& forall |s: S| {
+                &&& #[trigger] s.spec_to_bytes().len() == S::spec_size_of()
+                &&& #[trigger] s.spec_crc() == #[trigger] spec_crc_u64(s.spec_to_bytes())
+                &&& s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
+            }
+        &&& forall |bytes: Seq<u8>, s: S| bytes == s.spec_to_bytes() ==> s == S::spec_from_bytes(bytes)        
     }
+
+    impl PmCopy for u64 {}
+
+
+    // is this name confusing?
+    #[verifier::external_body]
+    #[verifier::reject_recursive_types(S)]
+    pub struct MaybeCorrupted<S>
+        where 
+            S: PmCopy
+    {
+        val: MaybeUninit<S>,
+    }
+
+    impl<S> MaybeCorrupted<S>
+        where 
+            S: PmCopy 
+    {
+        // The constructor doesn't have a postcondition because we do not know anything about 
+        // the state of the bytes yet
+        #[verifier::external_body]
+        pub exec fn new() -> (out: Self)
+        {
+            MaybeCorrupted { 
+                val: MaybeUninit::uninit()
+            }
+        }
+
+        pub closed spec fn view(self) -> Seq<u8>;
+
+        #[verifier::external_body]
+        pub exec fn copy_from_slice(
+            &mut self, 
+            bytes: &[u8], 
+            Ghost(true_val): Ghost<S>,
+            Ghost(addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>
+        )
+            requires 
+                if impervious_to_corruption {
+                    bytes@ == true_val.spec_to_bytes()
+                } else {
+                    maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
+                },
+                bytes@.len() == S::spec_size_of(),
+            ensures 
+                self@ == bytes@
+        {
+            self.copy_from_slice_helper(bytes);
+        }
+
+        // TODO: remove this helper function and move its body back into `copy_from_slice` once 
+        // https://github.com/verus-lang/verus/issues/1151 is fixed
+        #[verifier::external]
+        #[inline(always)]
+        fn copy_from_slice_helper(
+            &mut self, 
+            bytes: &[u8], 
+        ) 
+        {
+            // convert the MaybeUninit<S> to a mutable slice of `MaybeUninit<u8>`
+            let mut self_bytes = self.val.as_bytes_mut();
+            // copy bytes from the given slice to the mutable slice of `MaybeUninit<u8>`.
+            // This returns a slice of initialized bytes, but it does NOT change the fact that 
+            // the original S is still MaybeUninit
+            // TODO: in newer versions of Rust, write_slice is renamed to copy_from_slice
+            MaybeUninit::write_slice(self_bytes, bytes);
+        }
+
+
+        #[verifier::external_body]
+        pub exec fn as_slice(&self) -> (out: &[u8])
+            ensures 
+                out@ == self@
+        {
+            let bytes = self.val.as_bytes();
+            // SAFETY: even if we haven't initialized the bytes, there are no invalid values of u8, so we can 
+            // safely assume that these bytes are initialized (even if the S may not be)
+            unsafe { MaybeUninit::slice_assume_init_ref(bytes) }
+        }
+
+        #[verifier::external_body]
+        pub exec fn extract_init_val(self, Ghost(true_val): Ghost<S>) -> (out: S)
+            requires 
+                self@ == true_val.spec_to_bytes()
+            ensures 
+                out == true_val
+        {
+            // SAFETY: The precondition establishes that self@ -- the ghost view of the maybe-corrupted bytes
+            // written to self.val -- are equivalent to the serialization of the true value; i.e., we must have 
+            // proven that the bytes are not corrupted, and therefore self.val is initialized.
+            unsafe { self.val.assume_init() }
+        }
+    }
+
+    // Right now unaligned reads return vecs and Verus can't easily switch between Vec/slice,
+    // so we use a separate spec fn to specify that a vector lives in volatile memory (even
+    // though that should always be the case anyway)
+    // TODO: is this actually necessary? NO- remove
+    pub closed spec fn vec_is_volatile(bytes: Vec<u8>) -> bool;
 }

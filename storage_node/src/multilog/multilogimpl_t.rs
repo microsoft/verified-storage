@@ -94,7 +94,7 @@ verus! {
             UntrustedMultiLogImpl::recover(s, multilog_id) == Some(state)
     }
 
-    // A `TrustedPermission` is the type of a tracked object
+    // A `TrustedMultiLogPermission` is the type of a tracked object
     // indicating permission to update memory. It restricts updates so
     // that if a crash happens, the resulting memory `mem` satisfies
     // `is_state_allowable(mem)`.
@@ -104,19 +104,19 @@ verus! {
     // So untrusted code in other files can't create one, and we can
     // rely on it to restrict access to persistent memory.
     #[allow(dead_code)]
-    pub struct TrustedPermission {
+    pub struct TrustedMultiLogPermission {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
     }
 
-    impl CheckPermission<Seq<Seq<u8>>> for TrustedPermission {
+    impl CheckPermission<Seq<Seq<u8>>> for TrustedMultiLogPermission {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
 
-    impl TrustedPermission {
+    impl TrustedMultiLogPermission {
 
-        // This is one of two constructors for `TrustedPermission`.
+        // This is one of two constructors for `TrustedMultiLogPermission`.
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given
         // abstract state `state`.
@@ -131,7 +131,7 @@ verus! {
         }
 
         // This is the second of two constructors for
-        // `TrustedPermission`.  It conveys permission to do any
+        // `TrustedMultiLogPermission`.  It conveys permission to do any
         // update as long as a subsequent crash and recovery can only
         // lead to one of two given abstract states `state1` and
         // `state2`.
@@ -198,14 +198,14 @@ verus! {
     ///
     /// The `wrpm_regions` field contains the write-restricted persistent
     /// memory. This memory will only allow updates allowed by a
-    /// tracked `TrustedPermission`. So we can pass `wrpm_regions` to an
+    /// tracked `TrustedMultiLogPermission`. So we can pass `wrpm_regions` to an
     /// untrusted method, along with a restricting
-    /// `TrustedPermission`, to limit what it's allowed to do.
+    /// `TrustedMultiLogPermission`, to limit what it's allowed to do.
 
     pub struct MultiLogImpl<PMRegions: PersistentMemoryRegions> {
         untrusted_log_impl: UntrustedMultiLogImpl,
         multilog_id: Ghost<u128>,
-        wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>
+        wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>
     }
 
     impl <PMRegions: PersistentMemoryRegions> MultiLogImpl<PMRegions> {
@@ -342,7 +342,7 @@ verus! {
 
             let ghost state = UntrustedMultiLogImpl::recover(pm_regions@.flush().committed(), multilog_id).get_Some_0();
             let mut wrpm_regions = WriteRestrictedPersistentMemoryRegions::new(pm_regions);
-            let tracked perm = TrustedPermission::new_one_possibility(multilog_id, state);
+            let tracked perm = TrustedMultiLogPermission::new_one_possibility(multilog_id, state);
             let untrusted_log_impl =
                 UntrustedMultiLogImpl::start(&mut wrpm_regions, multilog_id, Tracked(&perm), Ghost(state))?;
             Ok(
@@ -397,7 +397,7 @@ verus! {
             // the view of the persistent state is either the current
             // state or the current state with `bytes_to_append`
             // appended.
-            let tracked perm = TrustedPermission::new_one_possibility(self.multilog_id@, self@.drop_pending_appends());
+            let tracked perm = TrustedMultiLogPermission::new_one_possibility(self.multilog_id@, self@.drop_pending_appends());
             self.untrusted_log_impl.tentatively_append(&mut self.wrpm_regions, which_log, bytes_to_append,
                                                        self.multilog_id, Tracked(&perm))
         }
@@ -425,7 +425,7 @@ verus! {
             // the view of the persistent state is either the current
             // state or the current state with all uncommitted appends
             // committed.
-            let tracked perm = TrustedPermission::new_two_possibilities(self.multilog_id@, self@.drop_pending_appends(),
+            let tracked perm = TrustedMultiLogPermission::new_two_possibilities(self.multilog_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
             self.untrusted_log_impl.commit(&mut self.wrpm_regions, self.multilog_id, Tracked(&perm))
         }
@@ -474,7 +474,7 @@ verus! {
             // such that, if a crash happens in the middle of a write,
             // the view of the persistent state is either the current
             // state or the current state with the head advanced.
-            let tracked perm = TrustedPermission::new_two_possibilities(
+            let tracked perm = TrustedMultiLogPermission::new_two_possibilities(
                 self.multilog_id@,
                 self@.drop_pending_appends(),
                 self@.advance_head(which_log as int, new_head as int).drop_pending_appends()

@@ -354,7 +354,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn read_and_deserialize<S>(&self, addr: u64) -> &S
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
@@ -394,7 +394,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     #[allow(unused_variables)]
     fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         let num_bytes: usize = S::serialized_len().try_into().unwrap();
 
@@ -563,7 +563,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].read_and_deserialize(addr)
     }
@@ -577,7 +577,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     #[verifier::external_body]
     fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
         where
-            S: Serializable + Sized
+            S: PmCopy + Sized
     {
         self.regions[index].serialize_and_write(addr, to_write);
     }

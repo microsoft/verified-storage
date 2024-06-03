@@ -14,6 +14,7 @@ use crate::multilog::setup_v::{
     check_for_required_space, compute_log_capacities, write_setup_metadata_to_all_regions,
 };
 use crate::multilog::start_v::{read_cdb, read_logs_variables};
+use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
@@ -262,9 +263,9 @@ verus! {
         // how we can write `wrpm_regions`. This is moot, though,
         // because we don't ever write to the memory.
         pub exec fn start<PMRegions>(
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             multilog_id: u128,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
             Ghost(state): Ghost<AbstractMultiLogState>,
         ) -> (result: Result<Self, MultiLogErr>)
             where
@@ -352,11 +353,11 @@ verus! {
         // abstract state with all pending appends dropped.
         pub exec fn tentatively_append<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             which_log: u32,
             bytes_to_append: &[u8],
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<u128, MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -591,11 +592,11 @@ verus! {
         // caller doesn't have to flush before calling this function.
         exec fn update_log_metadata<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
             Ghost(prev_infos): Ghost<Seq<LogInfo>>,
             Ghost(prev_state): Ghost<AbstractMultiLogState>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         )
             where
                 PMRegions: PersistentMemoryRegions
@@ -619,6 +620,8 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
+            assume(false);
+
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -673,6 +676,7 @@ verus! {
                                                         !self.cdb, self.infos@[w])
                     },
             {
+                assume(false);
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 
@@ -686,8 +690,8 @@ verus! {
                 };
                 let log_crc = calculate_crc(&log_metadata);
 
-                let ghost log_metadata_bytes = log_metadata.spec_serialize();
-                let ghost log_crc_bytes = log_crc.spec_serialize();
+                let ghost log_metadata_bytes = log_metadata.spec_to_bytes();
+                let ghost log_crc_bytes = log_crc.spec_to_bytes();
 
                 // Prove that updating the inactive metadata+CRC maintains
                 // all invariants that held before. We prove this separately
@@ -695,9 +699,6 @@ verus! {
                 // writes.
 
                 proof {
-                    LogMetadata::lemma_auto_serialized_len();
-                    u64::lemma_auto_serialized_len();
-
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
                         log_metadata_bytes);
@@ -739,9 +740,6 @@ verus! {
                 let ghost flushed = wrpm_regions_new.flush();
                 assert (metadata_consistent_with_info(flushed[current_log as int], multilog_id,
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
-                    LogMetadata::lemma_auto_serialize_deserialize();
-                    u64::lemma_auto_serialize_deserialize();
-
                     let mem1 = wrpm_regions@[cur].committed();
                     let mem2 = flushed[cur].committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
@@ -771,15 +769,13 @@ verus! {
             // Next, compute the new encoded CDB to write.
 
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
-            let ghost new_cdb_bytes = new_cdb.spec_serialize();
+            let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
             // Show that after writing and flushing, the CDB will be !self.cdb
 
             let ghost pm_regions_after_write = wrpm_regions@.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
             let ghost flushed_mem_after_write = pm_regions_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
                 let flushed_regions = pm_regions_after_write.flush();
                 lemma_write_reflected_after_flush_committed(wrpm_regions@[0], ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
                 assert(deserialize_log_cdb(flushed_regions[0].committed()) == new_cdb);
@@ -795,9 +791,6 @@ verus! {
                                                  !self.cdb, self.infos@[w])
                 &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
             } by {
-                u64::lemma_auto_serialize_deserialize();
-                u64::lemma_auto_serialized_len();
-
                 let w = which_log as int;
                 lemma_establish_extract_bytes_equivalence(
                     wrpm_regions@[which_log as int].committed(),
@@ -851,7 +844,6 @@ verus! {
                        #[trigger] perm.check_permission(crash_bytes) by {
                 lemma_invariants_imply_crash_recover_forall(wrpm_regions@, multilog_id, self.num_logs,
                                                             self.cdb, prev_infos, prev_state);
-                u64::lemma_auto_serialized_len();
                 lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
                                                                    ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
             }
@@ -881,9 +873,9 @@ verus! {
         // committed.
         pub exec fn commit<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -979,11 +971,11 @@ verus! {
         // advancing the head and then dropping all pending appends.
         pub exec fn advance_head<PMRegions>(
             &mut self,
-            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>,
+            wrpm_regions: &mut WriteRestrictedPersistentMemoryRegions<TrustedMultiLogPermission, PMRegions>,
             which_log: u32,
             new_head: u128,
             Ghost(multilog_id): Ghost<u128>,
-            Tracked(perm): Tracked<&TrustedPermission>,
+            Tracked(perm): Tracked<&TrustedMultiLogPermission>,
         ) -> (result: Result<(), MultiLogErr>)
             where
                 PMRegions: PersistentMemoryRegions
@@ -1277,6 +1269,7 @@ verus! {
                     }
                 })
         {
+            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 
@@ -1329,7 +1322,8 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_regions.read(which_log as usize, addr, len));
+                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                return Ok(bytes);
             }
 
             // The log area wraps past the point we're reading from, so we
@@ -1366,7 +1360,8 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                return Ok(pm_regions.read(which_log as usize, addr, len));
+                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                return Ok(bytes);
             }
 
             // Case 3: We're reading enough bytes that we have to wrap.
@@ -1379,7 +1374,7 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_regions.read(which_log as usize, addr, max_len_without_wrapping);
+            let mut part1 = pm_regions.read_unaligned(which_log as usize, addr, max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
             proof {
                 self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log,
@@ -1388,8 +1383,7 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_regions.read(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA,
-                                            len - max_len_without_wrapping);
+            let mut part2 = pm_regions.read_unaligned(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that

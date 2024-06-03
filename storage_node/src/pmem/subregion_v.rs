@@ -176,13 +176,64 @@ impl PersistentMemorySubregion
         &&& self.opaque_inv(wrpm, perm)
     }
 
-    pub exec fn read_relative<Perm, PMRegion>(
+    pub exec fn read_relative_aligned<Perm, PMRegion, S>(
+        self: &Self,
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        relative_addr: u64,
+        Ghost(true_val): Ghost<S>,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+            S: PmCopy,
+        requires
+            self.inv(wrpm, perm),
+            relative_addr < relative_addr + S::spec_size_of() <= self.len(),
+            self.view(wrpm).no_outstanding_writes_in_range(relative_addr as int, relative_addr + S::spec_size_of()),
+            self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of()) == true_val.spec_to_bytes(),
+        ensures
+            match result {
+                Ok(bytes) => {
+                    let true_bytes = self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of());
+                    // If the persistent memory region is impervious
+                    // to corruption, read returns the last bytes
+                    // written. Otherwise, it returns a
+                    // possibly-corrupted version of those bytes.
+                    if wrpm.constants().impervious_to_corruption {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        // The addresses in `maybe_corrupted` reflect the fact
+                        // that we're reading from a subregion at a certain
+                        // start.
+                        let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| relative_addr + self.start() + i);
+                        maybe_corrupted(bytes@, true_bytes, absolute_addrs)
+                    }
+                }
+                Err(e) => e == PmemError::AccessOutOfRange
+            }
+    {
+        let ghost true_bytes1 = self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of());
+        let ghost true_bytes2 = wrpm@.committed().subrange(self.start() + relative_addr,
+                                                           self.start() + relative_addr + S::spec_size_of());
+        assert(true_bytes1 =~= true_bytes2);
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   relative_addr + self.start_ <= i < relative_addr + self.start_ + S::spec_size_of() implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+
+        wrpm.get_pm_region_ref().read_aligned::<S>(relative_addr + self.start_, Ghost(true_val))
+    }
+
+    pub exec fn read_relative_unaligned<Perm, PMRegion>(
         self: &Self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         relative_addr: u64,
         num_bytes: u64,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (bytes: Vec<u8>)
+    ) -> (result: Result<Vec<u8>, PmemError>)
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
@@ -191,23 +242,26 @@ impl PersistentMemorySubregion
             relative_addr + num_bytes <= self.len(),
             self.view(wrpm).no_outstanding_writes_in_range(relative_addr as int, relative_addr + num_bytes),
         ensures
-            ({
-                let true_bytes = self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + num_bytes);
-                // If the persistent memory region is impervious
-                // to corruption, read returns the last bytes
-                // written. Otherwise, it returns a
-                // possibly-corrupted version of those bytes.
-                if wrpm.constants().impervious_to_corruption {
-                    bytes@ == true_bytes
+            match result {
+                Ok(bytes) => {
+                    let true_bytes = self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + num_bytes);
+                    // If the persistent memory region is impervious
+                    // to corruption, read returns the last bytes
+                    // written. Otherwise, it returns a
+                    // possibly-corrupted version of those bytes.
+                    if wrpm.constants().impervious_to_corruption {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        // The addresses in `maybe_corrupted` reflect the fact
+                        // that we're reading from a subregion at a certain
+                        // start.
+                        let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| relative_addr + self.start() + i);
+                        maybe_corrupted(bytes@, true_bytes, absolute_addrs)
+                    }
                 }
-                else {
-                    // The addresses in `maybe_corrupted` reflect the fact
-                    // that we're reading from a subregion at a certain
-                    // start.
-                    let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| relative_addr + self.start() + i);
-                    maybe_corrupted(bytes@, true_bytes, absolute_addrs)
-                }
-            })
+                Err(e) => e == PmemError::AccessOutOfRange
+            }
     {
         let ghost true_bytes1 = self.view(wrpm).committed().subrange(relative_addr as int, relative_addr + num_bytes);
         let ghost true_bytes2 = wrpm@.committed().subrange(self.start() + relative_addr,
@@ -218,16 +272,79 @@ impl PersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
-        wrpm.get_pm_region_ref().read(relative_addr + self.start_, num_bytes)
+        wrpm.get_pm_region_ref().read_unaligned(relative_addr + self.start_, num_bytes)
     }
 
-    pub exec fn read_absolute<Perm, PMRegion>(
+    pub exec fn read_absolute_aligned<Perm, PMRegion, S>(
+        self: &Self,
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        absolute_addr: u64,
+        Ghost(true_val): Ghost<S>,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+            S: PmCopy,
+        requires
+            self.inv(wrpm, perm),
+            self.start() <= absolute_addr,
+            absolute_addr < absolute_addr + S::spec_size_of() <= self.end(),
+            self.view(wrpm).no_outstanding_writes_in_range(
+                absolute_addr - self.start(),
+                absolute_addr + S::spec_size_of() - self.start(),
+            ),
+            self.view(wrpm).committed().subrange(absolute_addr - self.start(), absolute_addr + S::spec_size_of() - self.start()) == true_val.spec_to_bytes(),
+        ensures
+            match result {
+                Ok(bytes) => {
+                    let true_bytes = self.view(wrpm).committed().subrange(
+                        absolute_addr - self.start(),
+                        absolute_addr + S::spec_size_of() - self.start()
+                    );
+                    // If the persistent memory region is impervious
+                    // to corruption, read returns the last bytes
+                    // written. Otherwise, it returns a
+                    // possibly-corrupted version of those bytes.
+                    if wrpm.constants().impervious_to_corruption {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        // The addresses in `maybe_corrupted` reflect the fact
+                        // that we're reading from a subregion at a certain
+                        // start.
+                        let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);
+                        maybe_corrupted(bytes@, true_bytes, absolute_addrs)
+                    }
+                }
+                Err(e) => e == PmemError::AccessOutOfRange,
+            }
+    {
+        let ghost true_bytes1 = self.view(wrpm).committed().subrange(
+            absolute_addr - self.start(),
+            absolute_addr + S::spec_size_of() - self.start(),
+        );
+        let ghost true_bytes2 = wrpm@.committed().subrange(
+            absolute_addr as int,
+            absolute_addr + S::spec_size_of()
+        );
+        assert(true_bytes1 =~= true_bytes2);
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   absolute_addr <= i < absolute_addr + S::spec_size_of() implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+
+        wrpm.get_pm_region_ref().read_aligned::<S>(absolute_addr, Ghost(true_val))
+    }
+
+    pub exec fn read_absolute_unaligned<Perm, PMRegion>(
         self: &Self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         absolute_addr: u64,
         num_bytes: u64,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (bytes: Vec<u8>)
+    ) -> (result: Result<Vec<u8>, PmemError>)
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
@@ -240,26 +357,29 @@ impl PersistentMemorySubregion
                 absolute_addr + num_bytes - self.start(),
             ),
         ensures
-            ({
-                let true_bytes = self.view(wrpm).committed().subrange(
-                    absolute_addr - self.start(),
-                    absolute_addr + num_bytes - self.start()
-                );
-                // If the persistent memory region is impervious
-                // to corruption, read returns the last bytes
-                // written. Otherwise, it returns a
-                // possibly-corrupted version of those bytes.
-                if wrpm.constants().impervious_to_corruption {
-                    bytes@ == true_bytes
+            match result {
+                Ok(bytes) => {
+                    let true_bytes = self.view(wrpm).committed().subrange(
+                        absolute_addr - self.start(),
+                        absolute_addr + num_bytes - self.start()
+                    );
+                    // If the persistent memory region is impervious
+                    // to corruption, read returns the last bytes
+                    // written. Otherwise, it returns a
+                    // possibly-corrupted version of those bytes.
+                    if wrpm.constants().impervious_to_corruption {
+                        bytes@ == true_bytes
+                    }
+                    else {
+                        // The addresses in `maybe_corrupted` reflect the fact
+                        // that we're reading from a subregion at a certain
+                        // start.
+                        let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| absolute_addr + i);
+                        maybe_corrupted(bytes@, true_bytes, absolute_addrs)
+                    }
                 }
-                else {
-                    // The addresses in `maybe_corrupted` reflect the fact
-                    // that we're reading from a subregion at a certain
-                    // start.
-                    let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| absolute_addr + i);
-                    maybe_corrupted(bytes@, true_bytes, absolute_addrs)
-                }
-            })
+                Err(e) => e == PmemError::AccessOutOfRange,
+            }
     {
         let ghost true_bytes1 = self.view(wrpm).committed().subrange(
             absolute_addr - self.start(),
@@ -275,8 +395,9 @@ impl PersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
-        wrpm.get_pm_region_ref().read(absolute_addr, num_bytes)
+        wrpm.get_pm_region_ref().read_unaligned(absolute_addr, num_bytes)
     }
+
 
     pub exec fn write_relative<Perm, PMRegion>(
         self: &Self,

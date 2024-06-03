@@ -68,31 +68,26 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+            where 
+                S: PmCopy 
         {
-            let addr_usize: usize = addr.try_into().unwrap();
-            let num_bytes_usize: usize = num_bytes.try_into().unwrap();
-            self.contents[addr_usize..addr_usize+num_bytes_usize].to_vec()
+            let pm_slice = &self.contents[addr as usize..addr as usize + S::size_of() as usize];
+            let ghost addrs = Seq::new(S::spec_size_of(), |i: int| addr + i);
+
+            let mut maybe_corrupted_val = MaybeCorrupted::new();
+            maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
+
+            Ok(maybe_corrupted_val)
         }
 
         #[verifier::external_body]
-        fn read_and_deserialize<S>(&self, addr: u64) -> &S
-            where
-                S: Serializable + Sized
+        fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
         {
-            let addr_usize: usize = addr.try_into().unwrap();
-            let num_bytes: usize = S::serialized_len().try_into().unwrap();
-            let bytes = &self.contents[addr_usize..addr_usize+num_bytes];
-            // SAFETY: The precondition of the method ensures that we do not
-            // attempt to read out of bounds. The user of the mock is responsible
-            // for ensuring that there is a valid S at this address and checking
-            // for corruption. The function signature should (TODO: make sure)
-            // borrow check the returned value properly.
-            unsafe {
-                let bytes_pointer = bytes.as_ptr();
-                let s_pointer = bytes_pointer as *const S;
-                &(*s_pointer)
-            }
+            let pm_slice = &self.contents[addr as usize..addr as usize + num_bytes as usize];
+            let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
+            unaligned_buffer.extend_from_slice(pm_slice);
+            Ok(unaligned_buffer)
         }
 
         #[verifier::external_body]
@@ -105,10 +100,10 @@ verus! {
         #[verifier::external_body]
         fn serialize_and_write<S>(&mut self, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: PmCopy + Sized
         {
             let addr_usize: usize = addr.try_into().unwrap();
-            let num_bytes: usize = S::serialized_len().try_into().unwrap();
+            let num_bytes: usize = S::size_of().try_into().unwrap();
             let s_pointer = to_write as *const S;
             let bytes_pointer = s_pointer as *const u8;
             // SAFETY: `bytes_pointer` always points to `num_bytes` consecutive, initialized
@@ -190,17 +185,17 @@ verus! {
         }
 
         #[verifier::external_body]
-        fn read(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
+        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+            where 
+                S: PmCopy
         {
-            self.regions[index].read(addr, num_bytes)
+            self.regions[index].read_aligned::<S>(addr, Ghost(true_val))
         }
 
         #[verifier::external_body]
-        fn read_and_deserialize<S>(&self, index: usize, addr: u64) -> &S
-            where
-                S: Serializable + Sized
+        fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
         {
-            self.regions[index].read_and_deserialize(addr)
+            self.regions[index].read_unaligned(addr, num_bytes)
         }
 
         #[verifier::external_body]
@@ -212,7 +207,7 @@ verus! {
         #[verifier::external_body]
         fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
             where
-                S: Serializable + Sized
+                S: PmCopy + Sized
         {
             self.regions[index].serialize_and_write(addr, to_write);
         }
