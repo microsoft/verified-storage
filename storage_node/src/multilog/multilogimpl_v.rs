@@ -17,7 +17,7 @@ use crate::multilog::start_v::{read_cdb, read_logs_variables};
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;

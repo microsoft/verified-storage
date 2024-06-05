@@ -9,7 +9,7 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use builtin::*;
 use builtin_macros::*;

@@ -10,7 +10,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use deps_hack::rand::Rng;

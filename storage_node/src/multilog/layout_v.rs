@@ -58,8 +58,8 @@
 use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
-use crate::pmem::markers_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;

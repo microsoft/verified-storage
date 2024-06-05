@@ -13,7 +13,7 @@ use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE, CDB_SIZE};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;

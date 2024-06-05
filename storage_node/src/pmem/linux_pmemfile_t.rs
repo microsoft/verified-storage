@@ -1,5 +1,5 @@
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use core::ffi::c_void;
 use core::slice;
 use std::{cell::RefCell, convert::TryInto, ffi::CString, rc::Rc};

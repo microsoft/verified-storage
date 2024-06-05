@@ -32,7 +32,7 @@
 //! use of CRCs to detect possible corruption, and model a CRC match
 //! as showing evidence of an absence of corruption.
 
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;

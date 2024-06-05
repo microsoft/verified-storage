@@ -6,7 +6,7 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use vstd::layout::*;
-use crate::pmem::markers_t::{PmSafe, PmSized, ConstPmSized};
+use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized};
 
 use deps_hack::{crc64fast::Digest, pmsized_primitive};
 use core::slice;

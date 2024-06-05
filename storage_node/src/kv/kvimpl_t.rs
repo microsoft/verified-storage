@@ -30,7 +30,7 @@ use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {

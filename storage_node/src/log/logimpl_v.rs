@@ -14,7 +14,7 @@ use crate::log::setup_v::write_setup_metadata;
 use crate::log::start_v::{read_cdb, read_log_variables};
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;

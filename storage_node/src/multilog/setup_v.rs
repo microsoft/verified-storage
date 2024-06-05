@@ -11,7 +11,7 @@ use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
