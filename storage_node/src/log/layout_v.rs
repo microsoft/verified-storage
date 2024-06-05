@@ -56,8 +56,8 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 // use crate::pm_sized;
-use crate::pmem::markers_t::PmSafe;
-use deps_hack::PmSafe;
+use crate::pmem::markers_t::*;
+use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -110,34 +110,34 @@ verus! {
     // These structs represent the different levels of metadata.
     // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
-    pm_sized!{
-        pub struct GlobalMetadata {
-            pub version_number: u64,
-            pub length_of_region_metadata: u64,
-            pub program_guid: u128,
-        }
+    #[repr(C)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    pub struct GlobalMetadata {
+        pub version_number: u64,
+        pub length_of_region_metadata: u64,
+        pub program_guid: u128,
     }
+
 
     impl PmCopy for GlobalMetadata {}
 
     
-    
-    pm_sized! {
-        pub struct RegionMetadata {
-            pub region_size: u64,
-            pub log_area_len: u64,
-            pub log_id: u128,
-        }
+    #[repr(C)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    pub struct RegionMetadata {
+        pub region_size: u64,
+        pub log_area_len: u64,
+        pub log_id: u128,
     }
 
     impl PmCopy for RegionMetadata {}
 
-    pm_sized! {
-        pub struct LogMetadata {
-            pub log_length: u64,
-            pub _padding: u64,
-            pub head: u128,
-        }
+    #[repr(C)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    pub struct LogMetadata {
+        pub log_length: u64,
+        pub _padding: u64,
+        pub head: u128,
     }
 
     impl PmCopy for LogMetadata {}

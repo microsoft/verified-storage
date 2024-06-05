@@ -6,9 +6,9 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use vstd::layout::*;
-use crate::pmem::markers_t::PmSafe;
+use crate::pmem::markers_t::{PmSafe, PmSized};
 
-use deps_hack::crc64fast::Digest;
+use deps_hack::{crc64fast::Digest, pmsized_primitive};
 use core::slice;
 use std::convert::TryInto;
 use std::ptr;
@@ -17,13 +17,14 @@ use std::mem::MaybeUninit;
 verus! {
     // TODO: better name? "PmCopy" is not really accurate anymore. PmCopy?
     // Objects can only be written to PM if they derive PmSafe
-    pub trait PmCopy : PmSized + Sized + PmSafe + Copy {}
+    // pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
+    pub trait PmCopy :  Sized + PmSafe + Copy {}
     pub trait PmCopyHelper : PmCopy {
         spec fn spec_to_bytes(self) -> Seq<u8>;
 
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        // spec fn spec_size_of() -> nat;
+        spec fn spec_size_of() -> nat;
 
         spec fn spec_crc(self) -> u64;
 
@@ -52,7 +53,7 @@ verus! {
 
         closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        // closed spec fn spec_size_of() -> nat;
+        closed spec fn spec_size_of() -> nat;
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
@@ -200,127 +201,109 @@ verus! {
     // TODO: is this actually necessary? NO- remove
     pub closed spec fn vec_is_volatile(bytes: Vec<u8>) -> bool;
 
+    // pub trait PmSized: PmSafe + SpecPmSized {//+ PmCheckSize {
+    //     #[verifier::external]
+    //     const SIZE_CHECK: usize;
 
-    pub trait PmSized: PmSafe {
-        spec fn spec_size_of() -> nat;
+    //     fn size_of() -> (out: usize)
+    //         requires
+    //             Self::spec_size_of() <= usize::MAX as nat,
+    //         ensures 
+    //             out as int == Self::spec_size_of();
+    //     // spec fn spec_size_of() -> int;
+
+    //     fn align_of() -> (out: usize)
+    //         ensures 
+    //             out > 0,
+    //             out as int == Self::spec_align_of();
+    //     // spec fn spec_align_of() -> int;
+    // }
+
+    pub trait SpecPmSized : PmSafe {
+        spec fn spec_size_of() -> int;
+        spec fn spec_align_of() -> int;
     }
 
     global size_of usize == 8;
     global size_of isize == 8;
 
-    // TODO: this macro doesn't work if there are any non-pub fields.
-    macro_rules! pm_sized{
-        ($v:vis struct $name:ident { $(pub $f_name:ident: $f_type:ty),* $(,)? }) => {
-            ::builtin_macros::verus! {
-                #[repr(C)]
-                #[derive(PmSafe, Copy, Clone)]
-                $v struct $name { 
-                    $(
-                    pub $f_name: $f_type,
-                    )*
-                }
-                impl PmSized for $name {
-                    open spec fn spec_size_of() -> nat {
-                        $(
-                            (<$f_type>::spec_size_of())+
-                        )*
-                        0
-                    }
-                }
-            }
-        };
-    }
-
-    pub(crate) use pm_sized;
-
     // Manual trusted implementations of PmSized for safe primitive types.
     // The sizes of all other types are derived from these. They should be audited
     // to ensure they match the actual sizes of the types. We specify earlier 
     // that usize and isize are 8 bytes
-    impl PmSized for u8 {
-        open spec fn spec_size_of() -> nat {
-            1
-        }
-    }
-    impl PmSized for u16 {
-        open spec fn spec_size_of() -> nat {
-            2
-        }
-    }
-    impl PmSized for u32 {
-        open spec fn spec_size_of() -> nat {
-            4
-        }
-    }
-    impl PmSized for u64 {
-        open spec fn spec_size_of() -> nat {
-            8
-        }
-    }
-    impl PmSized for u128 {
-        open spec fn spec_size_of() -> nat {
-            16
-        }
-    }
-    impl PmSized for usize {
-        open spec fn spec_size_of() -> nat {
-            8
-        }
-    }
-    impl PmSized for i8 {
-        open spec fn spec_size_of() -> nat {
-            1
-        }
-    }
-    impl PmSized for i16 {
-        open spec fn spec_size_of() -> nat {
-            2
-        }
-    }
-    impl PmSized for i32 {
-        open spec fn spec_size_of() -> nat {
-            4
-        }
-    }
-    impl PmSized for i64 {
-        open spec fn spec_size_of() -> nat {
-            8
-        }
-    }
-    impl PmSized for i128 {
-        open spec fn spec_size_of() -> nat {
-            16
-        }
-    }
-    impl PmSized for isize {
-        open spec fn spec_size_of() -> nat {
-            8
-        }
-    }
-    impl<T: PmSized, const N: usize> PmSized for [T; N] {
-        open spec fn spec_size_of() -> nat {
-            (N * T::spec_size_of()) as nat
-        }
-    }
-    impl PmSized for bool {
-        open spec fn spec_size_of() -> nat {
-            1
-        }
-    }
-    impl PmSized for char {
-        open spec fn spec_size_of() -> nat {
-            4
-        }
-    }
-    // impl PmSized for f32 {
-    //     open spec fn spec_size_of() -> nat {
-    //         4
+
+    pmsized_primitive!(u8);
+    pmsized_primitive!(u16);
+    pmsized_primitive!(u32);
+    pmsized_primitive!(u64);
+    pmsized_primitive!(u128);
+    pmsized_primitive!(usize);
+    pmsized_primitive!(i8);
+    pmsized_primitive!(i16);
+    pmsized_primitive!(i32);
+    pmsized_primitive!(i64);
+    pmsized_primitive!(i128);
+    pmsized_primitive!(isize);
+    pmsized_primitive!(bool);
+    pmsized_primitive!(char);
+    // pmsized_primitive!(f32);
+    // pmsized_primitive!(f64);
+
+    // TODO: discuss this one... it's a bit harder
+
+    // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> PmSized for [T; N] {
+    //     open spec fn spec_size_of() -> int
+    //     {
+    //         N * T::spec_size_of()
+    //     }     
+
+    //     fn size_of() -> usize 
+    //     {
+    //         N * T::size_of()
+    //     }
+        
+    //     open spec fn spec_align_of() -> int
+    //     {
+    //         T::spec_align_of()
+    //     }
+
+    //     fn align_of() -> usize {
+    //         T::align_of()
     //     }
     // }
-    // impl PmSized for f64 {
-    //     open spec fn spec_size_of() -> nat {
-    //         8
-    //     }
+
+    // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> const PmCheckSize for [T; N] {
+    //     const SIZE: usize = Self::size_of();
+    //     const SIZE_CHECK: usize = (core::mem::size_of::<Self>() == Self::SIZE) as usize - 1;
     // }
+
+    // Algorithm for determining the amount of padding needed before the next field 
+    // to ensure it is aligned for a repr(C) function. 
+    // https://doc.rust-lang.org/reference/type-layout.html#the-c-representation
+    pub open spec fn spec_padding_needed(offset: int, align: int) -> int
+    {
+        let misalignment = offset % align;
+        if misalignment > 0 {
+            align - misalignment
+        } else {
+            0
+        }
+    }
+
+    // #[verifier::when_used_as_spec(spec_padding_needed)]
+    pub const fn padding_needed(offset: usize, align: usize) -> (out: usize) 
+        requires 
+            align > 0,
+        ensures 
+            out <= align,
+            out as int == spec_padding_needed(offset as int, align as int)
+    {
+        let misalignment = offset % align;
+        if misalignment > 0 {
+            align - misalignment
+        } else {
+            0
+        }
+    }
 
 }

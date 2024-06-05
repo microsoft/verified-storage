@@ -156,7 +156,7 @@ verus! {
         let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + CRC_SIZE);
 
-        let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_size_of(), |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
+        let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
         let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
 
         let global_metadata = pm_regions.read_aligned::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
@@ -202,7 +202,7 @@ verus! {
 
         // Read the region metadata and its CRC, and check that the
         // CRC matches.
-        let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of(), |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
+        let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
         let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
         let ghost true_region_metadata = choose |metadata: RegionMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of());
@@ -281,7 +281,7 @@ verus! {
         let log_metadata = pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos, Ghost(true_log_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
         let log_crc = pm_regions.read_aligned::<u64>(which_log as usize, log_crc_pos, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
-        let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of(), |i: int| log_metadata_pos + i);
+        let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
         let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| log_crc_pos + i);
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
                                     Ghost(log_metadata_addrs), Ghost(crc_addrs)) {

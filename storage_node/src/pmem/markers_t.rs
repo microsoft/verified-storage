@@ -32,9 +32,36 @@ unsafe impl PmSafe for char {}
 unsafe impl PmSafe for f32 {} 
 unsafe impl PmSafe for f64 {}
 
+#[const_trait]
+pub trait PmSized {
+    // #[verifier::external]
+    const SIZE_CHECK: usize;
+
+    fn size_of() -> usize;
+        // requires
+        //     Self::spec_size_of() <= usize::MAX as nat,
+        // ensures 
+        //     out as int == Self::spec_size_of();
+    // spec fn spec_size_of() -> int;
+
+    fn align_of() -> usize;
+        // ensures 
+        //     out > 0,
+        //     out as int == Self::spec_align_of();
+    // spec fn spec_align_of() -> int;
+}
+
 verus! {
     #[verifier::external_trait_specification]
     pub trait ExPmSafe {
         type ExternalTraitSpecificationFor: PmSafe;
+    }
+
+    #[verifier::external_trait_specification]
+    pub trait ExPmSized {
+        type ExternalTraitSpecificationFor: PmSized;
+
+        fn size_of() -> usize;
+        fn align_of() -> usize;
     }
 }

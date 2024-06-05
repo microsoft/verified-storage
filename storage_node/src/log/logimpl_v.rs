@@ -1236,6 +1236,7 @@ verus! {
                             &&& pos + len > log.head + log.log.len()
                             &&& tail == log.head + log.log.len()
                         },
+                        Err(LogErr::PmemErr { err }) => true,
                         _ => false
                     }
                 })

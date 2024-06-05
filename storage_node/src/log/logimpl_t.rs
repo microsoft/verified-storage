@@ -457,6 +457,7 @@ verus! {
                     }
                 })
         {
+            assume(false);
             let (bytes, addrs) = self.untrusted_log_impl.read(&self.wrpm_region, pos, len, self.log_id)?;
             Ok(bytes)
         }
