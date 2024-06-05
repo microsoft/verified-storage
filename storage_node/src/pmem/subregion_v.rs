@@ -37,7 +37,7 @@ pub open spec fn views_differ_only_where_subregion_allows(
     } ==> v1.state[addr] == #[trigger] v2.state[addr]
 }
 
-pub struct PersistentMemorySubregion
+pub struct WriteRestrictedPersistentMemorySubregion
 {
     start_: u64,
     len_: Ghost<u64>,
@@ -46,7 +46,7 @@ pub struct PersistentMemorySubregion
     is_writable_absolute_addr_fn_: Ghost<spec_fn(int) -> bool>,
 }
 
-impl PersistentMemorySubregion
+impl WriteRestrictedPersistentMemorySubregion
 {
     pub exec fn new<Perm, PMRegion>(
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
