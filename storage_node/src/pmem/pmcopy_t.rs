@@ -6,7 +6,7 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use vstd::layout::*;
-use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized};
+use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
 
 use deps_hack::{crc64fast::Digest, pmsized_primitive};
 use core::slice;
@@ -38,9 +38,17 @@ verus! {
                 forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
 
         // TODO: is this safe?
-        proof fn axiom_to_from_bytes(self, bytes: Seq<u8>)
+        proof fn axiom_to_from_bytes()
             ensures 
-                self.spec_to_bytes() == bytes <==> self == Self::spec_from_bytes(bytes);
+                forall |s: Self| #![auto] s == Self::spec_from_bytes(s.spec_to_bytes()),
+        ;
+
+        proof fn axiom_from_to_bytes(bytes: Seq<u8>)
+            requires 
+                exists |s: Self| bytes == s.spec_to_bytes(),
+            ensures 
+                bytes == Self::spec_from_bytes(bytes).spec_to_bytes(),
+        ;
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
@@ -66,12 +74,12 @@ verus! {
 
         #[verifier::external_body]
         proof fn axiom_bytes_len() {}
-
         
         #[verifier::external_body]
-        proof fn axiom_to_from_bytes(self, bytes: Seq<u8>) {}
+        proof fn axiom_to_from_bytes() {}
 
-
+        #[verifier::external_body]
+        proof fn axiom_from_to_bytes(bytes: Seq<u8>) {}
     }
 
     // // This should be true for every PmCopy type, but making it default does not automatically
@@ -191,7 +199,7 @@ verus! {
     global size_of usize == 8;
     global size_of isize == 8;
 
-    pub trait SpecPmSized {
+    pub trait SpecPmSized : UnsafeSpecPmSized {
         spec fn spec_size_of() -> int;
         spec fn spec_align_of() -> int;
     }

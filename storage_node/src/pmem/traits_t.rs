@@ -3,6 +3,8 @@ use builtin::*;
 use vstd::prelude::*;
 use deps_hack::PmSafe;
 
+use super::pmcopy_t::SpecPmSized;
+
 pub unsafe trait PmSafe {}
 
 // Numeric types and arrays are all always PmSafe.
@@ -39,7 +41,7 @@ verus! {
     }
 
     #[verifier::external_trait_specification]
-    pub trait ExPmSized : crate::pmem::pmcopy_t::SpecPmSized {
+    pub trait ExPmSized : SpecPmSized {
         type ExternalTraitSpecificationFor: PmSized;
 
         fn size_of() -> (out: usize)
@@ -48,6 +50,11 @@ verus! {
         fn align_of() -> (out: usize)
             ensures 
                 out as int == Self::spec_align_of();
+    }
+
+    #[verifier::external_trait_specification]
+    pub trait ExUnsafeSpecPmSized {
+        type ExternalTraitSpecificationFor: UnsafeSpecPmSized;
     }
 }
 
@@ -61,13 +68,15 @@ verus! {
 // 
 // Ideally, this would be a constant trait defined within Verus, with verified methods. This is 
 // not currently possible due to limitations in Verus, so we have to use this workaround.
-pub trait PmSized : crate::pmem::pmcopy_t::SpecPmSized {
+pub unsafe trait PmSized : SpecPmSized {
     fn size_of() -> usize;
     fn align_of() -> usize;
 }
 
 
-pub trait ConstPmSized {
+pub unsafe trait ConstPmSized {
     const SIZE: usize;
     const ALIGN: usize;
 }
+
+pub unsafe trait UnsafeSpecPmSized {}

@@ -192,12 +192,12 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
             }  
         );
 
-        impl PmSized for #name {
+        unsafe impl PmSized for #name {
             fn size_of() -> usize { Self::SIZE }
             fn align_of() -> usize { Self::ALIGN }
         }
 
-        impl ConstPmSized for #name {
+        unsafe impl ConstPmSized for #name {
             const SIZE: usize = {
                 let offset: usize = 0;
                 #( #exec_tokens_vec )*
@@ -213,6 +213,8 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
 
     const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
     const #align_check: usize = (core::mem::align_of::<#name>() == <#name>::ALIGN) as usize - 1;
+
+    unsafe impl UnsafeSpecPmSized for #name {}
 
 
     };
@@ -296,22 +298,24 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
         ::builtin_macros::verus!(
             impl SpecPmSized for #ty {
                 open spec fn spec_size_of() -> ::builtin::int { #size as ::builtin::int }
-                open spec fn spec_align_of() -> ::builtin::int { #size as ::builtin::int }
+                open spec fn spec_align_of() -> ::builtin::int { #align as ::builtin::int }
             }
         );
 
-        impl PmSized for #ty {
+        unsafe impl PmSized for #ty {
             fn size_of() -> usize { Self::SIZE }
             fn align_of() -> usize { Self::ALIGN }
         }
 
-        impl ConstPmSized for #ty {
+        unsafe impl ConstPmSized for #ty {
             const SIZE: usize = #size;
             const ALIGN: usize = #align;
         }
 
         const #size_check: usize = (core::mem::size_of::<#ty>() == <#ty>::SIZE) as usize - 1;
         const #align_check: usize = (core::mem::align_of::<#ty>() == <#ty>::ALIGN) as usize - 1;
+
+        unsafe impl UnsafeSpecPmSized for #ty {}
     };
     gen.into()
 }
