@@ -89,8 +89,6 @@ verus! {
     pub const RELATIVE_POS_OF_LOG_PADDING: u64 = 8;
     pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 16;
     pub const LENGTH_OF_LOG_METADATA: u64 = 32;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 160;
     pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 256;
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
@@ -434,48 +432,14 @@ verus! {
     {
         if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
     }
-
-    // This function computes where the log metadata ends in a
-    // persistent-memory region (i.e., the index of the byte just past
-    // the end of the log metadata) given the current boolean
-    // value `cdb` of the corruption-detecting boolean.
-    pub open spec fn get_log_crc_end(cdb: bool) -> u64
+    // This function extracts the log metadata and its CRC from the
+    // `bytes` where they're stored.
+    
+    pub open spec fn deserialize_log_metadata_and_crc(bytes: Seq<u8>) -> (LogMetadata, u64)
     {
-        (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
-    }
-
-    // This function extracts the bytes encoding log metadata from
-    // the contents `mem` of a persistent memory region. It needs to
-    // know the current boolean value `cdb` of the
-    // corruption-detecting boolean because there are two possible
-    // places for such metadata.
-    pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
-    {
-        let pos = get_log_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LENGTH_OF_LOG_METADATA as int)
-    }
-
-    pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
-    {
-        let bytes = extract_log_metadata(mem, cdb);
-        LogMetadata::spec_deserialize(bytes)
-    }
-
-    // This function extracts the CRC of the log metadata from the
-    // contents `mem` of a persistent memory region. It needs to know
-    // the current boolean value `cdb` of the corruption-detecting
-    // boolean because there are two possible places for that CRC.
-    pub open spec fn extract_log_crc(mem: Seq<u8>, cdb: bool) -> Seq<u8>
-    {
-        let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
-                  else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-        extract_bytes(mem, pos as int, CRC_SIZE as int)
-    }
-
-    pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
-    {
-        let bytes = extract_log_crc(mem, cdb);
-        u64::spec_deserialize(bytes)
+        let metadata_bytes = extract_bytes(bytes, 0, LENGTH_OF_LOG_METADATA as int);
+        let crc_bytes = extract_bytes(bytes, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int);
+        (LogMetadata::spec_deserialize(metadata_bytes), u64::spec_deserialize(crc_bytes))
     }
 
     // This function returns the 4-byte unsigned integer (i.e., u32)
@@ -746,8 +710,11 @@ verus! {
                                 None
                             }
                             else {
-                                let log_metadata = deserialize_log_metadata(mem, cdb);
-                                let log_crc = deserialize_log_crc(mem, cdb);
+                                let log_metadata_pos = get_log_metadata_pos(cdb);
+                                let log_metadata_and_crc_bytes = extract_bytes(mem, log_metadata_pos as int,
+                                                                               LENGTH_OF_LOG_METADATA + CRC_SIZE);
+                                let (log_metadata, log_crc) =
+                                    deserialize_log_metadata_and_crc(log_metadata_and_crc_bytes);
                                 if log_crc != log_metadata.spec_crc() {
                                     // To be valid, the log metadata CRC has to be a valid CRC of the
                                     // log metadata encoded as bytes. (This only applies to the

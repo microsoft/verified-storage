@@ -27,13 +27,13 @@ pub open spec fn views_differ_only_where_subregion_allows(
     v2: PersistentMemoryRegionView,
     start: u64,
     len: u64,
-    is_writable_absolute_addr: spec_fn(int) -> bool
+    is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
 {
     forall |addr: int| {
        ||| 0 <= addr < start
        ||| start + len <= addr < v1.len()
-       ||| start <= addr < start + len && !is_writable_absolute_addr(addr)
+       ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
     } ==> v1.state[addr] == #[trigger] v2.state[addr]
 }
 
@@ -43,7 +43,7 @@ pub struct PersistentMemorySubregion
     len_: Ghost<u64>,
     constants_: Ghost<PersistentMemoryConstants>,
     initial_region_view_: Ghost<PersistentMemoryRegionView>,
-    is_writable_absolute_addr_: Ghost<spec_fn(int) -> bool>,
+    is_writable_absolute_addr_fn_: Ghost<spec_fn(int) -> bool>,
 }
 
 impl PersistentMemorySubregion
@@ -53,7 +53,7 @@ impl PersistentMemorySubregion
         Tracked(perm): Tracked<&Perm>,
         start: u64,
         Ghost(len): Ghost<u64>,
-        Ghost(is_writable_absolute_addr): Ghost<spec_fn(int) -> bool>,
+        Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
     ) -> (result: Self)
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -65,7 +65,7 @@ impl PersistentMemorySubregion
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm@.len() == alt_region_view.len()
                 &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start, len,
-                                                           is_writable_absolute_addr)
+                                                           is_writable_absolute_addr_fn)
             } ==> perm.check_permission(crash_state),
         ensures
             result.inv(wrpm, perm),
@@ -73,7 +73,7 @@ impl PersistentMemorySubregion
             result.start() == start,
             result.len() == len,
             result.initial_region_view() == wrpm@,
-            result.is_writable_absolute_addr() == is_writable_absolute_addr,
+            result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
             result.view(wrpm) == result.initial_subregion_view(),
             result.view(wrpm) == get_subregion_view(wrpm@, start, len),
     {
@@ -82,7 +82,7 @@ impl PersistentMemorySubregion
             len_: Ghost(len),
             constants_: Ghost(wrpm.constants()),
             initial_region_view_: Ghost(wrpm@),
-            is_writable_absolute_addr_: Ghost(is_writable_absolute_addr),
+            is_writable_absolute_addr_fn_: Ghost(is_writable_absolute_addr_fn),
         };
         result
     }
@@ -112,14 +112,14 @@ impl PersistentMemorySubregion
         self.initial_region_view_@
     }
 
-    pub closed spec fn is_writable_absolute_addr(self) -> spec_fn(int) -> bool
+    pub closed spec fn is_writable_absolute_addr_fn(self) -> spec_fn(int) -> bool
     {
-        self.is_writable_absolute_addr_@
+        self.is_writable_absolute_addr_fn_@
     }
 
     pub open spec fn is_writable_relative_addr(self, addr: int) -> bool
     {
-        self.is_writable_absolute_addr()(addr + self.start())
+        self.is_writable_absolute_addr_fn()(addr + self.start())
     }
 
     pub closed spec fn initial_subregion_view(self) -> PersistentMemoryRegionView
@@ -154,12 +154,12 @@ impl PersistentMemorySubregion
         &&& self.start() + self.len() <= wrpm@.len()
         &&& self.view(wrpm).len() == self.len()
         &&& views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(), self.len(),
-                                                   self.is_writable_absolute_addr())
+                                                   self.is_writable_absolute_addr_fn())
         &&& forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
               &&& #[trigger] alt_region_view.can_crash_as(crash_state)
               &&& self.initial_region_view().len() == alt_region_view.len()
               &&& views_differ_only_where_subregion_allows(self.initial_region_view(), alt_region_view, self.start(),
-                                                         self.len(), self.is_writable_absolute_addr())
+                                                         self.len(), self.is_writable_absolute_addr_fn())
            } ==> perm.check_permission(crash_state)
     }
 
@@ -277,6 +277,106 @@ impl PersistentMemorySubregion
         }
         wrpm.get_pm_region_ref().read(absolute_addr, num_bytes)
     }
+ 
+    pub exec fn read_and_deserialize_relative<'a, S, Perm, PMRegion>(
+        self: &Self,
+        wrpm: &'a WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        relative_addr: u64,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (output: &'a S)
+        where
+            S: Serializable + Sized,
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(wrpm, perm),
+            relative_addr + S::spec_serialized_len() <= self.len(),
+            self.view(wrpm).no_outstanding_writes_in_range(
+                relative_addr as int,
+                relative_addr + S::spec_serialized_len(),
+            ),
+        ensures
+        ({
+            let true_bytes = self.view(wrpm).committed().subrange(
+                relative_addr as int,
+                relative_addr + S::spec_serialized_len(),
+            );
+            let true_val = S::spec_deserialize(true_bytes);
+            if self.constants().impervious_to_corruption {
+                output == true_val
+            } else {
+                maybe_corrupted_serialized(*output, true_val, relative_addr + self.start())
+            }
+        })
+    {
+        let absolute_addr = relative_addr + self.start_;
+        let ghost num_bytes = S::spec_serialized_len();
+        let ghost true_bytes1 = self.view(wrpm).committed().subrange(
+            relative_addr as int,
+            relative_addr + num_bytes,
+        );
+        let ghost true_bytes2 = wrpm@.committed().subrange(
+            absolute_addr as int,
+            absolute_addr + num_bytes
+        );
+        assert(true_bytes1 =~= true_bytes2);
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   absolute_addr <= i < absolute_addr + num_bytes implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+        wrpm.get_pm_region_ref().read_and_deserialize::<S>(absolute_addr)
+    }
+ 
+    pub exec fn read_and_deserialize_absolute<'a, S, Perm, PMRegion>(
+        self: &Self,
+        wrpm: &'a WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        absolute_addr: u64,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (output: &'a S)
+        where
+            S: Serializable + Sized,
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(wrpm, perm),
+            self.start() <= absolute_addr,
+            absolute_addr + S::spec_serialized_len() <= self.end(),
+            self.view(wrpm).no_outstanding_writes_in_range(
+                absolute_addr - self.start(),
+                absolute_addr + S::spec_serialized_len() - self.start(),
+            ),
+        ensures
+        ({
+            let true_bytes = self.view(wrpm).committed().subrange(
+                absolute_addr - self.start(),
+                absolute_addr + S::spec_serialized_len() - self.start()
+            );
+            let true_val = S::spec_deserialize(true_bytes);
+            if self.constants().impervious_to_corruption {
+                output == true_val
+            } else {
+                maybe_corrupted_serialized(*output, true_val, absolute_addr as int)
+            }
+        })
+    {
+        let ghost num_bytes = S::spec_serialized_len();
+        let ghost true_bytes1 = self.view(wrpm).committed().subrange(
+            absolute_addr - self.start(),
+            absolute_addr + num_bytes - self.start(),
+        );
+        let ghost true_bytes2 = wrpm@.committed().subrange(
+            absolute_addr as int,
+            absolute_addr + num_bytes
+        );
+        assert(true_bytes1 =~= true_bytes2);
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   absolute_addr <= i < absolute_addr + num_bytes implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+        wrpm.get_pm_region_ref().read_and_deserialize::<S>(absolute_addr)
+    }
 
     pub exec fn write_relative<Perm, PMRegion>(
         self: &Self,
@@ -289,17 +389,18 @@ impl PersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(&*old(wrpm), perm),
-            relative_addr + bytes@.len() <= self.view(&*old(wrpm)).len(),
-            self.view(&*old(wrpm)).no_outstanding_writes_in_range(relative_addr as int, relative_addr + bytes.len()),
+            self.inv(old::<&mut _>(wrpm), perm),
+            relative_addr + bytes@.len() <= self.view(old::<&mut _>(wrpm)).len(),
+            self.view(old::<&mut _>(wrpm)).no_outstanding_writes_in_range(relative_addr as int,
+                                                                        relative_addr + bytes.len()),
             forall |i: int| relative_addr <= i < relative_addr + bytes@.len() ==> self.is_writable_relative_addr(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm) == self.view(&*old(wrpm)).write(relative_addr as int, bytes@),
+            self.view(wrpm) == self.view(old::<&mut _>(wrpm)).write(relative_addr as int, bytes@),
     {
         let ghost subregion_view = self.view(wrpm).write(relative_addr as int, bytes@);
-        assert(forall |addr| #![trigger self.is_writable_absolute_addr()(addr)]
-                   !self.is_writable_absolute_addr()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
+        assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
+                   !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
         assert forall |i| #![trigger wrpm@.state[i]]
                    relative_addr + self.start_ <= i < relative_addr + self.start_ + bytes@.len() implies
                    wrpm@.state[i].outstanding_write.is_none() by {
@@ -312,7 +413,7 @@ impl PersistentMemorySubregion
             assert forall |addr: int| {
                        ||| 0 <= addr < self.start()
                        ||| self.start() + self.len() <= addr < alt_region_view.len()
-                       ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr()(addr)
+                       ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr_fn()(addr)
                    } implies self.initial_region_view().state[addr] == #[trigger] alt_region_view.state[addr] by {
                 assert(!(relative_addr + self.start_ <= addr < relative_addr + self.start_ + bytes@.len()));
                 assert(self.initial_region_view().state[addr] == wrpm@.state[addr]);
@@ -333,18 +434,18 @@ impl PersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(&*old(wrpm), perm),
+            self.inv(old::<&mut _>(wrpm), perm),
             self.start() <= absolute_addr,
             absolute_addr + bytes@.len() <= self.len(),
-            self.view(&*old(wrpm)).no_outstanding_writes_in_range(
+            self.view(old::<&mut _>(wrpm)).no_outstanding_writes_in_range(
                 absolute_addr - self.start(),
                 absolute_addr + bytes@.len() - self.start()
             ),
             forall |i: int| absolute_addr <= i < absolute_addr + bytes@.len() ==>
-                #[trigger] self.is_writable_absolute_addr()(i),
+                #[trigger] self.is_writable_absolute_addr_fn()(i),
         ensures
             self.inv(wrpm, perm),
-            self.view(wrpm) == self.view(&*old(wrpm)).write(absolute_addr - self.start(), bytes@),
+            self.view(wrpm) == self.view(old::<&mut _>(wrpm)).write(absolute_addr - self.start(), bytes@),
     {
         let ghost subregion_view = self.view(wrpm).write(absolute_addr - self.start(), bytes@);
         assert forall |i| #![trigger wrpm@.state[i]]
@@ -353,6 +454,97 @@ impl PersistentMemorySubregion
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
         wrpm.write(absolute_addr, bytes, Tracked(perm));
+        assert(self.view(wrpm) =~= subregion_view);
+    }
+
+    pub exec fn serialize_and_write_relative<S, Perm, PMRegion>(
+        self: &Self,
+        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        relative_addr: u64,
+        to_write: &S,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            S: Serializable + Sized,
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(old::<&mut _>(wrpm), perm),
+            relative_addr + S::spec_serialized_len() <= self.view(old::<&mut _>(wrpm)).len(),
+            self.view(old::<&mut _>(wrpm)).no_outstanding_writes_in_range(relative_addr as int,
+                                                                        relative_addr + S::spec_serialized_len()),
+            forall |i: int| relative_addr <= i < relative_addr + S::spec_serialized_len() ==>
+                self.is_writable_relative_addr(i),
+        ensures
+            self.inv(wrpm, perm),
+            self.view(wrpm) == self.view(old::<&mut _>(wrpm)).write(relative_addr as int, to_write.spec_serialize()),
+    {
+        let ghost bytes = to_write.spec_serialize();
+        assert(bytes.len() == S::spec_serialized_len()) by {
+            S::lemma_auto_serialized_len();
+        }
+        let ghost subregion_view = self.view(wrpm).write(relative_addr as int, bytes);
+        assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
+                   !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   relative_addr + self.start_ <= i < relative_addr + self.start_ + S::spec_serialized_len() implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+        assert forall |crash_state| wrpm@.write(relative_addr + self.start_, bytes).can_crash_as(crash_state)
+                   implies perm.check_permission(crash_state) by {
+            let alt_region_view = wrpm@.write(relative_addr + self.start_, bytes);
+            assert(alt_region_view.len() == wrpm@.len());
+            assert forall |addr: int| {
+                       ||| 0 <= addr < self.start()
+                       ||| self.start() + self.len() <= addr < alt_region_view.len()
+                       ||| self.start() <= addr < self.end() && !self.is_writable_absolute_addr_fn()(addr)
+                   } implies self.initial_region_view().state[addr] == #[trigger] alt_region_view.state[addr] by {
+                assert(!(relative_addr + self.start_ <= addr < relative_addr + self.start_ + S::spec_serialized_len()));
+                assert(self.initial_region_view().state[addr] == wrpm@.state[addr]);
+            }
+        }
+        wrpm.serialize_and_write(relative_addr + self.start_, to_write, Tracked(perm));
+        assert(self.view(wrpm) =~= subregion_view);
+    }
+
+    pub exec fn serialize_and_write_absolute<S, Perm, PMRegion>(
+        self: &Self,
+        wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        absolute_addr: u64,
+        to_write: &S,
+        Tracked(perm): Tracked<&Perm>,
+    )
+        where
+            S: Serializable + Sized,
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(old::<&mut _>(wrpm), perm),
+            self.start() <= absolute_addr,
+            absolute_addr + S::spec_serialized_len() <= self.len(),
+            self.view(old::<&mut _>(wrpm)).no_outstanding_writes_in_range(
+                absolute_addr - self.start(),
+                absolute_addr + S::spec_serialized_len() - self.start()
+            ),
+            forall |i: int| absolute_addr <= i < absolute_addr + S::spec_serialized_len() ==>
+                #[trigger] self.is_writable_absolute_addr_fn()(i),
+        ensures
+            self.inv(wrpm, perm),
+            self.view(wrpm) == self.view(old::<&mut _>(wrpm)).write(absolute_addr - self.start(),
+                                                                  to_write.spec_serialize()),
+    {
+        let ghost bytes = to_write.spec_serialize();
+        assert(bytes.len() == S::spec_serialized_len()) by {
+            S::lemma_auto_serialized_len();
+        }
+        let ghost subregion_view = self.view(wrpm).write(absolute_addr - self.start(), bytes);
+        assert forall |i| #![trigger wrpm@.state[i]]
+                   absolute_addr <= i < absolute_addr + S::spec_serialized_len() implies
+                   wrpm@.state[i].outstanding_write.is_none() by {
+            assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
+        }
+        wrpm.serialize_and_write(absolute_addr, to_write, Tracked(perm));
         assert(self.view(wrpm) =~= subregion_view);
     }
 
@@ -371,7 +563,7 @@ impl PersistentMemorySubregion
             wrpm.constants() == self.constants(),
             wrpm@.len() == self.initial_region_view().len(),
             views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(), self.len(),
-                                                     self.is_writable_absolute_addr()),
+                                                     self.is_writable_absolute_addr_fn()),
             self.view(wrpm) == get_subregion_view(wrpm@, self.start(), self.len()),
             forall |addr: int| 0 <= addr < self.len() ==>
                 #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()],

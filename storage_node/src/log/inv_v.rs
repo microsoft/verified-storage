@@ -77,15 +77,16 @@ verus! {
         let global_crc = deserialize_global_crc(mem);
         let region_metadata = deserialize_region_metadata(mem);
         let region_crc = deserialize_region_crc(mem);
-        let log_metadata = deserialize_log_metadata(mem, cdb);
-        let log_crc = deserialize_log_crc(mem, cdb);
+        let log_metadata_pos = get_log_metadata_pos(cdb);
+        let log_metadata_and_crc_bytes = extract_bytes(mem, log_metadata_pos as int, LENGTH_OF_LOG_METADATA + CRC_SIZE);
+        let (log_metadata, log_crc) = deserialize_log_metadata_and_crc(log_metadata_and_crc_bytes);
 
         // No outstanding writes to global metadata, region metadata, or the log metadata CDB
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                                         ABSOLUTE_POS_OF_LOG_CDB as int)
         // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
-                                                        get_log_crc_end(cdb) as int)
+        &&& pm_region_view.no_outstanding_writes_in_range(log_metadata_pos as int,
+                                                        log_metadata_pos + LENGTH_OF_LOG_METADATA + CRC_SIZE)
 
         // All the CRCs match
         &&& global_crc == global_metadata.spec_crc()

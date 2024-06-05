@@ -11,7 +11,7 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
-use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE};
+use crate::pmem::pmemspec_t::{CRC_SIZE, PersistentMemoryRegion, spec_crc_bytes};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc, check_crc_deserialized};
 use crate::pmem::serialization_t::*;
 use builtin::*;
@@ -117,7 +117,7 @@ verus! {
                     },
                     Err(LogErr::CRCMismatch) =>
                         state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
-                    _ => state.is_None()
+                    _ => state.is_None(),
                 }
             })
     {
@@ -220,13 +220,19 @@ verus! {
 
         let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
                                   else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
-        let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
-                             else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
+        assert(log_metadata_pos == get_log_metadata_pos(cdb));
+        let log_crc_pos = log_metadata_pos + LENGTH_OF_LOG_METADATA;
         let log_metadata = pm_region.read_and_deserialize::<LogMetadata>(log_metadata_pos);
         let log_crc = pm_region.read_and_deserialize::<u64>(log_crc_pos);
+        let ghost log_metadata_and_crc_bytes = extract_bytes(pm_region@.committed(), log_metadata_pos as int,
+                                                             LENGTH_OF_LOG_METADATA + CRC_SIZE);
+        assert(mem.subrange(log_crc_pos as int, log_crc_pos + CRC_SIZE) =~=
+               extract_bytes(log_metadata_and_crc_bytes, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int));
+        assert(mem.subrange(log_metadata_pos as int, log_metadata_pos + LENGTH_OF_LOG_METADATA) =~=
+               extract_bytes(log_metadata_and_crc_bytes, 0, LENGTH_OF_LOG_METADATA as int));
         if !check_crc_deserialized(log_metadata, log_crc, Ghost(mem),
                                    Ghost(pm_region.constants().impervious_to_corruption),
-                                    Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA), Ghost(log_crc_pos)) {
+                                   Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA), Ghost(log_crc_pos)) {
             return Err(LogErr::CRCMismatch);
         }
 
