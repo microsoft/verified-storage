@@ -15,22 +15,17 @@ use std::ptr;
 use std::mem::MaybeUninit;
 
 verus! {
-    // TODO: better name? "PmCopy" is not really accurate anymore. PmCopy?
-    // Objects can only be written to PM if they derive PmSafe
-    // pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
+    // PmCopy provides functions to help reason about copying data to and from persistent memory.
+    // It is a subtrait of PmSafe (a marker trait indicating that the type is safe to write to persistent memory)
+    // and PmSized/SpecPmSized (which provide reliable information about the size of the implementing struct in 
+    // bytes for use in ghost code).
     pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
     pub trait PmCopyHelper : PmCopy {
         spec fn spec_to_bytes(self) -> Seq<u8>;
 
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        // spec fn spec_size_of() -> nat;
-
         spec fn spec_crc(self) -> u64;
-
-        // exec fn size_of() -> (out: u64)
-        //     ensures 
-        //         out == Self::spec_size_of() as u64;
 
         exec fn as_byte_slice(&self) -> (out: &[u8])
             ensures 
@@ -42,7 +37,7 @@ verus! {
             ensures 
                 forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
 
-        // this seems like it might not be safe...
+        // TODO: is this safe?
         proof fn axiom_to_from_bytes(self, bytes: Seq<u8>)
             ensures 
                 self.spec_to_bytes() == bytes <==> self == Self::spec_from_bytes(bytes);
@@ -53,17 +48,9 @@ verus! {
 
         closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        // closed spec fn spec_size_of() -> nat;
-
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
         }
-
-        // #[verifier::external_body]
-        // fn size_of() -> u64
-        // {
-        //     core::mem::size_of::<Self>() as u64
-        // }
 
         #[verifier::external_body]
         exec fn as_byte_slice(&self) -> (out: &[u8])
@@ -201,47 +188,13 @@ verus! {
     // TODO: is this actually necessary? NO- remove
     pub closed spec fn vec_is_volatile(bytes: Vec<u8>) -> bool;
 
-    // pub trait PmSized: PmSafe + SpecPmSized {//+ PmCheckSize {
-    //     #[verifier::external]
-    //     const SIZE_CHECK: usize;
-
-    //     fn size_of() -> (out: usize)
-    //         requires
-    //             Self::spec_size_of() <= usize::MAX as nat,
-    //         ensures 
-    //             out as int == Self::spec_size_of();
-    //     // spec fn spec_size_of() -> int;
-
-    //     fn align_of() -> (out: usize)
-    //         ensures 
-    //             out > 0,
-    //             out as int == Self::spec_align_of();
-    //     // spec fn spec_align_of() -> int;
-    // }
-
     global size_of usize == 8;
     global size_of isize == 8;
-
 
     pub trait SpecPmSized {
         spec fn spec_size_of() -> int;
         spec fn spec_align_of() -> int;
     }
-
-    // impl SpecPmSized for u64 {
-    //     open spec fn spec_size_of() -> int { 8 }
-    //     open spec fn spec_align_of() -> int { 8 }
-    // }
-    
-
-    // #[verifier::external]
-    // const SIZE_CHECK_U64: usize = (core::mem::size_of::<u64>() == size_of_u64()) as usize - 1;
-
-    // Manual trusted implementations of PmSized for safe primitive types.
-    // The sizes of all other types are derived from these. They should be audited
-    // to ensure they match the actual sizes of the types. We specify earlier 
-    // that usize and isize are 8 bytes
-
     pmsized_primitive!(u8);
     pmsized_primitive!(u16);
     pmsized_primitive!(u32);
@@ -256,10 +209,12 @@ verus! {
     pmsized_primitive!(isize);
     pmsized_primitive!(bool);
     pmsized_primitive!(char);
+    // floats are not currently supported by the verifier
     // pmsized_primitive!(f32);
     // pmsized_primitive!(f64);
 
     // TODO: discuss this one... it's a bit harder
+    // TODO: I think you could manually implement this? or make a macro that will generate it specifically
 
     // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> PmSized for [T; N] {
     //     open spec fn spec_size_of() -> int
@@ -282,11 +237,6 @@ verus! {
     //     }
     // }
 
-    // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> const PmCheckSize for [T; N] {
-    //     const SIZE: usize = Self::size_of();
-    //     const SIZE_CHECK: usize = (core::mem::size_of::<Self>() == Self::SIZE) as usize - 1;
-    // }
-
     // Algorithm for determining the amount of padding needed before the next field 
     // to ensure it is aligned for a repr(C) function. 
     // https://doc.rust-lang.org/reference/type-layout.html#the-c-representation
@@ -300,8 +250,8 @@ verus! {
         }
     }
 
-    // #[verifier::when_used_as_spec(spec_padding_needed)]
-    #[verifier::external_body]
+    // This function calculates the amount of padding needed to align the next field in a struct.
+    // It's const, so we can use it const contexts to calculate the size of a struct at compile time.
     pub const fn padding_needed(offset: usize, align: usize) -> (out: usize) 
         requires 
             align > 0,
