@@ -6,7 +6,7 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use vstd::layout::*;
-use crate::pmem::markers_t::{PmSafe, PmSized};
+use crate::pmem::markers_t::{PmSafe, PmSized, ConstPmSized};
 
 use deps_hack::{crc64fast::Digest, pmsized_primitive};
 use core::slice;
@@ -18,19 +18,19 @@ verus! {
     // TODO: better name? "PmCopy" is not really accurate anymore. PmCopy?
     // Objects can only be written to PM if they derive PmSafe
     // pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
-    pub trait PmCopy :  Sized + PmSafe + Copy {}
+    pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
     pub trait PmCopyHelper : PmCopy {
         spec fn spec_to_bytes(self) -> Seq<u8>;
 
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        spec fn spec_size_of() -> nat;
+        // spec fn spec_size_of() -> nat;
 
         spec fn spec_crc(self) -> u64;
 
-        exec fn size_of() -> (out: u64)
-            ensures 
-                out == Self::spec_size_of() as u64;
+        // exec fn size_of() -> (out: u64)
+        //     ensures 
+        //         out == Self::spec_size_of() as u64;
 
         exec fn as_byte_slice(&self) -> (out: &[u8])
             ensures 
@@ -53,17 +53,17 @@ verus! {
 
         closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
-        closed spec fn spec_size_of() -> nat;
+        // closed spec fn spec_size_of() -> nat;
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
         }
 
-        #[verifier::external_body]
-        fn size_of() -> u64
-        {
-            core::mem::size_of::<Self>() as u64
-        }
+        // #[verifier::external_body]
+        // fn size_of() -> u64
+        // {
+        //     core::mem::size_of::<Self>() as u64
+        // }
 
         #[verifier::external_body]
         exec fn as_byte_slice(&self) -> (out: &[u8])
@@ -219,13 +219,23 @@ verus! {
     //     // spec fn spec_align_of() -> int;
     // }
 
-    pub trait SpecPmSized : PmSafe {
+    global size_of usize == 8;
+    global size_of isize == 8;
+
+
+    pub trait SpecPmSized {
         spec fn spec_size_of() -> int;
         spec fn spec_align_of() -> int;
     }
 
-    global size_of usize == 8;
-    global size_of isize == 8;
+    // impl SpecPmSized for u64 {
+    //     open spec fn spec_size_of() -> int { 8 }
+    //     open spec fn spec_align_of() -> int { 8 }
+    // }
+    
+
+    // #[verifier::external]
+    // const SIZE_CHECK_U64: usize = (core::mem::size_of::<u64>() == size_of_u64()) as usize - 1;
 
     // Manual trusted implementations of PmSized for safe primitive types.
     // The sizes of all other types are derived from these. They should be audited
@@ -291,6 +301,7 @@ verus! {
     }
 
     // #[verifier::when_used_as_spec(spec_padding_needed)]
+    #[verifier::external_body]
     pub const fn padding_needed(offset: usize, align: usize) -> (out: usize) 
         requires 
             align > 0,

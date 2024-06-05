@@ -114,7 +114,8 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     let mut exec_tokens_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
-            let offset: usize = offset + <#ty>::size_of() + padding_needed(offset, <#ty>::align_of()); 
+            // let offset: usize = offset + <#ty>::size_of() + padding_needed(offset, <#ty>::align_of()); 
+            let offset: usize = offset + <#ty>::SIZE + padding_needed(offset, <#ty>::ALIGN); 
         };
         exec_tokens_vec.push(new_tokens);
     }
@@ -132,8 +133,8 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
         let new_tokens = quote! {
             // assert(align_seq[i] == <#ty>::spec_align_of());
             // let ghost old_largest: usize = largest_alignment;
-            if largest_alignment <= <#ty>::align_of() {
-                largest_alignment = <#ty>::align_of();
+            if largest_alignment <= <#ty>::ALIGN {
+                largest_alignment = <#ty>::ALIGN;
             }
             // assert(largest_alignment >= old_largest);
             // assert(largest_alignment as int >= align_seq[i]);
@@ -150,28 +151,47 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     };
 
     
-    let const_name = syn::Ident::new(&format!("SIZE_CHECK_{}", name.to_string().to_uppercase()), name.span());
+    let size_check = syn::Ident::new(&format!("SIZE_CHECK_{}", name.to_string().to_uppercase()), name.span());
 
 
     let gen = quote! {
-    //     ::builtin_macros::verus!(
+        ::builtin_macros::verus!(
 
-    //     impl SpecPmSized for #name {
-    //         open spec fn spec_size_of() -> ::builtin::int 
-    //         {
-    //             let offset: ::builtin::int = 0;
-    //             #( #spec_tokens_vec )*
-    //             offset
-    //         }      
+        impl SpecPmSized for #name {
+            open spec fn spec_size_of() -> ::builtin::int 
+            {
+                let offset: ::builtin::int = 0;
+                #( #spec_tokens_vec )*
+                offset
+            }      
 
-    //         open spec fn spec_align_of() -> ::builtin::int 
-    //         {
-    //             #spec_alignment
-    //         }
-    //     }
+            open spec fn spec_align_of() -> ::builtin::int 
+            {
+                #spec_alignment
+            }
+        }  
+    );
 
+    impl PmSized for #name {
+        fn size_of() -> usize { Self::SIZE }
+        fn align_of() -> usize { Self::ALIGN }
+    }
+
+    impl ConstPmSized for #name {
+        const SIZE: usize = {
+            let offset: usize = 0;
+            #( #exec_tokens_vec )*
+            offset
+        };
+        const ALIGN: usize = {
+            let mut largest_alignment: usize = 0;
+            #( #exec_align_vec )*
+            largest_alignment
+        };
         
-    // );
+    }
+
+    const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
 
     // impl const PmSized for #name {
     //     // #[verifier::external_body]
@@ -268,7 +288,7 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
     // let const_name = format_ident!("SIZE_CHECK_{}", ty);
     // let get_size_fn = syn::Ident::new(&format!("get_size_of_{}", ty_name.to_string().to_lowercase()), ty.span());
     // let get_align_fn = syn::Ident::new(&format!("get_align_of_{}", ty_name.to_string().to_lowercase()), ty.span());
-    let const_name = syn::Ident::new(&format!("SIZE_CHECK_{}", ty_name.to_string().to_uppercase()), ty.span());
+    let size_check = syn::Ident::new(&format!("SIZE_CHECK_{}", ty_name.to_string().to_uppercase()), ty.span());
 
     let gen = quote!{
         ::builtin_macros::verus!(
@@ -278,12 +298,28 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
             }
         );
 
-        impl const PmSized for #ty {
-            // #[verifier::external_body]
-            const SIZE_CHECK: usize = (core::mem::size_of::<#ty>() == <#ty>::size_of()) as usize - 1;
-            fn size_of() -> usize { #size }
-            fn align_of() -> usize { #size }
+        impl PmSized for #ty {
+            fn size_of() -> usize { Self::SIZE }
+            fn align_of() -> usize { Self::ALIGN }
         }
+
+        impl ConstPmSized for #ty {
+            const SIZE: usize = #size;
+            const ALIGN: usize = #size;
+            // const SIZE_CHECK: usize = (core::mem::size_of::<#ty>() == <#ty>::SIZE) as usize - 1;
+        }
+
+        const #size_check: usize = (core::mem::size_of::<#ty>() == <#ty>::SIZE) as usize - 1;
+
+
+        
+
+        // impl const PmSized for #ty {
+        //     // #[verifier::external_body]
+        //     const SIZE_CHECK: usize = (core::mem::size_of::<#ty>() == <#ty>::size_of()) as usize - 1;
+        //     fn size_of() -> usize { #size }
+        //     fn align_of() -> usize { #size }
+        // }
     };
     gen.into()
 }
