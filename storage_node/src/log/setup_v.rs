@@ -5,6 +5,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::log::inv_v::*;
 use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logspec_t::AbstractLogState;
@@ -95,7 +96,6 @@ verus! {
                 pm_region@.flush().committed(), // it'll be correct after the next flush
                 region_size, log_id),
     {
-        assume(false);
         // Initialize global metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
         let global_metadata = GlobalMetadata {
@@ -124,6 +124,19 @@ verus! {
         };
         let log_crc = calculate_crc(&log_metadata);
 
+        proof {
+            // TODO: broadcast these?
+            GlobalMetadata::axiom_bytes_len();
+            GlobalMetadata::axiom_to_from_bytes();
+            u64::axiom_bytes_len();
+            u64::axiom_to_from_bytes();
+            RegionMetadata::axiom_bytes_len();
+            RegionMetadata::axiom_to_from_bytes();
+            LogMetadata::axiom_bytes_len();
+            LogMetadata::axiom_to_from_bytes();
+        }
+
+        assert(pm_region@.no_outstanding_writes());
         // Write all metadata structures and their CRCs to memory
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);

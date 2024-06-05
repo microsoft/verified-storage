@@ -486,6 +486,7 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
+                self@.flush().committed().subrange(addr as int, addr + S::spec_size_of()) == to_write.spec_to_bytes(),
         ;
 
 

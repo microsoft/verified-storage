@@ -749,8 +749,8 @@ verus! {
                                                             log_metadata_bytes + log_crc_bytes);
                 assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
                 assert(extract_log_crc(mem2, !self.cdb) =~= log_crc_bytes);
-                log_metadata.axiom_to_from_bytes(log_metadata_bytes);
-                log_crc.axiom_to_from_bytes(log_crc_bytes);
+                LogMetadata::axiom_to_from_bytes();
+                u64::axiom_to_from_bytes();
             }
 
             // We've updated the inactive log metadata now, so it's a good time to
@@ -794,8 +794,7 @@ verus! {
                 let flushed_region = pm_region_after_write.flush();
                 lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                             new_cdb_bytes);
-                // assert(deserialize_log_cdb(flushed_region.committed()) == new_cdb);
-                new_cdb.axiom_to_from_bytes(new_cdb_bytes);
+                u64::axiom_to_from_bytes();
             }
 
             // Show that after writing and flushing, our invariants will
@@ -1213,7 +1212,7 @@ verus! {
         ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
             where
                 Perm: CheckPermission<Seq<u8>>,
-                PMRegion: PersistentMemoryRegion
+                PMRegion: PersistentMemoryRegion,
             requires
                 self.inv(wrpm_region, log_id),
                 pos + len <= u128::MAX
@@ -1236,12 +1235,10 @@ verus! {
                             &&& pos + len > log.head + log.log.len()
                             &&& tail == log.head + log.log.len()
                         },
-                        Err(LogErr::PmemErr { err }) => true,
-                        _ => false
+                        Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                     }
                 })
         {
-            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 
@@ -1288,7 +1285,13 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                let bytes = match pm_region.read_unaligned(addr, len) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        assert(e == PmemError::AccessOutOfRange);
+                        return Err(LogErr::PmemErr{ err: e });
+                    }
+                };
                 return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
@@ -1326,7 +1329,13 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_region@, log_id, pos as int,
                                                             len as int, addr as int); }
-                let bytes = pm_region.read_unaligned(addr, len).map_err(|e| LogErr::PmemErr { err: e })?;
+                let bytes = match pm_region.read_unaligned(addr, len) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        assert(e == PmemError::AccessOutOfRange);
+                        return Err(LogErr::PmemErr{ err: e });
+                    }
+                };
                 return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
             }
 
@@ -1340,7 +1349,13 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_region.read_unaligned(addr, max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
+            let mut part1 = match pm_region.read_unaligned(addr, max_len_without_wrapping) {
+                Ok(part1) => part1,
+                Err(e) => {
+                    assert(e == PmemError::AccessOutOfRange);
+                    return Err(LogErr::PmemErr{ err: e });
+                }
+            };
 
             proof {
                 self.lemma_read_of_continuous_range(pm_region@, log_id,
@@ -1349,8 +1364,13 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_region.read_unaligned(addr, len - max_len_without_wrapping).map_err(|e| LogErr::PmemErr { err: e })?;
-
+            let mut part2 = match pm_region.read_unaligned(ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping) {
+                Ok(part2) => part2,
+                Err(e) => {
+                    assert(e == PmemError::AccessOutOfRange);
+                    return Err(LogErr::PmemErr{ err: e });
+                }
+            };
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that

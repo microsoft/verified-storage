@@ -51,7 +51,12 @@ verus! {
     {
         assume(false);
         let ghost mem = pm_region@.committed();
-        let ghost true_cdb = choose |cdb: u64| cdb.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + CDB_SIZE);
+
+        let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
+        let ghost true_cdb = choose |cdb: u64| true_cdb_bytes == cdb.spec_to_bytes();
+        proof {
+            u64::axiom_from_to_bytes(true_cdb_bytes);
+        }
         let log_cdb = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)).map_err(|e| LogErr::PmemErr { err: e })?;
         let ghost log_cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
         let result = check_cdb(log_cdb, Ghost(true_cdb), Ghost(mem),

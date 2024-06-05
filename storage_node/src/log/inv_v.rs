@@ -209,6 +209,23 @@ verus! {
            )
     }
 
+    // // TODO: should this take region_size and/or log_id?
+    // pub open spec fn types_set_up(mem: Seq<u8>) -> bool 
+    // {
+    //     &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
+    //             == cdb.spec_to_bytes()
+    //     &&& exists |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
+    //             == global_metadata.spec_to_bytes()
+    //     &&& exists |region_metadata: RegionMetadata| mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) 
+    //             == region_metadata.spec_to_bytes()
+    //     &&& {
+    //         ||| exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
+    //                 == log_metadata.spec_to_bytes()
+    //         ||| exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
+    //                 == log_metadata.spec_to_bytes()
+    //     }
+    // }
+
     pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
         pm_region_view: PersistentMemoryRegionView,
         info: LogInfo
@@ -474,17 +491,6 @@ verus! {
         let log_metadata = deserialize_log_metadata(mem, cdb);
         let log_crc = deserialize_log_crc(mem, cdb);
 
-        assert(global_crc == global_metadata.spec_crc());
-
-        assert(region_crc == region_metadata.spec_crc());
-
-        assert(log_crc == log_metadata.spec_crc());
-    
-        // assert(GlobalMetadata::spec_size_of() > 0);
-        // assert(GlobalMetadata::spec_size_of() < 40);
-        // assert(GlobalMetadata::spec_size_of() == 36);
-        // assert(GlobalMetadata::spec_size_of() == LENGTH_OF_GLOBAL_METADATA);
-
         let mem2 = pm_region_view2.committed();
         let global_metadata2 = deserialize_global_metadata(mem2);
         let global_crc2 = deserialize_global_crc(mem2);
@@ -493,34 +499,12 @@ verus! {
         let log_metadata2 = deserialize_log_metadata(mem2, cdb);
         let log_crc2 = deserialize_log_crc(mem2, cdb);
 
-        assert(pm_region_view2.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-            ABSOLUTE_POS_OF_LOG_CDB as int));
-
-        assert(pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
-            get_log_crc_end(cdb) as int));
-
-        assert(global_crc == global_crc2);
-
         let global_metadata_bytes1 = extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int);
         let global_metadata_bytes2 = extract_bytes(mem2, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int);
-        assert(global_metadata_bytes1 =~= global_metadata_bytes2);
-
-        assert(global_metadata == global_metadata2);
-
-        assert(global_crc2 == global_metadata2.spec_crc());
-
-        assert(region_crc2 == region_metadata2.spec_crc());
-
-        assert(log_crc2 == log_metadata2.spec_crc());
     
-
-        // trying to porve
         assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
             lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
         }
-
-
-        assume(false);
     }
 
     // This lemma establishes that, if one updates the inactive
