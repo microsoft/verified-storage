@@ -14,6 +14,7 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::{CRC_SIZE, PersistentMemoryRegion, spec_crc_bytes};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc, check_crc_deserialized};
 use crate::pmem::serialization_t::*;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -221,18 +222,25 @@ verus! {
         let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
                                   else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
-        let log_crc_pos = log_metadata_pos + LENGTH_OF_LOG_METADATA;
-        let log_metadata = pm_region.read_and_deserialize::<LogMetadata>(log_metadata_pos);
-        let log_crc = pm_region.read_and_deserialize::<u64>(log_crc_pos);
-        let ghost log_metadata_and_crc_bytes = extract_bytes(pm_region@.committed(), log_metadata_pos as int,
-                                                             LENGTH_OF_LOG_METADATA + CRC_SIZE);
+        let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
+                                                       Ghost((LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64));
+
+        let log_metadata = subregion.read_and_deserialize_relative::<LogMetadata, PMRegion>(pm_region, 0);
+        let log_crc = subregion.read_and_deserialize_relative::<u64, PMRegion>(pm_region, LENGTH_OF_LOG_METADATA);
+
+        let ghost log_metadata_and_crc_bytes = subregion.view(pm_region).committed();
+        let ghost log_crc_pos = (log_metadata_pos + LENGTH_OF_LOG_METADATA) as u64;
+        assert(log_metadata_and_crc_bytes =~=
+               extract_bytes(mem, log_metadata_pos as int, LENGTH_OF_LOG_METADATA + CRC_SIZE));
         assert(mem.subrange(log_crc_pos as int, log_crc_pos + CRC_SIZE) =~=
                extract_bytes(log_metadata_and_crc_bytes, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int));
         assert(mem.subrange(log_metadata_pos as int, log_metadata_pos + LENGTH_OF_LOG_METADATA) =~=
                extract_bytes(log_metadata_and_crc_bytes, 0, LENGTH_OF_LOG_METADATA as int));
+
         if !check_crc_deserialized(log_metadata, log_crc, Ghost(mem),
                                    Ghost(pm_region.constants().impervious_to_corruption),
-                                   Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA), Ghost(log_crc_pos)) {
+                                   Ghost(log_metadata_pos), Ghost(LENGTH_OF_LOG_METADATA),
+                                   Ghost(log_crc_pos)) {
             return Err(LogErr::CRCMismatch);
         }
 
