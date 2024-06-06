@@ -268,7 +268,7 @@ verus! {
     // value `cdb` of the corruption-detecting boolean.
     pub open spec fn get_log_crc_end(cdb: bool) -> u64
     {
-        (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
+        (get_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of()) as u64
     }
 
     // This function extracts the bytes encoding log metadata from

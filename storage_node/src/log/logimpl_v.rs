@@ -603,7 +603,7 @@ verus! {
                 assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                 lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
-                lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view);
+                lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
                 lemma_metadata_set_after_crash(alt_region_view, self.cdb);
 
             }
