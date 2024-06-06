@@ -180,7 +180,6 @@ verus! {
             // `from` functions for `u64` are inverses.
 
             lemma_auto_spec_u64_to_from_le_bytes();
-            assume(false);
         }
     }
 

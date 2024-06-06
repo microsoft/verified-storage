@@ -919,4 +919,89 @@ verus! {
         assert(state.pending.len() == 0);
         assert(state =~= state.drop_pending_appends());
     }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        log_id: u128,
+        cdb: bool,
+    )
+        requires
+            mem1.len() == mem2.len() >= ABSOLUTE_POS_OF_LOG_AREA,
+            recover_cdb(mem1) == Some(cdb),
+            ({
+                let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
+                                            else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
+                let unused_metadata_end = unused_metadata_start + LENGTH_OF_LOG_METADATA + CRC_SIZE;
+                forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+                    ==> mem1[addr] == mem2[addr]
+            }),
+        ensures
+            recover_state(mem1, log_id) == recover_state(mem2, log_id),
+    {
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
+    }
+
+    pub proof fn lemma_if_only_differences_in_view_are_inactive_metadata_then_recover_state_matches(
+        v1: PersistentMemoryRegionView,
+        v2: PersistentMemoryRegionView,
+        log_id: u128,
+        cdb: bool,
+    )
+        requires
+            v1.len() == v2.len() >= ABSOLUTE_POS_OF_LOG_AREA,
+            forall |crash_state| #[trigger] v1.can_crash_as(crash_state) ==> recover_cdb(crash_state) == Some(cdb),
+            ({
+                let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
+                                           else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
+                let unused_metadata_end = unused_metadata_start + LENGTH_OF_LOG_METADATA + CRC_SIZE;
+                forall |addr: int| 0 <= addr < v1.len() && !(unused_metadata_start <= addr < unused_metadata_end) ==>
+                    v1.state[addr] == v2.state[addr]
+            })
+        ensures
+            forall |crash_state2| v2.can_crash_as(crash_state2) ==>
+                exists |crash_state1| {
+                    &&& v1.can_crash_as(crash_state1)
+                    &&& recover_state(crash_state1, log_id) == recover_state(crash_state2, log_id)
+                },
+    {
+        let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
+                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
+        let unused_metadata_end = unused_metadata_start + LENGTH_OF_LOG_METADATA + CRC_SIZE;
+        assert forall |crash_state2| v2.can_crash_as(crash_state2) implies
+                   exists |crash_state1| {
+                       &&& v1.can_crash_as(crash_state1)
+                       &&& recover_state(crash_state1, log_id) == recover_state(crash_state2, log_id)
+                   } by {
+            let crash_state1 = Seq::<u8>::new(
+                crash_state2.len(),
+                |i| if unused_metadata_start <= i < unused_metadata_end {
+                        v1.state[i].state_at_last_flush
+                    }
+                    else {
+                        crash_state2[i]
+                    }
+            );
+            assert(v1.can_crash_as(crash_state1)) by {
+                assert forall |chunk| {
+                    ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1)
+                    ||| v1.chunk_corresponds_after_flush(chunk, crash_state1)
+                } by {
+                    if unused_metadata_start <= chunk * const_persistence_chunk_size() < unused_metadata_end {
+                        assert(v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1));
+                    }
+                    else {
+                        assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2) ==>
+                               v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1));
+                        assert(v2.chunk_corresponds_after_flush(chunk, crash_state2) ==>
+                               v1.chunk_corresponds_after_flush(chunk, crash_state1));
+                    }
+                }
+            }
+            lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+                crash_state1, crash_state2, log_id, cdb
+            );
+        }
+    }
 }

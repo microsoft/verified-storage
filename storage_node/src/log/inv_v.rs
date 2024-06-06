@@ -352,6 +352,7 @@ verus! {
             metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
         ensures
+            recover_cdb(mem) == Some(cdb),
             recover_state(mem, log_id) == Some(state.drop_pending_appends())
     {
         // For the CDB, we observe that:
@@ -411,11 +412,15 @@ verus! {
             metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
         ensures
-            forall |mem| pm_region_view.can_crash_as(mem) ==>
-                recover_state(mem, log_id) == Some(state.drop_pending_appends())
+            forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
+                &&& recover_cdb(mem) == Some(cdb)
+                &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+            }
     {
-        assert forall |mem| pm_region_view.can_crash_as(mem) implies recover_state(mem, log_id) ==
-                   Some(state.drop_pending_appends()) by
+        assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
+                   &&& recover_cdb(mem) == Some(cdb)
+                   &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+               } by
         {
             lemma_invariants_imply_crash_recover(pm_region_view, mem, log_id, cdb, info, state);
         }
