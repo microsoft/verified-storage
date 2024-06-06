@@ -79,8 +79,20 @@ verus! {
         // log state.
         pub closed spec fn recover(mem: Seq<u8>, log_id: u128) -> Option<AbstractLogState>
         {
-            recover_state(mem, log_id)
+            if !metadata_types_set(mem) {
+                // If the metadata types aren't properly set up, the log is unrecoverable.
+                None
+            } else {
+                recover_state(mem, log_id)
+            }
         }
+
+        // This lemma proves that if the log can be succesfully recovered, then we must have written valid
+        // values to its metadata locations.
+        pub proof fn lemma_recover_successful_implies_metadata_types_set(mem: Seq<u8>, log_id: u128)
+            ensures 
+                Self::recover(mem, log_id) is Some ==> metadata_types_set(mem)
+        {}
 
         // This method specifies an invariant on `self` that all
         // `UntrustedLogImpl` methods maintain. It requires this
@@ -304,6 +316,16 @@ verus! {
 
                 lemma_invariants_imply_crash_recover_forall(pm_region@, log_id, cdb, info, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_region@.committed(), log_id);
+
+                // assert(old(wrpm_region)@.flush().committed() == wrpm_region@.committed());
+                // assert(metadata_types_set(old(wrpm_region)@.flush().committed()));
+
+                // assert(forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> s == old(wrpm_region)@.flush().committed());
+
+
+                // assert(forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> metadata_types_set(s));
+                assert(no_outstanding_writes_to_metadata(pm_region@));
+                lemma_metadata_set_after_crash(pm_region@, cdb);
             }
             Ok(Self{ cdb, info, state: Ghost(state) })
         }
@@ -578,6 +600,12 @@ verus! {
                     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
                     is_writable_absolute_addr
                 );
+                assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
+                    alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
+                lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
+                lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view);
+                lemma_metadata_set_after_crash(alt_region_view, self.cdb);
+
             }
             let subregion = PersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,

@@ -209,22 +209,32 @@ verus! {
            )
     }
 
-    // // TODO: should this take region_size and/or log_id?
-    // pub open spec fn types_set_up(mem: Seq<u8>) -> bool 
-    // {
-    //     &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
-    //             == cdb.spec_to_bytes()
-    //     &&& exists |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
-    //             == global_metadata.spec_to_bytes()
-    //     &&& exists |region_metadata: RegionMetadata| mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) 
-    //             == region_metadata.spec_to_bytes()
-    //     &&& {
-    //         ||| exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
-    //                 == log_metadata.spec_to_bytes()
-    //         ||| exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
-    //                 == log_metadata.spec_to_bytes()
-    //     }
-    // }
+    // TODO: should this take region_size and/or log_id?
+    pub open spec fn metadata_types_set(mem: Seq<u8>) -> bool 
+    {
+        &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == crc.spec_to_bytes()
+        &&& exists |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
+                == global_metadata.spec_to_bytes()
+        &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()) == crc.spec_to_bytes()
+        &&& exists |region_metadata: RegionMetadata| mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) 
+                == region_metadata.spec_to_bytes()
+        &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
+            == cdb.spec_to_bytes()
+        &&& {
+            let cdb = choose |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == cdb.spec_to_bytes();
+            &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+            &&& cdb == CDB_TRUE ==> {
+                &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes()
+                &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE + u64::spec_size_of()) == crc.spec_to_bytes()
+            }
+            &&& cdb == CDB_FALSE ==> {
+                &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes()
+                &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE + u64::spec_size_of()) == crc.spec_to_bytes()
+            }
+        }
+    }
 
     pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
         pm_region_view: PersistentMemoryRegionView,
@@ -684,4 +694,72 @@ verus! {
         lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
         assert(recover_state(crash_state, log_id) =~= recover_state(v1.committed(), log_id));
     }
+
+    // This lemma proves that if the log metadata has been properly set up and there are no outstanding writes to 
+    // metadata, then the metadata_types_set invariant holds after any crash. This is useful when proving the invariant
+    // after an update that does not touch metadata.
+    pub proof fn lemma_metadata_set_after_crash(
+        pm_region_view: PersistentMemoryRegionView,
+        cdb: bool
+    )
+        requires 
+            no_outstanding_writes_to_metadata(pm_region_view),
+            metadata_types_set(pm_region_view.committed()),
+            memory_matches_deserialized_cdb(pm_region_view, cdb),
+        ensures 
+            forall |s| #![auto] {
+                &&& pm_region_view.can_crash_as(s) 
+                &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
+            } ==> metadata_types_set(s),
+    {
+        let pm_bytes = pm_region_view.committed();
+        assert(cdb == deserialize_and_check_log_cdb(pm_bytes).unwrap());
+
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+
+        assert forall |s| {
+            &&& pm_region_view.can_crash_as(s) 
+            &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
+        } implies {
+            let s_cdb = deserialize_and_check_log_cdb(s).unwrap();
+            &&& deserialize_global_metadata(s) == deserialize_global_metadata(pm_bytes)
+            &&& deserialize_global_crc(s) == deserialize_global_crc(pm_bytes)
+            &&& deserialize_region_metadata(s) == deserialize_region_metadata(pm_bytes)
+            &&& deserialize_region_crc(s) == deserialize_region_crc(pm_bytes)
+            &&& s_cdb == cdb 
+            &&& s_cdb ==> {
+                    &&& deserialize_log_metadata(s, true) == deserialize_log_metadata(pm_bytes, true)
+                    &&& deserialize_log_crc(s, true) == deserialize_log_crc(pm_bytes, true)
+                }
+            &&& !s_cdb ==> {
+                    &&& deserialize_log_metadata(s, false) == deserialize_log_metadata(pm_bytes, false)
+                    &&& deserialize_log_crc(s, false) == deserialize_log_crc(pm_bytes, false)
+                }
+        } by {
+            lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+        }
+
+        assert forall |s| #![auto] {
+            &&& pm_region_view.can_crash_as(s) 
+            &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
+        } implies metadata_types_set(s) by {
+            lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+            u64::axiom_to_from_bytes();
+            LogMetadata::axiom_to_from_bytes();
+        }
+    }
+
+    pub proof fn lemma_metadata_matches_implies_metadata_types_set(
+        pm1: PersistentMemoryRegionView,
+        pm2: PersistentMemoryRegionView,
+    )
+        requires 
+            no_outstanding_writes_to_metadata(pm1),
+            no_outstanding_writes_to_metadata(pm2),
+            metadata_types_set(pm1.committed()),
+            pm1.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
+                pm2.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int)
+        ensures 
+            metadata_types_set(pm2.committed())
+    {}
 }

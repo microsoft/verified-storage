@@ -95,6 +95,7 @@ verus! {
             memory_correctly_set_up_on_region(
                 pm_region@.flush().committed(), // it'll be correct after the next flush
                 region_size, log_id),
+            metadata_types_set(pm_region@.flush().committed()),
     {
         // Initialize global metadata and compute its CRC
         // TODO: might be faster to write to PM first, then compute CRC on that?
@@ -227,6 +228,7 @@ verus! {
             pm_region@.len() == old(pm_region)@.len(),
             pm_region@.no_outstanding_writes(),
             recover_state(pm_region@.committed(), log_id) == Some(AbstractLogState::initialize(log_capacity as int)),
+            metadata_types_set(pm_region@.committed()),
     {
         write_setup_metadata_to_region(pm_region, region_size, log_id);
 
