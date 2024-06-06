@@ -662,28 +662,18 @@ verus! {
             subregion.serialize_and_write_relative(wrpm_region, 0, &log_metadata, Tracked(perm));
             subregion.serialize_and_write_relative(wrpm_region, LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
 
-            // Prove that after the flush, the log metadata corresponding to the unused CDB will
-            // be reflected in memory.
+            // Prove that after the flush, the log metadata will be reflected in the subregion's
+            // state.
 
             proof {
                 LogMetadata::lemma_auto_serialize_deserialize();
                 u64::lemma_auto_serialize_deserialize();
 
-                let mem1 = subregion.view(wrpm_region).committed();
-                let mem2 = subregion.view(wrpm_region).flush().committed();
-                let log_metadata_bytes = log_metadata.spec_serialize();
-                let log_crc_bytes = log_crc.spec_serialize();
-
-                lemma_establish_extract_bytes_equivalence(mem1, mem2);
-                lemma_write_reflected_after_flush_committed(subregion.view(wrpm_region), 0int,
-                                                            log_metadata_bytes + log_crc_bytes);
-                
-                let log_metadata_and_crc_bytes = extract_bytes(mem2, 0, LENGTH_OF_LOG_METADATA + CRC_SIZE);
-                assert(extract_bytes(log_metadata_and_crc_bytes, 0, LENGTH_OF_LOG_METADATA as int)
-                       =~= log_metadata_bytes);
-                assert(extract_bytes(log_metadata_and_crc_bytes, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int)
-                       =~= log_crc_bytes);
-                assert(mem2 =~= log_metadata_and_crc_bytes);
+                let state_after_flush = subregion.view(wrpm_region).flush().committed();
+                assert(extract_bytes(state_after_flush, 0, LENGTH_OF_LOG_METADATA as int)
+                       =~= log_metadata.spec_serialize());
+                assert(extract_bytes(state_after_flush, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int)
+                       =~= log_crc.spec_serialize());
             }
         }
 
