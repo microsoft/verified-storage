@@ -745,7 +745,11 @@ verus! {
             // Update the inactive log metadata by creating a
             // subregion and invoking `update_inactive_log_metadata`.
             // The main interesting part of creating the subregion is
-            // proving that any writes to it are permitted by `perm`.
+            // establishing a condition `condition` such that (1)
+            // `condition(crash_state) ==>
+            // perm.check_permission(crash_state)` and (2) `condition`
+            // is preserved by updating writable addresses within the
+            // subregion.
 
             let ghost is_writable_absolute_addr_fn = |addr: int| true;
             let ghost condition = |mem: Seq<u8>| {
