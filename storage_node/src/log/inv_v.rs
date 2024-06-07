@@ -867,45 +867,72 @@ verus! {
     {
         lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
+        // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
+        // so knowing that the assertions below cover subranges of larger, equal subranges is enough to establish equality
+        // (but we have to assert it explicitly to hit the triggers)
+        lemma_auto_smaller_range_of_seq_is_subrange(mem1);
+
         // First, establish that the immutable parts and the CDB are the same between both byte sequences.
         let mem1_without_log_metadata = mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int);
         let mem2_without_log_metadata = mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int);
-
-        assert(mem1_without_log_metadata.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) == 
-            mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()));
         assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) == 
             mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()));
-            
-        assert(mem1_without_log_metadata.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == 
-            mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()));
         assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == 
             mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()));
-
-        assert(mem1_without_log_metadata.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) == 
-            mem1.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()));
         assert(mem1.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) == 
             mem2.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()));
-
-        assert(mem1_without_log_metadata.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()) == 
-            mem1.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()));
         assert(mem1.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()) == 
             mem2.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()));
-
-        assert(mem1_without_log_metadata.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == 
-            mem1.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
         assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == 
             mem2.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
 
-        // Next, establish that the live log metadata is the same in both byte sequences. To get the proof to go through,
-        // we need to establish what subranges of bytes correspond to the live log metadata and CRC.
+        // Next, establish that the types are set in the active metadata
         let log_metadata_pos = get_log_metadata_pos(cdb);
         u64::axiom_to_from_bytes();
-        assert(mem1.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == 
-            mem1.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()).subrange(0, LogMetadata::spec_size_of()));
         assert(exists |log_metadata: LogMetadata| mem2.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == 
             log_metadata.spec_to_bytes());
-        assert(mem1.subrange(log_metadata_pos + LogMetadata::spec_size_of(), log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
-            mem1.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()).subrange(LogMetadata::spec_size_of(), LogMetadata::spec_size_of() + u64::spec_size_of()));
         assert(exists |crc: u64| mem2.subrange(log_metadata_pos + LogMetadata::spec_size_of(), log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == crc.spec_to_bytes());
+    }
+
+    pub proof fn lemma_auto_smaller_range_of_seq_is_subrange(mem1: Seq<u8>)
+        ensures 
+            forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() ==> mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
+    {
+        assert forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() implies mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) by {
+            lemma_smaller_range_of_seq_is_subrange(mem1, i, j, k, l);
+        }
+    }
+
+    pub proof fn lemma_smaller_range_of_seq_is_subrange(mem1: Seq<u8>, i: int, j: int, k: int, l: int)
+        requires 
+            0 <= i <= k <= l <= j <= mem1.len()
+        ensures 
+            mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
+    {
+        assert(mem1.subrange(k, l) == mem1.subrange(i + k - i, i + l - i));
+        assert(mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(i + k - i, i + l - i));
+    }
+
+    pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)
+        requires 
+            ABSOLUTE_POS_OF_LOG_AREA <= mem1.len(),
+            ABSOLUTE_POS_OF_LOG_AREA <= mem2.len(),
+            mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) =~= 
+                mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int),
+            deserialize_and_check_log_cdb(mem1) is Some,
+        ensures 
+            active_metadata_bytes_are_equal(mem1, mem2)
+    {
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+
+        lemma_auto_smaller_range_of_seq_is_subrange(mem1);
+
+        let cdb = deserialize_and_check_log_cdb(mem1).unwrap();
+        let log_metadata_pos = get_log_metadata_pos(cdb);
+
+        assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
+            mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) );
+        assert(mem1.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+            mem2.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
     }
 }
