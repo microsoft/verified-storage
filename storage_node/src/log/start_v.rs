@@ -223,7 +223,7 @@ verus! {
                                   else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
         let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
-                                                       Ghost((LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64));
+                                                       Ghost(LENGTH_OF_LOG_METADATA + CRC_SIZE));
 
         let log_metadata = subregion.read_and_deserialize_relative::<LogMetadata, PMRegion>(pm_region, 0);
         let log_crc = subregion.read_and_deserialize_relative::<u64, PMRegion>(pm_region, LENGTH_OF_LOG_METADATA);

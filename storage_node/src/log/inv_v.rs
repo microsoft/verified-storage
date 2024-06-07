@@ -204,7 +204,7 @@ verus! {
     {
         &&& pm_region_view.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
         &&& info_consistent_with_log_area(
-               get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len),
+               get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int),
                info,
                state
            )
@@ -318,7 +318,7 @@ verus! {
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
 
-        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
         assert(recover_log_from_log_area_given_metadata(log_view.committed(), info.head as int, info.log_length as int)
                =~= Some(state.drop_pending_appends()));
@@ -642,8 +642,8 @@ verus! {
                                                               info.log_area_len as int,
                                                               info.log_length as int,
                                                               addr - ABSOLUTE_POS_OF_LOG_AREA),
-            views_differ_only_where_subregion_allows(v1, v2, ABSOLUTE_POS_OF_LOG_AREA,
-                                                     info.log_area_len, is_writable_absolute_addr),
+            views_differ_only_where_subregion_allows(v1, v2, ABSOLUTE_POS_OF_LOG_AREA as int,
+                                                     info.log_area_len as int, is_writable_absolute_addr),
         ensures
             v1.can_crash_as(v1.committed()),
             recover_state(crash_state, log_id) == recover_state(v1.committed(), log_id),

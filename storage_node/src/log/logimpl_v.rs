@@ -571,8 +571,10 @@ verus! {
             assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
-                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
-                                                            info.log_area_len, is_writable_absolute_addr_fn)
+                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
+                                                           ABSOLUTE_POS_OF_LOG_AREA as int,
+                                                           info.log_area_len as int,
+                                                           is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
@@ -581,7 +583,7 @@ verus! {
             }
             let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-                Ghost(self.info.log_area_len), Ghost(is_writable_absolute_addr_fn)
+                Ghost(self.info.log_area_len as int), Ghost(is_writable_absolute_addr_fn)
             );
 
             // Call `tentatively_append_to_log` to do the real work of this function,
@@ -749,8 +751,8 @@ verus! {
             assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
-                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, unused_metadata_pos,
-                                                           (LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64,
+                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, unused_metadata_pos as int,
+                                                           LENGTH_OF_LOG_METADATA + CRC_SIZE,
                                                            is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
                 lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_id, self.cdb, prev_info, prev_state);
@@ -760,7 +762,7 @@ verus! {
             }
             let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), unused_metadata_pos,
-                Ghost((LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64), Ghost(is_writable_absolute_addr_fn)
+                Ghost(LENGTH_OF_LOG_METADATA + CRC_SIZE), Ghost(is_writable_absolute_addr_fn)
             );
             self.update_inactive_log_metadata(wrpm_region, &subregion, Ghost(log_id), Ghost(prev_info),
                                               Ghost(prev_state), Tracked(perm));

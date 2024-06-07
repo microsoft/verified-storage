@@ -13,10 +13,12 @@ verus! {
 
 pub open spec fn get_subregion_view(
     region: PersistentMemoryRegionView,
-    start: u64,
-    len: u64,
+    start: int,
+    len: int,
 ) -> PersistentMemoryRegionView
     recommends
+        0 <= start,
+        0 <= len,
         start + len <= region.len(),
 {
     PersistentMemoryRegionView{ state: region.state.subrange(start as int, start + len) }
@@ -25,10 +27,13 @@ pub open spec fn get_subregion_view(
 pub open spec fn views_differ_only_where_subregion_allows(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
-    start: u64,
-    len: u64,
+    start: int,
+    len: int,
     is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
+    recommends
+        0 <= start,
+        0 <= len,
 {
     forall |addr: int| {
        ||| 0 <= addr < start
@@ -40,7 +45,7 @@ pub open spec fn views_differ_only_where_subregion_allows(
 pub struct WriteRestrictedPersistentMemorySubregion
 {
     start_: u64,
-    len_: Ghost<u64>,
+    len_: Ghost<int>,
     constants_: Ghost<PersistentMemoryConstants>,
     initial_region_view_: Ghost<PersistentMemoryRegionView>,
     is_writable_absolute_addr_fn_: Ghost<spec_fn(int) -> bool>,
@@ -52,7 +57,7 @@ impl WriteRestrictedPersistentMemorySubregion
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         Tracked(perm): Tracked<&Perm>,
         start: u64,
-        Ghost(len): Ghost<u64>,
+        Ghost(len): Ghost<int>,
         Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
     ) -> (result: Self)
         where
@@ -60,11 +65,12 @@ impl WriteRestrictedPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             wrpm.inv(),
+            0 <= len,
             start + len <= wrpm@.len() <= u64::MAX,
             forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm@.len() == alt_region_view.len()
-                &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start, len,
+                &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start as int, len,
                                                            is_writable_absolute_addr_fn)
             } ==> perm.check_permission(crash_state),
         ensures
@@ -75,7 +81,7 @@ impl WriteRestrictedPersistentMemorySubregion
             result.initial_region_view() == wrpm@,
             result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
             result.view(wrpm) == result.initial_subregion_view(),
-            result.view(wrpm) == get_subregion_view(wrpm@, start, len),
+            result.view(wrpm) == get_subregion_view(wrpm@, start as int, len),
     {
         let result = Self{
             start_: start,
@@ -92,12 +98,12 @@ impl WriteRestrictedPersistentMemorySubregion
         self.constants_@
     }
 
-    pub closed spec fn start(self) -> u64
+    pub closed spec fn start(self) -> int
     {
-        self.start_
+        self.start_ as int
     }
 
-    pub closed spec fn len(self) -> u64
+    pub closed spec fn len(self) -> int
     {
         self.len_@
     }
@@ -153,13 +159,14 @@ impl WriteRestrictedPersistentMemorySubregion
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.start() + self.len() <= wrpm@.len()
         &&& self.view(wrpm).len() == self.len()
-        &&& views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(), self.len(),
-                                                   self.is_writable_absolute_addr_fn())
+        &&& views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(),
+                                                   self.len(), self.is_writable_absolute_addr_fn())
         &&& forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
               &&& #[trigger] alt_region_view.can_crash_as(crash_state)
               &&& self.initial_region_view().len() == alt_region_view.len()
-              &&& views_differ_only_where_subregion_allows(self.initial_region_view(), alt_region_view, self.start(),
-                                                         self.len(), self.is_writable_absolute_addr_fn())
+              &&& views_differ_only_where_subregion_allows(self.initial_region_view(), alt_region_view,
+                                                         self.start(), self.len(),
+                                                         self.is_writable_absolute_addr_fn())
            } ==> perm.check_permission(crash_state)
     }
 
@@ -575,7 +582,7 @@ impl WriteRestrictedPersistentMemorySubregion
 pub struct PersistentMemorySubregion
 {
     start_: u64,
-    len_: Ghost<u64>,
+    len_: Ghost<int>,
 }
 
 impl PersistentMemorySubregion
@@ -583,7 +590,7 @@ impl PersistentMemorySubregion
     pub exec fn new<PMRegion: PersistentMemoryRegion>(
         pm: &PMRegion,
         start: u64,
-        Ghost(len): Ghost<u64>,
+        Ghost(len): Ghost<int>,
     ) -> (result: Self)
         requires
             pm.inv(),
@@ -591,7 +598,7 @@ impl PersistentMemorySubregion
         ensures
             result.start() == start,
             result.len() == len,
-            result.view(pm) == get_subregion_view(pm@, start, len),
+            result.view(pm) == get_subregion_view(pm@, start as int, len),
     {
         let result = Self{
             start_: start,
@@ -600,12 +607,12 @@ impl PersistentMemorySubregion
         result
     }
 
-    pub closed spec fn start(self) -> u64
+    pub closed spec fn start(self) -> int
     {
-        self.start_
+        self.start_ as int
     }
 
-    pub closed spec fn len(self) -> u64
+    pub closed spec fn len(self) -> int
     {
         self.len_@
     }
