@@ -23,6 +23,8 @@ verus! {
     pub trait PmCopyHelper : PmCopy {
         spec fn spec_to_bytes(self) -> Seq<u8>;
 
+        // TODO: define as choose? have a body and choose the valid deserialization
+        // might make it easier to prove metadata_types_set
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
         spec fn spec_crc(self) -> u64;
@@ -37,12 +39,16 @@ verus! {
             ensures 
                 forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
 
-        // TODO: is this safe?
-        // take these out
+        // TODO: make these take a argument, rather than quantify internally,
+        // and then you can broadcast. Should have an explicit trigger in requires or ensures
+        // because this may be required later
         proof fn axiom_to_from_bytes()
             ensures 
                 forall |s: Self| #![auto] s == Self::spec_from_bytes(s.spec_to_bytes()),
         ;
+
+        // an axiom we might need (or can replace these) -- if s1 and s2 serialize to the same bytes,
+        // then they are the same 
 
         proof fn axiom_from_to_bytes(bytes: Seq<u8>)
             requires 
