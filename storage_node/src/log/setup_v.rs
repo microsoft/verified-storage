@@ -127,13 +127,9 @@ verus! {
 
         proof {
             // TODO: broadcast these?
-            GlobalMetadata::axiom_bytes_len();
             GlobalMetadata::axiom_to_from_bytes();
-            u64::axiom_bytes_len();
             u64::axiom_to_from_bytes();
-            RegionMetadata::axiom_bytes_len();
             RegionMetadata::axiom_to_from_bytes();
-            LogMetadata::axiom_bytes_len();
             LogMetadata::axiom_to_from_bytes();
         }
 

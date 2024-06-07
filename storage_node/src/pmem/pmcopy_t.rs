@@ -35,9 +35,9 @@ verus! {
 
         spec fn size_inv(bytes: Seq<u8>) -> bool;
 
-        proof fn axiom_bytes_len()
+        proof fn axiom_bytes_len(s: Self)
             ensures 
-                forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
+                #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
 
         // TODO: make these take a argument, rather than quantify internally,
         // and then you can broadcast. Should have an explicit trigger in requires or ensures
@@ -80,7 +80,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        proof fn axiom_bytes_len() {}
+        broadcast proof fn axiom_bytes_len(s: Self) {}
         
         #[verifier::external_body]
         proof fn axiom_to_from_bytes() {}

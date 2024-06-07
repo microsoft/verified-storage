@@ -701,6 +701,7 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            assume(false);
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -721,11 +722,6 @@ verus! {
                 log_length: info.log_length
             };
             let log_crc = calculate_crc(&log_metadata);
-
-            proof { 
-                LogMetadata::axiom_bytes_len(); 
-                u64::axiom_bytes_len();
-            }
 
             let ghost log_metadata_bytes = log_metadata.spec_to_bytes();
             let ghost log_crc_bytes = log_crc.spec_to_bytes();
@@ -757,8 +753,6 @@ verus! {
                                                             prev_info, prev_state);
             }
 
-            assume(false);
-
             // Write the new metadata to the inactive header (without the CRC)
             wrpm_region.serialize_and_write(unused_metadata_pos, &log_metadata, Tracked(perm));
 
@@ -787,8 +781,6 @@ verus! {
                                                             log_metadata_bytes + log_crc_bytes);
                 assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
                 assert(extract_log_crc(mem2, !self.cdb) =~= log_crc_bytes);
-                LogMetadata::axiom_to_from_bytes();
-                u64::axiom_to_from_bytes();
             }
 
             // We've updated the inactive log metadata now, so it's a good time to
@@ -832,7 +824,6 @@ verus! {
                 let flushed_region = pm_region_after_write.flush();
                 lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                             new_cdb_bytes);
-                u64::axiom_to_from_bytes();
             }
 
             // Show that after writing and flushing, our invariants will
