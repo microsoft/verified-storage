@@ -116,6 +116,7 @@ verus! {
             &&& metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, self.info)
             &&& info_consistent_with_log_area_in_region(wrpm_region@, self.info, self.state@)
             &&& can_only_crash_as_state(wrpm_region@, log_id, self.state@.drop_pending_appends())
+            &&& metadata_types_set(wrpm_region@.committed())
         }
 
         pub proof fn lemma_inv_implies_wrpm_inv<Perm, PMRegion>(
@@ -606,7 +607,6 @@ verus! {
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.committed(), alt_region_view.committed());
                 lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
                 lemma_metadata_set_after_crash(alt_region_view, self.cdb);
-
             }
             let subregion = PersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
@@ -617,7 +617,7 @@ verus! {
             // providing it the subregion created above so it doesn't have to think
             // about anything but the log area and so it doesn't have to reason about
             // the overall recovery view to perform writes.
-
+            let ghost old_wrpm_region = wrpm_region@;
             let result = self.tentatively_append_to_log(wrpm_region, &subregion, bytes_to_append, Tracked(perm));
 
             // We now update our `info` field to reflect the new
@@ -634,6 +634,12 @@ verus! {
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
                 lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
                                                           wrpm_region@.committed());
+                assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
+                ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len, is_writable_absolute_addr));
+                assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
+                    wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
+                lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.committed(), wrpm_region@.committed());
+                lemma_metadata_matches_implies_metadata_types_set(old_wrpm_region, wrpm_region@, self.cdb);
             }
 
             result
@@ -689,6 +695,7 @@ verus! {
                           ||| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, log_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
+                metadata_types_set(old(wrpm_region)@.committed()),
             ensures
                 self.inv(wrpm_region, log_id),
                 wrpm_region.constants() == old(wrpm_region).constants(),
