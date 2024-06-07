@@ -24,6 +24,26 @@ pub open spec fn get_subregion_view(
     PersistentMemoryRegionView{ state: region.state.subrange(start as int, start + len) }
 }
 
+pub open spec fn memories_differ_only_where_subregion_allows(
+    mem1: Seq<u8>,
+    mem2: Seq<u8>,                                                         
+    start: int,
+    len: int,
+    is_writable_absolute_addr_fn: spec_fn(int) -> bool
+) -> bool
+    recommends
+        0 <= start,
+        0 <= len,
+        mem1.len() == mem2.len(),
+        start + len <= mem1.len(),
+{
+    forall |addr: int| {
+       ||| 0 <= addr < start
+       ||| start + len <= addr < mem1.len()
+       ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
+    } ==> mem1[addr] == #[trigger] mem2[addr]
+}
+
 pub open spec fn views_differ_only_where_subregion_allows(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
@@ -34,12 +54,101 @@ pub open spec fn views_differ_only_where_subregion_allows(
     recommends
         0 <= start,
         0 <= len,
+        start + len <= v1.len(),
+        v1.len() == v2.len()
 {
     forall |addr: int| {
        ||| 0 <= addr < start
        ||| start + len <= addr < v1.len()
        ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
     } ==> v1.state[addr] == #[trigger] v2.state[addr]
+}
+
+pub open spec fn condition_sufficient_to_create_wrpm_subregion<Perm>(
+    region_view: PersistentMemoryRegionView,
+    perm: &Perm,
+    start: u64,
+    len: int,
+    is_writable_absolute_addr_fn: spec_fn(int) -> bool,
+    condition: spec_fn(Seq<u8>) -> bool,
+) -> bool
+    where
+        Perm: CheckPermission<Seq<u8>>,
+{
+    &&& 0 <= len
+    &&& start + len <= region_view.len() <= u64::MAX
+    &&& forall |crash_state| region_view.can_crash_as(crash_state) ==> condition(crash_state)
+    &&& forall |crash_state| condition(crash_state) ==> perm.check_permission(crash_state)
+    &&& forall |s1: Seq<u8>, s2: Seq<u8>| {
+           &&& condition(s1)
+           &&& s1.len() == s2.len() == region_view.len()
+           &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, start as int, len,
+                                                                    is_writable_absolute_addr_fn)
+       } ==> condition(s2)
+}
+
+pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
+    region_view: PersistentMemoryRegionView,
+    perm: &Perm,
+    start: u64,
+    len: int,
+    is_writable_absolute_addr_fn: spec_fn(int) -> bool,
+    condition: spec_fn(Seq<u8>) -> bool,
+)
+    where
+        Perm: CheckPermission<Seq<u8>>,
+    requires
+        condition_sufficient_to_create_wrpm_subregion(region_view, perm, start, len, is_writable_absolute_addr_fn,
+                                                      condition),
+    ensures
+        forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+            &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
+            &&& region_view.len() == alt_region_view.len()
+            &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as int, len,
+                                                       is_writable_absolute_addr_fn)
+        } ==> perm.check_permission(alt_crash_state),
+{
+    assert forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+        &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
+        &&& region_view.len() == alt_region_view.len()
+        &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as int, len,
+                                                   is_writable_absolute_addr_fn)
+    } implies perm.check_permission(alt_crash_state) by {
+        let crash_state = Seq::<u8>::new(
+            alt_crash_state.len(),
+            |addr| {
+                if !(start <= addr < start + len && is_writable_absolute_addr_fn(addr)) {
+                    alt_crash_state[addr]
+                }
+                else {
+                    let chunk = addr / const_persistence_chunk_size();
+                    if alt_region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, alt_crash_state) {
+                        region_view.state[addr].state_at_last_flush
+                    }
+                    else {
+                        region_view.state[addr].flush_byte()
+                    }
+                }
+            }
+        );
+        assert(memories_differ_only_where_subregion_allows(crash_state, alt_crash_state, start as int, len,
+                                                           is_writable_absolute_addr_fn));
+        assert(region_view.can_crash_as(crash_state));
+        assert(region_view.can_crash_as(crash_state)) by {
+            assert forall |chunk| {
+                ||| region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state)
+                ||| region_view.chunk_corresponds_after_flush(chunk, crash_state)
+            } by {
+                if alt_region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, alt_crash_state) {
+                    assert(region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state));
+                }
+                else {
+                    assert(region_view.chunk_corresponds_after_flush(chunk, crash_state));
+                }
+            }
+        }
+        assert(condition(crash_state));
+    }
 }
 
 pub struct WriteRestrictedPersistentMemorySubregion
@@ -67,12 +176,12 @@ impl WriteRestrictedPersistentMemorySubregion
             wrpm.inv(),
             0 <= len,
             start + len <= wrpm@.len() <= u64::MAX,
-            forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
-                &&& #[trigger] alt_region_view.can_crash_as(crash_state)
+            forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+                &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
                 &&& wrpm@.len() == alt_region_view.len()
                 &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start as int, len,
                                                            is_writable_absolute_addr_fn)
-            } ==> perm.check_permission(crash_state),
+            } ==> perm.check_permission(alt_crash_state),
         ensures
             result.inv(wrpm, perm),
             result.constants() == wrpm.constants(),
@@ -83,6 +192,45 @@ impl WriteRestrictedPersistentMemorySubregion
             result.view(wrpm) == result.initial_subregion_view(),
             result.view(wrpm) == get_subregion_view(wrpm@, start as int, len),
     {
+        let result = Self{
+            start_: start,
+            len_: Ghost(len),
+            constants_: Ghost(wrpm.constants()),
+            initial_region_view_: Ghost(wrpm@),
+            is_writable_absolute_addr_fn_: Ghost(is_writable_absolute_addr_fn),
+        };
+        result
+    }
+
+    pub exec fn new_with_condition<Perm, PMRegion>(
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        Tracked(perm): Tracked<&Perm>,
+        start: u64,
+        Ghost(len): Ghost<int>,
+        Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
+        Ghost(condition): Ghost<spec_fn(Seq<u8>) -> bool>,
+    ) -> (result: Self)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            wrpm.inv(),
+            condition_sufficient_to_create_wrpm_subregion(wrpm@, perm, start, len, is_writable_absolute_addr_fn,
+                                                          condition),
+        ensures
+            result.inv(wrpm, perm),
+            result.constants() == wrpm.constants(),
+            result.start() == start,
+            result.len() == len,
+            result.initial_region_view() == wrpm@,
+            result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
+            result.view(wrpm) == result.initial_subregion_view(),
+            result.view(wrpm) == get_subregion_view(wrpm@, start as int, len),
+    {
+        proof {
+            lemma_condition_sufficient_to_create_wrpm_subregion(wrpm@, perm, start, len, is_writable_absolute_addr_fn,
+                                                                condition);
+        }
         let result = Self{
             start_: start,
             len_: Ghost(len),
@@ -161,13 +309,13 @@ impl WriteRestrictedPersistentMemorySubregion
         &&& self.view(wrpm).len() == self.len()
         &&& views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(),
                                                    self.len(), self.is_writable_absolute_addr_fn())
-        &&& forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
-              &&& #[trigger] alt_region_view.can_crash_as(crash_state)
+        &&& forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+              &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
               &&& self.initial_region_view().len() == alt_region_view.len()
               &&& views_differ_only_where_subregion_allows(self.initial_region_view(), alt_region_view,
                                                          self.start(), self.len(),
                                                          self.is_writable_absolute_addr_fn())
-           } ==> perm.check_permission(crash_state)
+           } ==> perm.check_permission(alt_crash_state)
     }
 
     pub open spec fn inv<Perm, PMRegion>(
@@ -413,8 +561,8 @@ impl WriteRestrictedPersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
-        assert forall |crash_state| wrpm@.write(relative_addr + self.start_, bytes@).can_crash_as(crash_state)
-                   implies perm.check_permission(crash_state) by {
+        assert forall |alt_crash_state| wrpm@.write(relative_addr + self.start_, bytes@).can_crash_as(alt_crash_state)
+                   implies perm.check_permission(alt_crash_state) by {
             let alt_region_view = wrpm@.write(relative_addr + self.start_, bytes@);
             assert(alt_region_view.len() == wrpm@.len());
             assert forall |addr: int| {
@@ -498,8 +646,8 @@ impl WriteRestrictedPersistentMemorySubregion
                    wrpm@.state[i].outstanding_write.is_none() by {
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
-        assert forall |crash_state| wrpm@.write(relative_addr + self.start_, bytes).can_crash_as(crash_state)
-                   implies perm.check_permission(crash_state) by {
+        assert forall |alt_crash_state| wrpm@.write(relative_addr + self.start_, bytes).can_crash_as(alt_crash_state)
+                   implies perm.check_permission(alt_crash_state) by {
             let alt_region_view = wrpm@.write(relative_addr + self.start_, bytes);
             assert(alt_region_view.len() == wrpm@.len());
             assert forall |addr: int| {
