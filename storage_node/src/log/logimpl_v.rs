@@ -801,8 +801,12 @@ verus! {
                 assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
                     let mem3 = wrpm_region@.flush().committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem3);
-                    assert(extract_bytes(mem3, unused_metadata_pos as int, LENGTH_OF_LOG_METADATA + CRC_SIZE)
-                           =~= subregion.view(wrpm_region).flush().committed());
+                    assert(extract_bytes(mem3, unused_metadata_pos as int, LENGTH_OF_LOG_METADATA as int)
+                           =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
+                                             LENGTH_OF_LOG_METADATA as int));
+                    assert(extract_bytes(mem3, unused_metadata_pos + LENGTH_OF_LOG_METADATA, CRC_SIZE as int)
+                           =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
+                                             LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int));
                 }
             }
 

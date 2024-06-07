@@ -40,9 +40,8 @@ verus! {
         let region_crc = deserialize_region_crc(mem);
         let region_metadata = deserialize_region_metadata(mem);
         let log_cdb = deserialize_and_check_log_cdb(mem);
-        let log_metadata_pos = get_log_metadata_pos(log_cdb.unwrap());
-        let log_metadata_and_crc_bytes = extract_bytes(mem, log_metadata_pos as int, LENGTH_OF_LOG_METADATA + CRC_SIZE);
-        let (log_metadata, log_crc) = deserialize_log_metadata_and_crc(log_metadata_and_crc_bytes);
+        let log_metadata = deserialize_log_metadata(mem, false);
+        let log_crc = deserialize_log_crc(mem, false);
         &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
         &&& mem.len() == region_size
         &&& global_crc == global_metadata.spec_crc()
@@ -156,8 +155,6 @@ verus! {
             LogMetadata::lemma_auto_serialize_deserialize();
 
             let mem = pm_region@.flush().committed();
-            let log_metadata_and_crc_bytes = extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
-                                               LENGTH_OF_LOG_METADATA + CRC_SIZE);
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
                    =~= global_metadata.spec_serialize());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
@@ -168,10 +165,11 @@ verus! {
                    =~= region_crc.spec_serialize());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
                    =~= CDB_FALSE.spec_serialize());
-            assert(extract_bytes(log_metadata_and_crc_bytes, 0, LENGTH_OF_LOG_METADATA as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
+                                 LENGTH_OF_LOG_METADATA as int)
                    =~= log_metadata.spec_serialize());
-            assert(extract_bytes(log_metadata_and_crc_bytes, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int)
-                   =~= log_crc.spec_serialize());
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, CRC_SIZE as int)
+                    =~= log_crc.spec_serialize());
 
             // Part 2:
             // Prove that if we parse the little-endian-encoded value
