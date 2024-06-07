@@ -749,6 +749,8 @@ verus! {
                                                             prev_info, prev_state);
             }
 
+            assume(false);
+
             // Write the new metadata to the inactive header (without the CRC)
             wrpm_region.serialize_and_write(unused_metadata_pos, &log_metadata, Tracked(perm));
 

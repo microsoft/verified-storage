@@ -38,6 +38,7 @@ verus! {
                 forall |s: Self| #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
 
         // TODO: is this safe?
+        // take these out
         proof fn axiom_to_from_bytes()
             ensures 
                 forall |s: Self| #![auto] s == Self::spec_from_bytes(s.spec_to_bytes()),

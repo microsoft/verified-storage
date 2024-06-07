@@ -171,7 +171,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
@@ -211,7 +211,7 @@ verus! {
     // `mem` of a persistent memory region.
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of() as int)
     }
 
     // This function extracts the log metadata's corruption-detecting boolean
@@ -296,7 +296,7 @@ verus! {
     {
         let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                   else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-        extract_bytes(mem, pos as int, CRC_SIZE as int)
+        extract_bytes(mem, pos as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
