@@ -17,6 +17,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -667,15 +668,15 @@ verus! {
                 PMRegion: PersistentMemoryRegion
             requires
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                subregion.len() == LENGTH_OF_LOG_METADATA + CRC_SIZE,
+                subregion.len() == LogMetadata::spec_size_of() + u64::spec_size_of(),
                 subregion.view(old::<&mut _>(wrpm_region)).no_outstanding_writes(),
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
             ensures
                 subregion.inv(wrpm_region, perm),
                 ({
                     let state_after_flush = subregion.view(wrpm_region).flush().committed();
-                    let log_metadata_bytes = extract_bytes(state_after_flush, 0, LENGTH_OF_LOG_METADATA as int);
-                    let log_crc_bytes = extract_bytes(state_after_flush, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int);
+                    let log_metadata_bytes = extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of());
+                    let log_crc_bytes = extract_bytes(state_after_flush, LogMetadata::spec_size_of(), u64::spec_size_of());
                     let log_metadata = LogMetadata::spec_from_bytes(log_metadata_bytes);
                     let log_crc = u64::spec_from_bytes(log_crc_bytes);
                     &&& log_crc == log_metadata.spec_crc()
@@ -698,16 +699,16 @@ verus! {
 
             // Write the new metadata to the inactive header (without the CRC)
             subregion.serialize_and_write_relative(wrpm_region, 0, &log_metadata, Tracked(perm));
-            subregion.serialize_and_write_relative(wrpm_region, LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
+            subregion.serialize_and_write_relative(wrpm_region, size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
 
             // Prove that after the flush, the log metadata will be reflected in the subregion's
             // state.
 
             proof {
                 let state_after_flush = subregion.view(wrpm_region).flush().committed();
-                assert(extract_bytes(state_after_flush, 0, LENGTH_OF_LOG_METADATA as int)
+                assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of() as int)
                        =~= log_metadata.spec_to_bytes());
-                assert(extract_bytes(state_after_flush, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int)
+                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of() as int, CRC_SIZE as int)
                        =~= log_crc.spec_to_bytes());
             }
         }
@@ -768,7 +769,6 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
-            assume(false);
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -796,8 +796,7 @@ verus! {
                 &&& condition(s1)
                 &&& s1.len() == s2.len() == wrpm_region@.len()
                 &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as int,
-                                                                         LENGTH_OF_LOG_METADATA + CRC_SIZE,
-                                                                         is_writable_absolute_addr_fn)
+                    LogMetadata::spec_size_of() + u64::spec_size_of(), is_writable_absolute_addr_fn)
             } implies condition(s2) by {
                 lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
                     s1, s2, log_id, self.cdb
@@ -808,11 +807,12 @@ verus! {
             }
             let subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition(
                 wrpm_region, Tracked(perm), unused_metadata_pos,
-                Ghost(LENGTH_OF_LOG_METADATA + CRC_SIZE), Ghost(is_writable_absolute_addr_fn),
+                Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()), Ghost(is_writable_absolute_addr_fn),
                 Ghost(condition),
             );
             self.update_inactive_log_metadata(wrpm_region, &subregion, Ghost(log_id), Ghost(prev_info),
                                               Ghost(prev_state), Tracked(perm));
+            assume(false);
 
             // We've updated the inactive log metadata now, so it's a good time to
             // mention some relevant facts about the consequent state.
@@ -836,12 +836,12 @@ verus! {
                 assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
                     let mem3 = wrpm_region@.flush().committed();
                     lemma_establish_extract_bytes_equivalence(mem1, mem3);
-                    assert(extract_bytes(mem3, unused_metadata_pos as int, LENGTH_OF_LOG_METADATA as int)
+                    assert(extract_bytes(mem3, unused_metadata_pos as int, LogMetadata::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
-                                             LENGTH_OF_LOG_METADATA as int));
-                    assert(extract_bytes(mem3, unused_metadata_pos + LENGTH_OF_LOG_METADATA, CRC_SIZE as int)
+                                            LogMetadata::spec_size_of() as int));
+                    assert(extract_bytes(mem3, unused_metadata_pos + LogMetadata::spec_size_of(), CRC_SIZE as int)
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
-                                             LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int));
+                                            LogMetadata::spec_size_of(), CRC_SIZE as int));
                 }
             }
 

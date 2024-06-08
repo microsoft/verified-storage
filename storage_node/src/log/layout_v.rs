@@ -55,8 +55,7 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-// use crate::pm_sized;
-use crate::pmem::traits_t::*;
+use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
 use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
@@ -197,7 +196,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
@@ -547,7 +546,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
+                    if global_metadata.length_of_region_metadata != RegionMetadata::spec_size_of() {
                         // To be valid, the global metadata's encoding of the region metadata's
                         // length has to be what we expect. (This version of the code doesn't
                         // support any other length of region metadata.)
@@ -638,7 +637,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE {
+                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of() {
                         // If memory isn't big enough to store the CDB, then this region isn't
                         // valid.
                         None
@@ -794,7 +793,7 @@ verus! {
             ({
                 let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                             else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
-                let unused_metadata_end = unused_metadata_start + LENGTH_OF_LOG_METADATA + CRC_SIZE;
+                let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
                 forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
                     ==> mem1[addr] == mem2[addr]
             }),

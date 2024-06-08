@@ -91,14 +91,14 @@ verus! {
     pub open spec fn memory_matches_cdb(pm_region_view: PersistentMemoryRegionView, cdb: bool) -> bool
     {
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int,
-                                                        ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+                                                        ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
         &&& extract_and_parse_log_cdb(pm_region_view.committed()) == Some(cdb)
     }
 
     pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemoryRegionView, cdb: bool) -> bool
     {
         &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int,
-                                                        ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE)
+                                                        ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
         &&& deserialize_and_check_log_cdb(pm_region_view.committed()) == Some(cdb)
     }
 
@@ -149,7 +149,7 @@ verus! {
         // Various fields are valid and match the parameters to this function
         &&& global_metadata.program_guid == LOG_PROGRAM_GUID
         &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
-        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
         &&& region_metadata.region_size == mem.len()
         &&& region_metadata.log_id == log_id
         &&& region_metadata.log_area_len == info.log_area_len
@@ -173,7 +173,7 @@ verus! {
         requires
             new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
             new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
-            new_cdb_bytes.len() == CRC_SIZE,
+            new_cdb_bytes.len() == u64::spec_size_of(),
             old_pm_region_view.no_outstanding_writes(),
             new_pm_region_view.no_outstanding_writes(),
             new_pm_region_view =~= old_pm_region_view.write(ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
@@ -617,12 +617,12 @@ verus! {
             memory_matches_deserialized_cdb(pm_region_view, cdb),
             metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
-            bytes_to_write.len() == CRC_SIZE,
+            bytes_to_write.len() == u64::spec_size_of(),
             metadata_types_set(pm_region_view.committed()),
         ensures
             ({
                 let pm_region_view2 = pm_region_view.write(
-                    get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
+                    get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
                     bytes_to_write
                 );
                 &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
@@ -632,7 +632,7 @@ verus! {
             })
     {
         let pm_region_view2 = pm_region_view.write(
-            get_log_metadata_pos(!cdb) + LENGTH_OF_LOG_METADATA,
+            get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
             bytes_to_write
         );
 

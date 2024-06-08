@@ -44,6 +44,8 @@ verus! {
     pub trait ExPmSized : SpecPmSized {
         type ExternalTraitSpecificationFor: PmSized;
 
+
+        // TODO: why aren't these useable?
         fn size_of() -> (out: usize)
             ensures 
                 out as int == Self::spec_size_of();
@@ -55,6 +57,20 @@ verus! {
     #[verifier::external_trait_specification]
     pub trait ExUnsafeSpecPmSized {
         type ExternalTraitSpecificationFor: UnsafeSpecPmSized;
+    }
+
+    pub fn size_of<S: PmSized>() -> (out: usize)
+        ensures 
+            out as int == S::spec_size_of()
+    {
+        S::size_of()
+    }
+
+    pub fn align_of<S: PmSized>() -> (out: usize)
+        ensures 
+            out as int == S::spec_align_of()
+    {
+        S::align_of()
     }
 }
 
