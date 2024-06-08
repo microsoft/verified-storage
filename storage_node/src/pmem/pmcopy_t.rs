@@ -15,6 +15,11 @@ use std::ptr;
 use std::mem::MaybeUninit;
 
 verus! {
+    pub broadcast group pmcopy_axioms {
+        axiom_bytes_len,
+        axiom_to_from_bytes
+    }
+
     // PmCopy provides functions to help reason about copying data to and from persistent memory.
     // It is a subtrait of PmSafe (a marker trait indicating that the type is safe to write to persistent memory)
     // and PmSized/SpecPmSized (which provide reliable information about the size of the implementing struct in 
@@ -34,18 +39,6 @@ verus! {
                 out@ == self.spec_to_bytes();
 
         spec fn size_inv(bytes: Seq<u8>) -> bool;
-
-        proof fn axiom_bytes_len(s: Self)
-            ensures 
-                #[trigger] s.spec_to_bytes().len() == Self::spec_size_of();
-
-        // TODO: make these take a argument, rather than quantify internally,
-        // and then you can broadcast. Should have an explicit trigger in requires or ensures
-        // because this may be required later
-        proof fn axiom_to_from_bytes()
-            ensures 
-                forall |s: Self| #![auto] s == Self::spec_from_bytes(s.spec_to_bytes()),
-        ;
 
         // an axiom we might need (or can replace these) -- if s1 and s2 serialize to the same bytes,
         // then they are the same 
@@ -80,13 +73,21 @@ verus! {
         }
 
         #[verifier::external_body]
-        broadcast proof fn axiom_bytes_len(s: Self) {}
-        
-        #[verifier::external_body]
-        proof fn axiom_to_from_bytes() {}
-
-        #[verifier::external_body]
         proof fn axiom_from_to_bytes(bytes: Seq<u8>) {}
+    }
+
+    pub broadcast proof fn axiom_bytes_len<S: PmCopy>(s: S)
+        ensures 
+            #[trigger] s.spec_to_bytes().len() == S::spec_size_of()
+    {
+        admit();
+    }
+
+    pub broadcast proof fn axiom_to_from_bytes<S: PmCopy>(s: S)
+        ensures 
+            s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
+    {
+        admit();
     }
 
     // // This should be true for every PmCopy type, but making it default does not automatically

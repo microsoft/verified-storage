@@ -26,6 +26,8 @@ use vstd::slice::*;
 
 verus! {
 
+    broadcast use pmcopy_axioms;
+
     // This structure, `LogInfo`, is used by `UntrustedLogImpl`
     // to store information about a single log. Its fields are:
     //
@@ -339,7 +341,7 @@ verus! {
         exec fn tentatively_append_to_log<PMRegion>(
             &self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
-            subregion: &PersistentMemorySubregion,
+            subregion: &WriteRestrictedPersistentMemorySubregion,
             bytes_to_append: &[u8],
             Tracked(perm): Tracked<&TrustedPermission>,
         ) -> (result: Result<u128, LogErr>)
@@ -579,14 +581,14 @@ verus! {
                 })
             }
 
-            // Create a `PersistentMemorySubregion` that only provides
+            // Create a `WriteRestrictedPersistentMemorySubregion` that only provides
             // access to the log area, and that places a simpler
             // restriction on writes: one can only use it to overwrite
             // log addresses not accessed by the recovery view. That
             // is, one can only use it to overwrite parts of the log
             // beyond the current tail.
 
-            let ghost is_writable_absolute_addr =
+            let ghost is_writable_absolute_addr_fn =
                 |addr: int| log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
                                                                       self.info.log_area_len as int,
                                                                       self.info.log_length as int,
@@ -594,12 +596,14 @@ verus! {
             assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
-                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view, ABSOLUTE_POS_OF_LOG_AREA,
-                                                            info.log_area_len, is_writable_absolute_addr)
+                &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
+                                                           ABSOLUTE_POS_OF_LOG_AREA as int,
+                                                           info.log_area_len as int,
+                                                           is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
-                    is_writable_absolute_addr
+                    is_writable_absolute_addr_fn
                 );
                 assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
@@ -608,9 +612,9 @@ verus! {
                 lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
                 lemma_metadata_set_after_crash(alt_region_view, self.cdb);
             }
-            let subregion = PersistentMemorySubregion::new(
+            let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-                Ghost(self.info.log_area_len), Ghost(is_writable_absolute_addr)
+                Ghost(self.info.log_area_len as int), Ghost(is_writable_absolute_addr_fn)
             );
 
             // Call `tentatively_append_to_log` to do the real work of this function,
@@ -635,7 +639,7 @@ verus! {
                 lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
                                                           wrpm_region@.committed());
                 assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
-                ABSOLUTE_POS_OF_LOG_AREA, self.info.log_area_len, is_writable_absolute_addr));
+                ABSOLUTE_POS_OF_LOG_AREA as int, self.info.log_area_len as int, is_writable_absolute_addr_fn));
                 assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.committed(), wrpm_region@.committed());
@@ -643,6 +647,69 @@ verus! {
             }
 
             result
+        }
+
+        // This local helper method updates the inactive log metadata
+        // on persistent memory to be consistent with `self.info` and
+        // `self.state`. It's passed a subregion that gives it permission
+        // to do arbitrary writes to the inactive log metadata portion
+        // of the persistent memory.
+        exec fn update_inactive_log_metadata<PMRegion>(
+            &self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
+            subregion: &WriteRestrictedPersistentMemorySubregion,
+            Ghost(log_id): Ghost<u128>,
+            Ghost(prev_info): Ghost<LogInfo>,
+            Ghost(prev_state): Ghost<AbstractLogState>,
+            Tracked(perm): Tracked<&TrustedPermission>,
+        )
+            where
+                PMRegion: PersistentMemoryRegion
+            requires
+                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                subregion.len() == LENGTH_OF_LOG_METADATA + CRC_SIZE,
+                subregion.view(old::<&mut _>(wrpm_region)).no_outstanding_writes(),
+                forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+            ensures
+                subregion.inv(wrpm_region, perm),
+                ({
+                    let state_after_flush = subregion.view(wrpm_region).flush().committed();
+                    let log_metadata_bytes = extract_bytes(state_after_flush, 0, LENGTH_OF_LOG_METADATA as int);
+                    let log_crc_bytes = extract_bytes(state_after_flush, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int);
+                    let log_metadata = LogMetadata::spec_from_bytes(log_metadata_bytes);
+                    let log_crc = u64::spec_from_bytes(log_crc_bytes);
+                    &&& log_crc == log_metadata.spec_crc()
+                    &&& log_metadata.head == self.info.head
+                    &&& log_metadata.log_length == self.info.log_length
+                }),
+        {
+            // Encode the log metadata as bytes, and compute the CRC of those bytes
+
+            let info = &self.info;
+            let log_metadata = LogMetadata {
+                head: info.head,
+                _padding: 0,
+                log_length: info.log_length
+            };
+            let log_crc = calculate_crc(&log_metadata);
+
+            assert(log_metadata.spec_to_bytes().len() == LogMetadata::spec_size_of());
+            assert(log_crc.spec_to_bytes().len() == u64::spec_size_of());
+
+            // Write the new metadata to the inactive header (without the CRC)
+            subregion.serialize_and_write_relative(wrpm_region, 0, &log_metadata, Tracked(perm));
+            subregion.serialize_and_write_relative(wrpm_region, LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
+
+            // Prove that after the flush, the log metadata will be reflected in the subregion's
+            // state.
+
+            proof {
+                let state_after_flush = subregion.view(wrpm_region).flush().committed();
+                assert(extract_bytes(state_after_flush, 0, LENGTH_OF_LOG_METADATA as int)
+                       =~= log_metadata.spec_to_bytes());
+                assert(extract_bytes(state_after_flush, LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int)
+                       =~= log_crc.spec_to_bytes());
+            }
         }
 
         // This local helper method updates the log metadata on
@@ -705,98 +772,78 @@ verus! {
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
+            let ghost old_wrpm = wrpm_region@;
             let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                       else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
 
-            ///////////////////////////////////////
-            // Update the inactive log metadata.
-            ///////////////////////////////////////
+            // Update the inactive log metadata by creating a
+            // subregion and invoking `update_inactive_log_metadata`.
+            // The main interesting part of creating the subregion is
+            // establishing a condition `condition` such that (1)
+            // `condition(crash_state) ==>
+            // perm.check_permission(crash_state)` and (2) `condition`
+            // is preserved by updating writable addresses within the
+            // subregion.
 
-            // Encode the log metadata as bytes, and compute the CRC of those bytes
-
-            let info = &self.info;
-            let log_metadata = LogMetadata {
-                head: info.head,
-                _padding: 0,
-                log_length: info.log_length
+            let ghost is_writable_absolute_addr_fn = |addr: int| true;
+            let ghost condition = |mem: Seq<u8>| {
+                &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA
+                &&& recover_cdb(mem) == Some(self.cdb)
+                &&& recover_state(mem, log_id) == Some(prev_state.drop_pending_appends())
             };
-            let log_crc = calculate_crc(&log_metadata);
-
-            let ghost log_metadata_bytes = log_metadata.spec_to_bytes();
-            let ghost log_crc_bytes = log_crc.spec_to_bytes();
-
-            // Prove that updating the inactive metadata+CRC maintains
-            // all invariants that held before. We prove this separately
-            // for metadata and CRC because they are updated in two separate
-            // writes.
-
-            proof {
-                lemma_updating_inactive_metadata_maintains_invariants(
-                    wrpm_region@, log_id, self.cdb, prev_info, prev_state, log_metadata_bytes
-                );
-
-                let wrpm_region_new = wrpm_region@.write(unused_metadata_pos as int, log_metadata_bytes);
-                lemma_updating_inactive_crc_maintains_invariants(
-                    wrpm_region_new, log_id, self.cdb, prev_info, prev_state, log_crc_bytes
+            assert forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& condition(s1)
+                &&& s1.len() == s2.len() == wrpm_region@.len()
+                &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as int,
+                                                                         LENGTH_OF_LOG_METADATA + CRC_SIZE,
+                                                                         is_writable_absolute_addr_fn)
+            } implies condition(s2) by {
+                lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+                    s1, s2, log_id, self.cdb
                 );
             }
-
-            // Use `lemma_invariants_imply_crash_recover_forall` to prove that it's OK to call
-            // `write`. (One of the conditions for calling that lemma is that our invariants
-            // hold, which we just proved above.)
-
-            let ghost wrpm_region_new = wrpm_region@.write(unused_metadata_pos as int, log_metadata_bytes);
-            assert forall |crash_bytes| wrpm_region_new.can_crash_as(crash_bytes)
-                       implies #[trigger] perm.check_permission(crash_bytes) by {
-                lemma_invariants_imply_crash_recover_forall(wrpm_region_new, log_id, self.cdb,
-                                                            prev_info, prev_state);
+            assert forall |crash_state: Seq<u8>| wrpm_region@.can_crash_as(crash_state) implies condition(crash_state) by {
+                lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_id, self.cdb, prev_info, prev_state);
             }
-
-            // Write the new metadata to the inactive header (without the CRC)
-            wrpm_region.serialize_and_write(unused_metadata_pos, &log_metadata, Tracked(perm));
-
-            // Now prove that the CRC is safe to update as well, and write it.
-
-            let ghost wrpm_region_new = wrpm_region@.write(
-                unused_metadata_pos + LENGTH_OF_LOG_METADATA, log_crc_bytes
+            let subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition(
+                wrpm_region, Tracked(perm), unused_metadata_pos,
+                Ghost(LENGTH_OF_LOG_METADATA + CRC_SIZE), Ghost(is_writable_absolute_addr_fn),
+                Ghost(condition),
             );
-            assert forall |crash_bytes| wrpm_region_new.can_crash_as(crash_bytes)
-                       implies #[trigger] perm.check_permission(crash_bytes) by {
-                lemma_invariants_imply_crash_recover_forall(
-                    wrpm_region_new, log_id, self.cdb, prev_info, prev_state);
-            }
-
-            wrpm_region.serialize_and_write(unused_metadata_pos + LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
-
-            // Prove that after the flush, the log metadata corresponding to the unused CDB will
-            // be reflected in memory.
-
-            let ghost flushed = wrpm_region_new.flush();
-            assert (metadata_consistent_with_info(flushed, log_id, !self.cdb, self.info)) by {
-                let mem1 = wrpm_region@.committed();
-                let mem2 = flushed.committed();
-                lemma_establish_extract_bytes_equivalence(mem1, mem2);
-                lemma_write_reflected_after_flush_committed(wrpm_region@, unused_metadata_pos as int,
-                                                            log_metadata_bytes + log_crc_bytes);
-                assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
-                assert(extract_log_crc(mem2, !self.cdb) =~= log_crc_bytes);
-            }
+            self.update_inactive_log_metadata(wrpm_region, &subregion, Ghost(log_id), Ghost(prev_info),
+                                              Ghost(prev_state), Tracked(perm));
 
             // We've updated the inactive log metadata now, so it's a good time to
             // mention some relevant facts about the consequent state.
+            
+            proof {
+                let mem1 = old_wrpm.committed();
+                let mem2 = wrpm_region@.committed();
+                subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
+                lemma_establish_extract_bytes_equivalence(mem1, mem2);
         
-            assert(wrpm_region.inv());
-            assert(wrpm_region.constants() == old(wrpm_region).constants());
-            assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
-            assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
-            assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, prev_info));
-            assert(info_consistent_with_log_area_in_region(wrpm_region@, prev_info, prev_state));
-            assert(info_consistent_with_log_area_in_region(wrpm_region@.flush(), self.info, self.state@));
-            assert(forall |s| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends()) ==>
-                       #[trigger] perm.check_permission(s));
-            assert(self.info.log_area_len == prev_info.log_area_len);
-            assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info));
+                assert(wrpm_region.inv());
+                assert(wrpm_region.constants() == old(wrpm_region).constants());
+                assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
+                assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
+                assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, prev_info));
+                assert(info_consistent_with_log_area_in_region(wrpm_region@, prev_info, prev_state));
+                assert(info_consistent_with_log_area_in_region(wrpm_region@.flush(), self.info, self.state@));
+                assert(forall |s| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends()) ==>
+                           #[trigger] perm.check_permission(s));
+                assert(self.info.log_area_len == prev_info.log_area_len);
+                assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
+                    let mem3 = wrpm_region@.flush().committed();
+                    lemma_establish_extract_bytes_equivalence(mem1, mem3);
+                    assert(extract_bytes(mem3, unused_metadata_pos as int, LENGTH_OF_LOG_METADATA as int)
+                           =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
+                                             LENGTH_OF_LOG_METADATA as int));
+                    assert(extract_bytes(mem3, unused_metadata_pos + LENGTH_OF_LOG_METADATA, CRC_SIZE as int)
+                           =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
+                                             LENGTH_OF_LOG_METADATA as int, CRC_SIZE as int));
+                }
+            }
 
             // Prove that after the flush we're about to do, all our
             // invariants will continue to hold (using the still-unchanged
@@ -812,7 +859,6 @@ verus! {
             wrpm_region.flush();
 
             // Next, compute the new encoded CDB to write.
-
             let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
             let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
@@ -886,6 +932,12 @@ verus! {
                                                             self.cdb, prev_info, prev_state);
                 lemma_single_write_crash_effect_on_pm_region_view(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                                   new_cdb_bytes);
+                if crash_bytes == wrpm_region@.committed() {
+                    assert(wrpm_region@.can_crash_as(crash_bytes));
+                }
+                else {
+                    assert(pm_region_after_flush.can_crash_as(crash_bytes));
+                }
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.

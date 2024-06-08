@@ -261,6 +261,8 @@ verus! {
     {
         if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
     }
+    // This function extracts the log metadata and its CRC from the
+    // `bytes` where they're stored.
 
     // This function computes where the log metadata ends in a
     // persistent-memory region (i.e., the index of the byte just past
@@ -778,5 +780,29 @@ verus! {
         let state = recover_state(mem, log_id).unwrap();
         assert(state.pending.len() == 0);
         assert(state =~= state.drop_pending_appends());
+    }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        log_id: u128,
+        cdb: bool,
+    )
+        requires
+            mem1.len() == mem2.len() >= ABSOLUTE_POS_OF_LOG_AREA,
+            recover_cdb(mem1) == Some(cdb),
+            ({
+                let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
+                                            else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
+                let unused_metadata_end = unused_metadata_start + LENGTH_OF_LOG_METADATA + CRC_SIZE;
+                forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+                    ==> mem1[addr] == mem2[addr]
+            }),
+        ensures
+            recover_cdb(mem2) == Some(cdb),
+            recover_state(mem1, log_id) == recover_state(mem2, log_id),
+    {
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
     }
 }

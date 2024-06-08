@@ -19,6 +19,8 @@ use vstd::prelude::*;
 
 verus! {
 
+    broadcast use pmcopy_axioms;
+
     // This function evaluates whether memory was correctly set up on
     // a region. It's a helpful specification function for use in
     // later functions in this file.
@@ -125,13 +127,13 @@ verus! {
         };
         let log_crc = calculate_crc(&log_metadata);
 
-        proof {
-            // TODO: broadcast these?
-            GlobalMetadata::axiom_to_from_bytes();
-            u64::axiom_to_from_bytes();
-            RegionMetadata::axiom_to_from_bytes();
-            LogMetadata::axiom_to_from_bytes();
-        }
+        // proof {
+        //     // TODO: broadcast these?
+        //     GlobalMetadata::axiom_to_from_bytes();
+        //     u64::axiom_to_from_bytes();
+        //     RegionMetadata::axiom_to_from_bytes();
+        //     LogMetadata::axiom_to_from_bytes();
+        // }
 
         assert(pm_region@.no_outstanding_writes());
         // Write all metadata structures and their CRCs to memory
@@ -141,7 +143,7 @@ verus! {
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_REGION_CRC, &region_crc);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_CDB, &cdb);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE, &log_metadata);
-        pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE, &log_crc);
+        pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LENGTH_OF_LOG_METADATA, &log_crc);
 
         proof {
             // We want to prove that if we parse the result of

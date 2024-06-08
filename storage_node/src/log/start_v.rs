@@ -14,6 +14,7 @@ use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE, CDB_SIZE};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -123,7 +124,7 @@ verus! {
                     },
                     Err(LogErr::CRCMismatch) =>
                         state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
-                    _ => state.is_None()
+                    _ => state.is_None(),
                 }
             })
     {
@@ -240,6 +241,12 @@ verus! {
         // Read the log metadata and its CRC, and check that the
         // CRC matches. The position where to find the log
         // metadata depend on the CDB.
+
+        let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
+                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
+        assert(log_metadata_pos == get_log_metadata_pos(cdb));
+        let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
+                                                       Ghost(LENGTH_OF_LOG_METADATA + CRC_SIZE));
 
         let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
                                   else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };

@@ -17,6 +17,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
+    broadcast use pmcopy_axioms;
 
     // This invariant says that there are no outstanding writes to any
     // part of the metadata subregion of the persistent-memory region.
@@ -256,7 +257,7 @@ verus! {
     {
         &&& pm_region_view.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
         &&& info_consistent_with_log_area(
-               get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len),
+               get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int),
                info,
                state
            )
@@ -398,7 +399,7 @@ verus! {
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
 
-        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA, info.log_area_len);
+        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as int, info.log_area_len as int);
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
         assert(recover_log_from_log_area_given_metadata(log_view.committed(), info.head as int, info.log_length as int)
                =~= Some(state.drop_pending_appends()));
@@ -433,6 +434,7 @@ verus! {
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
             metadata_types_set(pm_region_view.committed()),
         ensures
+            recover_cdb(mem) == Some(cdb),
             recover_state(mem, log_id) == Some(state.drop_pending_appends())
     {
         // For the CDB, we observe that:
@@ -493,11 +495,15 @@ verus! {
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
             metadata_types_set(pm_region_view.committed()),
         ensures
-            forall |mem| pm_region_view.can_crash_as(mem) ==>
-                recover_state(mem, log_id) == Some(state.drop_pending_appends())
+            forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
+                &&& recover_cdb(mem) == Some(cdb)
+                &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+            }
     {
-        assert forall |mem| pm_region_view.can_crash_as(mem) implies recover_state(mem, log_id) ==
-                   Some(state.drop_pending_appends()) by
+        assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
+                   &&& recover_cdb(mem) == Some(cdb)
+                   &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+               } by
         {
             lemma_invariants_imply_crash_recover(pm_region_view, mem, log_id, cdb, info, state);
         }
@@ -774,8 +780,8 @@ verus! {
                                                               info.log_area_len as int,
                                                               info.log_length as int,
                                                               addr - ABSOLUTE_POS_OF_LOG_AREA),
-            views_differ_only_where_subregion_allows(v1, v2, ABSOLUTE_POS_OF_LOG_AREA,
-                                                     info.log_area_len, is_writable_absolute_addr),
+            views_differ_only_where_subregion_allows(v1, v2, ABSOLUTE_POS_OF_LOG_AREA as int,
+                                                     info.log_area_len as int, is_writable_absolute_addr),
         ensures
             v1.can_crash_as(v1.committed()),
             recover_state(crash_state, log_id) == recover_state(v1.committed(), log_id),
@@ -834,8 +840,6 @@ verus! {
             &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
         } implies metadata_types_set(s) by {
             lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
-            u64::axiom_to_from_bytes();
-            LogMetadata::axiom_to_from_bytes();
         }
     }
 
@@ -909,7 +913,6 @@ verus! {
 
         // Next, establish that the types are set in the active metadata
         let log_metadata_pos = get_log_metadata_pos(cdb);
-        u64::axiom_to_from_bytes();
         assert(exists |log_metadata: LogMetadata| mem2.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == 
             log_metadata.spec_to_bytes());
         assert(exists |crc: u64| mem2.subrange(log_metadata_pos + LogMetadata::spec_size_of(), log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == crc.spec_to_bytes());
