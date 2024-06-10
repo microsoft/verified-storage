@@ -11,7 +11,7 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
-use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE, CDB_SIZE};
+use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE, CDB_SIZE, PmemError};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
@@ -24,6 +24,8 @@ use vstd::prelude::*;
 use vstd::slice::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     // This exported function reads the corruption-detecting boolean
     // and returns it.
@@ -41,6 +43,7 @@ verus! {
             pm_region.inv(),
             recover_cdb(pm_region@.committed()).is_Some(),
             pm_region@.no_outstanding_writes(),
+            metadata_types_set(pm_region@.committed()),
         ensures
             match result {
                 Ok(b) => Some(b) == recover_cdb(pm_region@.committed()),
@@ -48,19 +51,23 @@ verus! {
                 // it's obligated to prove that it won't generate such an error when
                 // the persistent memory is impervious to corruption.
                 Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
-                _ => false,
+                Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
             }
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
+        let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
 
         let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
         let ghost true_cdb = choose |cdb: u64| true_cdb_bytes == cdb.spec_to_bytes();
-        proof {
-            u64::axiom_from_to_bytes(true_cdb_bytes);
-        }
-        let log_cdb = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)).map_err(|e| LogErr::PmemErr { err: e })?;
-        let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
+        // check_cdb does not require that the true bytes be contiguous, so we need to make Z3 confirm that the 
+        // contiguous region we are using as the true value matches the address sequence we pass in.
+        assert(true_cdb_bytes == Seq::new(u64::spec_size_of() as nat, |i: int| mem[log_cdb_addrs[i]]));
+
+        let log_cdb = match pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)) {
+            Ok(log_cdb) => log_cdb,
+            Err(e) => return Err(LogErr::PmemErr{ err: e }),
+        };
+        
         let result = check_cdb(log_cdb, Ghost(true_cdb), Ghost(mem),
                                Ghost(pm_region.constants().impervious_to_corruption),
                                Ghost(log_cdb_addrs));

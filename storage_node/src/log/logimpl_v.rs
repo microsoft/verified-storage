@@ -282,7 +282,7 @@ verus! {
                         &&& can_only_crash_as_state(wrpm_region@, log_id, state.drop_pending_appends())
                     },
                     Err(LogErr::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
-                    _ => false
+                    Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
             // The invariants demand that there are no outstanding

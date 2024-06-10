@@ -316,10 +316,9 @@ verus! {
         Ghost(cdb_addrs): Ghost<Seq<int>>,
     ) -> (result: Option<bool>)
         requires
-            cdb_c@.len() == CDB_SIZE,
             forall |i: int| 0 <= i < cdb_addrs.len() ==> cdb_addrs[i] <= mem.len(),
             ({
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 &&& true_cdb.spec_to_bytes() == true_cdb_bytes
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
                 &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
@@ -327,7 +326,7 @@ verus! {
             })
         ensures
             ({
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
@@ -346,7 +345,7 @@ verus! {
             let ghost cdb_c_val = u64::spec_from_bytes(cdb_c@);
 
             if !impervious_to_corruption && (cdb_c_val == CDB_FALSE || cdb_c_val == CDB_TRUE) {
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, cdb_addrs);
             }
         }

@@ -304,6 +304,7 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // error because we're not allowed to read from before the head.
     match log.read(0, 1) {
         Err(LogErr::CantReadBeforeHead{head}) => runtime_assert(head == 2),
+        Err(LogErr::PmemErr { err: PmemError::AccessOutOfRange }) => {}
         _ => runtime_assert(false) // can't succeed, and can't fail with any other error
     }
     Some(())
