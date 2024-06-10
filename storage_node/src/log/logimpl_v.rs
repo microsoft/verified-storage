@@ -665,7 +665,7 @@ verus! {
             Tracked(perm): Tracked<&TrustedPermission>,
         )
             where
-                PMRegion: PersistentMemoryRegion
+                PMRegion: PersistentMemoryRegion,
             requires
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
                 subregion.len() == LogMetadata::spec_size_of() + u64::spec_size_of(),
@@ -679,9 +679,19 @@ verus! {
                     let log_crc_bytes = extract_bytes(state_after_flush, LogMetadata::spec_size_of(), u64::spec_size_of());
                     let log_metadata = LogMetadata::spec_from_bytes(log_metadata_bytes);
                     let log_crc = u64::spec_from_bytes(log_crc_bytes);
+                    let new_metadata = LogMetadata {
+                        head: self.info.head,
+                        _padding: 0,
+                        log_length: self.info.log_length,
+                    };
+                    let new_crc = new_metadata.spec_crc();
+
                     &&& log_crc == log_metadata.spec_crc()
                     &&& log_metadata.head == self.info.head
                     &&& log_metadata.log_length == self.info.log_length
+
+                    &&& log_metadata_bytes == new_metadata.spec_to_bytes()
+                    &&& log_crc_bytes == new_crc.spec_to_bytes()
                 }),
         {
             // Encode the log metadata as bytes, and compute the CRC of those bytes
@@ -813,7 +823,6 @@ verus! {
             );
             self.update_inactive_log_metadata(wrpm_region, &subregion, Ghost(log_id), Ghost(prev_info),
                                               Ghost(prev_state), Tracked(perm));
-            assume(false);
 
             // We've updated the inactive log metadata now, so it's a good time to
             // mention some relevant facts about the consequent state.
@@ -840,9 +849,28 @@ verus! {
                     assert(extract_bytes(mem3, unused_metadata_pos as int, LogMetadata::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
                                             LogMetadata::spec_size_of() as int));
-                    assert(extract_bytes(mem3, unused_metadata_pos + LogMetadata::spec_size_of(), CRC_SIZE as int)
+                    assert(extract_bytes(mem3, unused_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
-                                            LogMetadata::spec_size_of(), CRC_SIZE as int));
+                                            LogMetadata::spec_size_of(),  u64::spec_size_of()));
+                }
+
+                assert(inactive_metadata_types_set(wrpm_region@.flush().committed())) by {
+                    let mem = wrpm_region@.flush().committed();
+                    
+                    lemma_flushing_metadata_maintains_invariants(wrpm_region@, log_id, self.cdb, prev_info, prev_state);
+
+                    // Construct the new inactive log metadata contents to show that the types for the inactive metadata
+                    // and crc are set.
+                    let new_metadata = LogMetadata {
+                        head: self.info.head,
+                        _padding: 0,
+                        log_length: self.info.log_length,
+                    };
+                    let new_crc = new_metadata.spec_crc();
+
+                    let inactive_metadata_pos = get_log_metadata_pos(!self.cdb);
+                    assert(extract_bytes(mem, inactive_metadata_pos as int, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
+                    assert(extract_bytes(mem, inactive_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
                 }
             }
 
@@ -880,6 +908,7 @@ verus! {
             assert ({
                 &&& metadata_consistent_with_info(pm_region_after_flush, log_id, !self.cdb, self.info)
                 &&& info_consistent_with_log_area_in_region(pm_region_after_flush, self.info, self.state@)
+                &&& metadata_types_set(pm_region_after_flush.committed())
             }) by {
                 lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
                                                           pm_region_after_flush.committed());
@@ -892,9 +921,15 @@ verus! {
                     !self.cdb,
                     self.info
                 );
+                lemma_metadata_types_set_after_cdb_update(
+                    wrpm_region@,
+                    pm_region_after_flush,
+                    log_id,
+                    new_cdb_bytes,
+                    self.cdb
+                )
             }
             assert(memory_matches_deserialized_cdb(pm_region_after_flush, !self.cdb));
-            // assert(memory_matches_cdb(pm_region_after_flush, !self.cdb));
 
             // Show that if we crash after the write and flush, we recover
             // to an abstract state corresponding to `self.state@` after
