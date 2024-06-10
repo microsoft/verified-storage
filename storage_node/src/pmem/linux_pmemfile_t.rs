@@ -72,6 +72,12 @@ impl MemoryMappedFile
                     .unwrap()
             });
             Err(PmemError::NotPm)
+        } else if addr as isize >= isize::MAX + mapped_len as isize {
+            // By checking that no access to bytes between 0 and the length of the PM region
+            // will overflow isize, we can assume later that all accesses are valid and will 
+            // not violate the safety conditions of methods like raw ptr offset on the virtual 
+            // address.
+            Err(PmemError::AccessOutOfRange)
         } else {
             Ok(Self {
                 virt_addr: addr as *mut u8,
@@ -195,7 +201,7 @@ impl FileBackedPersistentMemoryRegion
     #[verifier::external_body]
     fn get_slice_at_offset(&self, addr: u64, len: u64) -> (result: Result<&[u8], PmemError>)
         requires 
-            0 <= addr + len <= self@.len()
+            0 <= addr <= addr + len <= self@.len()
         ensures 
             match result {
                 Ok(slice) => if self.constants().impervious_to_corruption {
@@ -204,21 +210,18 @@ impl FileBackedPersistentMemoryRegion
                     let addrs = Seq::new(len as nat, |i: int| addr + i);
                     maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
                 }
-                Err(e) => e == PmemError::AccessOutOfRange // TODO: what do we guarantee in the error case? virt_addr is not visible to verifier
+                _ => false
             }
     {
         let raw_addr = addr as isize;
-        if addr + len > self.section.size as u64 || raw_addr > isize::MAX - len as isize {
-            return Err(PmemError::AccessOutOfRange);
-        }
 
         // SAFETY: The `offset` method is safe as long as both the start
         // and resulting pointer are in bounds and the computed offset does
-        // not overflow `isize`. The precondition ensures that addr + len is 
-        // in bounds and the above if statement (which may be unnecessary?)
-        // makes absolutely certain that we won't overflow isize.
+        // not overflow `isize`. The precondition ensures that addr + len are 
+        // in bounds, and when we set up the region we ensured that 
+        // in-bounds accesses cannot overflow isize.
         let addr_on_pm: *const u8 = unsafe {
-            self.section.virt_addr.offset(addr.try_into().unwrap())
+            self.section.virt_addr.offset(raw_addr)
         };
 
         // SAFETY: The precondition establishes that num_bytes bytes

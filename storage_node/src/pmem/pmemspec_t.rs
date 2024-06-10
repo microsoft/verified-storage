@@ -428,9 +428,7 @@ verus! {
                             maybe_corrupted(bytes@, true_bytes, addrs)
                         }
                     }
-                    Err(e) => {
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false
                 }
             ;
 
@@ -455,9 +453,7 @@ verus! {
                                 maybe_corrupted(bytes@, true_bytes, addrs)
                             }
                         }
-                    Err(e) => {
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false
                 }
                 
         ;
@@ -539,7 +535,6 @@ verus! {
             ensures 
                 match bytes {
                     Ok(bytes) => {
-                        // let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of());
                         let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
                         &&& // If the persistent memory regions are impervious
                             // to corruption, read returns the last bytes

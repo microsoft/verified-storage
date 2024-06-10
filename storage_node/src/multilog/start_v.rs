@@ -173,8 +173,12 @@ verus! {
 
             return Err(MultiLogErr::CRCMismatch);
         }
-
-        let global_metadata = global_metadata.extract_init_val(Ghost(true_global_metadata));
+        let ghost true_bytes = Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i] as int]);
+        let global_metadata = global_metadata.extract_init_val(
+            Ghost(true_global_metadata), 
+            Ghost(true_bytes),
+            Ghost(pm_regions.constants().impervious_to_corruption)
+        );
 
         // Check the global metadata for validity. If it isn't valid,
         // e.g., due to the program GUID not matching, then return an
@@ -218,7 +222,12 @@ verus! {
             return Err(MultiLogErr::CRCMismatch);
         }
 
-        let region_metadata = region_metadata.extract_init_val(Ghost(true_region_metadata));
+        let ghost true_bytes = Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i] as int]);
+        let region_metadata = region_metadata.extract_init_val(
+            Ghost(true_region_metadata), 
+            Ghost(true_bytes),
+            Ghost(pm_regions.constants().impervious_to_corruption)
+        );
 
         // Check the region metadata for validity. If it isn't valid,
         // e.g., due to the encoded region size not matching the
@@ -288,7 +297,12 @@ verus! {
             return Err(MultiLogErr::CRCMismatch);
         }
 
-        let log_metadata = log_metadata.extract_init_val(Ghost(true_log_metadata));
+        let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
+        let log_metadata = log_metadata.extract_init_val(
+            Ghost(true_log_metadata), 
+            Ghost(true_bytes),
+            Ghost(pm_regions.constants().impervious_to_corruption)
+        );
 
         // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area

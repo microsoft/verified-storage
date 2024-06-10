@@ -122,6 +122,8 @@ verus! {
         requires
             pm_region.inv(),
             pm_region@.no_outstanding_writes(),
+            metadata_types_set(pm_region@.committed()),
+            cdb == deserialize_and_check_log_cdb(pm_region@.committed()).unwrap(),
         ensures
             ({
                 let state = recover_given_cdb(pm_region@.committed(), log_id, cdb);
@@ -132,11 +134,26 @@ verus! {
                     },
                     Err(LogErr::CRCMismatch) =>
                         state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
-                    _ => state.is_None(),
+                    Err(LogErr::StartFailedDueToInvalidMemoryContents) => {
+                        ||| pm_region@.len() < ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE
+                        ||| state is None
+                    },
+                    Err(LogErr::StartFailedDueToProgramVersionNumberUnsupported{ version_number, max_supported}) => {
+                        &&& state is None 
+                        &&& version_number != max_supported
+                    },
+                    Err(LogErr::StartFailedDueToLogIDMismatch { log_id_expected, log_id_read }) => {
+                        &&& state is None 
+                        &&& log_id_expected != log_id_read
+                    }
+                    Err(LogErr::StartFailedDueToRegionSizeMismatch { region_size_expected, region_size_read }) => {
+                        &&& state is None 
+                        &&& region_size_expected != region_size_read
+                    }
+                    _ => false,
                 }
             })
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
         let ghost state = recover_given_cdb(pm_region@.committed(), log_id, cdb);
 
@@ -148,18 +165,34 @@ verus! {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(LogErr::StartFailedDueToInvalidMemoryContents)
         }
-
-        // Read the global metadata and its CRC, and check that the
-        // CRC matches.
-
-        let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_CRC + GlobalMetadata::spec_size_of());
+        
+        // Obtain the true global metadata and CRC. The precondition ensures that a true value exists for each.
+        let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of());
 
-        let global_metadata = pm_region.read_aligned::<GlobalMetadata>(ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)).map_err(|e| LogErr::PmemErr { err: e })?;
-        let global_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_GLOBAL_CRC, Ghost(true_crc)).map_err(|e| LogErr::PmemErr { err: e })?;
+        // Read the global metadata struct and CRC from PM. We still have to prove that they are not corrupted before we can use the metadata.
+        let global_metadata = match pm_region.read_aligned::<GlobalMetadata>(ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)) {
+            Ok(global_metadata) => global_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
+        let global_crc = match pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_GLOBAL_CRC, Ghost(true_crc)) {
+            Ok(global_crc) => global_crc,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
 
+        // Check whether the bytes we read are corrupted; if they aren't, we can safely cast the global metadata bytes to a GlobalMetadata
+        // and access its fields.
         let ghost global_metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
+        let ghost true_bytes = Seq::new(global_metadata_addrs.len(), |i: int| mem[global_metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        assert(true_global_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(global_metadata.as_slice(), global_crc.as_slice(),
                       Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption),
@@ -168,7 +201,11 @@ verus! {
             return Err(LogErr::CRCMismatch);
         }
 
-        let global_metadata = global_metadata.extract_init_val(Ghost(true_global_metadata));
+        let global_metadata = global_metadata.extract_init_val(
+            Ghost(true_global_metadata), 
+            Ghost(true_bytes), 
+            Ghost(pm_region.constants().impervious_to_corruption)
+        );
 
         // Check the global metadata for validity. If it isn't valid,
         // e.g., due to the program GUID not matching, then return an
@@ -201,8 +238,25 @@ verus! {
         let ghost true_region_metadata = choose |metadata: RegionMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of());
 
-        let region_metadata = pm_region.read_aligned::<RegionMetadata>(ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)).map_err(|e| LogErr::PmemErr { err: e })?;
-        let region_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)).map_err(|e| LogErr::PmemErr { err: e })?;
+        let region_metadata = match pm_region.read_aligned::<RegionMetadata>(ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)) {
+            Ok(region_metadata) => region_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
+        let region_crc = match pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)) {
+            Ok(region_crc) => region_crc,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
+
+        let ghost true_bytes = Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        assert(true_region_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
+
         if !check_crc(region_metadata.as_slice(), region_crc.as_slice(),
                       Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption),
                       Ghost(metadata_addrs),
@@ -210,7 +264,12 @@ verus! {
             return Err(LogErr::CRCMismatch);
         }
 
-        let region_metadata = region_metadata.extract_init_val(Ghost(true_region_metadata));
+        assert(true_region_metadata.spec_to_bytes() == true_bytes);
+        let region_metadata = region_metadata.extract_init_val(
+            Ghost(true_region_metadata),
+            Ghost(true_bytes),
+            Ghost(pm_region.constants().impervious_to_corruption)
+        );
 
         // Check the region metadata for validity. If it isn't valid,
         // e.g., due to the encoded region size not matching the
@@ -251,24 +310,38 @@ verus! {
         // metadata depend on the CDB.
 
         let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
-                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
+                                    else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
+        let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
+                                    else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
         let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
                                                        Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()));
-
-        let log_metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE }
-                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
-        let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
-                             else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-
         let ghost true_log_metadata = choose |metadata: LogMetadata| metadata.spec_to_bytes() == mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(log_crc_pos as int, log_crc_pos + u64::spec_size_of());
-
-        let log_metadata = pm_region.read_aligned::<LogMetadata>(log_metadata_pos, Ghost(true_log_metadata)).map_err(|e| LogErr::PmemErr { err: e })?;
-        let log_crc = pm_region.read_aligned::<u64>(log_crc_pos, Ghost(true_crc)).map_err(|e| LogErr::PmemErr { err: e })?;
-
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
+        let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+
+        assert(pm_region@.committed().subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == true_bytes);
+        let log_metadata = match pm_region.read_aligned::<LogMetadata>(log_metadata_pos, Ghost(true_log_metadata)) {
+            Ok(log_metadata) => log_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
+        let log_crc = match pm_region.read_aligned::<u64>(log_crc_pos, Ghost(true_crc)) {
+            Ok(log_crc) => log_crc,
+            Err(e) => {
+                assert(false);
+                return Err(LogErr::PmemErr { err: e });
+            }
+        };
+
+
+        
+        assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem),
                                    Ghost(pm_region.constants().impervious_to_corruption),
@@ -276,7 +349,11 @@ verus! {
             return Err(LogErr::CRCMismatch);
         }
 
-        let log_metadata = log_metadata.extract_init_val(Ghost(true_log_metadata));
+        let log_metadata = log_metadata.extract_init_val(
+            Ghost(true_log_metadata), 
+            Ghost(true_bytes),
+            Ghost(pm_region.constants().impervious_to_corruption)
+        );
 
         // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area

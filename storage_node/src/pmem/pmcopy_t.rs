@@ -185,9 +185,14 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub exec fn extract_init_val(self, Ghost(true_val): Ghost<S>) -> (out: S)
+        pub exec fn extract_init_val(self, Ghost(true_val): Ghost<S>, Ghost(true_bytes): Ghost<Seq<u8>>, Ghost(impervious_to_corruption): Ghost<bool>) -> (out: S)
             requires 
-                self@ == true_val.spec_to_bytes()
+                if impervious_to_corruption {
+                    true 
+                } else {
+                    &&& true_bytes == true_val.spec_to_bytes()
+                    &&& self@ == true_bytes
+                }
             ensures 
                 out == true_val
         {

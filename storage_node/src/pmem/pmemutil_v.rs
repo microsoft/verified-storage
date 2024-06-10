@@ -228,14 +228,16 @@ verus! {
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
                 let true_crc = u64::spec_from_bytes(true_crc_bytes);
-                true_crc == spec_crc_u64(true_data_bytes) ==>
-                if b {
-                    &&& data_c@ == true_data_bytes
-                    &&& crc_c@ == true_crc_bytes
+                &&& true_crc == spec_crc_u64(true_data_bytes) ==> {
+                    if b {
+                        &&& data_c@ == true_data_bytes
+                        &&& crc_c@ == true_crc_bytes
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
                 }
-                else {
-                    !impervious_to_corruption
-                }
+                &&& true_crc != spec_crc_u64(true_data_bytes) ==> !b
             })
     {
         assume(false);
@@ -350,7 +352,8 @@ verus! {
             }
         }
 
-        let cdb_val = cdb_c.extract_init_val(Ghost(true_cdb));
+        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
+        let cdb_val = cdb_c.extract_init_val(Ghost(true_cdb), Ghost(true_cdb_bytes), Ghost(impervious_to_corruption));
 
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
