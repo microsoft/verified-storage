@@ -253,8 +253,6 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         where
             S: PmCopy 
     {
-        assume(false);
-
         let pm_slice = self.get_slice_at_offset(addr, S::size_of() as u64)?;
         let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
         let mut maybe_corrupted_val = MaybeCorrupted::new();

@@ -203,6 +203,20 @@ verus! {
         }
     }
 
+    impl MaybeCorrupted<u64> {
+        #[verifier::external_body]
+        pub exec fn extract_cdb(self) -> (out: u64)
+            ensures 
+                out.spec_to_bytes() == self@
+        {
+            // SAFETY: there are not invalid u64 values, so it is safe to assume that any value we read
+            // from a CDB location can be treated as initialized. This function makes no promises about 
+            // the value of the CDB -- just that we can treat the view as equal to the output of this
+            // function -- so we still have to check the CDB for corruption.
+            unsafe { self.val.assume_init() }
+        }       
+    }
+
     // Right now unaligned reads return vecs and Verus can't easily switch between Vec/slice,
     // so we use a separate spec fn to specify that a vector lives in volatile memory (even
     // though that should always be the case anyway)

@@ -172,9 +172,9 @@ verus! {
         requires
             maybe_corrupted(cdb_c, cdb, addrs),
             all_elements_unique(addrs),
-            cdb.len() == 8,
-            spec_u64_from_le_bytes(cdb) == CDB_FALSE || spec_u64_from_le_bytes(cdb) == CDB_TRUE,
-            spec_u64_from_le_bytes(cdb_c) == CDB_FALSE || spec_u64_from_le_bytes(cdb_c) == CDB_TRUE,
+            cdb.len() == u64::spec_size_of(),
+            cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
+            cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),
         ensures
             cdb_c == cdb
     {}

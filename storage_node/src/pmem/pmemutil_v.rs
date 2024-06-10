@@ -15,6 +15,8 @@ use vstd::prelude::*;
 
 verus! {
 
+    broadcast use pmcopy_axioms;
+
     // This lemma establishes that if there are no outstanding writes
     // to a particular location in memory, then there's only one
     // possibility for how the byte at that address can crash: it will
@@ -319,6 +321,7 @@ verus! {
     ) -> (result: Option<bool>)
         requires
             forall |i: int| 0 <= i < cdb_addrs.len() ==> cdb_addrs[i] <= mem.len(),
+            all_elements_unique(cdb_addrs),
             ({
                 let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 &&& true_cdb.spec_to_bytes() == true_cdb_bytes
@@ -337,23 +340,19 @@ verus! {
                 }
             })
     {
-        assume(false);
-
         proof {
             // We may need to invoke the axiom
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            let ghost cdb_c_val = u64::spec_from_bytes(cdb_c@);
-
-            if !impervious_to_corruption && (cdb_c_val == CDB_FALSE || cdb_c_val == CDB_TRUE) {
+            if !impervious_to_corruption && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
                 let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, cdb_addrs);
-            }
+            }  
         }
 
-        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
-        let cdb_val = cdb_c.extract_init_val(Ghost(true_cdb), Ghost(true_cdb_bytes), Ghost(impervious_to_corruption));
+        let cdb_val = cdb_c.extract_cdb();
+        assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
@@ -365,6 +364,12 @@ verus! {
             Some(true)
         }
         else {
+            proof {
+                // This part of the proof can be flaky -- invoking this axiom helps stabilize it
+                // by helping Z3 prove that the real CDB is neither valid value, which implies we are 
+                // not impervious to corruption
+                u64::axiom_from_to_bytes(cdb_c@);
+            }
             None
         }
     }
