@@ -791,6 +791,7 @@ verus! {
                 &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA
                 &&& recover_cdb(mem) == Some(self.cdb)
                 &&& recover_state(mem, log_id) == Some(prev_state.drop_pending_appends())
+                &&& metadata_types_set(mem)
             };
             assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& condition(s1)

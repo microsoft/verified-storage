@@ -435,7 +435,8 @@ verus! {
             metadata_types_set(pm_region_view.committed()),
         ensures
             recover_cdb(mem) == Some(cdb),
-            recover_state(mem, log_id) == Some(state.drop_pending_appends())
+            recover_state(mem, log_id) == Some(state.drop_pending_appends()),
+            metadata_types_set(mem),
     {
         // For the CDB, we observe that:
         //
@@ -464,11 +465,16 @@ verus! {
             lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, mem, log_id, cdb, info, state);
         }
 
-        // Finally, get Z3 to see the equivalence of the recovery
+        // Get Z3 to see the equivalence of the recovery
         // result and the desired abstract state by asking it (with
         // `=~=`) to prove that they're piecewise equivalent.
 
         assert(recover_state(mem, log_id) =~= Some(state.drop_pending_appends()));
+
+        // Finally, invoke the lemma that proves that metadata types 
+        // are still set in crash states
+
+        lemma_metadata_set_after_crash(pm_region_view, cdb);
     }
 
     // This exported lemma proves that, if various invariants hold for
@@ -498,11 +504,13 @@ verus! {
             forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
                 &&& recover_cdb(mem) == Some(cdb)
                 &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+                &&& metadata_types_set(mem)
             }
     {
         assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
                    &&& recover_cdb(mem) == Some(cdb)
                    &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+                   &&& metadata_types_set(mem)
                } by
         {
             lemma_invariants_imply_crash_recover(pm_region_view, mem, log_id, cdb, info, state);
@@ -868,7 +876,7 @@ verus! {
 
     // This lemma proves that if two sequences have equal active metadata bytes and one has its metadata types set,
     // then the other sequence also has its metadata types set.
-    proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
+    pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
         mem1: Seq<u8>,
         mem2: Seq<u8>,
         cdb: bool

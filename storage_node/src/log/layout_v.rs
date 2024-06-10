@@ -52,6 +52,7 @@
 //!
 
 use crate::log::logspec_t::AbstractLogState;
+use crate::log::inv_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
@@ -64,6 +65,8 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     /// Constants
 
@@ -790,6 +793,7 @@ verus! {
         requires
             mem1.len() == mem2.len() >= ABSOLUTE_POS_OF_LOG_AREA,
             recover_cdb(mem1) == Some(cdb),
+            metadata_types_set(mem1),
             ({
                 let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                             else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
@@ -800,8 +804,21 @@ verus! {
         ensures
             recover_cdb(mem2) == Some(cdb),
             recover_state(mem1, log_id) == recover_state(mem2, log_id),
+            metadata_types_set(mem2),
     {
         lemma_establish_extract_bytes_equivalence(mem1, mem2);
         assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
+
+        assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+            mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+        if cdb {
+            assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()));
+        } else {
+            assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()));
+        }
+        assert(active_metadata_bytes_are_equal(mem1, mem2));
+        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, cdb);
     }
 }
