@@ -101,7 +101,6 @@ verus! {
             metadata_types_set(pm_region@.flush().committed()),
     {
         // Initialize global metadata and compute its CRC
-        // TODO: might be faster to write to PM first, then compute CRC on that?
         let global_metadata = GlobalMetadata {
             program_guid: LOG_PROGRAM_GUID,
             version_number: LOG_PROGRAM_VERSION_NUMBER,
@@ -140,10 +139,8 @@ verus! {
 
         proof {
             // We want to prove that if we parse the result of
-            // flushing memory, we get the desired metadata. The proof
-            // is in two parts.
+            // flushing memory, we get the desired metadata.
 
-            // Part 1:
             // Prove that if we extract pieces of the flushed memory,
             // we get the little-endian encodings of the desired
             // metadata. By using the `=~=` operator, we get Z3 to
@@ -153,10 +150,12 @@ verus! {
                    =~= global_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
+
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
+
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of())
@@ -164,13 +163,9 @@ verus! {
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
-            // Part 2:
-            // Prove that if we parse the little-endian-encoded value
-            // of the CDB, we get the value that was encoded. This
-            // involves invoking the lemma that says the `to` and
-            // `from` functions for `u64` are inverses.
-
-            lemma_auto_spec_u64_to_from_le_bytes();
+            // Asserting these two postconditions here helps Verus finish out the proof.
+            assert(memory_correctly_set_up_on_region(mem, region_size, log_id));
+            assert(metadata_types_set(mem));
         }
     }
 

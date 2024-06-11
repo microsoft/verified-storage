@@ -67,6 +67,14 @@ verus! {
             self.digest.digest.write(bytes);
         }
 
+        #[verifier::external_body]
+        pub fn write_bytes(&mut self, val: &[u8])
+            ensures 
+                self.bytes_in_digest() == old(self).bytes_in_digest().push(val@)
+        {
+            self.digest.digest.write(val);
+        }
+
         // Compute and return the CRC for all bytes in the digest.
         #[verifier::external_body]
         pub fn sum64(&self) -> (output: u64)
@@ -75,7 +83,8 @@ verus! {
             ensures
                 ({
                     let all_bytes_seq = self.bytes_in_digest().flatten();
-                    output == spec_crc_u64(all_bytes_seq)
+                    &&& output == spec_crc_u64(all_bytes_seq)
+                    &&& output.spec_to_bytes() == spec_crc_bytes(all_bytes_seq)
                 })
 
         {

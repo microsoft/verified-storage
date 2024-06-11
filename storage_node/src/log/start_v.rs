@@ -11,7 +11,7 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
-use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE, CDB_SIZE, PmemError};
+use crate::pmem::pmemspec_t::{PersistentMemoryRegion, CRC_SIZE, CDB_SIZE, PmemError, spec_crc_bytes};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
@@ -190,8 +190,8 @@ verus! {
         // and access its fields.
         let ghost global_metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
-        let ghost true_bytes = Seq::new(global_metadata_addrs.len(), |i: int| mem[global_metadata_addrs[i] as int]);
-        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        let ghost true_bytes = Seq::new(GlobalMetadata::spec_size_of()as nat, |i: int| mem[global_metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i] as int]);
         assert(true_global_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(global_metadata.as_slice(), global_crc.as_slice(),

@@ -106,7 +106,9 @@ verus! {
 
     pub const CRC_SIZE: u64 = 8;
 
-    pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
+    pub open spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8> {
+        spec_crc_u64(bytes).spec_to_bytes()
+    }
 
     pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
 
@@ -141,15 +143,26 @@ verus! {
         requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
-            // spec_u64_from_le_bytes(y) == spec_crc_u64(x),
-            // spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
-            u64::spec_from_bytes(y_c) == spec_crc_u64(x_c),
-            u64::spec_from_bytes(y) == spec_crc_u64(x),
+            y_c == spec_crc_bytes(x_c),
+            y == spec_crc_bytes(x),
             all_elements_unique(x_addrs),
             all_elements_unique(y_addrs),
         ensures
             x == x_c
     {}
+
+    #[verifier::external_body]
+    #[inline(always)]
+    pub exec fn compare_crcs(crc1: &[u8], crc2: u64) -> (out: bool)
+        requires 
+            crc1@.len() == u64::spec_size_of()
+        ensures 
+            out ==> crc1@ == crc2.spec_to_bytes(),
+            !out ==> crc1@ != crc2.spec_to_bytes()
+    {
+        let crc1_u64 = u64_from_le_bytes(crc1);
+        crc1_u64 == crc2
+    }
 
     /// The second assumption, encapsulated in
     /// `axiom_corruption_detecting_boolean`, is that the values

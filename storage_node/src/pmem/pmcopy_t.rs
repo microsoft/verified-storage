@@ -204,8 +204,24 @@ verus! {
     }
 
     impl MaybeCorrupted<u64> {
+        // CDB needs its own extract fn with no preconditions because we must check its value
+        // before we can determine if it is corrupted.
         #[verifier::external_body]
-        pub exec fn extract_cdb(self) -> (out: u64)
+        pub exec fn extract_cdb(
+            self, 
+            Ghost(true_val): Ghost<u64>, 
+            Ghost(true_bytes): Ghost<Seq<u8>>, 
+            Ghost(addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>
+        ) -> (out: u64)
+            requires 
+                if impervious_to_corruption {
+                    self@ == true_bytes
+                } else {
+                    maybe_corrupted(self@, true_bytes, addrs)
+                },
+                true_val.spec_to_bytes() == true_bytes,
+                true_val == CDB_TRUE || true_val == CDB_FALSE,
             ensures 
                 out.spec_to_bytes() == self@
         {
@@ -214,7 +230,7 @@ verus! {
             // the value of the CDB -- just that we can treat the view as equal to the output of this
             // function -- so we still have to check the CDB for corruption.
             unsafe { self.val.assume_init() }
-        }       
+        }  
     }
 
     // Right now unaligned reads return vecs and Verus can't easily switch between Vec/slice,
