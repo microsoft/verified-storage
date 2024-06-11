@@ -295,7 +295,6 @@ verus! {
     }
 
     // TODO: should this take region_size and/or log_id?
-    // TODO: there exists a LogInfo? or use some other ghost state structure to cover existence of all of the structs?
     pub open spec fn metadata_types_set(mem: Seq<u8>) -> bool 
     {
         &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == crc.spec_to_bytes()

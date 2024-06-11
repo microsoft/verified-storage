@@ -262,6 +262,77 @@ verus! {
         }
     }
 
+    pub open spec fn regions_metadata_types_set(pm_regions: PersistentMemoryRegionsView) -> bool 
+    {
+        let mems = pm_regions.committed();
+        metadata_types_set(mems)
+    }
+
+    pub open spec fn metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
+    {
+        forall |i: int| 0 <= i < mems.len() ==> #[trigger] metadata_types_set_in_region(mems[i])
+    }
+
+    pub open spec fn metadata_types_set_in_region(mem: Seq<u8>) -> bool
+    {
+        &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == crc.spec_to_bytes()
+        &&& exists |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
+                == global_metadata.spec_to_bytes()
+        &&& {
+            let crc = choose |crc: u64| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == crc.spec_to_bytes();
+            let metadata = choose |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
+                == global_metadata.spec_to_bytes();
+            crc == spec_crc_u64(metadata.spec_to_bytes())
+        }
+        &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()) == crc.spec_to_bytes()
+        &&& exists |region_metadata: RegionMetadata| mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) 
+                == region_metadata.spec_to_bytes()
+        &&& {
+            let crc = choose |crc: u64| mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of()) == crc.spec_to_bytes();
+            let metadata = choose |region_metadata: RegionMetadata| mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of()) 
+                == region_metadata.spec_to_bytes();
+            crc == spec_crc_u64(metadata.spec_to_bytes())
+        }
+        &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
+            == cdb.spec_to_bytes()
+        &&& {
+            let cdb = choose |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == cdb.spec_to_bytes();
+            &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+            &&& cdb == CDB_TRUE ==> {
+                &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes()
+                &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE + u64::spec_size_of()) == crc.spec_to_bytes()
+                &&& {
+                    let crc = choose |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE + u64::spec_size_of()) == crc.spec_to_bytes();
+                    let metadata = choose |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes();
+                    crc == spec_crc_u64(metadata.spec_to_bytes())
+                }
+            }
+            &&& cdb == CDB_FALSE ==> {
+                &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes()
+                &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE + u64::spec_size_of()) == crc.spec_to_bytes()
+                &&& {
+                    let crc = choose |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE + u64::spec_size_of()) == crc.spec_to_bytes();
+                    let metadata = choose |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
+                        == log_metadata.spec_to_bytes();
+                    crc == spec_crc_u64(metadata.spec_to_bytes())
+                }
+            }
+        }
+    }
+
+    // This lemma helps us establish that metadata types are set in the a region even when we obtain 
+    // a view of its bytes in different ways.
+    pub proof fn lemma_metadata_types_set_flush_committed(pm_regions_view: PersistentMemoryRegionsView)
+        ensures 
+            forall |i: int| #![auto] {
+                &&& 0 < i < pm_regions_view.len() 
+                &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed()) 
+            } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i])
+    {}        
+
     // This lemma proves that, for any address in the log area of the
     // given persistent memory view, it corresponds to a specific
     // logical position in the abstract log relative to the head. That

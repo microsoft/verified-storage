@@ -8,6 +8,7 @@
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::multilog::inv_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -19,6 +20,8 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     // This exported executable function checks whether there's enough
     // space on persistent memory regions to support a multilog.
@@ -179,6 +182,7 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
+            metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed()),
     {
         assume(false);
 
@@ -312,6 +316,7 @@ verus! {
             forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
+            regions_metadata_types_set(pm_regions@),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -337,6 +342,7 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
+                forall |i: u32| i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed()),
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
@@ -364,6 +370,9 @@ verus! {
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
+            
+            // Finally, help Verus establish that the metadata types are set for all regions
+            lemma_metadata_types_set_flush_committed(pm_regions@);
         }
 
         pm_regions.flush()

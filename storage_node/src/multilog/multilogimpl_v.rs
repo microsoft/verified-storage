@@ -78,7 +78,12 @@ verus! {
         // multilog state.
         pub closed spec fn recover(mems: Seq<Seq<u8>>, multilog_id: u128) -> Option<AbstractMultiLogState>
         {
-            recover_all(mems, multilog_id)
+            if !metadata_types_set(mems) {
+                // If the metadata types aren't properly set up, the log is unrecoverable.
+                None
+            } else {
+                recover_all(mems, multilog_id)
+            }
         }
 
         // This method specifies an invariant on `self` that all

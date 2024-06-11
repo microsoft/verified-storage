@@ -24,6 +24,8 @@ use vstd::slice::*;
 
 verus! {
 
+    broadcast use pmcopy_axioms;
+
     // This exported function reads the corruption-detecting boolean
     // and returns it.
     //
@@ -41,6 +43,7 @@ verus! {
             pm_regions@.len() > 0,
             recover_cdb(pm_regions@[0].committed()).is_Some(),
             pm_regions@.no_outstanding_writes(),
+            metadata_types_set(pm_regions@.committed()),
         ensures
             match result {
                 Ok(b) => Some(b) == recover_cdb(pm_regions@[0].committed()),
@@ -51,13 +54,25 @@ verus! {
                 _ => false,
             }
     {
-        assume(false);
-        let ghost mem = pm_regions@[0].committed();
-
-        let ghost true_cdb = choose |cdb: u64| cdb.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
-
-        let log_cdb = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+        let ghost mem = pm_regions@.committed()[0];
+        assert(metadata_types_set_in_region(mem));
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
+        let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
+        let ghost true_cdb = choose |cdb: u64| true_cdb_bytes == cdb.spec_to_bytes();
+       
+        // check_cdb does not require that the true bytes be contiguous, so we need to make Z3 confirm that the 
+        // contiguous region we are using as the true value matches the address sequence we pass in.
+        assert(true_cdb_bytes == Seq::new(u64::spec_size_of() as nat, |i: int| mem[log_cdb_addrs[i]]));
+
+        // let log_cdb = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+        let log_cdb = match pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)) {
+            Ok(log_cdb) => log_cdb,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr{ err: e });
+            }
+        };
+
         let result = check_cdb(log_cdb, Ghost(true_cdb), Ghost(mem),
                                Ghost(pm_regions.constants().impervious_to_corruption),
                                Ghost(log_cdb_addrs));
@@ -120,6 +135,7 @@ verus! {
             is_valid_log_index(which_log, num_logs),
             num_logs == pm_regions@.len(),
             pm_regions@[which_log as int].no_outstanding_writes(),
+            metadata_types_set(pm_regions@.committed()),
         ensures
             ({
                 let w = which_log as int;
@@ -381,6 +397,7 @@ verus! {
             pm_regions@.no_outstanding_writes(),
             memory_matches_deserialized_cdb(pm_regions@, cdb),
             recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
+            metadata_types_set(pm_regions@.committed()),
         ensures
             match result {
                 Ok(info) => {

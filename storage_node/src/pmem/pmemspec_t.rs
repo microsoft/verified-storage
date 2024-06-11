@@ -541,7 +541,7 @@ verus! {
             requires 
                 self.inv(),
                 index < self@.len(),
-                0 <= addr < addr + S::spec_size_of() <= self@.len(),
+                0 <= addr < addr + S::spec_size_of() <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
                 self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
@@ -560,10 +560,7 @@ verus! {
                                 maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
                             }
                         }
-                    Err(e) => {
-                        // TODO: stronger checks
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false,
                 }
         ;
 
