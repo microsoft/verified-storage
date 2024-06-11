@@ -168,7 +168,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, RegionMetadata::spec_size_of())
     }
 
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
@@ -181,7 +181,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
     }
 
     pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
@@ -194,7 +194,7 @@ verus! {
     // from the contents `mem` of a persistent memory region.
     pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
     }
 
     pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
@@ -207,7 +207,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
     }
 
     pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
@@ -221,7 +221,7 @@ verus! {
     // `mem` of a persistent memory region.
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
     }
 
     // This function extracts the log metadata's corruption-detecting boolean
@@ -278,7 +278,7 @@ verus! {
     // value `cdb` of the corruption-detecting boolean.
     pub open spec fn get_log_crc_end(cdb: bool) -> u64
     {
-        (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
+        (get_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of()) as u64
     }
 
     // This function extracts the bytes encoding log metadata from
@@ -289,7 +289,7 @@ verus! {
     pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
         let pos = get_log_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LENGTH_OF_LOG_METADATA as int)
+        extract_bytes(mem, pos as int, LogMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
@@ -306,7 +306,7 @@ verus! {
     {
         let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                   else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-        extract_bytes(mem, pos as int, CRC_SIZE as int)
+        extract_bytes(mem, pos as int, u64::spec_size_of())
     }
 
     pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
@@ -521,7 +521,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
+                    if global_metadata.length_of_region_metadata != RegionMetadata::spec_size_of() {
                         // To be valid, the global metadata's encoding of the region metadata's
                         // length has to be what we expect. (This version of the code doesn't
                         // support any other length of region metadata.)
@@ -662,7 +662,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE {
+                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of() {
                         // If memory isn't big enough to store the CDB, then this region isn't
                         // valid.
                         None

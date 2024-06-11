@@ -12,6 +12,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -123,7 +124,7 @@ verus! {
         &&& log_crc == log_metadata.spec_crc()
         &&& global_metadata.program_guid == MULTILOG_PROGRAM_GUID
         &&& global_metadata.version_number == MULTILOG_PROGRAM_VERSION_NUMBER
-        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
         &&& region_metadata.region_size == region_size
         &&& region_metadata.multilog_id == multilog_id
         &&& region_metadata.num_logs == num_logs
@@ -188,7 +189,7 @@ verus! {
         let global_metadata = GlobalMetadata {
             program_guid: MULTILOG_PROGRAM_GUID,
             version_number: MULTILOG_PROGRAM_VERSION_NUMBER,
-            length_of_region_metadata: LENGTH_OF_REGION_METADATA,
+            length_of_region_metadata: size_of::<RegionMetadata>() as u64,
         };
         let global_crc = calculate_crc(&global_metadata);
 
@@ -235,20 +236,20 @@ verus! {
             // prove this by reasoning about per-byte equivalence.
 
             let mem = pm_regions@[which_log as int].flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
-                                 LENGTH_OF_LOG_METADATA as int)
+                                 LogMetadata::spec_size_of())
                    =~= log_metadata.spec_to_bytes());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, CRC_SIZE as int)
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
             // Part 2:

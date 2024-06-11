@@ -19,6 +19,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -27,6 +28,8 @@ use vstd::prelude::*;
 use vstd::slice::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     // This structure, `LogInfo`, is used by `UntrustedMultiLogImpl`
     // to store information about a single log. Its fields are:
@@ -620,8 +623,6 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
-            assume(false);
-
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -657,7 +658,7 @@ verus! {
                         current_log <= which_log && #[trigger] is_valid_log_index(which_log, self.num_logs) ==>
                         wrpm_regions@[which_log as int].no_outstanding_writes_in_range(
                             unused_metadata_pos as int,
-                            unused_metadata_pos + LENGTH_OF_LOG_METADATA + CRC_SIZE),
+                            unused_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()),
                     forall |which_log: u32|
                         current_log <= which_log && #[trigger] is_valid_log_index(which_log, self.num_logs) ==> {
                         let w = which_log as int;
@@ -676,7 +677,6 @@ verus! {
                                                         !self.cdb, self.infos@[w])
                     },
             {
-                assume(false);
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 
@@ -725,14 +725,14 @@ verus! {
 
                 // Now prove that the CRC is safe to update as well, and write it.
 
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LENGTH_OF_LOG_METADATA, log_crc_bytes);
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LogMetadata::spec_size_of(), log_crc_bytes);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
                 }
 
-                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + LENGTH_OF_LOG_METADATA, &log_crc, Tracked(perm));
+                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
 
                 // Prove that after the flush, the log metadata corresponding to the unused CDB will
                 // be reflected in memory.
@@ -1265,11 +1265,10 @@ verus! {
                             &&& pos + len > log.head + log.log.len()
                             &&& tail == log.head + log.log.len()
                         },
-                        _ => false
+                        _ => false,
                     }
                 })
         {
-            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 
@@ -1322,7 +1321,13 @@ verus! {
                 let addr = ABSOLUTE_POS_OF_LOG_AREA + relative_pos - (info.log_area_len - info.head_log_area_offset);
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                let bytes = match pm_regions.read_unaligned(which_log as usize, addr, len) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        assert(false);
+                        return Err(MultiLogErr::PmemErr { err: e });
+                    }
+                };
                 return Ok(bytes);
             }
 
@@ -1360,7 +1365,13 @@ verus! {
 
                 proof { self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log, pos as int,
                                                             len as int, addr as int); }
-                let bytes = pm_regions.read_unaligned(which_log as usize, addr, len).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+                let bytes = match pm_regions.read_unaligned(which_log as usize, addr, len) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        assert(false);
+                        return Err(MultiLogErr::PmemErr { err: e });
+                    }
+                };
                 return Ok(bytes);
             }
 
@@ -1374,7 +1385,14 @@ verus! {
                                                     max_len_without_wrapping as int, addr as int);
             }
 
-            let mut part1 = pm_regions.read_unaligned(which_log as usize, addr, max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+            // let mut part1 = pm_regions.read_unaligned(which_log as usize, addr, max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+            let mut part1 = match pm_regions.read_unaligned(which_log as usize, addr, max_len_without_wrapping) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    assert(false);
+                    return Err(MultiLogErr::PmemErr { err: e });
+                }
+            };
 
             proof {
                 self.lemma_read_of_continuous_range(pm_regions@, multilog_id, which_log,
@@ -1383,7 +1401,14 @@ verus! {
                                                     ABSOLUTE_POS_OF_LOG_AREA as int);
             }
 
-            let mut part2 = pm_regions.read_unaligned(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+            // let mut part2 = pm_regions.read_unaligned(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+            let mut part2 = match pm_regions.read_unaligned(which_log as usize, ABSOLUTE_POS_OF_LOG_AREA, len - max_len_without_wrapping) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    assert(false);
+                    return Err(MultiLogErr::PmemErr { err: e });
+                }
+            };
 
             // Now, prove that concatenating them produces the correct
             // bytes to return. The subtle thing in this argument is that

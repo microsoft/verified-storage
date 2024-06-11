@@ -174,7 +174,7 @@ verus! {
         CantReadPastTail { tail: u128 },
         CantAdvanceHeadPositionBeforeHead { head: u128 },
         CantAdvanceHeadPositionBeyondTail { tail: u128 },
-        PmemErr { err: PmemError } // janky workaround so that callers can handle PmemErrors as MultiLogErrors
+        PmemErr { err: PmemError }
     }
 
     // This executable method can be called to compute a random GUID.

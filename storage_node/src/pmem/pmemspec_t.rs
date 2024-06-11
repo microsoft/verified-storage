@@ -571,7 +571,7 @@ verus! {
             requires 
                 self.inv(),
                 index < self@.len(),
-                addr + num_bytes <= self@.len(),
+                addr + num_bytes <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + num_bytes),
             ensures 
             match bytes {
@@ -590,10 +590,7 @@ verus! {
                             maybe_corrupted(bytes@, true_bytes, addrs)
                         }
                     }
-                Err(e) => {
-                    // TODO: stronger checks
-                    e == PmemError::AccessOutOfRange
-                }
+                _ => false
             }
         ;
 

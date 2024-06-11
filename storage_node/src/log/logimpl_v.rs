@@ -1352,7 +1352,7 @@ verus! {
                             &&& pos + len > log.head + log.log.len()
                             &&& tail == log.head + log.log.len()
                         },
-                        Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
+                        _ => false,
                     }
                 })
         {

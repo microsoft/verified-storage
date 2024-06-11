@@ -14,6 +14,7 @@ use crate::multilog::multilogspec_t::AbstractMultiLogState;
 use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE, CDB_SIZE};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -53,10 +54,10 @@ verus! {
         assume(false);
         let ghost mem = pm_regions@[0].committed();
 
-        let ghost true_cdb = choose |cdb: u64| cdb.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + CDB_SIZE);
+        let ghost true_cdb = choose |cdb: u64| cdb.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
 
         let log_cdb = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_LOG_CDB, Ghost(true_cdb)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
-        let ghost log_cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
+        let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
         let result = check_cdb(log_cdb, Ghost(true_cdb), Ghost(mem),
                                Ghost(pm_regions.constants().impervious_to_corruption),
                                Ghost(log_cdb_addrs));
@@ -154,10 +155,10 @@ verus! {
         // CRC matches.
 
         let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + CRC_SIZE);
+        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of());
 
         let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
-        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
+        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
 
         let global_metadata = pm_regions.read_aligned::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
         let global_crc = pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
@@ -199,7 +200,7 @@ verus! {
             })
         }
 
-        if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
+        if global_metadata.length_of_region_metadata != size_of::<RegionMetadata>() as u64 {
             assert(state.is_None()); // This can't happen if the persistent memory is recoverable
             return Err(MultiLogErr::StartFailedDueToInvalidMemoryContents{ which_log })
         }
@@ -207,10 +208,10 @@ verus! {
         // Read the region metadata and its CRC, and check that the
         // CRC matches.
         let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
-        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
+        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
         let ghost true_region_metadata = choose |metadata: RegionMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + CRC_SIZE);
+        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of());
 
         let region_metadata = pm_regions.read_aligned::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
         let region_crc = pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
@@ -285,13 +286,13 @@ verus! {
                              else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
 
         let ghost true_log_metadata = choose |metadata: LogMetadata| metadata.spec_to_bytes() == mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(log_crc_pos as int, log_crc_pos + CRC_SIZE);
+        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(log_crc_pos as int, log_crc_pos + u64::spec_size_of());
 
         let log_metadata = pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos, Ghost(true_log_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
         let log_crc = pm_regions.read_aligned::<u64>(which_log as usize, log_crc_pos, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
 
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
-        let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| log_crc_pos + i);
+        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
                                     Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
             return Err(MultiLogErr::CRCMismatch);
