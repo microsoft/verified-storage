@@ -23,12 +23,12 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use super::durable::durableimpl_v::*;
-use super::durable::durablespec_t::*;
-use super::kvimpl_v::*;
-use super::kvspec_t::*;
-use super::volatile::volatileimpl_v::*;
-use super::volatile::volatilespec_t::*;
+//use super::durable::durableimpl_v::*;
+//use super::durable::durablespec_t::*;
+//use super::kvimpl_v::*;
+//use super::kvspec_t::*;
+//use super::volatile::volatileimpl_v::*;
+//use super::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use std::hash::Hash;
@@ -63,6 +63,8 @@ pub trait Item<K> : Sized {
             out == self.spec_key()
     ;
 }
+
+    /*
 
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
@@ -495,5 +497,7 @@ where
         self.untrusted_kv_impl.untrusted_get_keys()
     }
 }
+
+    */
 
 }

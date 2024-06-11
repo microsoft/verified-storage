@@ -6,9 +6,9 @@
 //! actually map keys to values, and the durable structures that store
 //! the values themselves.
 
-pub mod durable;
-pub mod inv_v;
+//pub mod durable;
+//pub mod inv_v;
 pub mod kvimpl_t;
-pub mod kvimpl_v;
-pub mod kvspec_t;
+//pub mod kvimpl_v;
+//pub mod kvspec_t;
 pub mod volatile;
