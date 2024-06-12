@@ -942,24 +942,6 @@ verus! {
         }
     }
 
-    pub proof fn lemma_regions_metadata_set_after_crash(
-        pm_regions_view: PersistentMemoryRegionsView,
-        cdb: bool
-    ) 
-        requires 
-            no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
-            metadata_types_set(pm_regions_view.committed()),
-            memory_matches_deserialized_cdb(pm_regions_view, cdb),
-        ensures 
-            forall |s| #![auto] {
-                &&& pm_regions_view.can_crash_as(s) 
-                // &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
-            } ==> metadata_types_set(s),
-    {
-        assert(cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap());
-        assume(false);
-    }
-
     pub proof fn lemma_regions_metadata_matches_implies_metadata_types_set(
         pm1: PersistentMemoryRegionsView,
         pm2: PersistentMemoryRegionsView,

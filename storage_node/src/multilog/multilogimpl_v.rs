@@ -111,6 +111,7 @@ verus! {
             &&& each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends())
             &&& metadata_types_set(wrpm_regions@.committed())
+            &&& forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len()
         }
 
         pub proof fn lemma_inv_implies_wrpm_inv<Perm, PMRegions>(
@@ -519,7 +520,7 @@ verus! {
                     assert(active_metadata_is_equal(wrpm_regions@, wrpm_regions_new));
                     lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
                     assert(metadata_types_set(wrpm_regions_new.committed()));
-                    lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                    lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
 
                     assert forall |s| #[trigger] wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@).can_crash_as(s) implies
                         #[trigger] perm.check_permission(s) 
@@ -579,7 +580,7 @@ verus! {
                         assert(active_metadata_is_equal(wrpm_regions@, wrpm_regions_new));
                         lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
                         assert(metadata_types_set(wrpm_regions_new.committed()));
-                        lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                        lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
                     }
                     wrpm_regions.write(which_log as usize, write_addr, bytes_to_append, Tracked(perm));
                 }
@@ -615,7 +616,7 @@ verus! {
                             lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
                         lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
                         assert(metadata_types_set(wrpm_regions_new.committed()));
-                        lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                        lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
 
 
                         let wrpm_regions_new = wrpm_regions_new.write(which_log as int, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int));
@@ -630,7 +631,7 @@ verus! {
                         assert(active_metadata_is_equal(wrpm_regions@, wrpm_regions_new));
                         lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
                         assert(metadata_types_set(wrpm_regions_new.committed()));
-                        lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                        lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
                     
                     }
                     wrpm_regions.write(which_log as usize, write_addr,
@@ -712,7 +713,8 @@ verus! {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
-                regions_metadata_types_set(old(wrpm_regions)@)
+                regions_metadata_types_set(old(wrpm_regions)@),
+                forall |i: int| #![auto] 0 <= i < old(wrpm_regions)@.len() ==> ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len()
             ensures
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
@@ -789,6 +791,9 @@ verus! {
                     metadata_types_set(wrpm_regions@.committed()),
                     active_metadata_is_equal(old_wrpm_regions, wrpm_regions@),
 
+                    // The loop does not change the size of any of the regions
+                    forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
+                    forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
             {
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
@@ -867,7 +872,7 @@ verus! {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
-                    lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                    lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
                     assert(metadata_types_set(crash_bytes));
                 }
 
@@ -914,7 +919,7 @@ verus! {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
-                    lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                    lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
                     assert(metadata_types_set(crash_bytes));
 
                 }
@@ -1059,6 +1064,10 @@ verus! {
             proof {
                 lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(wrpm_regions@);
                 assert(can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends()));
+
+                // We need these asserts to hit the triggers needed to prove that the size of each region has not been changed.
+                assert(forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> old(wrpm_regions)@[i].len() == wrpm_regions@[i].len());
+                assert(forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len());
             }
         }
 
