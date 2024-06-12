@@ -321,13 +321,6 @@ verus! {
                 lemma_invariants_imply_crash_recover_forall(pm_region@, log_id, cdb, info, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_region@.committed(), log_id);
 
-                // assert(old(wrpm_region)@.flush().committed() == wrpm_region@.committed());
-                // assert(metadata_types_set(old(wrpm_region)@.flush().committed()));
-
-                // assert(forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> s == old(wrpm_region)@.flush().committed());
-
-
-                // assert(forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> metadata_types_set(s));
                 assert(no_outstanding_writes_to_metadata(pm_region@));
                 lemma_metadata_set_after_crash(pm_region@, cdb);
             }

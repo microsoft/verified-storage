@@ -5,6 +5,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::log::inv_v::lemma_auto_smaller_range_of_seq_is_subrange;
 use crate::multilog::append_v::*;
 use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;
@@ -341,6 +342,9 @@ verus! {
                 lemma_invariants_imply_crash_recover_forall(pm_regions@, multilog_id, num_logs, cdb,
                                                             infos@, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_regions@.committed(), multilog_id);
+                assert(no_outstanding_writes_to_metadata(wrpm_regions@, num_logs));
+                lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions@, num_logs, cdb);
+                lemma_metadata_set_after_crash(wrpm_regions@, cdb);
             }
             Ok(Self{ num_logs, cdb, infos, state: Ghost(state) })
         }
@@ -623,6 +627,7 @@ verus! {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
+                regions_metadata_types_set(old(wrpm_regions)@)
             ensures
                 self.inv(wrpm_regions, multilog_id),
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
@@ -638,6 +643,15 @@ verus! {
 
             // Loop, each time performing the update of the inactive log
             // metadata for log number `current_log`.
+
+            let ghost old_wrpm_regions = wrpm_regions@;
+            proof {
+                // Before we enter the loop, we need to prove that there are no outstanding writes to active
+                // metadata to satisfy the invariant. This follows from the fact that there are no outstanding 
+                // writes to *any* metadata, but Z3 needs a hint from the lemma.
+                lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(
+                    wrpm_regions@, self.num_logs, self.cdb);
+            }
 
             for current_log in 0..self.num_logs
                 invariant
@@ -678,9 +692,18 @@ verus! {
                                        && which_log < current_log ==> {
                         let w = which_log as int;
                         let flushed = wrpm_regions@.flush();
-                        metadata_consistent_with_info(flushed[w], multilog_id, self.num_logs, which_log,
+                        &&& metadata_consistent_with_info(flushed[w], multilog_id, self.num_logs, which_log,
                                                         !self.cdb, self.infos@[w])
+                        &&& inactive_metadata_types_set_region_bytes(flushed[w].committed(), self.cdb)
                     },
+
+                    // Despite potential updates to each log, their active metadata is never 
+                    // modified by the loop.
+
+                    no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb),
+                    metadata_types_set(wrpm_regions@.committed()),
+                    active_metadata_is_equal(old_wrpm_regions, wrpm_regions@),
+
             {
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
@@ -714,27 +737,101 @@ verus! {
                         log_crc_bytes);
                 }
 
+                // TODO: refactor the proofs here -- we use the exact same code multiple times
+
+                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, log_metadata_bytes);
+                proof {
+                    // The proofs in this block apply to both the crash case and the regular case, and help us prove
+                    // that the metadata types are still set after the write regardless of whether it completes or not.
+
+                    // Prove that there are no outstanding writes to active metadata in any of the logs. 
+                    assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != cur ==> 
+                        wrpm_regions@[i] == wrpm_regions_new[i]); 
+                    assert(no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb));
+                    assert(no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.cdb));
+
+                    // Prove that the active metadata is still equal
+                    assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != cur ==> 
+                        active_metadata_is_equal_in_region(wrpm_regions@[i], wrpm_regions_new[i], self.cdb));
+                    let cur_old = wrpm_regions@[cur].committed();
+                    let cur_new = wrpm_regions_new[cur].committed();
+                    lemma_auto_smaller_range_of_seq_is_subrange(cur_old);
+                    lemma_auto_smaller_range_of_seq_is_subrange(cur_new);
+                    assert(cur_old.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+                            cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+                    let old_cdb = deserialize_and_check_log_cdb(wrpm_regions@[0].committed());
+                    let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
+                    assert(cur_old.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                        cur_new.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
+                    assert(active_metadata_is_equal_in_region(wrpm_regions@[cur], wrpm_regions_new[cur], self.cdb));
+                    lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
+                    assert(metadata_types_set(wrpm_regions_new.committed()));
+
+                    // after this write, the inactive metadata will be set
+                    assert(wrpm_regions_new[cur].flush().committed().subrange(
+                        unused_metadata_pos as int, 
+                        unused_metadata_pos + LogMetadata::spec_size_of()
+                    ) == log_metadata_bytes);
+                }
+
                 // Use `lemma_invariants_imply_crash_recover_forall` to prove that it's OK to call
                 // `write`. (One of the conditions for calling that lemma is that our invariants
                 // hold, which we just proved above.)
-
-                let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, log_metadata_bytes);
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
+
+                    lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                    assert(metadata_types_set(crash_bytes));
                 }
 
                 // Write the new metadata to the inactive header (without the CRC)
+                let ghost old_wrpm_regions = wrpm_regions@;
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos, &log_metadata, Tracked(perm));
 
                 // Now prove that the CRC is safe to update as well, and write it.
 
                 let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LogMetadata::spec_size_of(), log_crc_bytes);
+                proof {
+                    // Prove that there are no outstanding writes to active metadata in any of the logs
+                    assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != cur ==> 
+                        wrpm_regions@[i] == wrpm_regions_new[i]); 
+                    assert(no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb));
+                    assert(no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.cdb));
+
+                    // Prove that the active metadata is still equal
+                    assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != cur ==> 
+                        active_metadata_is_equal_in_region(wrpm_regions@[i], wrpm_regions_new[i], self.cdb));
+                    let cur_old = wrpm_regions@[cur].committed();
+                    let cur_new = wrpm_regions_new[cur].committed();
+                    lemma_auto_smaller_range_of_seq_is_subrange(cur_old);
+                    lemma_auto_smaller_range_of_seq_is_subrange(cur_new);
+                    assert(cur_old.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+                            cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+                    let old_cdb = deserialize_and_check_log_cdb(wrpm_regions@[0].committed());
+                    let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
+                    assert(cur_old.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                        cur_new.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
+                    assert(active_metadata_is_equal_in_region(wrpm_regions@[cur], wrpm_regions_new[cur], self.cdb));
+                    lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
+                    assert(metadata_types_set(wrpm_regions_new.committed()));
+
+                    // after this write, the inactive CRC will be set
+                    assert(wrpm_regions_new[cur].flush().committed().subrange(
+                        unused_metadata_pos + LogMetadata::spec_size_of(), 
+                        unused_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
+                    ) == log_crc_bytes);
+                }
+
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
+
+                    lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+                    assert(metadata_types_set(crash_bytes));
+
                 }
 
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
@@ -755,15 +852,23 @@ verus! {
                     assert(deserialize_log_metadata(mem2, !self.cdb) == log_metadata);
                     assert(deserialize_log_crc(mem2, !self.cdb) == log_crc);
                 }
+
+                // The inactive metadata is still set (required to trigger one of the loop invariants)
+                assert(wrpm_regions@[cur].flush().committed().subrange(
+                    unused_metadata_pos as int, 
+                    unused_metadata_pos + LogMetadata::spec_size_of()
+                ) == log_metadata_bytes);
             }
 
-            // Prove that after the flush we're about to do, all our
-            // invariants will continue to hold (using the still-unchanged
-            // CDB and the old metadata, infos, and state).
-
             proof {
+                // Prove that after the flush we're about to do, all our
+                // invariants will continue to hold (using the still-unchanged
+                // CDB and the old metadata, infos, and state).
                 lemma_flushing_metadata_maintains_invariants(wrpm_regions@, multilog_id, self.num_logs, self.cdb,
                                                              prev_infos, prev_state);
+
+                // Also, prove that metadata types will still be set after the flush.
+                lemma_no_outstanding_writes_to_active_metadata_implies_metadata_types_set_after_flush(wrpm_regions@, self.cdb);
             }
 
             // Next, flush all outstanding writes to memory. This is
@@ -795,6 +900,7 @@ verus! {
                 &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
                                                  !self.cdb, self.infos@[w])
                 &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
+                &&& metadata_types_set(pm_regions_after_flush.committed())
             } by {
                 let w = which_log as int;
                 lemma_establish_extract_bytes_equivalence(
@@ -810,9 +916,11 @@ verus! {
                     !self.cdb,
                     self.infos@
                 );
+
+                lemma_metadata_types_set_after_cdb_update(wrpm_regions@, pm_regions_after_flush, multilog_id, new_cdb_bytes, self.cdb);
+            
             }
             assert(memory_matches_deserialized_cdb(pm_regions_after_flush, !self.cdb));
-            // assert(memory_matches_cdb(pm_regions_after_flush, !self.cdb));
 
             // Show that if we crash after the write and flush, we recover
             // to an abstract state corresponding to `self.state@` after
@@ -851,6 +959,7 @@ verus! {
                                                             self.cdb, prev_infos, prev_state);
                 lemma_single_write_crash_effect_on_pm_regions_view(wrpm_regions@, 0int,
                                                                    ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
+                assert(metadata_types_set(crash_bytes));
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.
@@ -861,6 +970,11 @@ verus! {
             wrpm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LOG_CDB, &new_cdb, Tracked(perm));
             wrpm_regions.flush();
             self.cdb = !self.cdb;
+
+            proof {
+                lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(wrpm_regions@);
+                assert(can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends()));
+            }
         }
 
         // The `commit` method commits all tentative appends that have been

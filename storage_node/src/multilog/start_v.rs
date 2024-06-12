@@ -421,6 +421,7 @@ verus! {
                 num_regions == pm_regions@.len(),
                 recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
                 pm_regions@.no_outstanding_writes(),
+                metadata_types_set(pm_regions@.committed()),
         {
             // Before calling `read_log_variables`, establish that
             // region `which_log` is recoverable. This is useful
