@@ -55,7 +55,7 @@ verus! {
             }
     {
         let ghost mem = pm_regions@.committed()[0];
-        assert(metadata_types_set_in_region(mem));
+        assert(metadata_types_set_in_first_region(mem));
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
         let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
         let ghost true_cdb = choose |cdb: u64| true_cdb_bytes == cdb.spec_to_bytes();
@@ -136,6 +136,8 @@ verus! {
             num_logs == pm_regions@.len(),
             pm_regions@[which_log as int].no_outstanding_writes(),
             metadata_types_set(pm_regions@.committed()),
+            deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
+            cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         ensures
             ({
                 let w = which_log as int;
@@ -152,8 +154,7 @@ verus! {
                 }
             })
     {
-        assume(false);
-        let ghost mem = pm_regions@[which_log as int].committed();
+        let ghost mem = pm_regions@.committed()[which_log as int];
         let ghost w = which_log as int;
         let ghost state = recover_abstract_log_from_region_given_cdb(pm_regions@[w].committed(), multilog_id,
                                                                      num_logs as int, w, cdb);
@@ -170,26 +171,41 @@ verus! {
         // Read the global metadata and its CRC, and check that the
         // CRC matches.
 
+        assert(metadata_types_set_in_region(mem, cdb));
+
         let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of());
 
         let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
 
-        let global_metadata = pm_regions.read_aligned::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
-        let global_crc = pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+        let ghost true_bytes = Seq::new(GlobalMetadata::spec_size_of()as nat, |i: int| mem[metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i] as int]);
+
+        let global_metadata = match pm_regions.read_aligned::<GlobalMetadata>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)) {
+            Ok(global_metadata) => global_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+        let global_crc = match pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_GLOBAL_CRC, Ghost(true_crc)) {
+            Ok(global_crc) => global_crc,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+
+        assert(true_global_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(global_metadata.as_slice(), global_crc.as_slice(),
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
                       Ghost(metadata_addrs),
                       Ghost(crc_addrs)) {
-            proof {
-                // assert(pm_regions.constants().impervious_to_corruption);
-                // assert(!pm_regions.constants().impervious_to_corruption);
-            }
-
             return Err(MultiLogErr::CRCMismatch);
         }
+        
         let ghost true_bytes = Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i] as int]);
         let global_metadata = global_metadata.extract_init_val(
             Ghost(true_global_metadata), 
@@ -229,8 +245,24 @@ verus! {
         let ghost true_region_metadata = choose |metadata: RegionMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of());
         let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of());
 
-        let region_metadata = pm_regions.read_aligned::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
-        let region_crc = pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+        let region_metadata = match pm_regions.read_aligned::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)) {
+            Ok(region_metadata) => region_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+        let region_crc = match pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)) {
+            Ok(region_crc) => region_crc,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+
+        let ghost true_bytes = Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        assert(true_region_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(region_metadata.as_slice(), region_crc.as_slice(),
                       Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
@@ -300,15 +332,34 @@ verus! {
                                   else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE };
         let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                              else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
+        assert(log_metadata_pos == get_log_metadata_pos(cdb));
 
-        let ghost true_log_metadata = choose |metadata: LogMetadata| metadata.spec_to_bytes() == mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(log_crc_pos as int, log_crc_pos + u64::spec_size_of());
-
-        let log_metadata = pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos, Ghost(true_log_metadata)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
-        let log_crc = pm_regions.read_aligned::<u64>(which_log as usize, log_crc_pos, Ghost(true_crc)).map_err(|e| MultiLogErr::PmemErr { err: e })?;
+        let ghost true_log_metadata = choose |metadata: LogMetadata| mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == metadata.spec_to_bytes();
+        let ghost true_crc = choose |crc: u64| mem.subrange(log_metadata_pos + LogMetadata::spec_size_of(), log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == crc.spec_to_bytes();
 
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
+        
+        let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
+        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+
+        assert(mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == true_bytes);
+        let log_metadata = match pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos, Ghost(true_log_metadata)) {
+            Ok(log_metadata) => log_metadata,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+        let log_crc = match pm_regions.read_aligned::<u64>(which_log as usize, log_crc_pos, Ghost(true_crc)) {
+            Ok(log_crc) => log_crc,
+            Err(e) => {
+                assert(false);
+                return Err(MultiLogErr::PmemErr { err: e });
+            }
+        };
+
+        assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
                                     Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
             return Err(MultiLogErr::CRCMismatch);
@@ -398,6 +449,8 @@ verus! {
             memory_matches_deserialized_cdb(pm_regions@, cdb),
             recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
             metadata_types_set(pm_regions@.committed()),
+            deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
+            cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         ensures
             match result {
                 Ok(info) => {
@@ -422,6 +475,8 @@ verus! {
                 recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
                 pm_regions@.no_outstanding_writes(),
                 metadata_types_set(pm_regions@.committed()),
+                deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
+                cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         {
             // Before calling `read_log_variables`, establish that
             // region `which_log` is recoverable. This is useful

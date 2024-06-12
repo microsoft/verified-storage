@@ -182,7 +182,7 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed()),
+            metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
 
         // Initialize global metadata and compute its CRC
@@ -331,7 +331,7 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                forall |i: u32| i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed()),
+                forall |i: u32| i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed(), false),
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
@@ -361,7 +361,7 @@ verus! {
             assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
             
             // Finally, help Verus establish that the metadata types are set for all regions
-            lemma_metadata_types_set_flush_committed(pm_regions@);
+            lemma_metadata_types_set_flush_committed(pm_regions@, false);
         }
 
         pm_regions.flush()

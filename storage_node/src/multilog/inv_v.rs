@@ -392,10 +392,31 @@ verus! {
 
     pub open spec fn metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
     {
-        forall |i: int| 0 <= i < mems.len() ==> #[trigger] metadata_types_set_in_region(mems[i])
+        &&& metadata_types_set_in_first_region(mems[0])
+        &&& {
+            let cdb = deserialize_and_check_log_cdb(mems[0]);
+            if let Some(cdb) = cdb {
+            
+                &&& forall |i: int| 1 <= i < mems.len() ==> #[trigger] metadata_types_set_in_region(mems[i], cdb)
+            } else {
+                false
+            }
+        }
     }
 
-    pub open spec fn metadata_types_set_in_region(mem: Seq<u8>) -> bool
+    pub open spec fn metadata_types_set_in_first_region(mem: Seq<u8>) -> bool 
+    {
+        &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
+            == cdb.spec_to_bytes()
+        &&& {
+            let cdb = choose |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == cdb.spec_to_bytes();
+            &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+            &&& cdb == CDB_TRUE ==> metadata_types_set_in_region(mem, true)
+            &&& cdb == CDB_FALSE ==> metadata_types_set_in_region(mem, false)
+        }
+    }
+
+    pub open spec fn metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
     {
         &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of()) == crc.spec_to_bytes()
         &&& exists |global_metadata: GlobalMetadata| mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of()) 
@@ -418,9 +439,9 @@ verus! {
         &&& exists |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) 
             == cdb.spec_to_bytes()
         &&& {
-            let cdb = choose |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == cdb.spec_to_bytes();
-            &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
-            &&& cdb == CDB_TRUE ==> {
+            // let cdb = choose |cdb: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == cdb.spec_to_bytes();
+            // &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+            &&& cdb ==> {
                 &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of()) 
                         == log_metadata.spec_to_bytes()
                 &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE + u64::spec_size_of()) == crc.spec_to_bytes()
@@ -431,7 +452,7 @@ verus! {
                     crc == spec_crc_u64(metadata.spec_to_bytes())
                 }
             }
-            &&& cdb == CDB_FALSE ==> {
+            &&& !cdb ==> {
                 &&& exists |log_metadata: LogMetadata| mem.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of()) 
                         == log_metadata.spec_to_bytes()
                 &&& exists |crc: u64| mem.subrange(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE + u64::spec_size_of()) == crc.spec_to_bytes()
@@ -447,12 +468,15 @@ verus! {
 
     // This lemma helps us establish that metadata types are set in the a region even when we obtain 
     // a view of its bytes in different ways.
-    pub proof fn lemma_metadata_types_set_flush_committed(pm_regions_view: PersistentMemoryRegionsView)
+    pub proof fn lemma_metadata_types_set_flush_committed(
+        pm_regions_view: PersistentMemoryRegionsView,
+        cdb: bool
+    )
         ensures 
             forall |i: int| #![auto] {
                 &&& 0 < i < pm_regions_view.len() 
-                &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed()) 
-            } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i])
+                &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed(), cdb) 
+            } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
     {} 
 
     pub proof fn lemma_metadata_set_after_crash(
