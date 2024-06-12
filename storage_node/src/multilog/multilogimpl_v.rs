@@ -590,10 +590,26 @@ verus! {
                                                           bytes_to_append@, self.cdb, self.infos@, self.state@);
                     
                         // Prove that the metadata types are still set based on the fact that we have not modified any metadata bytes.
-                        let wrpm_regions_new1 = wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@.subrange(0, max_len_without_wrapping as int));
-                        // TODO WEDNESDAY: need to prove that the second write is legal as well.
-                        
-                        let wrpm_regions_new = wrpm_regions_new1.write(which_log as int, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int));
+                        // TODO: refactor this into a separate proof fn
+                        let wrpm_regions_new = wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@.subrange(0, max_len_without_wrapping as int));
+                        assert(wrpm_regions@[0].committed().subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == 
+                            wrpm_regions_new[0].committed().subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
+                        lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
+                        assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
+                            wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
+                        assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
+                            wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+                        let log_metadata_pos = get_log_metadata_pos(self.cdb);
+                        assert(wrpm_regions@[which_log as int].committed().subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+                            wrpm_regions_new[which_log as int].committed().subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
+                        assert(active_metadata_is_equal(wrpm_regions@, wrpm_regions_new));
+                            lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
+                        lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions@, wrpm_regions_new, self.cdb);
+                        assert(metadata_types_set(wrpm_regions_new.committed()));
+                        lemma_regions_metadata_set_after_crash(wrpm_regions_new, self.cdb);
+
+
+                        let wrpm_regions_new = wrpm_regions_new.write(which_log as int, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int));
                         lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
                         assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
                             wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
@@ -617,7 +633,6 @@ verus! {
                                 Tracked(perm));
                 }
             }
-            assume(false);
 
             // We now update our `infos` field to reflect the new
             // `log_plus_pending_length` value.
@@ -631,8 +646,6 @@ verus! {
             // We update our `state` field to reflect the tentative append.
 
             self.state = Ghost(self.state@.tentatively_append(which_log as int, bytes_to_append@));
-
-            
 
             Ok(old_pending_tail)
         }
