@@ -339,8 +339,6 @@ verus! {
             }
         };
 
-
-        
         assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
 
         if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem),

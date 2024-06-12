@@ -5,6 +5,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::log::inv_v::lemma_auto_smaller_range_of_seq_is_subrange;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
@@ -174,17 +175,17 @@ verus! {
             old(pm_regions)@[which_log as int].no_outstanding_writes(),
             old(pm_regions)@[which_log as int].len() == region_size,
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
+            which_log != 0,
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
             pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| 0 <= i < pm_regions@.len() && i != which_log ==> pm_regions@[i] == old(pm_regions)@[i],
+            forall |i: int| 0 <= i < pm_regions@.len() && i != which_log ==> pm_regions@[i] =~= old(pm_regions)@[i],
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
             metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
-
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
         // sends us the wrong regions, we can detect it.
@@ -240,7 +241,6 @@ verus! {
                    =~= global_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
-            
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
@@ -252,6 +252,111 @@ verus! {
                    =~= log_metadata.spec_to_bytes());
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
+        }
+    }
+
+    fn write_setup_metadata_to_first_region<PMRegions: PersistentMemoryRegions>(
+        pm_regions: &mut PMRegions,
+        region_size: u64,
+        multilog_id: u128,
+        num_logs: u32,
+    )
+        requires
+            old(pm_regions).inv(),
+            num_logs == old(pm_regions)@.len(),
+            0 < num_logs,
+            old(pm_regions)@[0].no_outstanding_writes(),
+            old(pm_regions)@[0].len() == region_size,
+            region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
+            
+        ensures
+            pm_regions.inv(),
+            pm_regions.constants() == old(pm_regions).constants(),
+            pm_regions@.len() == old(pm_regions)@.len(),
+            forall |i: int| 1 <= i < pm_regions@.len() ==> pm_regions@[i] =~= old(pm_regions)@[i],
+            memory_correctly_set_up_on_single_region(
+                pm_regions@[0].flush().committed(), // it'll be correct after the next flush
+                region_size, multilog_id, num_logs, 0),
+            metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
+            deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
+            !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
+    {
+        // Initialize global metadata and compute its CRC
+        // We write this out for each log so that if, upon restore, our caller accidentally
+        // sends us the wrong regions, we can detect it.
+        let global_metadata = GlobalMetadata {
+            program_guid: MULTILOG_PROGRAM_GUID,
+            version_number: MULTILOG_PROGRAM_VERSION_NUMBER,
+            length_of_region_metadata: size_of::<RegionMetadata>() as u64,
+        };
+        let global_crc = calculate_crc(&global_metadata);
+
+        // Initialize region metadata and compute its CRC
+        let region_metadata = RegionMetadata {
+            region_size,
+            multilog_id,
+            num_logs,
+            which_log: 0,
+            log_area_len: region_size - ABSOLUTE_POS_OF_LOG_AREA,
+            _padding: 0,
+        };
+        let region_crc = calculate_crc(&region_metadata);
+
+        // Obtain the initial CDB value
+        let cdb = CDB_FALSE;
+
+        // Initialize log metadata and compute its CRC
+        let log_metadata = LogMetadata {
+            head: 0,
+            _padding: 0,
+            log_length: 0
+        };
+        let log_crc = calculate_crc(&log_metadata);
+
+        // Write all metadata structures and their CRCs to memory
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_REGION_METADATA, &region_metadata);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_REGION_CRC, &region_crc);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LOG_CDB, &cdb);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE, &log_metadata);
+        pm_regions.serialize_and_write(0, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE, &log_crc);
+
+        proof {
+            // We want to prove that if we parse the result of
+            // flushing memory, we get the desired metadata. 
+
+            // Prove that if we extract pieces of the flushed memory,
+            // we get the little-endian encodings of the desired
+            // metadata. By using the `=~=` operator, we get Z3 to
+            // prove this by reasoning about per-byte equivalence.
+
+            // TODO: broadcast these (or find a way to do the proof without them)
+            u64::axiom_from_to_bytes(global_crc.spec_to_bytes());
+            u64::axiom_from_to_bytes(region_crc.spec_to_bytes());
+            u64::axiom_from_to_bytes(log_crc.spec_to_bytes());
+            GlobalMetadata::axiom_from_to_bytes(global_metadata.spec_to_bytes());
+            RegionMetadata::axiom_from_to_bytes(region_metadata.spec_to_bytes());
+            LogMetadata::axiom_from_to_bytes(log_metadata.spec_to_bytes());
+
+            let mem = pm_regions@[0].flush().committed();
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
+                   =~= global_metadata.spec_to_bytes());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
+                   =~= global_crc.spec_to_bytes());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+                   =~= region_metadata.spec_to_bytes());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+                   =~= region_crc.spec_to_bytes());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
+                   =~= CDB_FALSE.spec_to_bytes());
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
+                                 LogMetadata::spec_size_of())
+                   =~= log_metadata.spec_to_bytes());
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
+                    =~= log_crc.spec_to_bytes());
+
+            assert(metadata_types_set_in_first_region(pm_regions@[0].flush().committed()));
         }
     }
 
@@ -297,7 +402,6 @@ verus! {
             forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
                 #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
-
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
@@ -312,7 +416,14 @@ verus! {
 
         let ghost old_pm_regions = pm_regions@;
         let num_logs = region_sizes.len() as u32;
-        for which_log in 0..num_logs
+
+        // the first region is set up differently, so we do it outside of the loop to make the loop invariant
+        // easier to maintain
+        let region_size: u64 = region_sizes[0];
+        assert (region_size == pm_regions@[0].len());
+        write_setup_metadata_to_first_region(pm_regions, region_size, multilog_id, num_logs);
+
+        for which_log in 1..num_logs
             invariant
                 num_logs == pm_regions@.len(),
                 pm_regions.inv(),
@@ -331,13 +442,14 @@ verus! {
                 forall |i: u32| i < which_log ==>
                     memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                forall |i: u32| i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed(), false),
+                metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
+                forall |i: u32| 1 <= i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed(), false),
         {
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
             write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log);
         }
-
+        
         proof {
             // First, establish that recovering after a flush will get
             // abstract state
@@ -352,8 +464,7 @@ verus! {
                 assert(forall |i| 0 <= i < pm_regions@.len() ==>
                        #[trigger] pm_regions_committed[i] == pm_regions@[i as int].flush().committed());
                 assert(forall |i| 0 <= i < pm_regions_committed.len() ==>
-                       extract_log(#[trigger] pm_regions_committed[i], log_capacities[i] as int, 0int, 0int)
-                       =~= Seq::<u8>::empty());
+                       extract_log(#[trigger] pm_regions_committed[i], log_capacities[i] as int, 0int, 0int) =~= Seq::<u8>::empty());
             }
 
             // Second, establish that the flush we're about to do
@@ -362,6 +473,7 @@ verus! {
             
             // Finally, help Verus establish that the metadata types are set for all regions
             lemma_metadata_types_set_flush_committed(pm_regions@, false);
+            assert(regions_metadata_types_set(pm_regions@.flush()));
         }
 
         pm_regions.flush()

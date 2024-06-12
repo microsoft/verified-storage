@@ -330,6 +330,11 @@ verus! {
                                                                                      multilog_id)
                     },
                     Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
+                    Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
+                        let flushed_regions = pm_regions@.flush();
+                        &&& 0 <= which_log < flushed_regions.len()
+                        &&& pm_regions@[which_log as int].len() < required_space
+                    },
                     _ => false
                 }
         {

@@ -295,6 +295,12 @@ verus! {
                         &&& can_only_crash_as_state(wrpm_regions@, multilog_id, state.drop_pending_appends())
                     },
                     Err(MultiLogErr::CRCMismatch) => !wrpm_regions.constants().impervious_to_corruption,
+                    Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
+                        let flushed_regions = old(wrpm_regions)@.flush();
+                        &&& 0 <= which_log < flushed_regions.len()
+                        &&& wrpm_regions@ == flushed_regions
+                        &&& wrpm_regions@[which_log as int].len() < required_space
+                    },
                     _ => false
                 }
         {
@@ -314,6 +320,7 @@ verus! {
 
             let pm_regions = wrpm_regions.get_pm_regions_ref();
             let num_regions = pm_regions.get_num_regions();
+            let region_sizes = get_region_sizes(pm_regions);
             if num_regions < 1 {
                 assert(false);
                 return Err(MultiLogErr::CantSetupWithFewerThanOneRegion { });
@@ -323,6 +330,7 @@ verus! {
                 return Err(MultiLogErr::CantSetupWithMoreThanU32MaxRegions { });
             }
             let num_logs = num_regions as u32;
+            check_for_required_space(&region_sizes, num_logs)?;
 
             // First, we read the corruption-detecting boolean and
             // return an error if that fails.
@@ -346,6 +354,7 @@ verus! {
                 lemma_recovered_state_is_crash_idempotent(wrpm_regions@.committed(), multilog_id);
                 assert(no_outstanding_writes_to_metadata(wrpm_regions@, num_logs));
                 lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions@, num_logs, cdb);
+
                 lemma_metadata_set_after_crash(wrpm_regions@, cdb);
             }
             Ok(Self{ num_logs, cdb, infos, state: Ghost(state) })
