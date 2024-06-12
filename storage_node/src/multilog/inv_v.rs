@@ -49,15 +49,15 @@ verus! {
         requires 
             no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
             num_logs == pm_regions_view.len(),
-            recover_cdb(pm_regions_view[0].committed()) is Some,
-            cdb == recover_cdb(pm_regions_view[0].committed()).unwrap(),
+            deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
+            cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
         ensures 
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb)
     {
         assert(forall |i: u32| is_valid_log_index(i, num_logs) ==> {
             let pm_region_view = #[trigger] pm_regions_view[i as int];
             &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int)
-            &&& cdb ==> pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, 
+            &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, 
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of())
             &&& !cdb ==> pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, 
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of())
@@ -94,12 +94,6 @@ verus! {
         pm_bytes2: Seq<u8>,
         cdb: bool
     ) -> bool {
-        let cdb1 = deserialize_and_check_log_cdb(pm_bytes1);
-        let cdb2 = deserialize_and_check_log_cdb(pm_bytes2);
-
-        // &&& cdb1.is_Some()
-        // &&& cdb2.is_Some()
-        // &&& cdb1 == cdb2 
         &&& pm_bytes1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
                 pm_bytes2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) 
         &&& {
