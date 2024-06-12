@@ -168,7 +168,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, RegionMetadata::spec_size_of())
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
     }
 
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
