@@ -132,6 +132,7 @@ impl<Perm, PMRegions> WriteRestrictedPersistentMemoryRegions<Perm, PMRegions>
             self.inv(),
             self@ == old(self)@.flush(),
             self.constants() == old(self).constants(),
+            forall |i: int| #![auto] 0 <= i < self@.len() ==> old(self)@[i].len() == self@[i].len()
     {
         self.pm_regions.flush()
     }
