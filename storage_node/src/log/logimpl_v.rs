@@ -27,7 +27,7 @@ use vstd::slice::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
+    // broadcast use pmcopy_axioms;
 
     // This structure, `LogInfo`, is used by `UntrustedLogImpl`
     // to store information about a single log. Its fields are:
@@ -697,9 +697,15 @@ verus! {
             };
             let log_crc = calculate_crc(&log_metadata);
 
-            assert(log_metadata.spec_to_bytes().len() == LogMetadata::spec_size_of());
-            assert(log_crc.spec_to_bytes().len() == u64::spec_size_of());
-
+            proof {
+                axiom_to_from_bytes::<u64>(log_crc);
+                axiom_bytes_len::<u64>(log_crc);
+                axiom_to_from_bytes::<LogMetadata>(log_metadata);
+                axiom_bytes_len::<LogMetadata>(log_metadata);
+                assert(log_metadata.spec_to_bytes().len() == LogMetadata::spec_size_of());
+                assert(log_crc.spec_to_bytes().len() == u64::spec_size_of());
+            }   
+            
             // Write the new metadata to the inactive header (without the CRC)
             subregion.serialize_and_write_relative(wrpm_region, 0, &log_metadata, Tracked(perm));
             subregion.serialize_and_write_relative(wrpm_region, size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));

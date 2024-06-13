@@ -21,7 +21,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
-use crate::pmem::traits_t::size_of;
+use crate::pmem::traits_t;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;
@@ -30,8 +30,6 @@ use vstd::prelude::*;
 use vstd::slice::*;
 
 verus! {
-
-    broadcast use pmcopy_axioms;
 
     // This structure, `LogInfo`, is used by `UntrustedMultiLogImpl`
     // to store information about a single log. Its fields are:
@@ -936,9 +934,6 @@ verus! {
                     wrpm_regions@, self.num_logs, self.cdb);
             }
 
-            let ghost old_prev_infos = prev_infos;
-            let ghost old_prev_state = prev_state;
-
             for current_log in 0..self.num_logs
                 invariant
                     wrpm_regions.inv(),
@@ -992,13 +987,10 @@ verus! {
                     // The loop does not change the size of any of the regions
                     forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
                     forall |i: int| #![auto] 0 <= i < wrpm_regions@.len() ==> ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
+
+                    // For logs that we have updated, their inactive metadata is set.
                     forall |i: int| 0 <= i < current_log ==> 
                         inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[i], self.cdb),
-                    wrpm_regions@.len() > 0,
-
-                    self.cdb == old(self).cdb,
-                    prev_infos == old_prev_infos,
-                    prev_state == old_prev_state,
             {
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
@@ -1022,6 +1014,11 @@ verus! {
                 // writes.
 
                 proof {
+                    axiom_bytes_len::<LogMetadata>(log_metadata);
+                    axiom_bytes_len::<u64>(log_crc);
+                    axiom_to_from_bytes::<LogMetadata>(log_metadata);
+                    axiom_to_from_bytes::<u64>(log_crc);
+
                     lemma_updating_inactive_metadata_maintains_invariants(
                         wrpm_regions@, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
                         log_metadata_bytes);
@@ -1077,6 +1074,7 @@ verus! {
                     ) == log_crc_bytes);
                 }
 
+                // If we crash while writing the CRC, the invariants will still hold and the types will be set
                 assert forall |crash_bytes| wrpm_regions_new.can_crash_as(crash_bytes)
                            implies #[trigger] perm.check_permission(crash_bytes) by {
                     lemma_invariants_imply_crash_recover_forall(
@@ -1085,13 +1083,9 @@ verus! {
                     lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
                     assert(metadata_types_set(crash_bytes));
                 }
-
-                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
                 
-                assert forall |i: int| 0 <= i < wrpm_regions@.len() implies #[trigger] wrpm_regions@.flush().committed()[i].len() > ABSOLUTE_POS_OF_LOG_AREA by {
-                    assert(wrpm_regions@[i].len() == wrpm_regions@.flush().committed()[i].len());
-                    assert(wrpm_regions@[i].len() > ABSOLUTE_POS_OF_LOG_AREA);
-                }
+                wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + traits_t::size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
+                
                 assert forall |i: int| 0 <= i < cur implies 
                     inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[i], self.cdb) 
                 by {
@@ -1109,6 +1103,7 @@ verus! {
                     lemma_establish_extract_bytes_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
                                                                 log_metadata_bytes + log_crc_bytes);
+
                     assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
                     assert(extract_log_crc(mem2, !self.cdb) =~= log_crc_bytes);
                     assert(deserialize_log_metadata(mem2, !self.cdb) == log_metadata);
@@ -1117,12 +1112,23 @@ verus! {
 
                 assert(wrpm_regions@.flush().committed()[cur].subrange(unused_metadata_pos as int, unused_metadata_pos + LogMetadata::spec_size_of()) ==
                         log_metadata.spec_to_bytes());
-                assert forall |i: int| 0 <= i < cur implies 
-                    inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[i], self.cdb) 
-                by {
-                    assert(exists |log_metadata: LogMetadata| 
-                        wrpm_regions@.flush().committed()[i].subrange(unused_metadata_pos as int, unused_metadata_pos + LogMetadata::spec_size_of()) ==
-                            log_metadata.spec_to_bytes());
+
+                proof {
+                    // Since we don't broadcast use the pmcopy_axioms in this file, we need to explicitly invoke them on these witnesses
+                    // to prove that the current log has its inactive metadata set.
+                    let ghost crc_witness = choose |crc: u64| 
+                        extract_bytes(wrpm_regions@.flush().committed()[cur], unused_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == 
+                            crc.spec_to_bytes();
+                    let ghost metadata_witness = choose |metadata: LogMetadata| 
+                        extract_bytes(wrpm_regions@.flush().committed()[cur], unused_metadata_pos as int, LogMetadata::spec_size_of()) == 
+                            metadata.spec_to_bytes();
+
+                    axiom_bytes_len::<LogMetadata>(metadata_witness);
+                    axiom_bytes_len::<u64>(crc_witness);
+                    axiom_to_from_bytes::<LogMetadata>(metadata_witness);
+                    axiom_to_from_bytes::<u64>(crc_witness);
+
+                    assert(inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[cur], self.cdb));
                 }
             }
         }
