@@ -44,8 +44,6 @@ verus! {
     pub trait ExPmSized : SpecPmSized {
         type ExternalTraitSpecificationFor: PmSized;
 
-
-        // TODO: why aren't these useable?
         fn size_of() -> (out: usize)
             ensures 
                 out as int == Self::spec_size_of();

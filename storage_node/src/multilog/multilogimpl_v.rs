@@ -507,11 +507,8 @@ verus! {
                                              bytes_to_append@, self.cdb, self.infos@, self.state@);
 
                     // Prove that the metadata types are still set based on the fact that we have not modified any metadata bytes.
-                    // TODO WEDNESDAY: refactor this proof -- we use the same code or something very similar in multiple other places
                     let wrpm_regions_new = wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@);
                     lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
-                    assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
-                        wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                     assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
                         wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
                     let log_metadata_pos = get_log_metadata_pos(self.cdb);
@@ -570,8 +567,6 @@ verus! {
                         // Prove that the metadata types are still set based on the fact that we have not modified any metadata bytes.
                         let wrpm_regions_new = wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@);
                         lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
-                        assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
-                            wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                         assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
                             wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
                         let log_metadata_pos = get_log_metadata_pos(self.cdb);
@@ -602,11 +597,8 @@ verus! {
                         // Prove that the metadata types are still set based on the fact that we have not modified any metadata bytes.
                         // TODO: refactor this into a separate proof fn
                         let wrpm_regions_new = wrpm_regions@.write(which_log as int, write_addr as int, bytes_to_append@.subrange(0, max_len_without_wrapping as int));
-                        assert(wrpm_regions@[0].committed().subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) == 
-                            wrpm_regions_new[0].committed().subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
+                        lemma_establish_extract_bytes_equivalence(wrpm_regions@[0].committed(), wrpm_regions_new[0].committed());
                         lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
-                        assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
-                            wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                         assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
                             wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
                         let log_metadata_pos = get_log_metadata_pos(self.cdb);
@@ -621,8 +613,6 @@ verus! {
 
                         let wrpm_regions_new = wrpm_regions_new.write(which_log as int, ABSOLUTE_POS_OF_LOG_AREA as int, bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int));
                         lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(wrpm_regions_new, self.num_logs, self.cdb);
-                        assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) == 
-                            wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                         assert(wrpm_regions@[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
                             wrpm_regions_new[which_log as int].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
                         let log_metadata_pos = get_log_metadata_pos(self.cdb);
@@ -1039,8 +1029,6 @@ verus! {
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state, current_log,
                         log_crc_bytes);
                 }
-
-                // TODO: refactor the proofs here -- we use the exact same code multiple times
 
                 let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos as int, log_metadata_bytes);
                 proof {

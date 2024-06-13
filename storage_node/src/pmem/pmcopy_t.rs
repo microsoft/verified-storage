@@ -264,8 +264,7 @@ verus! {
     // pmsized_primitive!(f32);
     // pmsized_primitive!(f64);
 
-    // TODO: discuss this one... it's a bit harder
-    // TODO: I think you could manually implement this? or make a macro that will generate it specifically
+    // TODO: Manually implement the array case
 
     // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> PmSized for [T; N] {
     //     open spec fn spec_size_of() -> int

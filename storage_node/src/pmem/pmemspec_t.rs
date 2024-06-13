@@ -591,7 +591,6 @@ verus! {
             }
         ;
 
-        // TODO: remove and fully replace with serialize_and_write
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),

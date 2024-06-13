@@ -72,7 +72,7 @@ verus! {
 
     // These constants describe the absolute or relative positions of
     // various parts of the layout.
-
+    // TODO: clean these up
     pub const ABSOLUTE_POS_OF_GLOBAL_METADATA: u64 = 0;
     pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 0;
     pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 8;
@@ -110,7 +110,6 @@ verus! {
     pub const LOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
     // These structs represent the different levels of metadata.
-    // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone, Default)]
