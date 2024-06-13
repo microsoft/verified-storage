@@ -6,10 +6,7 @@
 //! THIS IS ONLY INTENDED FOR USE IN TESTING! In practice, one should
 //! use actually persistent memory to implement persistent memory!
 
-use crate::pmem::pmemspec_t::{
-    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
-};
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -86,9 +83,7 @@ verus! {
         {
             let pm_slice = &self.contents[addr as usize..addr as usize + num_bytes as usize];
             let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
-            // TODO: make a wrapper (to hide mutable ref) and use copy from slice
-            // take extend from slice out of the PR -- it's more general
-            unaligned_buffer.extend_from_slice(pm_slice);
+            let unaligned_buffer = copy_from_slice(unaligned_buffer, pm_slice);
             Ok(unaligned_buffer)
         }
 

@@ -57,13 +57,17 @@ verus! {
     {
         result.map_err(op)
     }
-
-    #[verifier::external_fn_specification]
-    pub fn ex_vec_extend_from_slice<T: Clone, A: core::alloc::Allocator>(vec: &mut Vec<T, A>, slice: &[T])
-        ensures
-            vec@ == old(vec)@ + slice@,
+    
+    #[verifier::external_body]
+    pub fn copy_from_slice(mut buffer: Vec<u8>, bytes: &[u8]) -> (out: Vec<u8>)
+        requires 
+            buffer@ == Seq::<u8>::empty()
+        ensures 
+            out@ == bytes@
     {
-        vec.extend_from_slice(slice)
+        let mut mut_buffer = buffer.as_mut_slice();
+        mut_buffer.copy_from_slice(bytes);
+        buffer
     }
 
     #[derive(Debug, Eq, PartialEq, Clone)]

@@ -2,11 +2,8 @@
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(new_uninit)]
-// TODO: remove when extend_from_slice spec is in vstd
-#![feature(allocator_api)]
-
-
 #![allow(unused_imports)]
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::pervasive::runtime_assert;
