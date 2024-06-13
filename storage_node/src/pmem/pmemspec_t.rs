@@ -32,7 +32,7 @@
 //! use of CRCs to detect possible corruption, and model a CRC match
 //! as showing evidence of an absence of corruption.
 
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -104,9 +104,9 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
-    pub const CRC_SIZE: u64 = 8;
-
-    pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
+    pub open spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8> {
+        spec_crc_u64(bytes).spec_to_bytes()
+    }
 
     pub closed spec fn spec_crc_u64(bytes: Seq<u8>) -> u64;
 
@@ -116,7 +116,7 @@ verus! {
     pub exec fn bytes_crc(bytes: &[u8]) -> (out: Vec<u8>)
         ensures
             spec_u64_to_le_bytes(spec_crc_u64(bytes@)) == out@,
-            out@.len() == CRC_SIZE
+            out@.len() == u64::spec_size_of(),
     {
         let mut digest = Digest::new();
         digest.write(bytes);
@@ -141,15 +141,26 @@ verus! {
         requires
             maybe_corrupted(x_c, x, x_addrs),
             maybe_corrupted(y_c, y, y_addrs),
-            // spec_u64_from_le_bytes(y) == spec_crc_u64(x),
-            // spec_u64_from_le_bytes(y_c) == spec_crc_u64(x_c),
-            u64::spec_from_bytes(y_c) == spec_crc_u64(x_c),
-            u64::spec_from_bytes(y) == spec_crc_u64(x),
+            y_c == spec_crc_bytes(x_c),
+            y == spec_crc_bytes(x),
             all_elements_unique(x_addrs),
             all_elements_unique(y_addrs),
         ensures
             x == x_c
     {}
+
+    #[verifier::external_body]
+    #[inline(always)]
+    pub exec fn compare_crcs(crc1: &[u8], crc2: u64) -> (out: bool)
+        requires 
+            crc1@.len() == u64::spec_size_of()
+        ensures 
+            out ==> crc1@ == crc2.spec_to_bytes(),
+            !out ==> crc1@ != crc2.spec_to_bytes()
+    {
+        let crc1_u64 = u64_from_le_bytes(crc1);
+        crc1_u64 == crc2
+    }
 
     /// The second assumption, encapsulated in
     /// `axiom_corruption_detecting_boolean`, is that the values
@@ -165,16 +176,14 @@ verus! {
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
 
-    pub const CDB_SIZE: u64 = 8;
-
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
         requires
             maybe_corrupted(cdb_c, cdb, addrs),
             all_elements_unique(addrs),
-            cdb.len() == 8,
-            spec_u64_from_le_bytes(cdb) == CDB_FALSE || spec_u64_from_le_bytes(cdb) == CDB_TRUE,
-            spec_u64_from_le_bytes(cdb_c) == CDB_FALSE || spec_u64_from_le_bytes(cdb_c) == CDB_TRUE,
+            cdb.len() == u64::spec_size_of(),
+            cdb_c == CDB_FALSE.spec_to_bytes() || cdb_c == CDB_TRUE.spec_to_bytes(),
+            cdb == CDB_FALSE.spec_to_bytes() || cdb == CDB_TRUE.spec_to_bytes(),
         ensures
             cdb_c == cdb
     {}
@@ -428,9 +437,7 @@ verus! {
                             maybe_corrupted(bytes@, true_bytes, addrs)
                         }
                     }
-                    Err(e) => {
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false
                 }
             ;
 
@@ -455,9 +462,7 @@ verus! {
                                 maybe_corrupted(bytes@, true_bytes, addrs)
                             }
                         }
-                    Err(e) => {
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false
                 }
                 
         ;
@@ -486,6 +491,7 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
+                self@.flush().committed().subrange(addr as int, addr + S::spec_size_of()) == to_write.spec_to_bytes(),
         ;
 
 
@@ -531,14 +537,13 @@ verus! {
             requires 
                 self.inv(),
                 index < self@.len(),
-                0 <= addr < addr + S::spec_size_of() <= self@.len(),
+                0 <= addr < addr + S::spec_size_of() <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
                 self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
             ensures 
                 match bytes {
                     Ok(bytes) => {
-                        // let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of());
                         let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
                         &&& // If the persistent memory regions are impervious
                             // to corruption, read returns the last bytes
@@ -551,10 +556,7 @@ verus! {
                                 maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
                             }
                         }
-                    Err(e) => {
-                        // TODO: stronger checks
-                        e == PmemError::AccessOutOfRange
-                    }
+                    _ => false,
                 }
         ;
 
@@ -562,7 +564,7 @@ verus! {
             requires 
                 self.inv(),
                 index < self@.len(),
-                addr + num_bytes <= self@.len(),
+                addr + num_bytes <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + num_bytes),
             ensures 
             match bytes {
@@ -581,14 +583,10 @@ verus! {
                             maybe_corrupted(bytes@, true_bytes, addrs)
                         }
                     }
-                Err(e) => {
-                    // TODO: stronger checks
-                    e == PmemError::AccessOutOfRange
-                }
+                _ => false
             }
         ;
 
-        // TODO: remove and fully replace with serialize_and_write
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),

@@ -4,12 +4,12 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
-use crate::pmem::markers_t::PmSafe;
-use deps_hack::PmSafe;
+use crate::pmem::traits_t::*;
+use deps_hack::{PmSafe, PmSized};
 
 verus! {
     // Metadata region
@@ -38,7 +38,7 @@ verus! {
     // TODO: we use node size in some places and elements per node in others
     // should probably standardize this
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct MetadataTableHeader
     {
         pub element_size: u32, // NOTE: this includes the CRC of each element
@@ -73,7 +73,7 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct ListEntryMetadata
     {
         head: u64,
@@ -127,13 +127,13 @@ verus! {
         where 
             K: PmCopy,
         recommends
-            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CDB_SIZE + CRC_SIZE + K::spec_size_of(),
-            RELATIVE_POS_OF_VALID_CDB + CDB_SIZE <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE <= bytes.len(),
+            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
             RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY <= bytes.len(),
     {
-        let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE));
-        let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE));
+        let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of()));
+        let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of()));
         let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
         let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
         let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
@@ -155,7 +155,7 @@ verus! {
         where 
             K: PmCopy
     {
-        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_size_of();
+        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
         // check that the metadata in the header makes sense/is valid
         if {
             ||| header.program_guid != METADATA_TABLE_PROGRAM_GUID 
@@ -169,8 +169,8 @@ verus! {
                 header.num_keys as nat,
                 |i: int| {
                     let bytes = table_area.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
-                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
-                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + CRC_SIZE);
+                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
+                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of());
                     let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
                     let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
 

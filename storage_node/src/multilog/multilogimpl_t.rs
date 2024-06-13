@@ -157,8 +157,7 @@ verus! {
 
     // This enumeration represents the various errors that can be
     // returned from multilog operations. They're self-explanatory.
-    // TODO: make `PmemErr` and `MultiLogErr` handling cleaner
-    #[derive(Debug,)]
+    #[derive(Debug)]
     pub enum MultiLogErr {
         CantSetupWithFewerThanOneRegion { },
         CantSetupWithMoreThanU32MaxRegions { },
@@ -174,7 +173,7 @@ verus! {
         CantReadPastTail { tail: u128 },
         CantAdvanceHeadPositionBeforeHead { head: u128 },
         CantAdvanceHeadPositionBeyondTail { tail: u128 },
-        PmemErr { err: PmemError } // janky workaround so that callers can handle PmemErrors as MultiLogErrors
+        PmemErr { err: PmemError }
     }
 
     // This executable method can be called to compute a random GUID.
@@ -330,6 +329,11 @@ verus! {
                                                                                      multilog_id)
                     },
                     Err(MultiLogErr::CRCMismatch) => !pm_regions.constants().impervious_to_corruption,
+                    Err(MultiLogErr::InsufficientSpaceForSetup { which_log, required_space }) => {
+                        let flushed_regions = pm_regions@.flush();
+                        &&& 0 <= which_log < flushed_regions.len()
+                        &&& pm_regions@[which_log as int].len() < required_space
+                    },
                     _ => false
                 }
         {

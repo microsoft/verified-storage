@@ -9,7 +9,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use deps_hack::rand::Rng;
 use deps_hack::winapi::ctypes::c_void;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;

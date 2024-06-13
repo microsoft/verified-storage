@@ -27,7 +27,7 @@
 //!
 
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -38,8 +38,8 @@ use vstd::ptr::*;
 use super::itemtablespec_t::DurableItemTableView;
 use super::itemtablespec_t::DurableItemTableViewEntry;
 
-use crate::pmem::markers_t::*;
-use deps_hack::PmSafe;
+use crate::pmem::traits_t::*;
+use deps_hack::{PmSafe, PmSized};
 use crate::log::layout_v::GlobalMetadata;
 
 verus! {
@@ -72,7 +72,7 @@ verus! {
     pub const ITEM_TABLE_VERSION_NUMBER: u64 = 1;
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -104,20 +104,20 @@ verus! {
             ||| metadata_header.version_number != 1
             ||| metadata_header.program_guid != ITEM_TABLE_PROGRAM_GUID
             ||| metadata_header.item_size != I::spec_size_of()
-            ||| mem.len() < ABSOLUTE_POS_OF_TABLE_AREA + (metadata_header.item_size + CRC_SIZE + CDB_SIZE) * metadata_header.num_keys 
+            ||| mem.len() < ABSOLUTE_POS_OF_TABLE_AREA + (metadata_header.item_size + u64::spec_size_of() + u64::spec_size_of()) * metadata_header.num_keys 
         } { 
             None
         } else {
             let table_area = mem.subrange(ABSOLUTE_POS_OF_TABLE_AREA as int, mem.len() as int);
-            let item_entry_size = metadata_header.item_size + CRC_SIZE + CDB_SIZE + K::spec_size_of();
+            let item_entry_size = metadata_header.item_size + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
             let item_table_view = Seq::new(
                 metadata_header.num_keys as nat,
                 |i: int| {
                     // the offset of the key depends on the offset of the item, so we don't have a constant for it
                     let relative_key_offset = RELATIVE_POS_OF_ITEM + I::spec_size_of();
                     let bytes = table_area.subrange(i * item_entry_size, i * item_entry_size + item_entry_size);
-                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + CDB_SIZE);
-                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + 8);
+                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
+                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + u64::spec_size_of());
                     let item_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + I::spec_size_of());
                     
                     let cdb = u64::spec_from_bytes(cdb_bytes);

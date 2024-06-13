@@ -10,7 +10,7 @@
 
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -19,8 +19,8 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
 use crate::kv::durable::metadata::layout_v::*;
-use crate::pmem::markers_t::PmSafe;
-use deps_hack::PmSafe;
+use crate::pmem::traits_t::*;
+use deps_hack::{PmSafe, PmSized};
 
 
 verus! {
@@ -46,7 +46,7 @@ verus! {
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct ListRegionHeader {
         pub num_nodes: u64,
         pub length: u64,
@@ -81,7 +81,7 @@ verus! {
         where 
             L: PmCopy 
     {
-        let list_entry_size = L::spec_size_of() + CRC_SIZE;
+        let list_entry_size = L::spec_size_of() + u64::spec_size_of();
         // let node_size = (mem.len() - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / metadata_header.num_nodes;
         // let elements_per_node = (node_size - LENGTH_OF_LIST_NODE_HEADER) / list_entry_size;
         // check that the metadata in the header makes sense/is valid
@@ -96,7 +96,7 @@ verus! {
         } else {
             let node_region_header_bytes = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + LENGTH_OF_LIST_REGION_HEADER);
             let node_region_header = ListRegionHeader::spec_from_bytes(node_region_header_bytes);
-            let node_region_header_crc = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + 8);
+            let node_region_header_crc = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of());
             let node_region_crc = u64::spec_from_bytes(node_region_header_crc);
             // check that node region header is valid
             if node_region_crc != node_region_header.spec_crc() {

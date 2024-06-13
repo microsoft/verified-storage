@@ -8,8 +8,9 @@ use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::traits_t;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -274,14 +275,14 @@ verus! {
                 ({
                     let metadata_size = ListEntryMetadata::spec_size_of();
                     let key_size = K::spec_size_of();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-                    let list_element_slot_size = L::spec_size_of() + CRC_SIZE;
+                    let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
+                    let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
                     &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
                     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
                 }),
-                L::spec_size_of() + CRC_SIZE < u32::MAX, // size_of is u64, but we store it in a u32 here
+                L::spec_size_of() + u64::spec_size_of() < u32::MAX, // size_of is u64, but we store it in a u32 here
                 // TODO: just pass it in as a u32
                 0 < node_size <= u32::MAX
             ensures
@@ -302,7 +303,7 @@ verus! {
             let region_size = pm_region.get_region_size();
 
             let list_element_size = L::size_of();
-            let list_element_slot_size = list_element_size + CRC_SIZE;
+            let list_element_slot_size = list_element_size + traits_t::size_of::<u64>();
 
             // region needs to fit at least one node
             let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
@@ -337,8 +338,8 @@ verus! {
                 ({
                     let metadata_size = ListEntryMetadata::spec_size_of();
                     let key_size = K::spec_size_of();
-                    let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-                    let list_element_slot_size = L::spec_size_of() + CRC_SIZE;
+                    let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
+                    let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
                 })
@@ -362,7 +363,7 @@ verus! {
 
             // check that the region the caller passed in is sufficiently large
             let list_element_size = L::size_of();
-            let list_element_slot_size = list_element_size + CRC_SIZE;
+            let list_element_slot_size = list_element_size + traits_t::size_of::<u64>();
 
             // region needs to fit at least one node
             let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
@@ -394,20 +395,23 @@ verus! {
                 let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
                     current_index * node_size as u64;
                 let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
-                let ghost ptr_addrs = Seq::new(u64::spec_size_of(), |i: int| ptr_addr as int + i);
+                let ghost ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ptr_addr as int + i);
                 let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
-                let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| crc_addr as int + i);
-                let ptr_size_of = u64::size_of();
+                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr as int + i);
+                let ptr_size_of = traits_t::size_of::<u64>();
 
                 // The true next pointer and CRC are the deserializations of the bytes we originally wrote to these addresses.
                 // To prove that the values we read are uncorrupted and initialized, we need to prove that they match these true values
                 // using check_crc.
                 let ghost true_next_pointer = choose |val: u64| val.spec_to_bytes() == mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_size_of());
-                let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem1.subrange(crc_addr as int, crc_addr + CRC_SIZE);
+                let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem1.subrange(crc_addr as int, crc_addr + u64::spec_size_of());
 
                 let next_pointer = pm_region.read_aligned::<u64>(ptr_addr, Ghost(true_next_pointer)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
                 let node_header_crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-                
+
+                let ghost true_next_pointer_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[ptr_addrs[i]]);
+                let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[crc_addrs[i]]);
+
                 if !check_crc(next_pointer.as_slice(), node_header_crc.as_slice(), Ghost(mem1),
                         Ghost(pm_region.constants().impervious_to_corruption),
                         Ghost(ptr_addrs),
@@ -416,7 +420,11 @@ verus! {
                     return Err(KvError::CRCMismatch);
                 }
   
-                let next_pointer = next_pointer.extract_init_val(Ghost(true_next_pointer));
+                let next_pointer = next_pointer.extract_init_val(
+                    Ghost(true_next_pointer), 
+                    Ghost(true_next_pointer_bytes),
+                    Ghost(pm_region.constants().impervious_to_corruption)
+                );
 
                 // If the CRC check passes, then the next pointer is valid.
                 // If a node's next pointer points to itself, we've reached the end of the list;
@@ -571,13 +579,13 @@ verus! {
             // it's the next slot that should be written to and 2) list element slots do not have valid bits so there 
             // isn't a way to check this anyway
 
-            let list_element_slot_size = L::size_of() + CRC_SIZE;
+            let list_element_slot_size = L::size_of() + traits_t::size_of::<u64>();
 
             // 1. obtain the address of the tail node
             let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * tail_node;
 
             // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size * idx;
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size as u64 * idx;
             let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
 
             // 3. get the CRC of the new list element
@@ -619,13 +627,13 @@ verus! {
             // which node to modify (rather than always writing to the tail) and the proof requirements are different,
             // since updating an element is a committing update
 
-            let list_element_slot_size = L::size_of() + CRC_SIZE;
+            let list_element_slot_size = L::size_of() + traits_t::size_of::<u64>();
 
             // 1. obtain the address of the tail node
             let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_idx;
 
             // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size * element_idx;
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size as u64 * element_idx;
             let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
 
             // 3. get the CRC of the new list element
@@ -669,7 +677,7 @@ verus! {
             requires
                 old(pm_region).inv(),
                 old(pm_region)@.no_outstanding_writes(),
-                L::spec_size_of() + CRC_SIZE < u32::MAX, // size_of is u64, but we store it in a u32 here
+                L::spec_size_of() + u64::spec_size_of() < u32::MAX, // size_of is u64, but we store it in a u32 here
                 // the second region is large enough for at least one node
                 old(pm_region)@.len() >= ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size,
                 0 < node_size <= u32::MAX,
@@ -719,14 +727,17 @@ verus! {
             let ghost mem = pm_region@.committed();
 
             let ghost true_region_header = choose |header: ListRegionHeader| header.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of());
-            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + CRC_SIZE);
+            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of());
 
             // Read the list region header and its CRC and check for corruption
             let region_header = pm_region.read_aligned::<ListRegionHeader>(ABSOLUTE_POS_OF_LIST_REGION_HEADER, Ghost(true_region_header)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
             let region_header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
-            let ghost header_addrs = Seq::new(ListRegionHeader::spec_size_of(), |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER as int + i);
-            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int + i);
+            let ghost header_addrs = Seq::new(ListRegionHeader::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER as int + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int + i);
+
+            let ghost true_header_bytes = Seq::new(ListRegionHeader::spec_size_of() as nat, |i: int| mem[header_addrs[i]]);
+            let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i]]);
 
             if !check_crc(region_header.as_slice(), region_header_crc.as_slice(), Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
@@ -736,8 +747,11 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }
 
-            // let region_header: &ListRegionHeader = cast_bytes(&region_header_bytes);
-            let region_header = region_header.extract_init_val(Ghost(true_region_header));
+            let region_header = region_header.extract_init_val(
+                Ghost(true_region_header),
+                Ghost(true_header_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption),
+            );
 
             if {
                 ||| region_header.version_number != DURABLE_LIST_REGION_VERSION_NUMBER

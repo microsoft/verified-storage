@@ -15,9 +15,9 @@ use vstd::prelude::*;
 use vstd::ptr::*;
 
 use crate::kv::durable::logentry_v::*;
-use crate::pmem::serialization_t::*;
-use crate::pmem::markers_t::PmSafe;
-use deps_hack::PmSafe;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::*;
+use deps_hack::{PmSafe, PmSized};
 
 verus! {
 
@@ -69,7 +69,7 @@ verus! {
 
     // TODO: documentation
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct CommitItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
@@ -80,7 +80,7 @@ verus! {
     impl PmCopy for CommitItemEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct InvalidateItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
@@ -106,7 +106,7 @@ verus! {
     // this log entry is idempotent in cases where the list metadata struct's tail
     // field was updated before this entry is replayed.
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct AppendListNodeEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -137,7 +137,7 @@ verus! {
     // to be logged. This entry type only needs to be used for in-place updates
     // of in-bounds indices.
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct InsertListElementEntry {
         pub entry_type: u64,
         pub node_offset: u64,
@@ -159,7 +159,7 @@ verus! {
     // The new list element should be written tentatively to an out-of-bounds
     // slot; it will become visible when the list length update is applied.
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct UpdateListLenEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -178,7 +178,7 @@ verus! {
     //    length, and start index fields updated with those in the log entry,
     //    as well as a corresponding CRC update.
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct TrimListEntry {
         pub entry_type: u64,
         pub metadata_index: u64,
@@ -191,7 +191,7 @@ verus! {
     impl PmCopy for TrimListEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct CommitMetadataEntry 
     {
         pub entry_type: u64,
@@ -214,7 +214,7 @@ verus! {
     impl PmCopy for CommitMetadataEntry {}
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct InvalidateMetadataEntry
     {
         pub entry_type: u64,

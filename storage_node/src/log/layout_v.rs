@@ -52,11 +52,12 @@
 //!
 
 use crate::log::logspec_t::AbstractLogState;
+use crate::log::inv_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
-use crate::pmem::markers_t::PmSafe;
-use deps_hack::PmSafe;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -66,11 +67,13 @@ use vstd::ptr::*;
 
 verus! {
 
+    broadcast use pmcopy_axioms;
+
     /// Constants
 
     // These constants describe the absolute or relative positions of
     // various parts of the layout.
-
+    // TODO: clean these up
     pub const ABSOLUTE_POS_OF_GLOBAL_METADATA: u64 = 0;
     pub const RELATIVE_POS_OF_GLOBAL_VERSION_NUMBER: u64 = 0;
     pub const RELATIVE_POS_OF_GLOBAL_LENGTH_OF_REGION_METADATA: u64 = 8;
@@ -108,10 +111,9 @@ verus! {
     pub const LOG_PROGRAM_VERSION_NUMBER: u64 = 1;
 
     // These structs represent the different levels of metadata.
-    // TODO: confirm with runtime checks that the sizes and offsets are as expected
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
@@ -121,7 +123,7 @@ verus! {
     impl PmCopy for GlobalMetadata {}
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct RegionMetadata {
         pub region_size: u64,
         pub log_area_len: u64,
@@ -131,7 +133,7 @@ verus! {
     impl PmCopy for RegionMetadata {}
 
     #[repr(C)]
-    #[derive(PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,
@@ -156,7 +158,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
@@ -169,7 +171,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
@@ -182,7 +184,7 @@ verus! {
     // from the contents `mem` of a persistent memory region.
     pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
@@ -195,7 +197,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
@@ -209,7 +211,7 @@ verus! {
     // `mem` of a persistent memory region.
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of() as int)
     }
 
     // This function extracts the log metadata's corruption-detecting boolean
@@ -259,6 +261,8 @@ verus! {
     {
         if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE } else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
     }
+    // This function extracts the log metadata and its CRC from the
+    // `bytes` where they're stored.
 
     // This function computes where the log metadata ends in a
     // persistent-memory region (i.e., the index of the byte just past
@@ -266,7 +270,7 @@ verus! {
     // value `cdb` of the corruption-detecting boolean.
     pub open spec fn get_log_crc_end(cdb: bool) -> u64
     {
-        (get_log_metadata_pos(cdb) + LENGTH_OF_LOG_METADATA + CRC_SIZE) as u64
+        (get_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of()) as u64
     }
 
     // This function extracts the bytes encoding log metadata from
@@ -277,7 +281,7 @@ verus! {
     pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
         let pos = get_log_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LENGTH_OF_LOG_METADATA as int)
+        extract_bytes(mem, pos as int, LogMetadata::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
@@ -294,7 +298,7 @@ verus! {
     {
         let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                   else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-        extract_bytes(mem, pos as int, CRC_SIZE as int)
+        extract_bytes(mem, pos as int, u64::spec_size_of() as int)
     }
 
     pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
@@ -543,7 +547,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if global_metadata.length_of_region_metadata != LENGTH_OF_REGION_METADATA {
+                    if global_metadata.length_of_region_metadata != RegionMetadata::spec_size_of() {
                         // To be valid, the global metadata's encoding of the region metadata's
                         // length has to be what we expect. (This version of the code doesn't
                         // support any other length of region metadata.)
@@ -634,7 +638,7 @@ verus! {
                     // If this metadata was written by version #1 of this code, then this is how to
                     // interpret it:
 
-                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + CRC_SIZE {
+                    if mem.len() < ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of() {
                         // If memory isn't big enough to store the CDB, then this region isn't
                         // valid.
                         None
@@ -776,5 +780,43 @@ verus! {
         let state = recover_state(mem, log_id).unwrap();
         assert(state.pending.len() == 0);
         assert(state =~= state.drop_pending_appends());
+    }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        log_id: u128,
+        cdb: bool,
+    )
+        requires
+            mem1.len() == mem2.len() >= ABSOLUTE_POS_OF_LOG_AREA,
+            recover_cdb(mem1) == Some(cdb),
+            metadata_types_set(mem1),
+            ({
+                let unused_metadata_start = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
+                                            else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
+                let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
+                forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+                    ==> mem1[addr] == mem2[addr]
+            }),
+        ensures
+            recover_cdb(mem2) == Some(cdb),
+            recover_state(mem1, log_id) == recover_state(mem2, log_id),
+            metadata_types_set(mem2),
+    {
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
+
+        assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+            mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+        if cdb {
+            assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()));
+        } else {
+            assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+                mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()));
+        }
+        assert(active_metadata_bytes_are_equal(mem1, mem2));
+        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, cdb);
     }
 }

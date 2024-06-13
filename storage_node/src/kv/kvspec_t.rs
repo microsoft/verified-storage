@@ -18,7 +18,7 @@ use crate::kv::kvimpl_v::*;
 use crate::kv::volatile::volatileimpl_v::*;
 use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {

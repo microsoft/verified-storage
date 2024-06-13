@@ -297,7 +297,7 @@ verus! {
                                                                                log_id)
                     },
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
-                    _ => false
+                    Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
             // We allow the untrusted `start` method to update memory
@@ -462,7 +462,7 @@ verus! {
                             &&& pos + len > tail
                             &&& tail == head + log.len()
                         },
-                        _ => false
+                        Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                     }
                 })
         {

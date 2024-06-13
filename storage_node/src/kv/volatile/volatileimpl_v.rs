@@ -8,7 +8,7 @@ use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
 use crate::kv::volatile::volatilespec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {

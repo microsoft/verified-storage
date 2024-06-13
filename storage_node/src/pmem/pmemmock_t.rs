@@ -10,7 +10,7 @@ use crate::pmem::pmemspec_t::{
     PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
     PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
 };
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
 use deps_hack::rand::Rng;
@@ -73,7 +73,7 @@ verus! {
                 S: PmCopy 
         {
             let pm_slice = &self.contents[addr as usize..addr as usize + S::size_of() as usize];
-            let ghost addrs = Seq::new(S::spec_size_of(), |i: int| addr + i);
+            let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
 
             let mut maybe_corrupted_val = MaybeCorrupted::new();
             maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
@@ -86,6 +86,8 @@ verus! {
         {
             let pm_slice = &self.contents[addr as usize..addr as usize + num_bytes as usize];
             let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
+            // TODO: make a wrapper (to hide mutable ref) and use copy from slice
+            // take extend from slice out of the PR -- it's more general
             unaligned_buffer.extend_from_slice(pm_slice);
             Ok(unaligned_buffer)
         }

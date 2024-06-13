@@ -7,13 +7,16 @@
 
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::crc_t::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     // This lemma establishes that if there are no outstanding writes
     // to a particular location in memory, then there's only one
@@ -209,48 +212,46 @@ verus! {
         requires
             data_addrs.len() <= mem.len(),
             crc_addrs.len() <= mem.len(),
-            crc_c@.len() == CRC_SIZE,
+            crc_c@.len() == u64::spec_size_of(),
+            all_elements_unique(data_addrs),
+            all_elements_unique(crc_addrs),
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                let true_crc = u64::spec_from_bytes(true_crc_bytes);
-                if impervious_to_corruption {
-                    &&& data_c@ == true_data_bytes
-                    &&& crc_c@ == true_crc_bytes
-                }
-                else {
-                    &&& maybe_corrupted(data_c@, true_data_bytes, data_addrs)
-                    &&& maybe_corrupted(crc_c@, true_crc_bytes, crc_addrs)
-                }
+                &&& if impervious_to_corruption {
+                        &&& data_c@ == true_data_bytes
+                        &&& crc_c@ == true_crc_bytes
+                    }
+                    else {
+                        &&& maybe_corrupted(data_c@, true_data_bytes, data_addrs)
+                        &&& maybe_corrupted(crc_c@, true_crc_bytes, crc_addrs)
+                    }
             })
         ensures
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(CRC_SIZE as nat, |i: int| mem[crc_addrs[i]]);
-                let true_crc = u64::spec_from_bytes(true_crc_bytes);
-                true_crc == spec_crc_u64(true_data_bytes) ==>
-                if b {
-                    &&& data_c@ == true_data_bytes
-                    &&& crc_c@ == true_crc_bytes
-                }
-                else {
-                    !impervious_to_corruption
+                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes) ==> {
+                    if b {
+                        &&& data_c@ == true_data_bytes
+                        &&& crc_c@ == true_crc_bytes
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
                 }
             })
     {
-        assume(false);
-        // Compute the CRC of the possibly-corrupted data.
-        let computed_crc = bytes_crc(data_c);
+        // Compute a CRC for the bytes we read.
+        let computed_crc = calculate_crc_bytes(data_c);
 
-        // Convert both the CRC read from memory and the CRC just
-        // computed into `u64`s to make it easy to compare them.
-        let crc1 = u64_from_le_bytes(crc_c);
-        let crc2 = u64_from_le_bytes(computed_crc.as_slice());
+        // Check whether the CRCs match. This is done in an external body function so that we can convert the maybe-corrupted
+        // CRC to a u64 for comparison to the computed CRC.
+        let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
             let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
             let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-            let true_crc = u64::spec_from_bytes(true_crc_bytes);
 
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
@@ -262,25 +263,14 @@ verus! {
             // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
             // detected corruption.
             if {
-                &&& true_crc == spec_crc_u64(true_data_bytes)
+                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes)
                 &&& !impervious_to_corruption
-                &&& crc_c@ == computed_crc@
+                &&& crcs_match
             } {
                 axiom_bytes_uncorrupted2(data_c@, true_data_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs);
             }
-
-            // To argue that `crc1` matches `crc2` if and only if `crc_c`
-            // matches `computed_crc`, we invoke the lemma saying that
-            // `spec_u64_to_le_bytes` is the inverse of what
-            // `u64_from_le_bytes` computes.
-
-            let crc1_alt = spec_u64_to_le_bytes(crc1);
-            let crc2_alt = spec_u64_to_le_bytes(crc2);
-            lemma_auto_spec_u64_to_from_le_bytes();
         }
-
-        // Return the comparison between the CRCs
-        crc1 == crc2
+        crcs_match
     }
 
 
@@ -321,10 +311,10 @@ verus! {
         Ghost(cdb_addrs): Ghost<Seq<int>>,
     ) -> (result: Option<bool>)
         requires
-            cdb_c@.len() == CDB_SIZE,
             forall |i: int| 0 <= i < cdb_addrs.len() ==> cdb_addrs[i] <= mem.len(),
+            all_elements_unique(cdb_addrs),
             ({
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 &&& true_cdb.spec_to_bytes() == true_cdb_bytes
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
                 &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
@@ -332,7 +322,7 @@ verus! {
             })
         ensures
             ({
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
@@ -341,22 +331,19 @@ verus! {
                 }
             })
     {
-        assume(false);
-
+        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
         proof {
             // We may need to invoke the axiom
             // `axiom_corruption_detecting_boolean` to justify concluding
             // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
             // been corrupted.
-            let ghost cdb_c_val = u64::spec_from_bytes(cdb_c@);
-
-            if !impervious_to_corruption && (cdb_c_val == CDB_FALSE || cdb_c_val == CDB_TRUE) {
-                let true_cdb_bytes = Seq::new(CDB_SIZE as nat, |i: int| mem[cdb_addrs[i]]);
+            if !impervious_to_corruption && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
                 axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, cdb_addrs);
-            }
+            }  
         }
-
-        let cdb_val = cdb_c.extract_init_val(Ghost(true_cdb));
+        
+        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb), Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(impervious_to_corruption));
+        assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
@@ -368,6 +355,12 @@ verus! {
             Some(true)
         }
         else {
+            proof {
+                // This part of the proof can be flaky -- invoking this axiom helps stabilize it
+                // by helping Z3 prove that the real CDB is neither valid value, which implies we are 
+                // not impervious to corruption
+                u64::axiom_from_to_bytes(cdb_c@);
+            }
             None
         }
     }
@@ -532,6 +525,20 @@ verus! {
     {
         let mut digest = CrcDigest::new();
         digest.write(val);
+        proof {
+            lemma_auto_spec_u64_to_from_le_bytes();
+            digest.bytes_in_digest().lemma_flatten_one_element();
+        }
+        digest.sum64()
+    }
+
+    pub fn calculate_crc_bytes(val: &[u8]) -> (out: u64) 
+        ensures 
+            out == spec_crc_u64(val@),
+            out.spec_to_bytes() == spec_crc_bytes(val@),
+    {
+        let mut digest = CrcDigest::new();
+        digest.write_bytes(val);
         proof {
             lemma_auto_spec_u64_to_from_le_bytes();
             digest.bytes_in_digest().lemma_flatten_one_element();

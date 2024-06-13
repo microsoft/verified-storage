@@ -25,9 +25,9 @@ use crate::log::logimpl_t::*;
 use crate::log::logspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
-
-use crate::pmem::serialization_t::*;
-use std::fmt::Write;
+use crate::pmem::subregion_v::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t;
 use std::hash::Hash;
 
 verus! {
@@ -37,7 +37,7 @@ verus! {
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Item<K> + Sized + std::fmt::Debug,
-        L: PmCopy + std::fmt::Debug + Copy,
+        L: PmCopy + std::fmt::Debug,
         E: std::fmt::Debug,
     {
         item_table: DurableItemTable<K, I, E>,
@@ -133,7 +133,7 @@ verus! {
                 item_table_wrpm.inv(),
                 list_wrpm.inv(),
                 log_wrpm.inv(),
-                L::spec_size_of() + CRC_SIZE <= u32::MAX
+                L::spec_size_of() + u64::spec_size_of() <= u32::MAX
                 // TODO
             ensures
                 metadata_wrpm.inv(),
@@ -152,7 +152,7 @@ verus! {
             let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
 
-            let list_element_size = (L::size_of() + CRC_SIZE) as u32;
+            let list_element_size = (L::size_of() + traits_t::size_of::<u64>()) as u32;
 
             let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
             let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;

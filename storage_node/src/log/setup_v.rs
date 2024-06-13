@@ -5,18 +5,22 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+use crate::log::inv_v::*;
 use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::traits_t::size_of;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
+
+    broadcast use pmcopy_axioms;
 
     // This function evaluates whether memory was correctly set up on
     // a region. It's a helpful specification function for use in
@@ -50,7 +54,7 @@ verus! {
         &&& log_crc == log_metadata.spec_crc()
         &&& global_metadata.program_guid == LOG_PROGRAM_GUID
         &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
-        &&& global_metadata.length_of_region_metadata == LENGTH_OF_REGION_METADATA
+        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
         &&& region_metadata.region_size == region_size
         &&& region_metadata.log_id == log_id
         &&& region_metadata.log_area_len == region_size - ABSOLUTE_POS_OF_LOG_AREA
@@ -94,13 +98,13 @@ verus! {
             memory_correctly_set_up_on_region(
                 pm_region@.flush().committed(), // it'll be correct after the next flush
                 region_size, log_id),
+            metadata_types_set(pm_region@.flush().committed()),
     {
         // Initialize global metadata and compute its CRC
-        // TODO: might be faster to write to PM first, then compute CRC on that?
         let global_metadata = GlobalMetadata {
             program_guid: LOG_PROGRAM_GUID,
             version_number: LOG_PROGRAM_VERSION_NUMBER,
-            length_of_region_metadata: LENGTH_OF_REGION_METADATA,
+            length_of_region_metadata: size_of::<RegionMetadata>() as u64,
         };
         let global_crc = calculate_crc(&global_metadata);
 
@@ -123,52 +127,45 @@ verus! {
         };
         let log_crc = calculate_crc(&log_metadata);
 
+        assert(pm_region@.no_outstanding_writes());
         // Write all metadata structures and their CRCs to memory
-        // TODO: put these all in a PmCopy structure so you can write them with one line?
-        assume(false);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_REGION_METADATA, &region_metadata);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_REGION_CRC, &region_crc);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_CDB, &cdb);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE, &log_metadata);
-        pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE, &log_crc);
+        pm_region.serialize_and_write(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + size_of::<LogMetadata>() as u64, &log_crc);
 
         proof {
             // We want to prove that if we parse the result of
-            // flushing memory, we get the desired metadata. The proof
-            // is in two parts.
+            // flushing memory, we get the desired metadata.
 
-            // Part 1:
             // Prove that if we extract pieces of the flushed memory,
             // we get the little-endian encodings of the desired
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
-
             let mem = pm_region@.flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, LENGTH_OF_GLOBAL_METADATA as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, LENGTH_OF_REGION_METADATA as int)
+
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, CRC_SIZE as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, CRC_SIZE as int)
+
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
-                                 LENGTH_OF_LOG_METADATA as int)
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of())
                    =~= log_metadata.spec_to_bytes());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, CRC_SIZE as int)
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
-            // Part 2:
-            // Prove that if we parse the little-endian-encoded value
-            // of the CDB, we get the value that was encoded. This
-            // involves invoking the lemma that says the `to` and
-            // `from` functions for `u64` are inverses.
-
-            lemma_auto_spec_u64_to_from_le_bytes();
+            // Asserting these two postconditions here helps Verus finish out the proof.
+            assert(memory_correctly_set_up_on_region(mem, region_size, log_id));
+            assert(metadata_types_set(mem));
         }
     }
 
@@ -216,6 +213,7 @@ verus! {
             pm_region@.len() == old(pm_region)@.len(),
             pm_region@.no_outstanding_writes(),
             recover_state(pm_region@.committed(), log_id) == Some(AbstractLogState::initialize(log_capacity as int)),
+            metadata_types_set(pm_region@.committed()),
     {
         write_setup_metadata_to_region(pm_region, region_size, log_id);
 

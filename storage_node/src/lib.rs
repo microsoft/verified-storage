@@ -1,8 +1,11 @@
 #![feature(maybe_uninit_as_bytes)]
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
+#![feature(const_trait_impl)]
+#![feature(effects)]
 // TODO: remove when extend_from_slice spec is in vstd
 #![feature(allocator_api)]
+
 
 #![allow(unused_imports)]
 use builtin::*;
@@ -299,6 +302,7 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     // error because we're not allowed to read from before the head.
     match log.read(0, 1) {
         Err(LogErr::CantReadBeforeHead{head}) => runtime_assert(head == 2),
+        Err(LogErr::PmemErr { err: PmemError::AccessOutOfRange }) => {}
         _ => runtime_assert(false) // can't succeed, and can't fail with any other error
     }
     Some(())

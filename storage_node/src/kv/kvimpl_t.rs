@@ -33,7 +33,7 @@ use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::log::logimpl_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -134,18 +134,18 @@ where
     //         ({
     //             let metadata_size = ListEntryMetadata::spec_size_of();
     //             let key_size = K::spec_size_of();
-    //             let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
-    //             let list_element_slot_size = L::spec_size_of() + CRC_SIZE;
+    //             let metadata_slot_size = metadata_size + crate::pmem::traits_t::size_of::<u64>() + key_size + CDB_SIZE;
+    //             let list_element_slot_size = L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
     //             &&& metadata_slot_size <= u64::MAX
     //             &&& list_element_slot_size <= u64::MAX
     //             &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
     //             &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
     //         }),
-    //         L::spec_size_of() + CRC_SIZE < u32::MAX, // size_of is u64, but we store it in a u32 here
+    //         L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < u32::MAX, // size_of is u64, but we store it in a u32 here
     //         node_size < u32::MAX,
-    //         0 <= ItemTableMetadata::spec_size_of() + CRC_SIZE < usize::MAX,
+    //         0 <= ItemTableMetadata::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < usize::MAX,
     //         ({
-    //             let item_slot_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
+    //             let item_slot_size = I::spec_size_of() + CDB_SIZE + crate::pmem::traits_t::size_of::<u64>();
     //             &&& 0 <= item_slot_size < usize::MAX
     //             &&& 0 <= item_slot_size * num_keys < usize::MAX
     //             &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX

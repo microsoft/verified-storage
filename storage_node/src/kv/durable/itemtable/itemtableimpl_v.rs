@@ -5,8 +5,9 @@ use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::traits_t;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -133,7 +134,7 @@ verus! {
             where 
                 L: PmCopy,
         {
-            let item_entry_size = I::spec_size_of() + CRC_SIZE + CDB_SIZE + K::spec_size_of();
+            let item_entry_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
             match op {
                 OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
                     let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
@@ -182,9 +183,9 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 old(pm_region).inv(),
-                0 <= ItemTableMetadata::spec_size_of() + CRC_SIZE < usize::MAX,
+                0 <= ItemTableMetadata::spec_size_of() + u64::spec_size_of() < usize::MAX,
                 ({
-                    let item_slot_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
+                    let item_slot_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * num_keys < usize::MAX
                     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < u64::MAX
@@ -204,9 +205,9 @@ verus! {
             // determine if the provided region is large enough for the
             // specified number of items
             // TODO: still some overflow/underflow errors to work out here
-            let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
-            if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) > table_region_size {
-                let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys)) as usize;
+            let item_slot_size = item_size + traits_t::size_of::<u64>() + traits_t::size_of::<u64>();
+            if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size as u64 * num_keys) > table_region_size {
+                let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size as u64 * num_keys)) as usize;
                 return Err(KvError::RegionTooSmall {required, actual: table_region_size as usize});
             }
 
@@ -223,7 +224,7 @@ verus! {
                 //     0 <= index * item_slot_size < ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size <= table_region_size,
             {
                 assume(false);
-                let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
+                let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size as u64;
                 pm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
             }
             pm_region.flush();
@@ -242,10 +243,10 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 old(wrpm_region).inv(),
-                0 <= ItemTableMetadata::spec_size_of() + CRC_SIZE < usize::MAX,
+                0 <= ItemTableMetadata::spec_size_of() + u64::spec_size_of() < usize::MAX,
                 ({
-                    let item_slot_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
-                    let metadata_header_size = ItemTableMetadata::spec_size_of() + CRC_SIZE;
+                    let item_slot_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of();
+                    let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < u64::MAX
                 })
                 // TODO: recovery and permissions checks
@@ -253,7 +254,7 @@ verus! {
                 wrpm_region.inv(),
                 // TODO: write the rest of the postconditions
         {
-            let item_size = I::size_of();
+            let item_size = I::size_of() as u64;
 
             // ensure that there are no outstanding writes
             wrpm_region.flush();
@@ -274,7 +275,7 @@ verus! {
             // determine if the provided region is large enough for the
             // specified number of items
             let num_keys = table_metadata.num_keys;
-            let item_slot_size = item_size + CDB_SIZE + CRC_SIZE;
+            let item_slot_size = (item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
 
             // Sanity check on the number of keys that helps prove the absence of overflow for the next check
             if (item_slot_size * num_keys) as usize > usize::MAX - ABSOLUTE_POS_OF_TABLE_AREA as usize {
@@ -297,8 +298,8 @@ verus! {
                 assume(false);
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
                 let cdb_addr = item_slot_offset + RELATIVE_POS_OF_VALID_CDB;
-                let ghost cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| cdb_addr + i);
-                let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + CDB_SIZE);
+                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+                let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of());
                 let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
                 match check_cdb(cdb, Ghost(true_cdb), Ghost(mem),
                             Ghost(pm_region.constants().impervious_to_corruption),
@@ -336,8 +337,8 @@ verus! {
                 forall |i: int|  0 <= i < old(self).spec_free_list().len() ==>
                     0 <= #[trigger] old(self).spec_free_list()[i] < old(self).spec_num_keys(),
                 ({
-                    let item_slot_size = old(self).spec_item_size() + CDB_SIZE + CRC_SIZE;
-                    let metadata_header_size = ItemTableMetadata::spec_size_of() + CRC_SIZE;
+                    let item_slot_size = old(self).spec_item_size() + u64::spec_size_of() + u64::spec_size_of();
+                    let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
                     &&& 0 <= metadata_header_size + (item_slot_size * old(self).spec_num_keys()) < usize::MAX
@@ -354,7 +355,7 @@ verus! {
                 None => return Err(KvError::OutOfSpace)
             };
             assert(free_index < self.num_keys);
-            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
+            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + free_index * item_slot_size;
 
             // calculate and write the CRC of the provided item
@@ -380,8 +381,8 @@ verus! {
             requires
                 old(wrpm_region).inv(),
                 ({
-                    let item_slot_size = old(self).spec_item_size() + CDB_SIZE + CRC_SIZE;
-                    let metadata_header_size = ItemTableMetadata::spec_size_of() + CRC_SIZE;
+                    let item_slot_size = old(self).spec_item_size() + u64::spec_size_of() + u64::spec_size_of();
+                    let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
                     &&& 0 <= metadata_header_size + (item_slot_size * old(self).spec_num_keys()) < usize::MAX
@@ -392,7 +393,7 @@ verus! {
                 // TODO
         {
             assume(false);
-            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
+            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
             Ok(())
@@ -417,7 +418,7 @@ verus! {
                 // TODO
         {
             assume(false);
-            let item_slot_size = self.item_size + CDB_SIZE + CRC_SIZE;
+            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE, Tracked(perm));
             Ok(())
@@ -431,8 +432,8 @@ verus! {
             old(pm_region)@.len() == 1,
             old(pm_region)@.no_outstanding_writes(),
             ({
-                let item_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
-                let metadata_header_size = ItemTableMetadata::spec_size_of() + CRC_SIZE;
+                let item_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of();
+                let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                 old(pm_region)@.len() >= metadata_header_size + (item_size * num_keys)
             })
             // TODO: precondition that the region is large enough
@@ -443,7 +444,7 @@ verus! {
         // Initialize metadata header and compute its CRC
         let metadata_header = ItemTableMetadata {
             version_number: ITEM_TABLE_VERSION_NUMBER,
-            item_size: I::size_of(),
+            item_size: I::size_of() as u64,
             num_keys,
             _padding: 0,
             program_guid: ITEM_TABLE_PROGRAM_GUID,
@@ -463,8 +464,8 @@ verus! {
         ensures
             match result {
                 Ok(output_table) => {
-                    let item_slot_size = I::spec_size_of() + CDB_SIZE + CRC_SIZE;
-                    let metadata_header_size = ItemTableMetadata::spec_size_of() + CRC_SIZE;
+                    let item_slot_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of();
+                    let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     let num_keys = output_table.num_keys;
                     &&& 0 <= item_slot_size < usize::MAX
                     &&& 0 <= item_slot_size * num_keys < usize::MAX
@@ -483,13 +484,16 @@ verus! {
             // read in the metadata structure and its CRC, make sure it has not been corrupted
 
             let ghost true_metadata_table = choose |metadata: ItemTableMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of());
-            let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+            let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
 
             let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata_table)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
             let table_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
-            let ghost header_addrs = Seq::new(ItemTableMetadata::spec_size_of(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
-            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+            let ghost header_addrs = Seq::new(ItemTableMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
+            let ghost true_header_bytes = Seq::new(ItemTableMetadata::spec_size_of() as nat, |i: int| mem[header_addrs[i]]);
+            let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i]]);
 
             if !check_crc(table_metadata.as_slice(), table_crc.as_slice(), Ghost(mem),
                     Ghost(pm_region.constants().impervious_to_corruption),
@@ -498,13 +502,17 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }
 
-            let table_metadata = table_metadata.extract_init_val(Ghost(true_metadata_table));
+            let table_metadata = table_metadata.extract_init_val(
+                Ghost(true_metadata_table),
+                Ghost(true_header_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption),
+            );
 
             // Since we've already checked for corruption, this condition should never fail
             if {
                 ||| table_metadata.program_guid != ITEM_TABLE_PROGRAM_GUID
                 ||| table_metadata.version_number != ITEM_TABLE_VERSION_NUMBER
-                ||| table_metadata.item_size != I::size_of()
+                ||| table_metadata.item_size != I::size_of() as u64
             } {
                 return Err(KvError::InvalidItemTableHeader);
             }

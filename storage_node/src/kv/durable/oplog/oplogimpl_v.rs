@@ -11,7 +11,8 @@ use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t;
 use crate::kv::kvimpl_t::*;
 use vstd::bytes::*;
 
@@ -42,8 +43,8 @@ verus! {
                             op_list_committed: true
                         })
                     } else {
-                        let log_entries_bytes = log.log.subrange(0, log.log.len() - CRC_SIZE as int);
-                        let crc = spec_u64_from_le_bytes(log.log.subrange(log.log.len() - CRC_SIZE as int, log.log.len() as int));
+                        let log_entries_bytes = log.log.subrange(0, log.log.len() - u64::spec_size_of() as int);
+                        let crc = spec_u64_from_le_bytes(log.log.subrange(log.log.len() - u64::spec_size_of() as int, log.log.len() as int));
                         // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
                         if crc != spec_crc_u64(log_entries_bytes) {
                             None
@@ -255,7 +256,7 @@ verus! {
                 Ok(bytes) => bytes,
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
-            let crc_bytes = match log.read(wrpm_region, tail - CRC_SIZE as u128, CRC_SIZE, Ghost(log_id)) {
+            let crc_bytes = match log.read(wrpm_region, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64, Ghost(log_id)) {
                 Ok(bytes) => bytes,
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
@@ -294,7 +295,7 @@ verus! {
         //         invariant
         //             log.inv(wrpm_region, log_id),
         //             current_read_pos <= tail,
-        //             current_read_pos + LENGTH_OF_COMMIT_ITEM_ENTRY + CRC_SIZE <= u128::MAX
+        //             current_read_pos + LENGTH_OF_COMMIT_ITEM_ENTRY + traits_t::size_of::<u64>() <= u128::MAX
         //     {
         //         assume(false);
         //         let entry_type_bytes = match log.read(wrpm_region, current_read_pos, 8, Ghost(log_id)) {
@@ -311,7 +312,7 @@ verus! {
         //                 };
         //                 let log_entry = CommitItemEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_COMMIT_ITEM_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
@@ -333,7 +334,7 @@ verus! {
         //                 ) {
         //                     return Err(KvError::CRCMismatch);
         //                 }
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::ItemTableEntryCommit {
         //                     item_index: log_entry.item_index,
@@ -350,13 +351,13 @@ verus! {
         //                 };
         //                 let log_entry = InvalidateItemEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_INVALIDATE_ITEM_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::ItemTableEntryInvalidate {
         //                     item_index: log_entry.item_index
@@ -371,13 +372,13 @@ verus! {
         //                 };
         //                 let log_entry = AppendListNodeEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_APPEND_NODE_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::AppendListNode {
         //                     metadata_index: log_entry.metadata_index,
@@ -401,13 +402,13 @@ verus! {
         //                 };
         //                 // TODO: the list element needs to be deserialized; it also may not have been read from contiguous bytes...
         //                 let list_element = L::deserialize_bytes(list_element_bytes.as_slice());
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::InsertListElement {
         //                     node_offset: log_entry.node_offset,
@@ -424,13 +425,13 @@ verus! {
         //                 };
         //                 let log_entry = UpdateListLenEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_UPDATE_LIST_LEN_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::UpdateListLen {
         //                     metadata_index: log_entry.metadata_index,
@@ -447,13 +448,13 @@ verus! {
         //                 };
         //                 let log_entry = TrimListEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_TRIM_LIST_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::TrimList {
         //                     metadata_index: log_entry.metadata_index,
@@ -473,13 +474,13 @@ verus! {
         //                 };
         //                 let log_entry = CommitMetadataEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_COMMIT_METADATA_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
         //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
         //                 // TODO: CRC check
-        //                 current_read_pos += CRC_SIZE as u128;
+        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
 
         //                 let entry = OpLogEntryType::CommitMetadataEntry {
         //                     metadata_index: log_entry.metadata_index,
@@ -495,7 +496,7 @@ verus! {
         //                 };
         //                 let log_entry = InvalidateMetadataEntry::deserialize_bytes(log_entry_bytes.as_slice());
         //                 current_read_pos += LENGTH_OF_INVALIDATE_METADATA_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, CRC_SIZE, Ghost(log_id)) {
+        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
         //                     Ok(bytes) => bytes,
         //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
         //                 };
@@ -576,8 +577,7 @@ verus! {
             assume(false);
             // look up the tail of the log, then advance the head to that point
             let (head, tail, capacity) = self.log.get_head_tail_and_capacity(log_wrpm, Ghost(log_id))?;
-            self.log.advance_head(log_wrpm, tail, Ghost(log_id), Tracked(perm));
-            Ok(())
+            self.log.advance_head(log_wrpm, tail, Ghost(log_id), Tracked(perm))
         }
 
 

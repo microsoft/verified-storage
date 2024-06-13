@@ -10,10 +10,11 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::logentry_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::serialization_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::crc_t::*;
+use crate::pmem::traits_t;
 
 verus! {
     pub struct MetadataTable<K, E> {
@@ -56,7 +57,7 @@ verus! {
                 );
                 let crc_bytes = mem.subrange(
                     ABSOLUTE_POS_OF_HEADER_CRC as int,
-                    ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE
+                    ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of()
                 );
                 let metadata_header = MetadataTableHeader::spec_from_bytes(metadata_header_bytes);
                 let crc = u64::spec_from_bytes(crc_bytes);
@@ -104,7 +105,7 @@ verus! {
             where 
                 L: PmCopy,
         {
-            let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_size_of();
+            let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
             match op {
                 OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
                     // on item table commit, the corresponding entry in the metadata table updates its item pointer
@@ -230,7 +231,7 @@ verus! {
                     Ok(output_metadata) => {
                         let metadata_size = ListEntryMetadata::spec_size_of();
                         let key_size = K::spec_size_of();
-                        let metadata_slot_size = metadata_size + CRC_SIZE + key_size + CDB_SIZE;
+                        let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
                         &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
                         &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
                     }
@@ -244,13 +245,16 @@ verus! {
 
             // read in the header and its CRC, check for corruption
             let ghost true_metadata = choose |metadata: MetadataTableHeader| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of());
-            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
 
             let metadata = pm_regions.read_aligned::<MetadataTableHeader>(0, ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
             let metadata_crc = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
-            let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_size_of(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
-            let ghost crc_addrs = Seq::new(CRC_SIZE as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+            let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
+            let ghost true_metadata_bytes = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| mem[metadata_addrs[i]]);
+            let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i]]);
 
             if !check_crc(metadata.as_slice(), metadata_crc.as_slice(), Ghost(mem),
                     Ghost(pm_regions.constants().impervious_to_corruption),
@@ -259,7 +263,11 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }
 
-            let metadata = metadata.extract_init_val(Ghost(true_metadata));
+            let metadata = metadata.extract_init_val(
+                Ghost(true_metadata),
+                Ghost(true_metadata_bytes),
+                Ghost(pm_regions.constants().impervious_to_corruption),
+            );
 
             // Since we've already checked for corruption, this condition will only fail
             // if the caller tries to use an L with a different size than the one
@@ -287,11 +295,11 @@ verus! {
             requires
                 old(pm_region).inv(),
                 ({
-                    let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::spec_size_of();
+                    let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
                     &&& entry_slot_size <= u64::MAX
                     &&& ABSOLUTE_POS_OF_METADATA_TABLE + num_keys * entry_slot_size <= usize::MAX
                 }),
-                list_element_size + CRC_SIZE <= u32::MAX,
+                list_element_size + u64::spec_size_of() <= u32::MAX,
                 // TODO 
             ensures 
                 pm_region.inv(),
@@ -302,13 +310,13 @@ verus! {
 
             // check that the regions the caller passed in are sufficiently large
             let region_size = pm_region.get_region_size();
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + num_keys * entry_slot_size;
             if required_region_size > region_size {
                 return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
             }
 
-            let full_list_element_size = list_element_size + CRC_SIZE as u32; 
+            let full_list_element_size = list_element_size + traits_t::size_of::<u64>() as u32; 
 
             Self::write_setup_metadata(pm_region, num_keys, full_list_element_size, node_size);
 
@@ -363,7 +371,7 @@ verus! {
             // finish validity checks -- check that the regions the caller passed in are sufficiently large
             // we can't do this until after reading the header since it depends on the number of keys we expect
             // to be able to store
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + header.num_keys * entry_slot_size;
             if required_region_size > region_size {
                 return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
@@ -377,9 +385,9 @@ verus! {
                 assume(false);
                 let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
                 let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + CDB_SIZE);
+                let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of());
                 let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-                let ghost cdb_addrs = Seq::new(CDB_SIZE as nat, |i: int| cdb_addr + i);
+                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
                 match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index),
                     Some(true) => {},
@@ -433,7 +441,7 @@ verus! {
             let crc = digest.sum64();
 
             // 4. write CRC and entry 
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + free_index * entry_slot_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let entry_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA;
@@ -466,7 +474,7 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
@@ -493,7 +501,7 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
@@ -524,7 +532,7 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
@@ -557,7 +565,7 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + CRC_SIZE + CDB_SIZE + K::size_of();
+            let entry_slot_size = (LENGTH_OF_ENTRY_METADATA_MINUS_KEY as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let head_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
@@ -622,13 +630,15 @@ verus! {
             let ghost mem = pm_region@.committed();
 
             let ghost true_header = choose |header: MetadataTableHeader| header.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of());  
-            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + CRC_SIZE);
+            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
             
             let header = pm_region.read_aligned::<MetadataTableHeader>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_header)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
             let header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
-            let ghost header_addrs = Seq::new(u64::spec_size_of(), |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
-            let ghost header_crc_addrs = Seq::new(u64::spec_size_of(), |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+            let ghost header_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
+            let ghost header_crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
+
+            let ghost true_header_bytes = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| mem[header_addrs[i]]);
 
             // check the CRC
             if !check_crc(header.as_slice(), header_crc.as_slice(), Ghost(mem),
@@ -638,7 +648,11 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }   
 
-            let header = header.extract_init_val(Ghost(true_header));
+            let header = header.extract_init_val(
+                Ghost(true_header),
+                Ghost(true_header_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption),
+            );
 
             // check that the contents of the header make sense; since we've already checked for corruption,
             // these checks should never fail
