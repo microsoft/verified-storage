@@ -249,13 +249,13 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         self.section.size as u64
     }
 
-    fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+    fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy 
     {
         let pm_slice = self.get_slice_at_offset(addr, S::size_of() as u64)?;
         let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
-        let mut maybe_corrupted_val = MaybeCorrupted::new();
+        let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
 
         maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs), Ghost(self.constants().impervious_to_corruption));
         
@@ -452,7 +452,7 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     }
 
     #[verifier::external_body]
-    fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+    fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy
     {

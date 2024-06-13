@@ -90,34 +90,20 @@ verus! {
         admit();
     }
 
-    // // This should be true for every PmCopy type, but making it default does not automatically
-    // // make it true for all implementors and we can't put it in pre/postconditions of PmCopy
-    // // methods due to cycle checking.
-    // pub open spec fn spec_pmcopy_inv<S: PmCopy>() -> bool 
-    // {
-    //     &&& forall |s: S| {
-    //             &&& #[trigger] s.spec_to_bytes().len() == S::spec_size_of()
-    //             &&& #[trigger] s.spec_crc() == #[trigger] spec_crc_u64(s.spec_to_bytes())
-    //             &&& s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
-    //         }
-    //     &&& forall |bytes: Seq<u8>, s: S| bytes == s.spec_to_bytes() ==> s == S::spec_from_bytes(bytes)        
-    // }
-
     // u64 must implement PmCopy for CRC management
     impl PmCopy for u64 {}
-
 
     // is this name confusing?
     #[verifier::external_body]
     #[verifier::reject_recursive_types(S)]
-    pub struct MaybeCorrupted<S>
+    pub struct MaybeCorruptedBytes<S>
         where 
             S: PmCopy
     {
-        val: MaybeUninit<S>,
+        val: Box<MaybeUninit<S>>,
     }
 
-    impl<S> MaybeCorrupted<S>
+    impl<S> MaybeCorruptedBytes<S>
         where 
             S: PmCopy 
     {
@@ -126,8 +112,8 @@ verus! {
         #[verifier::external_body]
         pub exec fn new() -> (out: Self)
         {
-            MaybeCorrupted { 
-                val: MaybeUninit::uninit()
+            MaybeCorruptedBytes { 
+                val: Box::<S>::new_uninit()
             }
         }
 
@@ -185,7 +171,7 @@ verus! {
         }
 
         #[verifier::external_body]
-        pub exec fn extract_init_val(self, Ghost(true_val): Ghost<S>, Ghost(true_bytes): Ghost<Seq<u8>>, Ghost(impervious_to_corruption): Ghost<bool>) -> (out: S)
+        pub exec fn extract_init_val(self, Ghost(true_val): Ghost<S>, Ghost(true_bytes): Ghost<Seq<u8>>, Ghost(impervious_to_corruption): Ghost<bool>) -> (out: Box<S>)
             requires 
                 if impervious_to_corruption {
                     true 
@@ -203,7 +189,7 @@ verus! {
         }
     }
 
-    impl MaybeCorrupted<u64> {
+    impl MaybeCorruptedBytes<u64> {
         // CDB needs its own extract fn with no preconditions because we must check its value
         // before we can determine if it is corrupted.
         #[verifier::external_body]
@@ -213,7 +199,7 @@ verus! {
             Ghost(true_bytes): Ghost<Seq<u8>>, 
             Ghost(addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>
-        ) -> (out: u64)
+        ) -> (out: Box<u64>)
             requires 
                 if impervious_to_corruption {
                     self@ == true_bytes

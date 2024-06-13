@@ -439,7 +439,7 @@ impl WriteRestrictedPersistentMemorySubregion
         relative_addr: u64,
         Ghost(true_val): Ghost<S>,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+    ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
             Perm: CheckPermission<Seq<u8>>,
@@ -478,7 +478,7 @@ impl WriteRestrictedPersistentMemorySubregion
         absolute_addr: u64,
         Ghost(true_val): Ghost<S>,
         Tracked(perm): Tracked<&Perm>,
-    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+    ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
             Perm: CheckPermission<Seq<u8>>,
@@ -881,7 +881,7 @@ impl PersistentMemorySubregion
         pm: &'a PMRegion,
         relative_addr: u64,
         Ghost(true_val): Ghost<S>,
-    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+    ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
             PMRegion: PersistentMemoryRegion,
@@ -918,7 +918,7 @@ impl PersistentMemorySubregion
         pm: &'a PMRegion,
         absolute_addr: u64,
         Ghost(true_val): Ghost<S>,
-    ) -> (result: Result<MaybeCorrupted<S>, PmemError>)
+    ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
             PMRegion: PersistentMemoryRegion,

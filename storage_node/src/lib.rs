@@ -1,8 +1,7 @@
 #![feature(maybe_uninit_as_bytes)]
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
-#![feature(const_trait_impl)]
-#![feature(effects)]
+#![feature(new_uninit)]
 // TODO: remove when extend_from_slice spec is in vstd
 #![feature(allocator_api)]
 

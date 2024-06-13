@@ -416,7 +416,7 @@ verus! {
 
         // This function takes a ghost `true_val` representing the value we originally wrote to this location, rather than 
         // choosing it internally, so that the caller can get more specific information about this structure if they want.
-        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy + Sized,
             requires
@@ -535,7 +535,7 @@ verus! {
                 result == self@[index as int].len(),
         ;
 
-        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy,
             requires 

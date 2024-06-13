@@ -298,7 +298,7 @@ verus! {
     // `None` -- corruption was detected, so the persistent memory regions
     // can't be impervious to corruption
     pub fn check_cdb(
-        cdb_c: MaybeCorrupted<u64>,
+        cdb_c: MaybeCorruptedBytes<u64>,
         Ghost(true_cdb): Ghost<u64>,
         Ghost(mem): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
@@ -342,10 +342,10 @@ verus! {
         // If the read encoded CDB is one of the expected ones, translate
         // it into a boolean; otherwise, indicate corruption.
 
-        if cdb_val == CDB_FALSE {
+        if *cdb_val == CDB_FALSE {
             Some(false)
         }
-        else if cdb_val == CDB_TRUE {
+        else if *cdb_val == CDB_TRUE {
             Some(true)
         }
         else {
