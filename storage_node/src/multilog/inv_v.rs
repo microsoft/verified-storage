@@ -938,6 +938,12 @@ verus! {
         }
     }
 
+    // This lemma proves that if the active metadata is the same in each log between two PersistentMemoryRegions,
+    // and one set of logs has its metadata types set, then the other also has its metadata types set.
+    // 
+    // `pm1` -- the multilog that has metadata types set
+    // `pm2` -- a multilog with equal active metadata to pm1
+    // `cdb` -- the current CDB of pm1 (and pm2)
     pub proof fn lemma_regions_metadata_matches_implies_metadata_types_set(
         pm1: PersistentMemoryRegionsView,
         pm2: PersistentMemoryRegionsView,
@@ -975,6 +981,14 @@ verus! {
         }
     }
 
+    // This lemma proves that metadata types are set after updating the logs' CDB if we have properly
+    // set the inactive metadata beforehand.
+    //
+    // `old_pm_regions_view` -- the initial state of PM
+    // `new_pm_regions_view` -- the same PM state, but with its CDB updated
+    // `log_id` -- the ID of the multilog
+    // `new_cdb_bytes` -- a byte representation of the new CDB value. 
+    // `old_cdb` -- the current CDB, as a boolean, of `old_pm_regions_view``
     pub proof fn lemma_metadata_types_set_after_cdb_update(
         old_pm_regions_view: PersistentMemoryRegionsView,
         new_pm_regions_view: PersistentMemoryRegionsView,
@@ -1015,20 +1029,53 @@ verus! {
         }
     }
 
+    // This lemma proves that if there are no outstanding writes to active metadata, and metadata types are set,
+    // then metadata types remain set if the persistent memory regions are flushed.
+    // 
+    // `pm_regions_view` -- a PM state with metadata types set and no outstanding writes to active metadata
+    // `cdb` -- the current CDB of `pm_regions_view`
     pub proof fn lemma_no_outstanding_writes_to_active_metadata_implies_metadata_types_set_after_flush(
         pm_regions_view: PersistentMemoryRegionsView,
         cdb: bool,
     ) 
         requires 
-            cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
+            deserialize_and_check_log_cdb(pm_regions_view.committed()[0]) is Some,
+            cdb == deserialize_and_check_log_cdb(pm_regions_view.committed()[0]).unwrap(),
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
             metadata_types_set(pm_regions_view.committed()),
+            pm_regions_view.len() > 0,
+            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> pm_regions_view[i].len() > ABSOLUTE_POS_OF_LOG_AREA
         ensures 
             metadata_types_set(pm_regions_view.flush().committed()),
     {
-        assume(false);
+        assert(pm_regions_view.len() == pm_regions_view.committed().len());
+        
+        assert(metadata_types_set_in_first_region(pm_regions_view.committed()[0]));
+
+        let first_region_committed = pm_regions_view.committed()[0];
+        let first_region_flushed = pm_regions_view.flush().committed()[0];
+        lemma_establish_extract_bytes_equivalence(first_region_committed, first_region_flushed);
+
+        assert(metadata_types_set_in_first_region(pm_regions_view.flush().committed()[0]));
+
+        assert forall |i: int| #![auto] 0 <= i < pm_regions_view.len() implies 
+            metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb) 
+        by {
+            let committed = pm_regions_view.committed()[i];
+            let flushed = pm_regions_view.flush().committed()[i];
+            lemma_establish_extract_bytes_equivalence(committed, flushed);
+        }
+        
     }
 
+    // This lemma proves that active metadata remains the same after writing to inactive metadata.
+    //
+    // `wrpm_regions_old` -- an initial PM state
+    // `wrpm_regions_new` -- the same PM state after a write to bytes in inactive metadata of one of the logs
+    // `which_log` -- which log was written to 
+    // `addr` -- the address that was written to; must be within the inactive metadata of the specified log
+    // `bytes_to_write` -- the bytes that were written to `addr`
+    // `cdb` -- the current CDB of `wrpm_regions_old` (and `wrpm_regions_new`)
     pub proof fn lemma_write_to_inactive_metadata_implies_active_metadata_stays_equal(
         wrpm_regions_old: PersistentMemoryRegionsView,
         wrpm_regions_new: PersistentMemoryRegionsView,
