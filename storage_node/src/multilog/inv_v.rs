@@ -953,11 +953,30 @@ verus! {
             metadata_types_set(pm1.committed()),
             memory_matches_deserialized_cdb(pm1, cdb),
             active_metadata_is_equal(pm1, pm2),
-            pm1.len() == pm2.len()
+            pm1.len() == pm2.len(),
+            pm1.len() > 0,
+            forall |i: int| #![auto] 0 <= i < pm1.len() ==> pm1[i].len() == pm2[i].len(),
+            forall |i: int| #![auto] 0 <= i < pm1.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm1[i].len(),
         ensures 
             metadata_types_set(pm2.committed())
     {
-        assume(false);
+        let log_metadata_pos = get_log_metadata_pos(cdb);
+        
+        lemma_auto_smaller_range_of_seq_is_subrange(pm1[0].committed());
+        lemma_auto_smaller_range_of_seq_is_subrange(pm2[0].committed());
+        
+        assert(metadata_types_set_in_first_region(pm2[0].committed()));
+        assert forall |i: int| #![auto] 1 <= i < pm1.len() implies metadata_types_set_in_region(pm2.committed()[i], cdb) by {
+            lemma_establish_extract_bytes_equivalence(pm1.committed()[i], pm2.committed()[i]);
+            lemma_auto_smaller_range_of_seq_is_subrange(pm1.committed()[i]);
+            lemma_auto_smaller_range_of_seq_is_subrange(pm2.committed()[i]);
+            assert(pm1[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+                pm2[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()) ==
+                extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
+            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()) ==
+                extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
+        }
     }
 
     pub proof fn lemma_metadata_types_set_after_cdb_update(
