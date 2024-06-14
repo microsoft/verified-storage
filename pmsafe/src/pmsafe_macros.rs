@@ -4,7 +4,7 @@
 
 use proc_macro::TokenStream;
 use syn::{self, spanned::Spanned};
-use quote::{quote, quote_spanned, format_ident};
+use quote::{quote, quote_spanned};
 
 // This function is used by the PmSafe derive macro to check whether 
 // a deriving type is, in fact, PmSafe. This requires two main checks:
@@ -143,7 +143,7 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     }
 
     let data = &ast.data;
-    let mut types = match get_types(name, data) {
+    let types = match get_types(name, data) {
         Ok(types) => types,
         Err(e) => return e,
     };
