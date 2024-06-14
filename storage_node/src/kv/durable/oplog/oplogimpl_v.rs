@@ -479,11 +479,11 @@ verus! {
             // for us the way serialize_and_write does. We need to convert it to a byte-level 
             // representation first, then append that to the log.
             assume(false);
-            // let log_entry_bytes = log_entry.as_byte_slice();
-            // let log_entry_crc = calculate_crc(log_entry);
-            // let log_entry_crc_bytes = log_entry_crc.as_byte_slice();
-            // self.log.tentatively_append(log_wrpm, log_entry_bytes, Ghost(log_id), Tracked(perm))?;
-            // self.log.tentatively_append(log_wrpm, log_entry_crc_bytes, Ghost(log_id), Tracked(perm))?;
+            let log_entry_bytes = log_entry.as_byte_slice();
+            let log_entry_crc = calculate_crc(log_entry);
+            let log_entry_crc_bytes = log_entry_crc.as_byte_slice();
+            self.log.tentatively_append(log_wrpm, log_entry_bytes, Ghost(log_id), Tracked(perm))?;
+            self.log.tentatively_append(log_wrpm, log_entry_crc_bytes, Ghost(log_id), Tracked(perm))?;
             Ok(())
         }
 
@@ -501,6 +501,7 @@ verus! {
                 // TODO
         {
             assume(false);
+            // TODO: need to write the crc of the current log
             self.log.commit(log_wrpm, Ghost(log_id), Tracked(perm))?;
             Ok(())
         }

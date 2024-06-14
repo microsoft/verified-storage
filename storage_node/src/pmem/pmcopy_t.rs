@@ -88,6 +88,14 @@ verus! {
         // `spec_crc` returns the CRC of the given value as a u64. 
         spec fn spec_crc(self) -> u64;
 
+        // This method returns a reference to self as an immutable slice of bytes.
+        // This is useful when doing operations like appending to a log where we 
+        // need to have a runtime byte representation of the value to pass 
+        // to another function.
+        exec fn as_byte_slice(&self) -> (out: &[u8])
+            ensures 
+                out@ == self.spec_to_bytes();
+
         // `axiom_from_to_bytes` is one of two axioms that axiomatize
         // the fact that `spec_to_bytes` is the inverse of `spec_from_bytes`.
         // It requires that there exist a valid T representation of `bytes`
@@ -107,6 +115,18 @@ verus! {
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
+        }
+
+        #[verifier::external_body]
+        exec fn as_byte_slice(&self) -> (out: &[u8])
+        {
+            let ptr = self as *const Self;
+            // SAFETY: `ptr` is valid for Self::size_of() bytes because it was obtained by casting a valid
+            // &Self that was allocated by Rust. It is also allocated as a single object and properly 
+            // aligned for the same reason. The borrow checker ensures that Self will not be modified
+            // until the returned slice goes out of scope. Self has a valid size (i.e., <= isize::MAX)
+            // so the total number of bytes in the slice is also <= isize::MAX.
+            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::size_of() as usize) }
         }
 
         #[verifier::external_body]
