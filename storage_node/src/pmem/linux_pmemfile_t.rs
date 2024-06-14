@@ -267,8 +267,7 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         let pm_slice = self.get_slice_at_offset(addr, num_bytes)?;
 
         // Allocate an unaligned buffer to copy the bytes into
-        let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
-        let unaligned_buffer = copy_from_slice(unaligned_buffer, pm_slice);
+        let unaligned_buffer = copy_from_slice(pm_slice);
 
         Ok(unaligned_buffer)
     }

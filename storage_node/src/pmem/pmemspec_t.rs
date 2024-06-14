@@ -57,16 +57,23 @@ verus! {
     {
         result.map_err(op)
     }
-    
+
+    // This function is used to copy bytes from a slice to a newly-allocated vector.
+    // `std::slice::copy_from_slice` requires that the source and destination have the
+    // same length, so this function allocates a buffer with the correct length, 
+    // obtains a mutable reference to the vector as a slice, and copies the 
+    // source bytes in. 
+    //
+    // This must be implemented in an external_body function because Verus does not
+    // support the vec! macro and does not support mutable references.
     #[verifier::external_body]
-    pub fn copy_from_slice(mut buffer: Vec<u8>, bytes: &[u8]) -> (out: Vec<u8>)
-        requires 
-            buffer@ == Seq::<u8>::empty()
+    pub fn copy_from_slice(bytes: &[u8]) -> (out: Vec<u8>)
         ensures 
             out@ == bytes@
     {
-        let mut mut_buffer = buffer.as_mut_slice();
-        mut_buffer.copy_from_slice(bytes);
+        let mut buffer = vec![0; bytes.len()];
+        let mut buffer_slice = buffer.as_mut_slice();
+        buffer_slice.copy_from_slice(bytes);
         buffer
     }
 

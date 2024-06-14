@@ -82,8 +82,7 @@ verus! {
         fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
         {
             let pm_slice = &self.contents[addr as usize..addr as usize + num_bytes as usize];
-            let mut unaligned_buffer = Vec::with_capacity(num_bytes as usize);
-            let unaligned_buffer = copy_from_slice(unaligned_buffer, pm_slice);
+            let unaligned_buffer = copy_from_slice(pm_slice);
             Ok(unaligned_buffer)
         }
 
