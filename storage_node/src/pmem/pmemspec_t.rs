@@ -58,12 +58,23 @@ verus! {
         result.map_err(op)
     }
 
-    #[verifier::external_fn_specification]
-    pub fn ex_vec_extend_from_slice<T: Clone, A: core::alloc::Allocator>(vec: &mut Vec<T, A>, slice: &[T])
-        ensures
-            vec@ == old(vec)@ + slice@,
+    // This function is used to copy bytes from a slice to a newly-allocated vector.
+    // `std::slice::copy_from_slice` requires that the source and destination have the
+    // same length, so this function allocates a buffer with the correct length, 
+    // obtains a mutable reference to the vector as a slice, and copies the 
+    // source bytes in. 
+    //
+    // This must be implemented in an external_body function because Verus does not
+    // support the vec! macro and does not support mutable references.
+    #[verifier::external_body]
+    pub fn copy_from_slice(bytes: &[u8]) -> (out: Vec<u8>)
+        ensures 
+            out@ == bytes@
     {
-        vec.extend_from_slice(slice)
+        let mut buffer = vec![0; bytes.len()];
+        let mut buffer_slice = buffer.as_mut_slice();
+        buffer_slice.copy_from_slice(bytes);
+        buffer
     }
 
     #[derive(Debug, Eq, PartialEq, Clone)]
@@ -412,7 +423,7 @@ verus! {
 
         // This function takes a ghost `true_val` representing the value we originally wrote to this location, rather than 
         // choosing it internally, so that the caller can get more specific information about this structure if they want.
-        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy + Sized,
             requires
@@ -531,7 +542,7 @@ verus! {
                 result == self@[index as int].len(),
         ;
 
-        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorrupted<S>, PmemError>)
+        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy,
             requires 
@@ -571,7 +582,6 @@ verus! {
                 Ok(bytes) => {
                     let true_bytes = self@[index as int].committed().subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    &&& vec_is_volatile(bytes)
                     &&& // If the persistent memory regions are impervious
                         // to corruption, read returns the last bytes
                         // written. Otherwise, it returns a

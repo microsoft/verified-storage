@@ -1,3 +1,13 @@
+//! This crate defines three proc macros to derive PM-safety-related
+//! traits:
+//! - PmSafe, a marker trait indicating whether a structure is safe 
+//!   to write to PM
+//! - PmSized, a trait that helps calculate the size of structures
+//!   so they can be safely read from PM
+//! - Plus several related auxiliary traits that help us work around
+//!   limitations in Verus and Rust.
+//! The macros themselves are documented in pmsafe_macros.rs.
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 

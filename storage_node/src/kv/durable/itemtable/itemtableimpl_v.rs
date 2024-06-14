@@ -455,7 +455,7 @@ verus! {
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
     }
 
-    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<ItemTableMetadata, KvError<K, E>>)
+    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<Box<ItemTableMetadata>, KvError<K, E>>)
         where
             PM: PersistentMemoryRegion,
         requires

@@ -220,7 +220,7 @@ verus! {
             }
         }
 
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<MetadataTableHeader, KvError<K, E>>)
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<Box<MetadataTableHeader>, KvError<K, E>>)
             where
                 PM: PersistentMemoryRegions,
             requires
@@ -397,7 +397,7 @@ verus! {
 
             Ok(Self {
                 metadata_table_free_list: metadata_allocator,
-                state: Ghost(MetadataTableView::new(header, parse_metadata_table(header, mem).unwrap())),
+                state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
                 _phantom: None
             })
         }
@@ -616,7 +616,7 @@ verus! {
         exec fn read_header<PM>(
             pm_region: &PM,
             table_id: u128
-        ) -> (result: Result<MetadataTableHeader, KvError<K, E>>)
+        ) -> (result: Result<Box<MetadataTableHeader>, KvError<K, E>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 

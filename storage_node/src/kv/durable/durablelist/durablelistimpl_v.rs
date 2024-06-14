@@ -420,7 +420,7 @@ verus! {
                     return Err(KvError::CRCMismatch);
                 }
   
-                let next_pointer = next_pointer.extract_init_val(
+                let next_pointer = *next_pointer.extract_init_val(
                     Ghost(true_next_pointer), 
                     Ghost(true_next_pointer_bytes),
                     Ghost(pm_region.constants().impervious_to_corruption)
@@ -708,7 +708,7 @@ verus! {
             return Ok(());
         }
 
-        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<ListRegionHeader, KvError<K,E>>)
+        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<Box<ListRegionHeader>, KvError<K,E>>)
             where
                 PM: PersistentMemoryRegion,
             requires

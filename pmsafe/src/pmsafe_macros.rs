@@ -1,16 +1,50 @@
+//! This file contains the implementation of derive macros
+//! for PmSafe and PmSized. These implementations are TRUSTED
+//! and must be manually audited.
+
 use proc_macro::TokenStream;
 use syn::{self};
 use quote::{quote, quote_spanned};
 
+// This function is used by the PmSafe derive macro to check whether 
+// a deriving type is, in fact, PmSafe. This requires two main checks:
+// 1. The type must be repr(C). This is not really a strict requirement for 
+//    writing to PM -- as long as we know the size of a type, it may have any
+//    in-memory layout when writing to PM -- but it makes it easier to determine
+//    the size, and other safety-related traits require this as well.
+// 2. All fields of the deriving type must be PmSafe. PmSafe primitive types are
+//    defined in storage_node/src/pmem/traits_t.rs. 
+// 
+// The repr(C) requirement is checked by checking the attributes of the deriving type.
+// The PmSafe fields requirement is performed by adding trivial trait bounds to
+// the unsafe implementation of PmSafe generated for the deriving type.
+// For example, the generated implementation of PmSafe for the following type:
+// ```
+// struct Foo {
+//      val1: u8,
+//      val2: u16,
+//      val3: u32
+// }
+// ```
+// would look like:
+// ```
+// unsafe impl PmSafe for Foo
+//      where u8: PmSafe, u16: PmSafe, u32: PmSafe {}
+// ```
+// These trait bounds are easily checkable by the compiler. Compilation will
+// fail if we attempt to derive PmSafe on a struct with a field of type, e.g., 
+// *const u8, as the bound `const *u8: PmSafe` is not met.
 pub fn check_pmsafe(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
 
     let attrs = &ast.attrs;
+    // Check that the structure is repr(C)
     if let Err(e) = check_repr_c(name, attrs) {
         return e;
     }
 
     let data = &ast.data;
+    // Obtain a list of the types of the fields in the structure.
     let mut types = match get_types(name, data) {
         Ok(types) => types,
         Err(e) => return e,
@@ -29,8 +63,8 @@ pub fn check_pmsafe(ast: &syn::DeriveInput) -> TokenStream {
 
 // This function checks whether the struct has the repr(C) attribute so that we can
 // trigger a compiler error if it doesn't. The repr(C) attribute ensures that the 
-// structure has a consistent layout in memory, which is necessary to specify 
-// serialization correctly.
+// structure has a consistent layout in memory, which is useful when reading and writing
+// values to PM.
 pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(), TokenStream>  
 {
     // look for an attribute with "repr(C)"
@@ -61,6 +95,8 @@ pub fn check_repr_c(name: &syn::Ident, attrs: &Vec<syn::Attribute>) ->  Result<(
     }.into())
 }
 
+// This function obtains a list of the types of the fields of a structure. We do not
+// attempt to process the field names to keep things simple.
 pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<Vec<&'a syn::Type>, TokenStream> 
 {
     let mut type_vec = Vec::new();
@@ -92,7 +128,10 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<Vec<&'
     }
 }
 
-// Generates the required trait implementations to derive PmSized.
+// This function generates an implementation of the PmSized trait for the PmSized
+// derive macro. It also generates implementations for SpecPmSized, ConstPmSized,
+// UnsafeSpecPmSized, and two compile-time assertions to check that we calculate
+// the size of each type correctly.
 pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
    
@@ -240,7 +279,8 @@ const U128_SIZE: usize = 16;
 const U128_ALIGNMENT: usize = 8;
 const USIZE_SIZE: usize = 8;
 
-// This macro generates an implementation of PmSized and ConstPmSized for 
+// This function is called by the pmsized_primitive! proc macro and generates an 
+// implementation of PmSized, ConstPmSized, SpecPmSized, and UnsafeSpecPmSized
 // primitive types. The verifier needs to be aware of their size and alignment at 
 // verification time, so we provide this in the constants above and generate 
 // implementations based on the values of these constants. The constants don't need
