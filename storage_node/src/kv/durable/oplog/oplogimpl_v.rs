@@ -245,274 +245,218 @@ verus! {
             assume(false);
 
             // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
+            // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
             let (head, tail, capacity) = match log.get_head_tail_and_capacity(wrpm_region, Ghost(log_id)) {
                 Ok((head, tail, capacity)) => (head, tail, capacity),
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
 
             // TODO: check for errors on the cast (or take a u128 as len?)
+            // Read the log contents and the CRC. Note that the log only supports unaligned reads.
             let len = (tail - head) as u64;
-            let log_bytes = match log.read(wrpm_region, head, len, Ghost(log_id)) {
+            let (log_bytes, log_addrs) = match log.read(wrpm_region, head, len, Ghost(log_id)) {
                 Ok(bytes) => bytes,
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
-            let crc_bytes = match log.read(wrpm_region, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64, Ghost(log_id)) {
+            let (crc_bytes, crc_addrs) = match log.read(wrpm_region, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64, Ghost(log_id)) {
                 Ok(bytes) => bytes,
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
+
+            if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(wrpm_region@.committed()),
+                Ghost(wrpm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
+            {
+                return Err(KvError::CRCMismatch);
+            }
+
+            // We now know that the bytes are not corrupted, but we still need to determine what 
+            // log entry types make up the vector of bytes.
+
+
 
             Err(KvError::NotImplemented)
             
         }
-        
 
-        // // reads the op log, checks the CRC of each entry, and returns a vector of entries for replay
-        // // it would be faster to read them on demand, but this would be harder to prove correct.
-        // // we pass in a log because this will be called as part of `start`, so the UntrustedOpLog doesn't exist yet.
-        // // log `read` does not work well with serialization because an entry might be split due to wrapping and give us
-        // // back a vector of bytes, but we can deserialize it in place to avoid any additional copying
-        // pub exec fn read_op_log<PM>(
-        //     log: &UntrustedLogImpl,
-        //     wrpm_region: &WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        // ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         log.inv(wrpm_region, log_id)
-        //     ensures 
-        //         // TODO 
-        // {
-        //     assume(false);
-        //     let mut op_vec = Vec::new();
-        //     let (head, tail, capacity) = match log.get_head_tail_and_capacity(wrpm_region, Ghost(log_id)) {
-        //         Ok((head, tail, capacity)) => (head, tail, capacity),
-        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
-            
-        //     };
-        //     let mut current_read_pos = head;
-        //     while current_read_pos < tail 
-        //         invariant
-        //             log.inv(wrpm_region, log_id),
-        //             current_read_pos <= tail,
-        //             current_read_pos + LENGTH_OF_COMMIT_ITEM_ENTRY + traits_t::size_of::<u64>() <= u128::MAX
-        //     {
-        //         assume(false);
-        //         let entry_type_bytes = match log.read(wrpm_region, current_read_pos, 8, Ghost(log_id)) {
-        //             Ok(bytes) => bytes,
-        //             Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //         };
-        //         let entry_type = u64_from_le_bytes(entry_type_bytes.as_slice());
-        //         match entry_type {
-        //             COMMIT_ITEM_TABLE_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_COMMIT_ITEM_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = CommitItemEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_COMMIT_ITEM_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: this isn't going to work -- the log entry may have been read from non-consecutive bytes
-        //                 // but the log doesn't expose that information. The check_crc_deserialized function assumes 
-        //                 // that deserialized objects are read sequentially from consecutive bytes but that is not
-        //                 // necessarily true here.
-        //                 // The read positions are also logical log positions, not physical PM addresses; I'm not sure if 
-        //                 // that is a problem or not...
-        //                 if !check_crc_deserialized2(
-        //                     log_entry, 
-        //                     &crc, 
-        //                     Ghost(wrpm_region@.flush().committed()), 
-        //                     Ghost(wrpm_region.constants().impervious_to_corruption), 
-        //                     Ghost(entry_read_pos as u64), // TODO: shouldn't cast u128 as u64
-        //                     Ghost(LENGTH_OF_COMMIT_ITEM_ENTRY), 
-        //                     Ghost(current_read_pos as u64) // TODO: shouldn't cast u128 as u64
-        //                 ) {
-        //                     return Err(KvError::CRCMismatch);
-        //                 }
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+        pub exec fn parse_op_log<PM>(
+            log: &UntrustedLogImpl,
+            log_contents: Vec<u8>,
+            log_id: u128,
+            Ghost(mem): Ghost<Seq<u8>>,
+            Ghost(log_contents_addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>,
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                ({
+                    // We must have already proven that the bytes are not corrupted. This is already known
+                    // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
+                    let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
+                    true_bytes == log_contents@
+                })
+            ensures
+                // TODO
+                // result vector is equal to the seq returned by spec parse log fn
+        {
+            assume(false);
 
-        //                 let entry = OpLogEntryType::ItemTableEntryCommit {
-        //                     item_index: log_entry.item_index,
-        //                     metadata_index: log_entry.metadata_index,
-        //                     metadata_crc: log_entry.metadata_crc
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             INVALIDATE_ITEM_TABLE_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_INVALIDATE_ITEM_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = InvalidateItemEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_INVALIDATE_ITEM_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+            let mut op_list = Vec::new();
 
-        //                 let entry = OpLogEntryType::ItemTableEntryInvalidate {
-        //                     item_index: log_entry.item_index
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             APPEND_LIST_NODE_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_APPEND_NODE_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = AppendListNodeEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_APPEND_NODE_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+            let mut current_offset = 0;
+            // we iterate over the length of the log minus the size of the CRC, since we have already 
+            // read the CRC and don't want to accidentally interpret it as a log type field
+            let log_contents_len = log_contents.len() - traits_t::size_of::<u64>();
+            while current_offset < log_contents_len
+                invariant
+                    // TODO 
+            {   
+                assume(false);
 
-        //                 let entry = OpLogEntryType::AppendListNode {
-        //                     metadata_index: log_entry.metadata_index,
-        //                     old_tail: log_entry.old_tail,
-        //                     new_tail: log_entry.new_tail,
-        //                     metadata_crc: log_entry.metadata_crc
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             INSERT_LIST_ELEMENT_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = InsertListElementEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as u128;
-        //                 let list_element_bytes = match log.read(wrpm_region, current_read_pos, L::size_of(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 // TODO: the list element needs to be deserialized; it also may not have been read from contiguous bytes...
-        //                 let list_element = L::deserialize_bytes(list_element_bytes.as_slice());
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+                // Obtain the entry type by reading the first 8 bytes at the current offset and extracting them to a u64.
+                // We've already proven that the bytes are not corrupted, although we will still have to prove that this 
+                // field was previously initialized with a u64.
+                let mut entry_type_value = MaybeCorruptedBytes::<u64>::new();
+                // obtain a slice of just the section of the log contents we want.
+                let entry_type_slice = slice_range(&log_contents, current_offset, traits_t::size_of::<u64>());
+                
+                let ghost entry_type_addrs = log_contents_addrs.subrange(current_offset as int, current_offset + u64::spec_size_of());
+                let ghost true_entry_type_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[entry_type_addrs[i]]);
+                let ghost true_entry_type = choose |val: u64| true_entry_type_bytes == val.spec_to_bytes();
 
-        //                 let entry = OpLogEntryType::InsertListElement {
-        //                     node_offset: log_entry.node_offset,
-        //                     index_in_node: log_entry.index_in_node,
-        //                     list_element: *list_element // TODO: can we do this without copying the list element in DRAM?
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             UPDATE_LIST_LEN_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_UPDATE_LIST_LEN_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = UpdateListLenEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_UPDATE_LIST_LEN_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+                entry_type_value.copy_from_slice(entry_type_slice, Ghost(true_entry_type), 
+                    Ghost(entry_type_addrs), Ghost(impervious_to_corruption));
+                let entry_type = entry_type_value.extract_init_val(Ghost(true_entry_type), 
+                    Ghost(true_entry_type_bytes), Ghost(impervious_to_corruption));
+    
+                // Using the entry type we read, read the log entry and extract its value, then translate it 
+                // into a OpLogEntryType enum variant.
+                // TODO: This may need to take the existence of the log entry as a precondition?
+                let (log_entry, bytes_read) = Self::parse_op_log_entry(current_offset, *entry_type, &log_contents, log_id, 
+                    Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption))?;
+                op_list.push(log_entry);
+                current_offset += bytes_read;
+            }
 
-        //                 let entry = OpLogEntryType::UpdateListLen {
-        //                     metadata_index: log_entry.metadata_index,
-        //                     new_length: log_entry.new_length,
-        //                     metadata_crc: log_entry.metadata_crc
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             TRIM_LIST_METADATA_UPDATE_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_TRIM_LIST_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = TrimListEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_TRIM_LIST_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+            Ok(op_list)
+        }
 
-        //                 let entry = OpLogEntryType::TrimList {
-        //                     metadata_index: log_entry.metadata_index,
-        //                     new_head_node: log_entry.new_head_node,
-        //                     new_list_len: log_entry.new_list_len,
-        //                     new_list_start_index: log_entry.new_list_start_index,
-        //                     metadata_crc: log_entry.metadata_crc
-        //                 };
-        //                 op_vec.push(entry);
-                        
-        //             }
-        //             COMMIT_METADATA_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_COMMIT_METADATA_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = CommitMetadataEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_COMMIT_METADATA_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
-        //                 current_read_pos += traits_t::size_of::<u64>() as u128;
+        // returns the log entry as well as the number of bytes the function read
+        // so that the caller can increment its offset
+        pub exec fn parse_op_log_entry(
+            current_offset: usize,
+            entry_type: u64,
+            log_contents: &Vec<u8>,
+            log_id: u128,
+            Ghost(mem): Ghost<Seq<u8>>,
+            Ghost(log_contents_addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>,
+        ) -> (result: Result<(OpLogEntryType<L>, usize), KvError<K, E>>)
+            requires 
+                ({
+                    // We must have already proven that the bytes are not corrupted. This is already known
+                    // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
+                    let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
+                    true_bytes == log_contents@
+                })
+            ensures 
+                // TODO
+        {
+            assume(false);
+            let mut bytes_read = 0;
 
-        //                 let entry = OpLogEntryType::CommitMetadataEntry {
-        //                     metadata_index: log_entry.metadata_index,
-        //                     item_index: log_entry.item_index
-        //                 };
-        //                 op_vec.push(entry);
-        //             }
-        //             INVALIDATE_METADATA_ENTRY => {
-        //                 let entry_read_pos = current_read_pos;
-        //                 let log_entry_bytes = match log.read(wrpm_region, current_read_pos, LENGTH_OF_INVALIDATE_METADATA_ENTRY, Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let log_entry = InvalidateMetadataEntry::deserialize_bytes(log_entry_bytes.as_slice());
-        //                 current_read_pos += LENGTH_OF_INVALIDATE_METADATA_ENTRY as u128;
-        //                 let crc_bytes = match log.read(wrpm_region, current_read_pos, traits_t::size_of::<u64>(), Ghost(log_id)) {
-        //                     Ok(bytes) => bytes,
-        //                     Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //                 };
-        //                 let crc = u64_from_le_bytes(crc_bytes.as_slice());
-        //                 // TODO: CRC check
+            // Read the struct at the current offset, casting it to the type indicated by the 
+            // entry type argument.
+            let log_entry: OpLogEntryType<L> = match entry_type {
+                COMMIT_ITEM_TABLE_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<CommitItemEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<CommitItemEntry>();
+                    OpLogEntryType::from_commit_entry(log_entry)
+                }
+                INVALIDATE_ITEM_TABLE_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<InvalidateItemEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<InvalidateItemEntry>();
+                    OpLogEntryType::from_invalidate_entry(log_entry)
+                }
+                APPEND_LIST_NODE_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<AppendListNodeEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<AppendListNodeEntry>();
+                    OpLogEntryType::from_append_list_node_entry(log_entry)
+                }
+                INSERT_LIST_ELEMENT_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<InsertListElementEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    let list_element = Self::read_and_cast_type_from_vec::<L>(current_offset + traits_t::size_of::<InsertListElementEntry>(), 
+                        &log_contents, log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<InsertListElementEntry>() + traits_t::size_of::<L>();
+                    OpLogEntryType::from_insert_list_element_entry(log_entry, list_element)
+                }
+                UPDATE_LIST_LEN_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<UpdateListLenEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<UpdateListLenEntry>();
+                    OpLogEntryType::from_update_list_len_entry(log_entry)
+                }
+                TRIM_LIST_METADATA_UPDATE_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<TrimListEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<TrimListEntry>();
+                    OpLogEntryType::from_trim_list_entry(log_entry)
+                }
+                COMMIT_METADATA_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<CommitMetadataEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<CommitMetadataEntry>();
+                    OpLogEntryType::from_commit_metadata_entry(log_entry)
+                }
+                INVALIDATE_METADATA_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<InvalidateMetadataEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<InvalidateMetadataEntry>();
+                    OpLogEntryType::from_invalidate_metadata_entry(log_entry)
+                }
+                _ => {
+                    assert(false);
+                    return Err(KvError::InvalidLogEntryType);
+                }
+            };
 
-        //                 let entry = OpLogEntryType::InvalidateMetadataEntry {
-        //                     metadata_index: log_entry.metadata_index
-        //                 };
-        //                 op_vec.push(entry);                        
-        //             }
-        //             _ => { return Err(KvError::InvalidLogEntryType); }
-        //         }
-        //     }
-        //     Ok(op_vec)
-        // }
+            Ok((log_entry, bytes_read))
+        }
+
+        // Generic function to read bytes from a vector that has been proven to be uncorrupted and 
+        // interpret them as the given type. Caller must prove that there is a valid instance 
+        // of T at this location. This is useful when reading a large number of bytes from the log and 
+        // then splitting it into slices and interpreting each slice as a different type.
+        exec fn read_and_cast_type_from_vec<T: PmCopy>(
+            current_offset: usize,
+            log_contents: &Vec<u8>,
+            log_id: u128,
+            Ghost(mem): Ghost<Seq<u8>>,
+            Ghost(log_contents_addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>,
+        ) -> (out: Box<T>)
+            requires 
+                // TODO: caller needs to prove that we can actually "read" an instance of T
+                // from this location. This will require a pretty strong precondition
+                // The precondition should ensure that the read is valid and cannot fail
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            let mut bytes = MaybeCorruptedBytes::<T>::new();
+            let bytes_slice = slice_range(&log_contents, current_offset, traits_t::size_of::<T>());
+            let ghost addrs = log_contents_addrs.subrange(current_offset as int, current_offset + T::spec_size_of());
+            let ghost true_bytes = Seq::new(T::spec_size_of() as nat, |i: int| mem[addrs[i]]);
+            let ghost true_entry = choose |val: T| true_bytes == val.spec_to_bytes();
+
+            bytes.copy_from_slice(bytes_slice, Ghost(true_entry), Ghost(addrs), Ghost(impervious_to_corruption));
+            let init_val = bytes.extract_init_val(Ghost(true_entry), Ghost(true_bytes), Ghost(impervious_to_corruption));
+            init_val
+        }
 
         // This function tentatively appends a log entry and its CRC to the op log.
         pub exec fn tentatively_append_log_entry<PM, S>(

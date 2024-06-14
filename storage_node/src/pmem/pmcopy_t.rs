@@ -312,6 +312,17 @@ verus! {
         }  
     }
 
+    #[verifier::external_body]
+    pub exec fn slice_range<T>(vec: &Vec<T>, start: usize, len: usize) -> (out: &[T])
+        requires 
+            0 <= start < start + len <= vec@.len(),
+            start + len <= usize::MAX,
+        ensures 
+            out@ == vec@.subrange(start as int, start + len)
+    {
+        &vec[start..start+len]
+    }
+
     // Our trusted specification of primitive sizes assumes that usize and 
     // isize are 8 bytes. These directives have Verus check this assumption.
     global size_of usize == 8;

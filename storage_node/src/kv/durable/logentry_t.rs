@@ -67,6 +67,73 @@ verus! {
         }
     }
 
+    // NOTE: Verus does not support .into() so implementing the From trait is not 
+    // useful here at the moment; in the future, it would be better to have a From
+    // impl for each log entry type (except for insert list element, which needs 
+    // an additional argument?)
+    // TODO: These need postconditions
+    impl<L> OpLogEntryType<L>
+        where L: PmCopy
+    {
+        pub exec fn from_commit_entry(value: Box<CommitItemEntry>) -> Self {
+            OpLogEntryType::ItemTableEntryCommit {
+                item_index: value.item_index,
+                metadata_index: value.metadata_index,
+                metadata_crc: value.metadata_crc,
+            }
+        }
+
+        pub exec fn from_invalidate_entry(value: Box<InvalidateItemEntry>) -> Self {
+            OpLogEntryType::ItemTableEntryInvalidate { item_index: value.item_index }
+        }
+
+        pub exec fn from_append_list_node_entry(value: Box<AppendListNodeEntry>) -> Self {
+            OpLogEntryType::AppendListNode { 
+                metadata_index: value.metadata_index, 
+                old_tail: value.old_tail, 
+                new_tail: value.new_tail, 
+                metadata_crc: value.metadata_crc 
+            }
+        }
+
+        pub exec fn from_insert_list_element_entry(value: Box<InsertListElementEntry>, list_element: Box<L>) -> Self {
+            OpLogEntryType::InsertListElement { 
+                node_offset: value.node_offset, 
+                index_in_node: value.index_in_node, 
+                list_element: *list_element 
+            }
+        }
+
+        pub exec fn from_update_list_len_entry(value: Box<UpdateListLenEntry>) -> Self {
+            OpLogEntryType::UpdateListLen { 
+                metadata_index: value.metadata_index, 
+                new_length: value.new_length, 
+                metadata_crc: value.metadata_crc 
+            }
+        }
+
+        pub exec fn from_trim_list_entry(value: Box<TrimListEntry>) -> Self {
+            OpLogEntryType::TrimList { 
+                metadata_index: value.metadata_index, 
+                new_head_node: value.new_head_node, 
+                new_list_len: value.new_list_len, 
+                new_list_start_index: value.new_list_start_index, 
+                metadata_crc: value.metadata_crc 
+            }
+        }
+
+        pub exec fn from_commit_metadata_entry(value: Box<CommitMetadataEntry>) -> Self {
+            OpLogEntryType::CommitMetadataEntry { 
+                metadata_index: value.metadata_index, 
+                item_index: value.item_index 
+            }
+        }
+
+        pub exec fn from_invalidate_metadata_entry(value: Box<InvalidateMetadataEntry>) -> Self {
+            OpLogEntryType::InvalidateMetadataEntry { metadata_index: value.metadata_index }
+        }
+    }
+
     // TODO: documentation
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone)]
