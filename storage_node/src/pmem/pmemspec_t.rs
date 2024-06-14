@@ -586,7 +586,6 @@ verus! {
                 Ok(bytes) => {
                     let true_bytes = self@[index as int].committed().subrange(addr as int, addr + num_bytes);
                     let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                    &&& vec_is_volatile(bytes)
                     &&& // If the persistent memory regions are impervious
                         // to corruption, read returns the last bytes
                         // written. Otherwise, it returns a
