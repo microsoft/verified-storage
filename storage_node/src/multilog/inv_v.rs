@@ -15,7 +15,6 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
-use deps_hack::nix::libc::ENOTSUP;
 use vstd::prelude::*;
 
 verus! {
