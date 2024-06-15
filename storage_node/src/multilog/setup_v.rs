@@ -241,10 +241,12 @@ verus! {
                    =~= global_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
+            assert(u64::spec_from_bytes(global_crc.spec_to_bytes()) == global_crc);
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
+            assert(u64::spec_from_bytes(region_crc.spec_to_bytes()) == region_crc);
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
@@ -252,6 +254,7 @@ verus! {
                    =~= log_metadata.spec_to_bytes());
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
+            assert(u64::spec_from_bytes(log_crc.spec_to_bytes()) == log_crc);
         }
     }
 
