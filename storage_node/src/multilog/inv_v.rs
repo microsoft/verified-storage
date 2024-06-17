@@ -380,7 +380,7 @@ verus! {
     {
         &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()))
         &&& {
-            let cdb = choose |cdb: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())  == cdb.spec_to_bytes();
+            let cdb = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
             &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
             &&& cdb == CDB_TRUE ==> metadata_types_set_in_region(mem, true)
             &&& cdb == CDB_FALSE ==> metadata_types_set_in_region(mem, false)
