@@ -3,8 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::kv::durable::logentry_t::*;
-use crate::kv::durable::logentry_v::{COMMIT_ITEM_TABLE_ENTRY, INVALIDATE_ITEM_TABLE_ENTRY, APPEND_LIST_NODE_ENTRY, INSERT_LIST_ELEMENT_ENTRY, UPDATE_LIST_LEN_ENTRY, TRIM_LIST_METADATA_UPDATE_ENTRY, COMMIT_METADATA_ENTRY};
+use crate::kv::durable::oplog::logentry_v::*;
 use crate::multilog::multilogspec_t::*;
 use crate::pmem::pmcopy_t::*;
 

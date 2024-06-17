@@ -16,7 +16,7 @@ use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
-use crate::kv::durable::logentry_t::*;
+use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
