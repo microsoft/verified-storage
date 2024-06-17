@@ -85,6 +85,8 @@ verus! {
         // might make it easier to prove metadata_types_set
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
+        spec fn bytes_parseable(bytes: Seq<u8>) -> bool;
+
         // `spec_crc` returns the CRC of the given value as a u64. 
         spec fn spec_crc(self) -> u64;
 
@@ -107,6 +109,11 @@ verus! {
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
+        }
+
+        open spec fn bytes_parseable(bytes: Seq<u8>) -> bool
+        {
+            Self::spec_from_bytes(bytes).spec_to_bytes() == bytes
         }
 
         #[verifier::external_body]
