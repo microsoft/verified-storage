@@ -127,14 +127,14 @@ verus! {
         where 
             K: PmCopy,
         recommends
-            bytes.len() == LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            bytes.len() == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
             RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
     {
         let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of()));
         let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of()));
-        let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
+        let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of());
         let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
         let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
         let key = K::spec_from_bytes(key_bytes);
@@ -155,7 +155,7 @@ verus! {
         where 
             K: PmCopy
     {
-        let table_entry_slot_size = LENGTH_OF_ENTRY_METADATA_MINUS_KEY + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+        let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
         // check that the metadata in the header makes sense/is valid
         if {
             ||| header.program_guid != METADATA_TABLE_PROGRAM_GUID 
@@ -171,7 +171,7 @@ verus! {
                     let bytes = table_area.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
                     let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of());
-                    let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + LENGTH_OF_ENTRY_METADATA_MINUS_KEY);
+                    let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of());
                     let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
 
                     let cdb = u64::spec_from_bytes(cdb_bytes);
