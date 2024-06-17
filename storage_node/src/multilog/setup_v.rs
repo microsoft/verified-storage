@@ -252,6 +252,15 @@ verus! {
                    =~= log_metadata.spec_to_bytes());
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
+
+            // Prove that each CRC, when parsed out of persistent
+            // memory, will be valid. This is equivalent to proving
+            // that converting to bytes (upon write) then converting
+            // to a `u64` (upon read) is the identity function.
+
+            assert(u64::spec_from_bytes(global_crc.spec_to_bytes()) == global_crc);
+            assert(u64::spec_from_bytes(region_crc.spec_to_bytes()) == region_crc);
+            assert(u64::spec_from_bytes(log_crc.spec_to_bytes()) == log_crc);
         }
     }
 

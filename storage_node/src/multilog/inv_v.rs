@@ -15,7 +15,6 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use builtin::*;
 use builtin_macros::*;
-use deps_hack::nix::libc::ENOTSUP;
 use vstd::prelude::*;
 
 verus! {
@@ -240,7 +239,7 @@ verus! {
             old_pm_region_view.no_outstanding_writes(),
             new_pm_region_view.no_outstanding_writes(),
             num_logs > 0,
-            new_pm_region_view =~= old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
+            new_pm_region_view == old_pm_region_view.write(0int, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
             each_metadata_consistent_with_info(old_pm_region_view, multilog_id, num_logs, new_cdb, infos),
         ensures
             each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
@@ -1006,7 +1005,7 @@ verus! {
             deserialize_and_check_log_cdb(old_pm_regions_view.committed()[0]).unwrap() == old_cdb,
             old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
             !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
-            new_pm_regions_view =~= old_pm_regions_view.write(0, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
+            new_pm_regions_view == old_pm_regions_view.write(0, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
             metadata_types_set(old_pm_regions_view.committed()),
             forall |i: int| #![auto] 0 <= i < old_pm_regions_view.len() ==> old_pm_regions_view[i].len() == new_pm_regions_view[i].len(),
             forall |i: int| #![auto] 0 <= i < old_pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < old_pm_regions_view[i].len(),
