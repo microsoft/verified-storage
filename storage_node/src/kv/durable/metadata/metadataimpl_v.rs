@@ -379,6 +379,11 @@ verus! {
             }
 
             // 4. run recovery using the list of log entries.
+            Self::replay_log_metadata_table(wrpm_region, table_id, log_entries, Tracked(perm), Ghost(state))?;
+
+            // reborrow to satisfy the borrow checker
+            let pm_region = wrpm_region.get_pm_region_ref();
+            let ghost mem = pm_region@.committed();
 
             // 5. read valid bytes and construct the allocator 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
