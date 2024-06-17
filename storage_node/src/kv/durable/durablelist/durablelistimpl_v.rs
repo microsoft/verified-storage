@@ -328,7 +328,7 @@ verus! {
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             node_size: u32,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
@@ -476,7 +476,7 @@ verus! {
         exec fn recover_log_list<PM>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             node_size: u32,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>

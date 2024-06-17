@@ -236,7 +236,7 @@ verus! {
         pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
             Ghost(state): Ghost<DurableItemTableView<I, K, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
@@ -331,7 +331,7 @@ verus! {
         exec fn replay_log_item_table<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             table_id: u128,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             item_slot_size: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
             Ghost(state): Ghost<DurableItemTableView<I, K, E>>

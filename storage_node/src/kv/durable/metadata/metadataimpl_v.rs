@@ -337,7 +337,7 @@ verus! {
         pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
         ) -> (result: Result<Self, KvError<K, E>>)
@@ -413,7 +413,7 @@ verus! {
         exec fn replay_log_metadata_table<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
-            log_entries: Vec<OpLogEntryType<L>>,
+            log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
         ) -> Result<(), KvError<K, E>>
