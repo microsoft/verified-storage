@@ -7,12 +7,14 @@ use crate::log::logspec_t::*;
 use crate::log::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
-use crate::kv::kvimpl_t::*;
+use crate::pmem::traits_t::PmSafe;
+use crate::pmem::crc_t::*;
 use vstd::bytes::*;
 
 verus! {
@@ -22,6 +24,7 @@ verus! {
     {
         log: UntrustedLogImpl,
         state: Ghost<AbstractOpLogState<L>>,
+        current_transaction_crc: CrcDigest,
         _phantom: Option<(K, E)>
     }
 
@@ -225,6 +228,7 @@ verus! {
             Ok(Self {
                 log,
                 state,
+                current_transaction_crc: CrcDigest::new(),
                 _phantom: None
             })
         }
@@ -271,13 +275,10 @@ verus! {
             // We now know that the bytes are not corrupted, but we still need to determine what 
             // log entry types make up the vector of bytes.
 
-
-
-            Err(KvError::NotImplemented)
-            
+            Self::parse_op_log(log, log_bytes, log_id, Ghost(wrpm_region@.committed()), log_addrs, Ghost(wrpm_region.constants().impervious_to_corruption))
         }
 
-        pub exec fn parse_op_log<PM>(
+        pub exec fn parse_op_log(
             log: &UntrustedLogImpl,
             log_contents: Vec<u8>,
             log_id: u128,
@@ -285,8 +286,6 @@ verus! {
             Ghost(log_contents_addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>,
         ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
-            where 
-                PM: PersistentMemoryRegion,
             requires 
                 ({
                     // We must have already proven that the bytes are not corrupted. This is already known
@@ -458,33 +457,81 @@ verus! {
         }
 
         // This function tentatively appends a log entry and its CRC to the op log.
-        pub exec fn tentatively_append_log_entry<PM, S>(
+        pub exec fn tentatively_append_log_entry<PM>(
             &mut self,
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
-            log_entry: &S,
+            log_entry: OpLogEntryType<L>,
             Tracked(perm): Tracked<&TrustedPermission>,
         ) -> (result: Result<(), LogErr>)
             where 
                 PM: PersistentMemoryRegion,
-                S: PmCopy,
             requires 
                 // TODO
             ensures 
                 // TODO 
                 // match statement on the log entry types
         {
-            // Because the log may need to wrap around, it cannot easily serialize the log entry
+            assume(false);
+            match log_entry {
+                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
+                    let log_entry = log_entry.to_commit_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::ItemTableEntryInvalidate { item_index } => {
+                    let log_entry = log_entry.to_invalidate_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
+                    let log_entry = log_entry.to_append_list_node_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
+                    let log_entry = log_entry.to_insert_list_element_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
+                    self.append_to_oplog(log_wrpm, log_id, &list_element, Tracked(perm))
+                }
+                OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => {
+                    let log_entry = log_entry.to_update_list_len_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::TrimList { metadata_index, new_head_node, 
+                    new_list_len, new_list_start_index, metadata_crc } => {
+                        let log_entry = log_entry.to_trim_list_entry().unwrap();
+                        self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                    }
+                OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => {
+                    let log_entry = log_entry.to_commit_metadata_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
+                    let log_entry = log_entry.to_invalidate_metadata_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+            }
+        }
+
+        exec fn append_to_oplog<PM, S>(
+            &mut self,
+            log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
+            log_id: u128,
+            to_write: &S,
+            Tracked(perm): Tracked<&TrustedPermission>,
+        ) -> (result: Result<(), LogErr>)
+            where 
+                PM: PersistentMemoryRegion,
+                S: PmCopy + PmSafe
+        {
+            assume(false);
+            // Because the log may need to wrap around, it cannot easily serialize the object to write
             // for us the way serialize_and_write does. We need to convert it to a byte-level 
             // representation first, then append that to the log.
-            assume(false);
-            let log_entry_bytes = log_entry.as_byte_slice();
-            let log_entry_crc = calculate_crc(log_entry);
-            let log_entry_crc_bytes = log_entry_crc.as_byte_slice();
-            self.log.tentatively_append(log_wrpm, log_entry_bytes, Ghost(log_id), Tracked(perm))?;
-            self.log.tentatively_append(log_wrpm, log_entry_crc_bytes, Ghost(log_id), Tracked(perm))?;
+            let bytes = to_write.as_byte_slice();
+            self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm))?;
+            self.current_transaction_crc.write(to_write);
             Ok(())
         }
+
 
         pub exec fn commit_log<PM>(
             &mut self, 
@@ -500,7 +547,9 @@ verus! {
                 // TODO
         {
             assume(false);
-            // TODO: need to write the crc of the current log
+            let transaction_crc = self.current_transaction_crc.sum64();
+            let bytes = transaction_crc.as_byte_slice();
+            self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm))?;
             self.log.commit(log_wrpm, Ghost(log_id), Tracked(perm))?;
             Ok(())
         }

@@ -163,8 +163,32 @@ verus! {
             }
         }
 
+        pub exec fn to_commit_entry(self) -> Option<CommitItemEntry> {
+            match self {
+                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => 
+                    Some(CommitItemEntry {
+                        entry_type: COMMIT_ITEM_TABLE_ENTRY,
+                        item_index,
+                        metadata_index,
+                        metadata_crc,
+                    }),
+                _ => None
+            }
+        }
+
         pub exec fn from_invalidate_entry(value: Box<InvalidateItemEntry>) -> Self {
             OpLogEntryType::ItemTableEntryInvalidate { item_index: value.item_index }
+        }
+
+        pub exec fn to_invalidate_entry(self) -> Option<InvalidateItemEntry> {
+            match self {
+                OpLogEntryType::ItemTableEntryInvalidate { item_index } => 
+                    Some(InvalidateItemEntry {
+                        entry_type: INVALIDATE_ITEM_TABLE_ENTRY,
+                        item_index,
+                    }),
+                _ => None
+            }
         }
 
         pub exec fn from_append_list_node_entry(value: Box<AppendListNodeEntry>) -> Self {
@@ -176,6 +200,20 @@ verus! {
             }
         }
 
+        pub exec fn to_append_list_node_entry(self) -> Option<AppendListNodeEntry> {
+            match self {
+                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => 
+                    Some(AppendListNodeEntry {
+                        entry_type: APPEND_LIST_NODE_ENTRY,
+                        metadata_index, 
+                        old_tail,
+                        new_tail, 
+                        metadata_crc 
+                    }),
+                _ => None,
+            }
+        }
+
         pub exec fn from_insert_list_element_entry(value: Box<InsertListElementEntry>, list_element: Box<L>) -> Self {
             OpLogEntryType::InsertListElement { 
                 node_offset: value.node_offset, 
@@ -184,11 +222,36 @@ verus! {
             }
         }
 
+        pub exec fn to_insert_list_element_entry(self) -> Option<InsertListElementEntry> {
+            match self {
+                OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => 
+                    Some(InsertListElementEntry { 
+                        entry_type: INSERT_LIST_ELEMENT_ENTRY, 
+                        node_offset, 
+                        index_in_node
+                    }),
+                _ => None
+            }
+        }
+
         pub exec fn from_update_list_len_entry(value: Box<UpdateListLenEntry>) -> Self {
             OpLogEntryType::UpdateListLen { 
                 metadata_index: value.metadata_index, 
                 new_length: value.new_length, 
                 metadata_crc: value.metadata_crc 
+            }
+        }
+
+        pub exec fn to_update_list_len_entry(self) -> Option<UpdateListLenEntry> {
+            match self {
+                OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => 
+                    Some(UpdateListLenEntry { 
+                        entry_type: UPDATE_LIST_LEN_ENTRY,
+                        metadata_index, 
+                        new_length, 
+                        metadata_crc 
+                    }),
+                    _ => None
             }
         }
 
@@ -202,6 +265,21 @@ verus! {
             }
         }
 
+        pub exec fn to_trim_list_entry(self) -> Option<TrimListEntry> {
+            match self {
+                OpLogEntryType::TrimList { metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc } => 
+                    Some(TrimListEntry { 
+                        entry_type: TRIM_LIST_METADATA_UPDATE_ENTRY,
+                        metadata_index, 
+                        new_head_node, 
+                        new_list_len, 
+                        new_list_start_index, 
+                        metadata_crc 
+                    }),
+                    _ => None 
+            }
+        }
+
         pub exec fn from_commit_metadata_entry(value: Box<CommitMetadataEntry>) -> Self {
             OpLogEntryType::CommitMetadataEntry { 
                 metadata_index: value.metadata_index, 
@@ -209,8 +287,28 @@ verus! {
             }
         }
 
+        pub exec fn to_commit_metadata_entry(self) -> Option<CommitMetadataEntry> {
+            match self {
+                OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => 
+                    Some(CommitMetadataEntry { 
+                        entry_type: COMMIT_METADATA_ENTRY, 
+                        metadata_index, 
+                        item_index 
+                    }),
+                _ => None,
+            }
+        }
+
         pub exec fn from_invalidate_metadata_entry(value: Box<InvalidateMetadataEntry>) -> Self {
             OpLogEntryType::InvalidateMetadataEntry { metadata_index: value.metadata_index }
+        }
+
+        pub exec fn to_invalidate_metadata_entry(self) -> Option<InvalidateMetadataEntry> {
+            match self {
+                OpLogEntryType::InvalidateMetadataEntry { metadata_index } => 
+                    Some(InvalidateMetadataEntry { entry_type: INVALIDATE_METADATA_ENTRY, metadata_index }),
+                _ => None
+            }
         }
     }
 
