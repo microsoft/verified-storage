@@ -234,18 +234,21 @@ verus! {
         }
 
         pub exec fn read_op_log<PM>(
-            log: &UntrustedLogImpl,
+            &self,
             wrpm_region: &WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
         ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
-                log.inv(wrpm_region, log_id),
+                // self.log.inv(wrpm_region, log_id),
+                // TODO
             ensures 
                 // TODO
         {
             assume(false);
+
+            let log = &self.log;
 
             // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
             // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
@@ -275,11 +278,11 @@ verus! {
             // We now know that the bytes are not corrupted, but we still need to determine what 
             // log entry types make up the vector of bytes.
 
-            Self::parse_op_log(log, log_bytes, log_id, Ghost(wrpm_region@.committed()), log_addrs, Ghost(wrpm_region.constants().impervious_to_corruption))
+            self.parse_op_log(log_bytes, log_id, Ghost(wrpm_region@.committed()), log_addrs, Ghost(wrpm_region.constants().impervious_to_corruption))
         }
 
         pub exec fn parse_op_log(
-            log: &UntrustedLogImpl,
+            &self,
             log_contents: Vec<u8>,
             log_id: u128,
             Ghost(mem): Ghost<Seq<u8>>,
