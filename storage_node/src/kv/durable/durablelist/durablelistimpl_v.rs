@@ -328,6 +328,7 @@ verus! {
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             node_size: u32,
+            log_entries: Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedListPermission>,
             Ghost(state): Ghost<DurableListView<K, L, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
@@ -347,6 +348,8 @@ verus! {
                 wrpm_region.inv()
                 // TODO
         {
+            assume(false);
+
             // We assume that the caller set up the regions with `setup`, which checks that we got the
             // correct number of regions and that they are large enough, but we check again here
             // in case they didn't.
@@ -374,6 +377,12 @@ verus! {
             }
 
             let ghost mem = pm_region@.committed();
+
+            // recover the list region from the log entries
+            Self::recover_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
+
+            // reborrow to satisfy the borrow checker
+            let pm_region = wrpm_region.get_pm_region_ref();
 
             let mut list_node_region_free_list: Vec<u64> = Vec::new();
             // this list will store in-use nodes; all nodes not in this list go in the free list
@@ -462,6 +471,65 @@ verus! {
                 num_nodes: list_region_metadata.num_nodes,
                 state: Ghost(state) // TODO: this needs to be set up properly
             })
+        }
+
+        exec fn recover_log_list<PM>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            list_id: u128,
+            log_entries: Vec<OpLogEntryType<L>>,
+            node_size: u32,
+            Tracked(perm): Tracked<&TrustedListPermission>,
+            Ghost(state): Ghost<DurableListView<K, L, E>>
+        ) -> (result: Result<(), KvError<K, E>>)
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+
+            for i in 0..log_entries.len() 
+                invariant 
+                    // TODO 
+            {
+                assume(false);
+                let log_entry = &log_entries[i];
+
+                match log_entry {
+                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
+                        // Appending a new list node involves setting the both the old tail and the new tail's next pointer and CRC
+                        // to point to the new tail. 
+                        let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * old_tail;
+                        let new_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * new_tail;
+
+                        let new_tail_crc = calculate_crc(new_tail);
+
+                        // the tail addr is the address of the next pointer
+                        let old_crc_addr = old_tail_addr + traits_t::size_of::<u64>() as u64;
+                        let new_crc_addr = new_tail_addr + traits_t::size_of::<u64>() as u64;
+
+                        wrpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
+                        wrpm_region.serialize_and_write(new_tail_addr, new_tail, Tracked(perm));
+                        wrpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
+                        wrpm_region.serialize_and_write(new_crc_addr, &new_tail_crc, Tracked(perm));
+                    }
+                    OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
+                        // to add a new list element, we copy it from the log to the correct index in its node
+                        let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_offset * node_size as u64;
+                        let crc_addr = node_addr + RELATIVE_POS_OF_LIST_CONTENTS_AREA + index_in_node * traits_t::size_of::<L>() as u64;
+                        let list_element_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+                        let list_element_crc = calculate_crc(list_element);
+
+                        wrpm_region.serialize_and_write(crc_addr, &list_element_crc, Tracked(perm));
+                        wrpm_region.serialize_and_write(list_element_addr, list_element, Tracked(perm));
+                    }
+                    _ => {} // all other entry types do not modify the list directly
+                }
+            }
+            Ok(())
         }
 
         // Allocates a new list node, sets its next pointer,
