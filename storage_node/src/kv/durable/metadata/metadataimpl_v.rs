@@ -492,7 +492,7 @@ verus! {
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
                     }
-                    _ => return Err(KvError::InvalidLogEntryType)
+                    _ => {} // the other operations do not modify the metadata table
                 }
                 
             }

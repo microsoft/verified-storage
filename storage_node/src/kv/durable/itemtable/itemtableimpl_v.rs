@@ -104,7 +104,7 @@ verus! {
                     None
                 } else {
                     // replay the log on `mem`, then parse it into (hopefully) a valid item table view
-                    let mem = Self::replay_log_item_table(mem, op_log);
+                    let mem = Self::spec_replay_log_item_table(mem, op_log);
                     parse_item_table(metadata_header, mem)
                 }
             }
@@ -114,7 +114,7 @@ verus! {
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // do not modify the item table.
         // TODO: check length of `mem`?
-        closed spec fn replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+        closed spec fn spec_replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
             where 
                 L: PmCopy,
             decreases op_log.len(),
@@ -125,7 +125,7 @@ verus! {
                 let current_op = op_log[0];
                 let op_log = op_log.drop_first();
                 let mem = Self::apply_log_op_to_item_table_mem(mem, current_op);
-                Self::replay_log_item_table(mem, op_log)
+                Self::spec_replay_log_item_table(mem, op_log)
             }
         }
 
@@ -233,14 +233,16 @@ verus! {
         }
 
         // TODO: this function doesn't do anything with state right now
-        pub exec fn start<PM>(
+        pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
+            log_entries: Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
             Ghost(state): Ghost<DurableItemTableView<I, K, E>>
         ) -> (result: Result<Self, KvError<K, E>>)
             where
                 PM: PersistentMemoryRegion,
+                L: PmCopy,
             requires
                 old(wrpm_region).inv(),
                 0 <= ItemTableMetadata::spec_size_of() + u64::spec_size_of() < usize::MAX,
@@ -291,6 +293,13 @@ verus! {
 
             assume(false);
 
+            // replay log entries onto the item table
+            Self::replay_log_item_table(wrpm_region, item_table_id, log_entries, item_slot_size, Tracked(perm), Ghost(state))?;
+
+            // reborrow to satisfy the borrow checker
+            let pm_region = wrpm_region.get_pm_region_ref();
+            let ghost mem = pm_region@.committed();
+
             // read the valid bits of each slot and set up the allocator
             let mut item_table_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
 
@@ -317,6 +326,48 @@ verus! {
                 free_list: item_table_allocator,
                 state: Ghost(state)
             })
+        }
+
+        exec fn replay_log_item_table<PM, L>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
+            table_id: u128,
+            log_entries: Vec<OpLogEntryType<L>>,
+            item_slot_size: u64,
+            Tracked(perm): Tracked<&TrustedItemTablePermission>,
+            Ghost(state): Ghost<DurableItemTableView<I, K, E>>
+        ) -> (result: Result<(), KvError<K, E>>)
+            where 
+                PM: PersistentMemoryRegion,
+                L: PmCopy,
+            requires 
+                // TODO
+            ensures 
+                // TODO 
+        {
+            // There are only two types of operation that need to be replayed onto the item table:
+            // item commit and item invalidation. So we just need to determine the item index updated
+            // by each log entry and what we need to set the CDB to.
+            for i in 0..log_entries.len() 
+                invariant 
+                    // TODO
+            {
+                assume(false);
+                let log_entry = &log_entries[i];
+
+                let result = match log_entry {
+                    OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => Some((CDB_TRUE, item_index)),
+                    OpLogEntryType::ItemTableEntryInvalidate { item_index } => Some((CDB_FALSE, item_index)),
+                    OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => Some((CDB_TRUE, item_index)),
+                    _ => None  // the other operations do not modify the item table
+                };
+
+                if let Some((cdb_val, item_index)) = result {
+                    // the slot offset is also the address of the CDB
+                    let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_slot_size;
+                    wrpm_region.serialize_and_write(item_slot_offset, &cdb_val, Tracked(perm));
+                }
+            }
+            Ok(())
         }
 
         // this function can be used to both create new items and do COW updates to existing items.
