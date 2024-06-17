@@ -144,35 +144,37 @@ verus! {
         {
             assume(false);
 
-            // TEMPORARY, NOT CORRECT: make up a permissions struct for each component to start with. since we aren't 
-            // writing any proofs yet, we don't need the perm to be correct.
-            // These perms should actually be derived from the higher-level kv permission
-            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
-            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            // // TEMPORARY, NOT CORRECT: make up a permissions struct for each component to start with. since we aren't 
+            // // writing any proofs yet, we don't need the perm to be correct.
+            // // These perms should actually be derived from the higher-level kv permission
+            // let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            // let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            // let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            // let tracked fake_log_perm = TrustedPermission::fake_log_perm();
 
-            let list_element_size = (L::size_of() + traits_t::size_of::<u64>()) as u32;
+            // let list_element_size = (L::size_of() + traits_t::size_of::<u64>()) as u32;
 
-            let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
-            let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
-            let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;
-            let log = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-            // let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
-            //     Ok(log) => log,
-            //     Err(e) => return Err(KvError::LogErr { log_err: e }),
-            // };
+            // let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
+            // let item_table = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
+            // let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;
+            // let log = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            // // let log = match UntrustedLogImpl::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), kvstore_id).unwrap())) {
+            // //     Ok(log) => log,
+            // //     Err(e) => return Err(KvError::LogErr { log_err: e }),
+            // // };
 
-            Ok(Self {
-                item_table,
-                durable_list,
-                log,
-                metadata_table,
-                item_table_wrpm,
-                list_wrpm,
-                log_wrpm,
-                metadata_wrpm
-            })
+            // Ok(Self {
+            //     item_table,
+            //     durable_list,
+            //     log,
+            //     metadata_table,
+            //     item_table_wrpm,
+            //     list_wrpm,
+            //     log_wrpm,
+            //     metadata_wrpm
+            // })
+
+            Err(KvError::NotImplemented)
         }
 
         pub fn create(

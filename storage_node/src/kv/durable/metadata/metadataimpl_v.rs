@@ -66,7 +66,7 @@ verus! {
                     None
                 } else {
                     // replay the log on the metadata table and the list region, then parse them into a list view
-                    let mem = Self::replay_log_metadata_table(mem, op_log);
+                    let mem = Self::spec_replay_log_metadata_table(mem, op_log);
                     // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
 
                     // parse the item table into a mapping index->entry so that we can use it to 
@@ -81,7 +81,7 @@ verus! {
             }
         }
 
-        closed spec fn replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+        closed spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
             where 
                 L: PmCopy,
             decreases op_log.len()
@@ -92,7 +92,7 @@ verus! {
                 let current_op = op_log[0];
                 let op_log = op_log.drop_first();
                 let mem = Self::apply_log_op_to_metadata_table_mem(mem, current_op);
-                Self::replay_log_metadata_table(mem, op_log)
+                Self::spec_replay_log_metadata_table(mem, op_log)
             }
         }
 
@@ -334,14 +334,16 @@ verus! {
             Ok(())
         }
 
-        pub exec fn start<PM>(
+        pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
+            log_entries: Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
         ) -> (result: Result<Self, KvError<K, E>>)
             where 
                 PM: PersistentMemoryRegion,
+                L: PmCopy,
             requires 
                 old(wrpm_region).inv(),
                 // TODO
@@ -376,7 +378,9 @@ verus! {
                 return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
             }
 
-            // 4. read valid bytes and construct the allocator 
+            // 4. run recovery using the list of log entries.
+
+            // 5. read valid bytes and construct the allocator 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
             for index in 0..header.num_keys 
                 // TODO: invariant
@@ -399,6 +403,50 @@ verus! {
                 state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
                 _phantom: None
             })
+        }
+
+        exec fn replay_log_metadata_table<PM, L>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+            table_id: u128,
+            log_entries: Vec<OpLogEntryType<L>>,
+            Tracked(perm): Tracked<&TrustedMetadataPermission>,
+            Ghost(state): Ghost<MetadataTableView<K>>,
+        ) -> Result<(), KvError<K, E>>
+            where 
+                PM: PersistentMemoryRegion,
+                L: PmCopy,
+        {
+            for i in 0..log_entries.len()
+                invariant 
+                    // TODO
+            {
+                let log_entry = &log_entries[i];
+                match log_entry {
+                    OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
+                        // On item table commit, the corresponding entry in the metadata table updates its item pointer. 
+                        // We need to update the metadata index and its CRC. 
+
+                    }
+                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
+
+                    }
+                    OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => {
+
+                    }
+                    OpLogEntryType::TrimList { metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc } => {
+
+                    }
+                    OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => {
+
+                    }
+                    OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
+
+                    }
+                    _ => return Err(KvError::InvalidLogEntryType)
+                }
+                
+            }
+            Ok(())
         }
 
         // Since metadata table entries have a valid CDB, we can tentatively write the whole entry and log a commit op for it,
