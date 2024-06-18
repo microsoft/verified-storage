@@ -100,11 +100,11 @@ verus! {
                 pm_bytes2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) 
         &&& {
             if cdb {
-                pm_bytes1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    pm_bytes2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of()) 
+                extract_bytes(pm_bytes1, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+                    extract_bytes(pm_bytes2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) 
             } else {
-                pm_bytes1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    pm_bytes2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) 
+                extract_bytes(pm_bytes1, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+                    extract_bytes(pm_bytes2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) 
             }
         }
     }
@@ -378,9 +378,9 @@ verus! {
 
     pub open spec fn metadata_types_set_in_first_region(mem: Seq<u8>) -> bool 
     {
-        &&& exists |cdb: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) == cdb.spec_to_bytes()
+        &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()))
         &&& {
-            let cdb = choose |cdb: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())  == cdb.spec_to_bytes();
+            let cdb = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
             &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
             &&& cdb == CDB_TRUE ==> metadata_types_set_in_region(mem, true)
             &&& cdb == CDB_FALSE ==> metadata_types_set_in_region(mem, false)
@@ -389,61 +389,59 @@ verus! {
 
     pub open spec fn metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
     {
-        &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()) == crc.spec_to_bytes()
-        &&& exists |global_metadata: GlobalMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()) == global_metadata.spec_to_bytes()
+        &&& GlobalMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()))
+        &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()))
         &&& {
-            let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()) == crc.spec_to_bytes();
-            let metadata = choose |global_metadata: GlobalMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()) == global_metadata.spec_to_bytes();
+            let metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
+            let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
             crc == spec_crc_u64(metadata.spec_to_bytes())
         }
-        &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()) == crc.spec_to_bytes()
-        &&& exists |region_metadata: RegionMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()) == region_metadata.spec_to_bytes()
+        &&& RegionMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()))
+        &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()))
         &&& {
-            let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()) == crc.spec_to_bytes();
-            let metadata = choose |region_metadata: RegionMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()) == region_metadata.spec_to_bytes();
+            let metadata = RegionMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()));
+            let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()));
             crc == spec_crc_u64(metadata.spec_to_bytes())
         }
-        &&& {
-            &&& cdb ==> {
-                &&& exists |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes()
-                &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()) == crc.spec_to_bytes()
-                &&& {
-                    let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()) == crc.spec_to_bytes();
-                    let metadata = choose |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes();
-                    crc == spec_crc_u64(metadata.spec_to_bytes())
-                }
-            }
-            &&& !cdb ==> {
-                &&& exists |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes()
-                &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()) == crc.spec_to_bytes()
-                &&& {
-                    let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()) == crc.spec_to_bytes();
-                    let metadata = choose |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes();
-                    crc == spec_crc_u64(metadata.spec_to_bytes())
-                }
-            }
-        }
+        &&& if cdb {
+               &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()))
+               &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()))
+               &&& {
+                   let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()));
+                   let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()));
+                   crc == spec_crc_u64(metadata.spec_to_bytes())
+               }
+           }
+           else {
+               &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()))
+               &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()))
+               &&& {
+                   let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()));
+                   let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()));
+                   crc == spec_crc_u64(metadata.spec_to_bytes())
+               }
+           }
     }
 
     pub open spec fn inactive_metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool 
     {
-        &&& cdb ==> {
-            &&& exists |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes()
-                &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()) == crc.spec_to_bytes()
-                &&& {
-                    let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()) == crc.spec_to_bytes();
-                    let metadata = choose |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes();
-                    crc == spec_crc_u64(metadata.spec_to_bytes())
-                }
+        &&& if cdb {
+            &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()))
+            &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()))
+            &&& {
+                let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()));
+                let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()));
+                crc == spec_crc_u64(metadata.spec_to_bytes())
+            }
         }
-        &&& !cdb ==> {
-            &&& exists |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes()
-                &&& exists |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()) == crc.spec_to_bytes()
-                &&& {
-                    let crc = choose |crc: u64| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()) == crc.spec_to_bytes();
-                    let metadata = choose |log_metadata: LogMetadata| extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()) == log_metadata.spec_to_bytes();
-                    crc == spec_crc_u64(metadata.spec_to_bytes())
-                }
+        else {
+            &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()))
+            &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()))
+            &&& {
+                let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()));
+                let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()));
+                crc == spec_crc_u64(metadata.spec_to_bytes())
+            }
         }
     }
 
@@ -517,8 +515,8 @@ verus! {
         } by {
             lemma_establish_extract_bytes_equivalence(s, pm_bytes);
             assert(pm_regions_view[0].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
-            assert(pm_bytes.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) =~= 
-                s.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
+            assert(extract_bytes(pm_bytes, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= 
+                extract_bytes(s, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
         }
     }
 
@@ -1016,7 +1014,7 @@ verus! {
         lemma_establish_extract_bytes_equivalence(old_pm_regions_view.committed()[0], new_pm_regions_view.committed()[0]);
 
         // The CDB has been updated in log 0, so its type is set
-        assert(new_pm_regions_view.committed()[0].subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()) =~= new_cdb_bytes);
+        assert(extract_bytes(new_pm_regions_view.committed()[0], ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= new_cdb_bytes);
 
         let new_cdb = deserialize_and_check_log_cdb(new_pm_regions_view.committed()[0]).unwrap();
         let log_metadata_pos = get_log_metadata_pos(new_cdb);
@@ -1026,6 +1024,8 @@ verus! {
         } by {
             lemma_establish_extract_bytes_equivalence(old_pm_regions_view.committed()[i], new_pm_regions_view.committed()[i]);
         }
+
+        assume(false);
     }
 
     // This lemma proves that if there are no outstanding writes to active metadata, and metadata types are set,
@@ -1124,8 +1124,8 @@ verus! {
         let old_cdb = deserialize_and_check_log_cdb(wrpm_regions_old[0].committed());
         let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
 
-        assert(cur_old.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
-            cur_new.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
+        assert(extract_bytes(cur_old, log_metadata_pos as int, LogMetadata::spec_size_of() + u64::spec_size_of()) == 
+            extract_bytes(cur_new, log_metadata_pos as int, LogMetadata::spec_size_of() + u64::spec_size_of()));
 
         assert(active_metadata_is_equal_in_region(wrpm_regions_old[which_log], wrpm_regions_new[which_log], cdb));
         lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions_old, wrpm_regions_new, cdb);

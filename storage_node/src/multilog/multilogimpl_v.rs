@@ -709,8 +709,8 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
-            assume(false);
-
+            broadcast use pmcopy_axioms;
+                
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -920,6 +920,8 @@ verus! {
                 wrpm_regions@.len() > 0,
                 
         {
+            broadcast use pmcopy_axioms;
+
             let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                             else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
@@ -992,6 +994,8 @@ verus! {
                     forall |i: int| 0 <= i < current_log ==> 
                         inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[i], self.cdb),
             {
+                broadcast use pmcopy_axioms; // Remove this workaround once https://github.com/verus-lang/verus/issues/1166 is fixed
+
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 

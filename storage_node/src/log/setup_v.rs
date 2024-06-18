@@ -20,8 +20,6 @@ use vstd::prelude::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This function evaluates whether memory was correctly set up on
     // a region. It's a helpful specification function for use in
     // later functions in this file.
@@ -100,6 +98,8 @@ verus! {
                 region_size, log_id),
             metadata_types_set(pm_region@.flush().committed()),
     {
+        broadcast use pmcopy_axioms;
+
         // Initialize global metadata and compute its CRC
         let global_metadata = GlobalMetadata {
             program_guid: LOG_PROGRAM_GUID,
