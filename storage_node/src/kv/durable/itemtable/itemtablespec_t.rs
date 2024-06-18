@@ -68,19 +68,17 @@ verus! {
         }
     }
 
-    pub struct DurableItemTableView<I, K, E>
+    pub struct DurableItemTableView<I, K>
         where
             K: std::fmt::Debug + PmCopy,
-            E: std::fmt::Debug,
     {
         item_table: Seq<DurableItemTableViewEntry<I>>,
-        _phantom: Option<(K, E)>
+        _phantom: Option<K>
     }
 
-    impl<I, K, E> DurableItemTableView<I, K, E>
+    impl<I, K> DurableItemTableView<I, K>
         where
             K: std::fmt::Debug + PmCopy,
-            E: std::fmt::Debug,
     {
         pub closed spec fn init(num_keys: int) -> Self
         {
@@ -125,7 +123,7 @@ verus! {
         // Inserting an entry and committing it are two separate operations. Inserted entries
         // are invalid until they are explicitly committed. Attempting to insert at an index
         // that already has a valid entry results in an error.
-        pub closed spec fn insert(self, index: int, crc: u64, item: I) -> Result<Self, KvError<K, E>> 
+        pub closed spec fn insert(self, index: int, crc: u64, item: I) -> Result<Self, KvError<K>> 
         {
             if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
@@ -147,7 +145,7 @@ verus! {
             } 
         }
 
-        pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K, E>> 
+        pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K>> 
         {
             if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)
@@ -169,7 +167,7 @@ verus! {
             }
         }
 
-        pub closed spec fn invalidate_entry(self, index: int) -> Result<Self, KvError<K, E>>
+        pub closed spec fn invalidate_entry(self, index: int) -> Result<Self, KvError<K>>
         {
             if index < 0 || index >= self.len() {
                 Err(KvError::IndexOutOfRange)

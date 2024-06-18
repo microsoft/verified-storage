@@ -51,16 +51,14 @@ verus! {
     // nodes of the unrolled linked list that the list is actually stored in, but it may contain
     // tentatively-appended list elements that are not visible yet.
     #[verifier::reject_recursive_types(K)]
-    pub struct DurableListView<K, L, E>
+    pub struct DurableListView<K, L>
     {
         lists: Map<K, Seq<DurableListElementView<L>>>,
-        _phantom: Option<E>
     }
 
-    impl<K, L, E> DurableListView<K, L, E>
+    impl<K, L> DurableListView<K, L>
         where
             K: std::fmt::Debug,
-            E: std::fmt::Debug
     {
         pub closed spec fn spec_index(self, key: K) -> Option<Seq<DurableListElementView<L>>>
         {
@@ -75,7 +73,6 @@ verus! {
         {
             Self {
                 lists: Map::empty(),
-                _phantom: None
             }
         }
 
@@ -83,18 +80,16 @@ verus! {
         {
             Self {
                 lists,
-                _phantom: None
             }
         }
 
-        pub closed spec fn insert_key(self, key: K) -> Result<Self, KvError<K, E>>
+        pub closed spec fn insert_key(self, key: K) -> Result<Self, KvError<K>>
         {
             if self.lists.contains_key(key) {
                 Err(KvError::KeyAlreadyExists)
             } else {
                 Ok(Self {
                     lists: self.lists.insert(key, Seq::empty()),
-                    _phantom: None
                 })
             }
         }
@@ -105,7 +100,7 @@ verus! {
             crc: u64,
             list_element: L,
             index: int
-        ) -> Result<Self, KvError<K, E>>
+        ) -> Result<Self, KvError<K>>
         {
             if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
@@ -115,7 +110,6 @@ verus! {
                 let new_lists = self.lists[key].update(index, DurableListElementView { crc, list_element });
                 Ok(Self {
                     lists: self.lists.insert(key, new_lists),
-                    _phantom: None
                 })
             }
         }
@@ -125,7 +119,7 @@ verus! {
             key: K,
             crc: u64,
             list_element: L
-        ) -> Result<Self, KvError<K, E>>
+        ) -> Result<Self, KvError<K>>
         {
             if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
@@ -133,8 +127,6 @@ verus! {
                 let new_lists = self.lists[key].push(DurableListElementView { crc, list_element });
                 Ok(Self {
                     lists: self.lists.insert(key, new_lists),
-
-                    _phantom: None
                 })
             }
         }
@@ -142,14 +134,13 @@ verus! {
         pub closed spec fn remove_key(
             self,
             key: K
-        ) -> Result<Self, KvError<K, E>>
+        ) -> Result<Self, KvError<K>>
         {
             if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
             } else {
                 Ok(Self {
                     lists: self.lists.remove(key),
-                    _phantom: None
                 })
             }
         }
@@ -158,7 +149,7 @@ verus! {
             self,
             key: K,
             trim_length: int
-        ) -> Result<Self, KvError<K, E>>
+        ) -> Result<Self, KvError<K>>
         {
             if !self.lists.contains_key(key) {
                 Err(KvError::KeyNotFound)
@@ -166,7 +157,6 @@ verus! {
                 let new_lists = self.lists[key].subrange(trim_length, self.lists[key].len() as int);
                 Ok(Self {
                     lists: self.lists.insert(key, new_lists),
-                    _phantom: None
                 })
             }
         }

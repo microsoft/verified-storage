@@ -12,10 +12,9 @@ use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {
-    pub trait VolatileKvIndex<K, E> : Sized
+    pub trait VolatileKvIndex<K> : Sized
     where
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-        E: std::fmt::Debug,
     {
         spec fn view(&self) -> VolatileKvIndexView<K>;
 
@@ -24,7 +23,7 @@ verus! {
         fn new(
             kvstore_id: u128,
             max_keys: usize,
-        ) -> (result: Result<Self, KvError<K, E>>)
+        ) -> (result: Result<Self, KvError<K>>)
             ensures
                 match result {
                     Ok(volatile_index) => {
@@ -39,7 +38,7 @@ verus! {
             &mut self,
             key: &K,
             offset: u64,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
                 old(self)@[*key] is None,
@@ -57,7 +56,7 @@ verus! {
         fn append_to_list(
             &mut self,
             key: &K,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
                 // The caller has to prove that 1) the key exists and 2) the node we will add to has free
@@ -106,7 +105,7 @@ verus! {
             &self,
             key: &K,
             idx: usize,
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 self.valid(),
             ensures
@@ -130,7 +129,7 @@ verus! {
             &self,
             key: &K,
             idx: usize
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 self.valid(),
             ensures
@@ -148,7 +147,7 @@ verus! {
         fn remove(
             &mut self,
             key: &K
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -172,7 +171,7 @@ verus! {
             &mut self,
             key: &K,
             trim_length: usize
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures

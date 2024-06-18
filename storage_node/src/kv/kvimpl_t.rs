@@ -39,10 +39,9 @@ use std::hash::Hash;
 verus! {
 
 #[derive(Debug)]
-pub enum KvError<K, E>
+pub enum KvError<K>
 where
     K: std::fmt::Debug,
-    E: std::fmt::Debug,
 {
     NotImplemented,
     InvalidParameter,
@@ -57,8 +56,6 @@ where
     OutOfSpace,
     InvalidPersistentMemoryRegionProvided, // TODO: reason
     CRCMismatch,
-    SerializationError { error: E },
-    DeserializationError { error: E },
     InvalidItemTableHeader,
     InvalidListMetadata,
     InvalidListRegionMetadata,
@@ -69,29 +66,19 @@ where
     PmemErr { pmem_err: PmemError },
 }
 
-pub trait Item<K> : Sized {
-    spec fn spec_key(self) -> K;
-
-    fn key(&self) -> (out: K)
-        ensures
-            out == self.spec_key()
-    ;
-}
-
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
-pub struct KvStore<PM, K, I, L, V, E>
+pub struct KvStore<PM, K, I, L, V>
 where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K, E>,
-    E: std::fmt::Debug,
+    V: VolatileKvIndex<K>,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V, E>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V>,
 }
 
 // TODO: is there a better way to handle PhantomData?
@@ -100,16 +87,15 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-impl<PM, K, I, L, V, E> KvStore<PM, K, I, L, V, E>
+impl<PM, K, I, L, V> KvStore<PM, K, I, L, V>
 where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K, E>,
-    E: std::fmt::Debug,
+    V: VolatileKvIndex<K>,
 {
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L, E>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
         self.untrusted_kv_impl@
     }
@@ -128,7 +114,7 @@ where
     //     kvstore_id: u128,
     //     num_keys: u64,
     //     node_size: u32
-    // ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
+    // ) -> (result: Result<(PM, PM, PM), KvError<K>>)
     //     requires
     //         pmem.inv(),
     //         ({
@@ -163,7 +149,7 @@ where
     //     UntrustedKvStoreImpl::<PM, K, I, L, V, E>::untrusted_setup(pmem, kvstore_id, num_keys, node_size)
     // }
 
-    // fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K, E>>)
+    // fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K>>)
     //     requires
     //         pmem.inv(),
     //     ensures
@@ -181,7 +167,7 @@ where
     //     Err(KvError::NotImplemented)
     // }
 
-    fn create(&mut self, key: &K, item: &I, kvstore_id: u128,) -> (result: Result<(), KvError<K, E>>)
+    fn create(&mut self, key: &K, item: &I, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
             key == item.spec_key(),
@@ -247,7 +233,7 @@ where
     //     self.untrusted_kv_impl.untrusted_read_item_and_list(key)
     // }
 
-    fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K, E>>)
+    fn read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
         requires
             self.valid()
         ensures
@@ -290,7 +276,7 @@ where
     //     self.untrusted_kv_impl.untrusted_read_list(key)
     // }
 
-    fn update_item(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K, E>>)
+    fn update_item(&mut self, key: &K, new_item: I) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
         ensures
@@ -315,7 +301,7 @@ where
 
     }
 
-    fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K, E>>)
+    fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -344,7 +330,7 @@ where
         &mut self,
         key: &K,
         new_list_entry: L
-    ) -> (result: Result<(), KvError<K, E>>)
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -374,7 +360,7 @@ where
         key: &K,
         new_list_entry: L,
         new_item: I,
-    ) -> (result: Result<(), KvError<K, E>>)
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -399,7 +385,7 @@ where
         }
     }
 
-    fn update_list_entry_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K, E>>)
+    fn update_list_entry_at_index(&mut self, key: &K, idx: usize, new_list_entry: L) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -429,7 +415,7 @@ where
         idx: usize,
         new_list_entry: L,
         new_item: I,
-    ) -> (result: Result<(), KvError<K, E>>)
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -457,7 +443,7 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-    ) -> (result: Result<(), KvError<K, E>>)
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -486,7 +472,7 @@ where
         key: &K,
         trim_length: usize,
         new_item: I,
-    ) -> (result: Result<(), KvError<K, E>>)
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures

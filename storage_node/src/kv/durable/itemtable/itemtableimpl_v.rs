@@ -15,17 +15,15 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
-    pub struct DurableItemTable<K, I, E>
+    pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-            I: PmCopy + Item<K> + Sized + std::fmt::Debug,
-            E: std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
     {
-        _phantom: Ghost<core::marker::PhantomData<E>>,
         item_size: u64,
         num_keys: u64,
         free_list: Vec<u64>,
-        state: Ghost<DurableItemTableView<I, K, E>>,
+        state: Ghost<DurableItemTableView<I, K>>,
     }
 
     // // TODO: make a PR to Verus
@@ -46,13 +44,12 @@ verus! {
     //     }
     // }
 
-    impl<K, I, E> DurableItemTable<K, I, E>
+    impl<K, I> DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-            I: PmCopy + Item<K> + Sized + std::fmt::Debug,
-            E: std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
     {
-        pub closed spec fn view(self) -> DurableItemTableView<I, K, E>
+        pub closed spec fn view(self) -> DurableItemTableView<I, K>
         {
             self.state@
         }
@@ -76,7 +73,7 @@ verus! {
             mem: Seq<u8>,
             op_log: Seq<OpLogEntryType<L>>,
             kvstore_id: u128
-        ) -> Option<DurableItemTableView<I, K, E>>
+        ) -> Option<DurableItemTableView<I, K>>
             where 
                 L: PmCopy,
         {
@@ -167,7 +164,7 @@ verus! {
             pm_region: &mut PM,
             item_table_id: u128,
             num_keys: u64,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -227,8 +224,8 @@ verus! {
             item_table_id: u128,
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-            Ghost(state): Ghost<DurableItemTableView<I, K, E>>
-        ) -> (result: Result<Self, KvError<K, E>>)
+            Ghost(state): Ghost<DurableItemTableView<I, K>>
+        ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -309,7 +306,6 @@ verus! {
             }
 
             Ok(Self {
-                _phantom: Ghost(spec_phantom_data()),
                 item_size,
                 num_keys,
                 free_list: item_table_allocator,
@@ -323,8 +319,8 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             item_slot_size: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-            Ghost(state): Ghost<DurableItemTableView<I, K, E>>
-        ) -> (result: Result<(), KvError<K, E>>)
+            Ghost(state): Ghost<DurableItemTableView<I, K>>
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -368,7 +364,7 @@ verus! {
             Ghost(item_table_id): Ghost<u128>,
             item: &I,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -414,7 +410,7 @@ verus! {
             item_table_id: u128,
             item_table_index: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -446,7 +442,7 @@ verus! {
             item_table_id: u128,
             item_table_index: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -494,7 +490,7 @@ verus! {
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
     }
 
-    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<Box<ItemTableMetadata>, KvError<K, E>>)
+    pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<Box<ItemTableMetadata>, KvError<K>>)
         where
             PM: PersistentMemoryRegion,
         requires

@@ -21,26 +21,23 @@ verus! {
     pub const NUM_DURABLE_LIST_REGIONS: u64 = 1;
 
     #[verifier::reject_recursive_types(K)]
-    pub struct DurableList<K, L, E>
+    pub struct DurableList<K, L>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug,
-            E: std::fmt::Debug
     {
-        _phantom: Ghost<core::marker::PhantomData<(K, L, E)>>,
         list_node_region_free_list: Vec<u64>,
         node_size: u32,
         num_nodes: u64,
-        state: Ghost<DurableListView<K, L, E>>
+        state: Ghost<DurableListView<K, L>>
     }
 
-    impl<K, L, E> DurableList<K, L, E>
+    impl<K, L> DurableList<K, L>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug,
-            E: std::fmt::Debug
     {
-        pub closed spec fn view(self) -> DurableListView<K, L, E>
+        pub closed spec fn view(self) -> DurableListView<K, L>
         {
             self.state@
         }
@@ -54,7 +51,7 @@ verus! {
             op_log: Seq<OpLogEntryType<L>>,
             metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
-        ) -> Option<DurableListView<K, L, E>>
+        ) -> Option<DurableListView<K, L>>
         {
             // TODO: check list node region header for validity? or do we do that later?
             let list_nodes_mem = Self::replay_log_list_nodes(mem, node_size, op_log);
@@ -138,7 +135,7 @@ verus! {
         closed spec fn parse_all_lists(
             metadata_table: MetadataTableView<K>,
             mem: Seq<u8>,
-        ) -> Option<DurableListView<K, L, E>> 
+        ) -> Option<DurableListView<K, L>> 
         {
             let lists_map = Map::empty();
             let result = Self::parse_each_list(metadata_table.get_metadata_header(), metadata_table.get_metadata_table(), mem, lists_map);
@@ -267,7 +264,7 @@ verus! {
             list_id: u128,
             num_keys: u64,
             node_size: u32,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -330,8 +327,8 @@ verus! {
             node_size: u32,
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedListPermission>,
-            Ghost(state): Ghost<DurableListView<K, L, E>>
-        ) -> (result: Result<Self, KvError<K, E>>)
+            Ghost(state): Ghost<DurableListView<K, L>>
+        ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -465,7 +462,6 @@ verus! {
             }
 
             Ok(Self {
-                _phantom: Ghost(spec_phantom_data()),
                 list_node_region_free_list,
                 node_size: node_size,
                 num_nodes: list_region_metadata.num_nodes,
@@ -479,8 +475,8 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             node_size: u32,
             Tracked(perm): Tracked<&TrustedListPermission>,
-            Ghost(state): Ghost<DurableListView<K, L, E>>
-        ) -> (result: Result<(), KvError<K, E>>)
+            Ghost(state): Ghost<DurableListView<K, L>>
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion
             requires 
@@ -541,7 +537,7 @@ verus! {
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             Ghost(list_id): Ghost<u128>,
             Tracked(perm): Tracked<&TrustedListPermission>,
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -587,7 +583,7 @@ verus! {
             new_tail: u64,
             old_tail: u64,
             Tracked(perm): Tracked<&TrustedListPermission>,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -630,7 +626,7 @@ verus! {
             idx: u64,
             list_element: &L,
             Tracked(perm): Tracked<&TrustedListPermission>,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -678,7 +674,7 @@ verus! {
             element_idx: u64,
             list_element: &L,
             Tracked(perm): Tracked<&TrustedListPermission>,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -723,7 +719,7 @@ verus! {
         pub exec fn deallocate_node(
             &mut self,
             idx: u64,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             // TODO: pre and postconditions on self
         {
             assume(false);
@@ -739,7 +735,7 @@ verus! {
             pm_region: &mut PM,
             num_keys: u64,
             node_size: u32,
-        ) -> (result: Result<(), KvError<K,E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -776,7 +772,7 @@ verus! {
             return Ok(());
         }
 
-        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<Box<ListRegionHeader>, KvError<K,E>>)
+        fn read_list_region_header<PM>(pm_region: &PM, list_id: u128) -> (result: Result<Box<ListRegionHeader>, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires

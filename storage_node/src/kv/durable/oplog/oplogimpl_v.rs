@@ -19,21 +19,20 @@ use crate::pmem::crc_t::*;
 use vstd::bytes::*;
 
 verus! {
-    pub struct UntrustedOpLog<K, L, E>
+    pub struct UntrustedOpLog<K, L>
         where 
             L: PmCopy
     {
         log: UntrustedLogImpl,
         state: Ghost<AbstractOpLogState<L>>,
         current_transaction_crc: CrcDigest,
-        _phantom: Option<(K, E)>
+        _phantom: Option<K>
     }
 
-    impl<K, L, E> UntrustedOpLog<K, L, E>
+    impl<K, L> UntrustedOpLog<K, L>
         where 
             L: PmCopy + Copy,
             K: std::fmt::Debug,
-            E: std::fmt::Debug
     {
         pub closed spec fn recover(mem: Seq<u8>, kvstore_id: u128) -> Option<AbstractOpLogState<L>>
         {
@@ -188,7 +187,7 @@ verus! {
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
             Tracked(perm): Tracked<&TrustedPermission>,
-        ) -> (result: Result<Self, KvError<K, E>>)
+        ) -> (result: Result<Self, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -215,7 +214,7 @@ verus! {
             &self,
             wrpm_region: &WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
-        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -266,7 +265,7 @@ verus! {
             Ghost(mem): Ghost<Seq<u8>>,
             Ghost(log_contents_addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>,
-        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K, E>>)
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
             requires 
                 ({
                     // We must have already proven that the bytes are not corrupted. This is already known
@@ -330,7 +329,7 @@ verus! {
             Ghost(mem): Ghost<Seq<u8>>,
             Ghost(log_contents_addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>,
-        ) -> (result: Result<(OpLogEntryType<L>, usize), KvError<K, E>>)
+        ) -> (result: Result<(OpLogEntryType<L>, usize), KvError<K>>)
             requires 
                 ({
                     // We must have already proven that the bytes are not corrupted. This is already known

@@ -32,40 +32,38 @@ use std::hash::Hash;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
-pub struct UntrustedKvStoreImpl<PM, K, I, L, V, E>
+pub struct UntrustedKvStoreImpl<PM, K, I, L, V>
 where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-    I: PmCopy + Item<K> + std::fmt::Debug,
+    I: PmCopy + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K, E>,
-    E: std::fmt::Debug,
+    V: VolatileKvIndex<K>,
 {
     id: u128,
-    durable_store: DurableKvStore<PM, K, I, L, E>,
+    durable_store: DurableKvStore<PM, K, I, L>,
     volatile_index: V,
     node_size: u32,
-    _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L, E)>>,
+    _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L)>>,
 }
 
-impl<PM, K, I, L, V, E> UntrustedKvStoreImpl<PM, K, I, L, V, E>
+impl<PM, K, I, L, V> UntrustedKvStoreImpl<PM, K, I, L, V>
 where
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-    I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K, E>,
-    E: std::fmt::Debug,
+    V: VolatileKvIndex<K>,
 {
     // This function specifies how all durable contents of the KV
     // should be viewed upon recovery as an abstract paged KV state.
     // TODO: write this
-    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>
+    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
         None
     }
 
-    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L, E>
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
         AbstractKvStoreState {
             id: self.id,
@@ -102,7 +100,7 @@ where
     //     kvstore_id: u128,
     //     num_keys: u64,
     //     node_size: u32,
-    // ) -> (result: Result<(PM, PM, PM), KvError<K, E>>)
+    // ) -> (result: Result<(PM, PM, PM), KvError<K>>)
     //     requires
     //         pmem.inv(),
     //         ({
@@ -134,7 +132,7 @@ where
     //             Err(_) => true // TODO
     //         }
     // {
-    //     DurableKvStore::<PM, K, I, L, E>::setup(pmem, kvstore_id, num_keys, node_size)
+    //     DurableKvStore::<PM, K, I, L>::setup(pmem, kvstore_id, num_keys, node_size)
     // }
 
     pub fn untrusted_create(
@@ -142,8 +140,8 @@ where
         key: &K,
         item: &I,
         kvstore_id: u128,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
             key == item.spec_key(),
@@ -239,7 +237,7 @@ where
     //     }
     // }
 
-    pub fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K, E>>)
+    pub fn untrusted_read_list_entry_at_index(&self, key: &K, idx: u64) -> (result: Result<&L, KvError<K>>)
         requires
             self.valid()
         ensures
@@ -292,8 +290,8 @@ where
         &mut self,
         key: &K,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
         ensures
@@ -320,8 +318,8 @@ where
     pub fn untrusted_delete(
         &mut self,
         key: &K,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -347,8 +345,8 @@ where
         &mut self,
         key: &K,
         new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -382,8 +380,8 @@ where
         key: &K,
         new_list_entry: L,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -417,8 +415,8 @@ where
         key: &K,
         idx: usize,
         new_list_entry: L,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -451,8 +449,8 @@ where
         idx: usize,
         new_list_entry: L,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -483,8 +481,8 @@ where
         &mut self,
         key: &K,
         trim_length: usize,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -523,8 +521,8 @@ where
         key: &K,
         trim_length: usize,
         new_item: I,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-    ) -> (result: Result<(), KvError<K, E>>)
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures

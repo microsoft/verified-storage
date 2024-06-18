@@ -72,7 +72,7 @@ impl MemoryMappedFile
                     .unwrap()
             });
             Err(PmemError::NotPm)
-        } else if addr as isize >= isize::MAX + mapped_len as isize {
+        } else if addr as isize >= isize::MAX - mapped_len as isize {
             // By checking that no access to bytes between 0 and the length of the PM region
             // will overflow isize, we can assume later that all accesses are valid and will 
             // not violate the safety conditions of methods like raw ptr offset on the virtual 

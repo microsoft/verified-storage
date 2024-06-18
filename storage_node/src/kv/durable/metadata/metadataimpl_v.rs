@@ -16,16 +16,14 @@ use crate::pmem::crc_t::*;
 use crate::pmem::traits_t;
 
 verus! {
-    pub struct MetadataTable<K, E> {
+    pub struct MetadataTable<K> {
         metadata_table_free_list: Vec<u64>,
         state: Ghost<MetadataTableView<K>>,
-        _phantom: Option<E>
     }
 
-    impl<K, E> MetadataTable<K, E>
+    impl<K> MetadataTable<K>
         where 
             K: PmCopy + std::fmt::Debug,
-            E: std::fmt::Debug,
     {
         pub closed spec fn view(self) -> MetadataTableView<K> 
         {
@@ -153,7 +151,7 @@ verus! {
             }
         }
 
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<Box<MetadataTableHeader>, KvError<K, E>>)
+        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<Box<MetadataTableHeader>, KvError<K>>)
             where
                 PM: PersistentMemoryRegions,
             requires
@@ -222,7 +220,7 @@ verus! {
             num_keys: u64,
             list_element_size: u32,
             node_size: u32,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires
@@ -274,7 +272,7 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
-        ) -> (result: Result<Self, KvError<K, E>>)
+        ) -> (result: Result<Self, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -340,7 +338,6 @@ verus! {
             Ok(Self {
                 metadata_table_free_list: metadata_allocator,
                 state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
-                _phantom: None
             })
         }
 
@@ -350,7 +347,7 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
-        ) -> Result<(), KvError<K, E>>
+        ) -> Result<(), KvError<K>>
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -406,7 +403,7 @@ verus! {
             item_table_index: u64,
             key: &K,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<u64, KvError<K, E>>)
+        ) -> (result: Result<u64, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -456,7 +453,7 @@ verus! {
             table_id: u128,
             index: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -483,7 +480,7 @@ verus! {
             table_id: u128,
             index: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -514,7 +511,7 @@ verus! {
             new_length: u64,
             metadata_crc: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -547,7 +544,7 @@ verus! {
             new_list_start_index: u64,
             metadata_crc: u64,
             Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<(), KvError<K, E>>) 
+        ) -> (result: Result<(), KvError<K>>) 
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -610,7 +607,7 @@ verus! {
         exec fn read_header<PM>(
             pm_region: &PM,
             table_id: u128
-        ) -> (result: Result<Box<MetadataTableHeader>, KvError<K, E>>)
+        ) -> (result: Result<Box<MetadataTableHeader>, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 

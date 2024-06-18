@@ -20,6 +20,7 @@ pub mod log;
 pub mod multilog;
 pub mod pmem;
 
+use kv::durable::durableimpl_v::*;
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
@@ -30,6 +31,9 @@ use crate::pmem::linux_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::traits_t::*;
+use deps_hack::{PmSafe, PmSized};
 
 mod tests {
 
@@ -38,6 +42,11 @@ use super::*;
 #[test]
 fn check_multilog_in_volatile_memory() {
     assert!(test_multilog_in_volatile_memory());
+}
+
+#[test]
+fn check_durable_on_memory_mapped_file () {
+    test_durable_on_memory_mapped_file();
 }
     
 }
@@ -290,24 +299,74 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     Some(())
 }
 
-// fn test_durable_on_memory_mapped_file() {
-//     let region_size = 1024;
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+struct TestKey {
+    val: u64,
+}
+impl PmCopy for TestKey {}
 
-//     // Create the memory out of a single file.
-//     let file_name = "test_log";
-//     #[cfg(target_os = "windows")]
-//     let mut pm_region = FileBackedPersistentMemoryRegion::new(
-//         &file_name, MemoryMappedFileMediaType::SSD,
-//         region_size,
-//         FileCloseBehavior::TestingSoDeleteOnClose
-//     ).ok()?;
-//     #[cfg(target_os = "linux")]
-//     let mut pm_region = FileBackedPersistentMemoryRegion::new(
-//         &file_name,
-//         region_size,
-//         PersistentMemoryCheck::DontCheckForPersistentMemory,
-//     ).ok()?;
-// }
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+struct TestItem {
+    val: u64,
+}
+impl PmCopy for TestItem {}
+
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+struct TestListElement {
+    val: u64,
+}
+impl PmCopy for TestListElement {}
+
+
+fn test_durable_on_memory_mapped_file() {
+    let region_size = 4096;
+    let log_file_name = "/home/hayley/kv_files/test_log";
+    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
+    let item_table_file_name = "/home/hayley/kv_files/test_item";
+    let list_file_name = "/home/hayley/kv_files/test_list";
+
+    let num_keys = 16;
+    let node_size = 16;
+
+    // delete the test files if they already exist. Ignore the result,
+    // since it's ok if the files don't exist.
+    let _ = std::fs::remove_file(log_file_name);
+    let _ = std::fs::remove_file(metadata_file_name);
+    let _ = std::fs::remove_file(item_table_file_name);
+    let _ = std::fs::remove_file(list_file_name);
+
+
+    // Create a file, and a PM region, for each component
+    let mut log_region = create_pm_region(log_file_name, region_size);
+    let mut metadata_region = create_pm_region(metadata_file_name, region_size);
+    let mut item_table_region = create_pm_region(item_table_file_name, region_size);
+    let mut list_region = create_pm_region(list_file_name, region_size);
+
+    let kvstore_id = generate_fresh_log_id();
+    let kv_store = DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
+        kvstore_id, num_keys, node_size).unwrap();
+}
+
+fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
+{
+    #[cfg(target_os = "windows")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name, MemoryMappedFileMediaType::SSD,
+        region_size,
+        FileCloseBehavior::TestingSoDeleteOnClose
+    ).unwrap();
+    #[cfg(target_os = "linux")]
+    let mut pm_region = FileBackedPersistentMemoryRegion::new(
+        &file_name,
+        region_size,
+        PersistentMemoryCheck::DontCheckForPersistentMemory,
+    ).unwrap();
+
+    pm_region
+}
 
 #[allow(dead_code)]
 fn main()
@@ -315,5 +374,6 @@ fn main()
     test_multilog_in_volatile_memory();
     test_multilog_on_memory_mapped_file();
     test_log_on_memory_mapped_file();
+    test_durable_on_memory_mapped_file();
 }
 }

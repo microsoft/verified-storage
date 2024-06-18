@@ -32,39 +32,37 @@ use std::hash::Hash;
 
 verus! {
     #[verifier::reject_recursive_types(K)]
-    pub struct DurableKvStore<PM, K, I, L, E>
+    pub struct DurableKvStore<PM, K, I, L>
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-        I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+        I: PmCopy + Sized + std::fmt::Debug,
         L: PmCopy + std::fmt::Debug,
-        E: std::fmt::Debug,
     {
-        item_table: DurableItemTable<K, I, E>,
-        durable_list: DurableList<K, L, E>,
-        log: UntrustedOpLog<K, L, E>,
-        metadata_table: MetadataTable<K, E>,
+        item_table: DurableItemTable<K, I>,
+        durable_list: DurableList<K, L>,
+        log: UntrustedOpLog<K, L>,
+        metadata_table: MetadataTable<K>,
         item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
         list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
         log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
         metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>
     }
 
-    impl<PM, K, I, L, E> DurableKvStore<PM, K, I, L, E>
+    impl<PM, K, I, L> DurableKvStore<PM, K, I, L>
         where
             PM: PersistentMemoryRegion,
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-            I: PmCopy + Item<K> + Sized + std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug + Copy,
-            E: std::fmt::Debug,
     {
         // TODO: write this based on specs of the other structures
-        pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L, E>;
+        pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
         // Proving crash consistency here will come down to proving that each update
         // to an individual component results in a valid AbstractKvStoreState either with 0
         // log entries replayed or all of the log entries replayed, I think
-        pub closed spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L, E>>
+        pub closed spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
         {
             // TODO
             None
@@ -88,7 +86,7 @@ verus! {
             kvstore_id: u128,
             num_keys: u64,
             node_size: u32,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -106,8 +104,8 @@ verus! {
 
             // 1. Set up each component in its specified pm region
             MetadataTable::setup(metadata_pmem, kvstore_id, num_keys, L::size_of() as u32, node_size)?;
-            DurableItemTable::<K, I, E>::setup(item_table_pmem, kvstore_id, num_keys as u64)?;
-            DurableList::<K, L, E>::setup(list_pmem, kvstore_id, num_keys, node_size)?;
+            DurableItemTable::<K, I>::setup(item_table_pmem, kvstore_id, num_keys as u64)?;
+            DurableList::<K, L>::setup(list_pmem, kvstore_id, num_keys, node_size)?;
             if let Err(e) =  UntrustedLogImpl::setup(log_pmem, kvstore_id) {
                 return Err(KvError::LogErr { log_err: e });
             };
@@ -123,9 +121,9 @@ verus! {
             kvstore_id: u128,
             num_keys: u64,
             node_size: u32,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-            Ghost(state): Ghost<DurableKvStoreView<K, I, L, E>>
-        ) -> (result: Result<Self, KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Ghost(state): Ghost<DurableKvStoreView<K, I, L>>
+        ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -156,13 +154,13 @@ verus! {
 
             // 1. Recover the log to get the list of log entries.
             // TODO: we only need to replay the log if we crashed? We don't have clean shutdown implemented right now anyway though
-            let mut log: UntrustedOpLog<K, L, E> = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            let mut log: UntrustedOpLog<K, L> = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
             let log_entries = log.read_op_log(&log_wrpm, kvstore_id)?;
 
             // 2. start the rest of the components using the log
 
             let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, &log_entries, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
-            let item_table: DurableItemTable<K, I, E> = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, &log_entries, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
+            let item_table: DurableItemTable<K, I> = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, &log_entries, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
             let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, &log_entries, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;
 
             metadata_wrpm.flush();
@@ -193,8 +191,8 @@ verus! {
             item: &I,
             key: &K,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-        ) -> (result: Result<u64, KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -311,7 +309,7 @@ verus! {
             &self,
             offset: u64,
             idx: u64
-        ) -> (result: Result<&L, KvError<K, E>>)
+        ) -> (result: Result<&L, KvError<K>>)
             requires
                 self.valid(),
             ensures
@@ -338,7 +336,7 @@ verus! {
             &mut self,
             offset: u64,
             new_item: I,
-        ) -> (result: Result<(), KvError<K, E>>)
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid()
             ensures
@@ -365,8 +363,8 @@ verus! {
         pub fn delete(
             &mut self,
             offset: u64,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid()
             ensures
@@ -386,8 +384,8 @@ verus! {
             &mut self,
             offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
                 // should require that there is enough space in the tail node
@@ -410,8 +408,8 @@ verus! {
             &mut self,
             offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<u64, KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -436,8 +434,8 @@ verus! {
             offset: u64,
             new_entry: L,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-        ) -> (result: Result<u64, KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 old(self).valid()
                 // should require that there is enough space in the tail node
@@ -462,8 +460,8 @@ verus! {
             offset: u64,
             new_entry: L,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
-        ) -> (result: Result<u64, KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+        ) -> (result: Result<u64, KvError<K>>)
             requires
                 old(self).valid()
             ensures
@@ -489,8 +487,8 @@ verus! {
             item_offset: u64, // TODO: is this necessary? maybe just as ghost state
             entry_offset: u64,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -517,8 +515,8 @@ verus! {
             entry_offset: u64,
             new_item: I,
             new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -546,8 +544,8 @@ verus! {
             old_head_node_offset: u64,
             new_head_node_offset: u64,
             trim_length: usize,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures
@@ -576,8 +574,8 @@ verus! {
             new_head_node_offset: u64,
             trim_length: usize,
             new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>,
-        ) -> (result: Result<(), KvError<K, E>>)
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures

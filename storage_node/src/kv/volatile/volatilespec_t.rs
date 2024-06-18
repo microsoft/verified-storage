@@ -27,7 +27,7 @@ verus! {
 
         // Reflects an entry being appended to the corresponding durable list node
         // by updating the number of entries for the node in the index
-        pub open spec fn append_entry<K, E>(self) -> Result<Self, KvError<K, E>>
+        pub open spec fn append_entry<K, E>(self) -> Result<Self, KvError<K>>
             where
                 K: std::fmt::Debug,
                 E: std::fmt::Debug,
@@ -127,7 +127,7 @@ verus! {
 
         // Returns the index key and the view of the list node that contains the specified
         // logical list index.
-        pub open spec fn get_node_view<E>(&self, key: K, index: int) -> Result<((int, int), ListNodeIndexEntry), KvError<K,E>>
+        pub open spec fn get_node_view<E>(&self, key: K, index: int) -> Result<((int, int), ListNodeIndexEntry), KvError<K>>
             where
                 E: std::fmt::Debug
         {
@@ -153,7 +153,7 @@ verus! {
         }
 
         // returns the offset of the node that contains the specified logical list index
-        pub open spec fn get_node_offset<E>(&self, key: K, index: int) -> Result<int, KvError<K, E>>
+        pub open spec fn get_node_offset<E>(&self, key: K, index: int) -> Result<int, KvError<K>>
             where
                 E: std::fmt::Debug
         {
@@ -176,7 +176,7 @@ verus! {
         // Updates the index to reflect that an entry has been appended to the end of the list.
         // It doesn't actually matter what the entry is -- we just need to update the index
         // to reflect that something new has been added
-        pub open spec fn append_to_list<E>(self, key: K) -> Result<Self, KvError<K, E>>
+        pub open spec fn append_to_list<E>(self, key: K) -> Result<Self, KvError<K>>
             where
                 E: std::fmt::Debug
         {
@@ -210,7 +210,7 @@ verus! {
         }
 
         // TODO: clean this up/split into multiple spec functions
-        pub open spec fn trim_list<E>(self, key: K, trim_length: int) -> Result<Self, KvError<K, E>>
+        pub open spec fn trim_list<E>(self, key: K, trim_length: int) -> Result<Self, KvError<K>>
             where
                 E: std::fmt::Debug
         {
