@@ -653,7 +653,7 @@ verus! {
             let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * tail_node;
 
             // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size as u64 * idx;
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * idx;
             let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
 
             // 3. get the CRC of the new list element
@@ -701,7 +701,7 @@ verus! {
             let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_idx;
 
             // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + LENGTH_OF_LIST_NODE_HEADER + list_element_slot_size as u64 * element_idx;
+            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * element_idx;
             let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
 
             // 3. get the CRC of the new list element

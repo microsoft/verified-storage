@@ -54,7 +54,6 @@ verus! {
     pub const RELATIVE_POS_OF_NUM_KEYS: u64 = 16;
     pub const RELATIVE_POS_OF_PADDING: u64 = 24;
     pub const RELATIVE_POS_OF_PROGRAM_GUID: u64 = 32;
-    pub const LENGTH_OF_METADATA_HEADER: u64 = 48;
     pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 48;
 
     // TODO: it may be more performant to skip some space and

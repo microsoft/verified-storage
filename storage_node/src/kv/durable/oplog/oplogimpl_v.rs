@@ -92,79 +92,90 @@ verus! {
                 // 2. serialize the entry based on the read type and loop over the remaining log contents
                 match entry_type {
                     COMMIT_ITEM_TABLE_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_COMMIT_ITEM_ENTRY {
+                        if log_contents.len() < CommitItemEntry::spec_size_of() {
                             None
                         } else {
-                            let read_entry = CommitItemEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_COMMIT_ITEM_ENTRY as int));
+                            let read_entry = CommitItemEntry::spec_from_bytes(log_contents.subrange(0 as int, CommitItemEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::ItemTableEntryCommit {
                                 item_index: read_entry.item_index,
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_COMMIT_ITEM_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(CommitItemEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
                     INVALIDATE_ITEM_TABLE_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_INVALIDATE_ITEM_ENTRY {
+                        if log_contents.len() < InvalidateItemEntry::spec_size_of() {
                             None 
                         } else {
-                            let read_entry = InvalidateItemEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_INVALIDATE_ITEM_ENTRY as int));
+                            let read_entry = InvalidateItemEntry::spec_from_bytes(log_contents.subrange(0 as int, InvalidateItemEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::ItemTableEntryInvalidate {
                                 item_index: read_entry.item_index
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_INVALIDATE_ITEM_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(InvalidateItemEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
                     APPEND_LIST_NODE_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_APPEND_NODE_ENTRY {
+                        if log_contents.len() < AppendListNodeEntry::spec_size_of() {
                             None 
                         } else {
-                            let read_entry = AppendListNodeEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_APPEND_NODE_ENTRY as int));
+                            let read_entry = AppendListNodeEntry::spec_from_bytes(log_contents.subrange(0 as int, AppendListNodeEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::AppendListNode {
                                 metadata_index: read_entry.metadata_index,
                                 old_tail: read_entry.old_tail,
                                 new_tail: read_entry.new_tail,
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_APPEND_NODE_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(AppendListNodeEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
                     INSERT_LIST_ELEMENT_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY {
+                        if log_contents.len() < InsertListElementEntry::spec_size_of() {
                             None 
                         } else {
-                            let read_entry = InsertListElementEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as int));
-                            let list_element = L::spec_from_bytes(log_contents.subrange(LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as int, LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY + L::spec_size_of()));
+                            let read_entry = InsertListElementEntry::spec_from_bytes(log_contents.subrange(0 as int, InsertListElementEntry::spec_size_of() as int));
+                            let list_element = L::spec_from_bytes(log_contents.subrange(InsertListElementEntry::spec_size_of() as int, InsertListElementEntry::spec_size_of() + L::spec_size_of()));
                             let entry = OpLogEntryType::InsertListElement {
                                 node_offset: read_entry.node_offset,
                                 index_in_node: read_entry.index_in_node,
                                 list_element
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(InsertListElementEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
                     COMMIT_METADATA_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_COMMIT_METADATA_ENTRY {
+                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
                             None 
                         } else {
                             let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::CommitMetadataEntry {
                                 metadata_index: read_entry.metadata_index,
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_COMMIT_METADATA_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
                     INVALIDATE_METADATA_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_INVALIDATE_METADATA_ENTRY {
+                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
                             None 
                         } else {
                             let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::InvalidateMetadataEntry {
                                 metadata_index: read_entry.metadata_index
                             };
-                            let log_contents = log_contents.subrange(LENGTH_OF_INVALIDATE_METADATA_ENTRY as int, log_contents.len() as int);
+                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
+                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
+                        }
+                    }
+                    UPDATE_METADATA_ENTRY => {
+                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
+                            None 
+                        } else {
+                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
+                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(MetadataLogEntry::spec_size_of() as int, MetadataLogEntry::spec_size_of() + ListEntryMetadata::spec_size_of()));
+                            let entry = OpLogEntryType::UpdateMetadataEntry { metadata_index: read_entry.metadata_index, new_metadata };
+                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }

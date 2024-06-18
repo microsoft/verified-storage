@@ -62,46 +62,26 @@ verus! {
     pub const RELATIVE_POS_OF_ITEM_INDEX_COMMIT_ITEM: u64 = 8;
     pub const RELATIVE_POS_OF_METADATA_INDEX_COMMIT_ITEM: u64 = 16;
     pub const RELATIVE_POS_OF_CRC_COMMIT_ITEM: u64 = 24;
-    pub const LENGTH_OF_COMMIT_ITEM_ENTRY: u64 = 32;
 
     // invalidate item table entry
     pub const RELATIVE_POS_OF_ITEM_INDEX_INVALIDATE_ITEM: u64 = 8;
-    pub const LENGTH_OF_INVALIDATE_ITEM_ENTRY: u64 = 16;
 
     // append list node entry
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_APPEND_NODE: u64 = 8;
     pub const RELATIVE_POS_OF_OLD_TAIL_APPEND_NODE: u64 = 16;
     pub const RELATIVE_POS_OF_NEW_TAIL_APPEND_NODE: u64 = 24;
     pub const RELATIVE_POS_OF_METADATA_CRC_APPEND_NODE: u64 = 32;
-    pub const LENGTH_OF_APPEND_NODE_ENTRY: u64 = 40;
 
     // insert list element entry
     pub const RELATIVE_POS_OF_NODE_OFFSET_INSERT_LIST_ELEMENT: u64 = 8;
     pub const RELATIVE_POS_OF_INDEX_IN_NODE_INSERT_LIST_ELEMENT: u64 = 16;
-    pub const LENGTH_OF_INSERT_LIST_ELEMENT_ENTRY: u64 = 24;
-
-    // update list length entry
-    pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_UPDATE_LIST_LEN: u64 = 8;
-    pub const RELATIVE_POS_OF_NEW_LENGTH_UPDATE_LIST_LEN: u64 = 16;
-    pub const RELATIVE_POS_OF_METADATA_CRC_UPDATE_LIST_LEN: u64 = 24;
-    pub const LENGTH_OF_UPDATE_LIST_LEN_ENTRY: u64 = 32;
-
-    // trim list entry
-    pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_TRIM_LIST: u64 = 8;
-    pub const RELATIVE_POS_OF_NEW_HEAD_NODE_TRIM_LIST: u64 = 16;
-    pub const RELATIVE_POS_OF_NEW_LIST_LEN_TRIM_LIST: u64 = 24;
-    pub const RELATIVE_POS_OF_NEW_LIST_START_INDEX_TRIM_LIST: u64 = 32;
-    pub const RELATIVE_POS_OF_METADATA_CRC_TRIM_LIST: u64 = 40;
-    pub const LENGTH_OF_TRIM_LIST_ENTRY: u64 = 48;
 
     // commit metadata entry 
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_COMMIT_METADATA: u64 = 8;
     pub const RELATIVE_POS_OF_ITEM_INDEX_COMMIT_METADATA: u64 = 16;
-    pub const LENGTH_OF_COMMIT_METADATA_ENTRY: u64 = 24;
 
     // delete metadata entry
     pub const RELATIVE_POS_OF_LIST_METADATA_INDEX_INVALIDATE_METADATA: u64 = 8;
-    pub const LENGTH_OF_INVALIDATE_METADATA_ENTRY: u64 = 16;
 
     // Enum representing different op log entry types.
     // The concrete types we write to the log are not enums so that we have more control 

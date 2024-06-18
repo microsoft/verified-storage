@@ -37,7 +37,6 @@ verus! {
     pub const RELATIVE_POS_OF_LIST_VERSION_NUMBER: u64 = 16;
     pub const RELATIVE_POS_OF_LIST_REGION_HEADER_PADDING: u64 = 24;
     pub const RELATIVE_POS_OF_LIST_PROGRAM_GUID: u64 = 32;
-    pub const LENGTH_OF_LIST_REGION_HEADER: u64 = 48;
     pub const ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC: u64 = 48;
     pub const ABSOLUTE_POS_OF_LIST_REGION_NODE_START: u64 = 56;
 
@@ -70,7 +69,6 @@ verus! {
     pub const RELATIVE_POS_OF_NEXT_POINTER: u64 = 0;
     pub const RELATIVE_POS_OF_LIST_NODE_CRC: u64 = 8;
     pub const RELATIVE_POS_OF_LIST_CONTENTS_AREA: u64 = 16;
-    pub const LENGTH_OF_LIST_NODE_HEADER: u64 = 16;
 
     // `mem` is the full list node region, not just the bytes associated with this node
     pub open spec fn parse_list_node<L>(
@@ -82,19 +80,17 @@ verus! {
             L: PmCopy 
     {
         let list_entry_size = L::spec_size_of() + u64::spec_size_of();
-        // let node_size = (mem.len() - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / metadata_header.num_nodes;
-        // let elements_per_node = (node_size - LENGTH_OF_LIST_NODE_HEADER) / list_entry_size;
         // check that the metadata in the header makes sense/is valid
         // We should have already checked this when parsing the metadata table, but do it again here to be safe
         if {
             ||| metadata_header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID 
             ||| metadata_header.version_number != 1
             ||| list_entry_size != metadata_header.element_size
-            ||| mem.len() < LENGTH_OF_LIST_REGION_HEADER
+            ||| mem.len() < ListRegionHeader::spec_size_of()
         } {
             None
         } else {
-            let node_region_header_bytes = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + LENGTH_OF_LIST_REGION_HEADER);
+            let node_region_header_bytes = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + u64::spec_size_of() + u64::spec_size_of());
             let node_region_header = ListRegionHeader::spec_from_bytes(node_region_header_bytes);
             let node_region_header_crc = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of());
             let node_region_crc = u64::spec_from_bytes(node_region_header_crc);
@@ -103,7 +99,7 @@ verus! {
                 None
             } else {
                 let node_size = (mem.len() - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_region_header.num_nodes as int;
-                let elements_per_node = (node_size - LENGTH_OF_LIST_NODE_HEADER) / list_entry_size;
+                let elements_per_node = (node_size - (u64::spec_size_of() + u64::spec_size_of())) / list_entry_size;
                 if {
                     ||| mem.len() < node_region_header.length 
                     ||| node_region_header.version_number != 1

@@ -22,7 +22,6 @@ verus! {
     pub const RELATIVE_POS_OF_VERSION_NUMBER: u64 = 16;
     pub const RELATIVE_POS_OF_PADDING: u64 = 24;
     pub const RELATIVE_POS_OF_PROGRAM_GUID: u64 = 32;
-    pub const LENGTH_OF_METADATA_HEADER: u64 = 48;
     pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 48;
 
     pub const ABSOLUTE_POS_OF_METADATA_TABLE: u64 = 56;
@@ -69,7 +68,6 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_METADATA_LENGTH: u64 = 16;
     pub const RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET: u64 = 24;
     pub const RELATIVE_POS_OF_ENTRY_METADATA_ITEM_INDEX: u64 = 32;
-    pub const LENGTH_OF_ENTRY_METADATA_MINUS_KEY: u64 = 40;
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]

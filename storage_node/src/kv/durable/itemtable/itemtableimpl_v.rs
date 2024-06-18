@@ -90,7 +90,7 @@ verus! {
                 // doing any log replay
                 let metadata_header_bytes = mem.subrange(
                     ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                    ABSOLUTE_POS_OF_METADATA_HEADER + LENGTH_OF_METADATA_HEADER
+                    ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of()
                 );
                 let crc_bytes = mem.subrange(
                     ABSOLUTE_POS_OF_HEADER_CRC as int,
