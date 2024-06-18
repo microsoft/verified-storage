@@ -181,7 +181,7 @@ where
     //     Err(KvError::NotImplemented)
     // }
 
-    fn create(&mut self, key: &K, item: &I, Ghost(kvstore_id): Ghost<u128>,) -> (result: Result<(), KvError<K, E>>)
+    fn create(&mut self, key: &K, item: &I, kvstore_id: u128,) -> (result: Result<(), KvError<K, E>>)
         requires
             old(self).valid(),
             key == item.spec_key(),
@@ -203,7 +203,7 @@ where
         } else {
             let tracked perm =
                 TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
-            self.untrusted_kv_impl.untrusted_create(key, item, Ghost(kvstore_id), Tracked(&perm))
+            self.untrusted_kv_impl.untrusted_create(key, item, kvstore_id, Tracked(&perm))
         }
     }
 

@@ -192,7 +192,7 @@ verus! {
             &mut self,
             item: &I,
             key: &K,
-            Ghost(kvstore_id): Ghost<u128>,
+            kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L, E>>
         ) -> (result: Result<u64, KvError<K, E>>)
             requires
@@ -248,16 +248,42 @@ verus! {
                 Tracked(&fake_metadata_perm)
             )?;
 
-            // 2. tentatively append the new item's commit op to the log. Metadata entry commit 
+            // 4. tentatively append the new item's commit op to the log. Metadata entry commit 
             // implies item commit and also makes the list accessible so we can append to it
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            // let log_entry = CommitMetadataEntry::new(metadata_index, item_index);
+            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_metadata_table_perm = TrustedMetadataPermission::fake_metadata_perm();
 
-            // TODO finish this -- write the log entry, commit the transaction, finish off the operation
-            // figure out exactly what you need to do here
+            let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
+            let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
 
+            match self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, item_log_entry, Tracked(&fake_log_perm)) {
+                Ok(()) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
+            match self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, metadata_log_entry, Tracked(&fake_log_perm)) {
+                Ok(()) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
 
-            Err(KvError::NotImplemented)
+            // 5. commit the log transaction
+            match self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm)) {
+                Ok(()) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
+
+            // 6. commit the log and metadata entries
+            self.item_table.commit_item(&mut self.item_table_wrpm, kvstore_id, item_index, Tracked(&fake_item_table_perm))?;
+            self.metadata_table.commit_entry(&mut self.metadata_wrpm, kvstore_id, metadata_index, Tracked(&fake_metadata_perm))?;
+
+            // 7. now that the entries have been committed, clear the log
+            match self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm)) {
+                Ok(()) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
+
+            // 8. Return the index of the metadata entry so it can be used in the volatile index.
+            Ok(metadata_index)
         }
 
         pub fn read_item(

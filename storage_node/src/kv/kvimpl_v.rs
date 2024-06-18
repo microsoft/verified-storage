@@ -141,7 +141,7 @@ where
         &mut self,
         key: &K,
         item: &I,
-        Ghost(kvstore_id): Ghost<u128>,
+        kvstore_id: u128,
         perm: Tracked<&TrustedKvPermission<PM, K, I, L, E>>
     ) -> (result: Result<(), KvError<K, E>>)
         requires
@@ -171,7 +171,7 @@ where
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
-        let offset = self.durable_store.create(&item, &key, Ghost(kvstore_id), perm)?;
+        let offset = self.durable_store.create(&item, &key, kvstore_id, perm)?;
         self.volatile_index.insert_item_offset(key, offset)?;
 
         proof {
