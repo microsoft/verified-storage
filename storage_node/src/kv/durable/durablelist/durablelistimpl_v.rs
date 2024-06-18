@@ -85,7 +85,7 @@ verus! {
         ) -> Seq<u8>
         {
             match op {
-                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail, metadata_crc} => {
+                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail} => {
                     // To append a node, we set both the old tail and new tail's next pointers to the new tail,
                     // plus update both of their CRCs. The `metadata_crc` field in the enum is used when updating
                     // the metadata table; we just use the CRC of the new tail index here.
@@ -498,7 +498,7 @@ verus! {
                 let log_entry = &log_entries[i];
 
                 match log_entry {
-                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
+                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
                         // Appending a new list node involves setting the both the old tail and the new tail's next pointer and CRC
                         // to point to the new tail. 
                         let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * old_tail;

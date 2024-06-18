@@ -106,39 +106,15 @@ verus! {
         {
             let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
             match op {
-                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
-                    // on item table commit, the corresponding entry in the metadata table updates its item pointer
-                    // to point to the newly-committed item. We don't handle item invalidate here because when an item is 
-                    // invalidated, either its entire record will be deleted (so this metadata entry will also be deleted)
-                    // or we are updating it with a newly-committed item.
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
-                    let item_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_ITEM_INDEX;
-                    let item_index_bytes = item_index.spec_to_bytes();
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let crc_bytes = metadata_crc.spec_to_bytes();
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if item_addr <= pos < item_addr + 8 {
-                            item_index_bytes[pos - item_addr]
-                        } else if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else {
-                            pre_byte
-                        }
-                    });
-                    mem
-                }
-                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail, metadata_crc} => {
+                OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail} => {
                     // updates the tail field and the entry's CRC. We don't use the old tail value here -- that is only used
                     // when updating list nodes
                     let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
                     let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
                     let new_tail_bytes = spec_u64_to_le_bytes(new_tail);
                     let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if tail_addr <= pos < tail_addr + 8 {
+                        if tail_addr <= pos < tail_addr + 8 {
                             new_tail_bytes[pos - tail_addr]
                         } else {
                             pre_byte
@@ -146,49 +122,7 @@ verus! {
                     });
                     mem
                 }
-                OpLogEntryType::UpdateListLen{metadata_index, new_length, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
-                    let len_bytes = spec_u64_to_le_bytes(new_length);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if len_addr <= pos < len_addr + 8 {
-                            len_bytes[pos - len_addr]
-                        } else {
-                            pre_byte 
-                        }
-                    });
-                    mem
-                } 
-                OpLogEntryType::TrimList{metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
-                    let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-                    let head_addr = entry_offset +  RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
-                    let len_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
-                    let start_index_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_FIRST_OFFSET;
-                    let crc_bytes = spec_u64_to_le_bytes(metadata_crc);
-                    let head_bytes = spec_u64_to_le_bytes(new_head_node);
-                    let len_bytes = spec_u64_to_le_bytes(new_list_len);
-                    let start_bytes = spec_u64_to_le_bytes(new_list_start_index);
-                    let mem = mem.map(|pos: int, pre_byte: u8| {
-                        if crc_addr <= pos < crc_addr + 8 {
-                            crc_bytes[pos - crc_addr]
-                        } else if head_addr <= pos < head_addr + 8 {
-                            head_bytes[pos - head_addr]
-                        } else if len_addr <= pos < len_addr + 8 {
-                            len_bytes[pos - len_addr]
-                        } else if start_index_addr <= pos < start_index_addr + 8 {
-                            start_bytes[pos - start_index_addr]
-                        } else {
-                            pre_byte 
-                        }
-                    });
-                    mem
-                }
-                OpLogEntryType::CommitMetadataEntry{metadata_index, item_index} => {
+                OpLogEntryType::CommitMetadataEntry{metadata_index} => {
                     let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
                     let cdb_bytes = spec_u64_to_le_bytes(CDB_TRUE);
                     let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
@@ -432,54 +366,7 @@ verus! {
 
                 let log_entry = &log_entries[i];
                 match log_entry {
-                    OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
-                        // On item table commit, the corresponding entry in the metadata table updates its item pointer. 
-                        // We need to update the metadata index and its CRC. 
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
-                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-                        let item_index_addr = slot_addr + ListEntryMetadata::offset_of_item_index_field() as u64;
-                        
-                        // update item table index field and the entry's crc
-                        wrpm_region.serialize_and_write(item_index_addr, item_index, Tracked(perm));
-                        wrpm_region.serialize_and_write(crc_addr, metadata_crc, Tracked(perm));
-                    }
-                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
-                        // On list node append, we update the tail field and CRC in the corresponding metadata table entry.
-                        // `old_tail` is not used here (it's for list log replay)
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
-                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-                        let tail_field_addr = slot_addr + ListEntryMetadata::offset_of_tail_field() as u64;
-
-                        wrpm_region.serialize_and_write(tail_field_addr, new_tail, Tracked(perm));
-                        wrpm_region.serialize_and_write(crc_addr, metadata_crc, Tracked(perm));
-                    }
-                    OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => {
-                        // update list len sets a new list length and crc
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
-                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-                        let len_field_addr = slot_addr + ListEntryMetadata::offset_of_length_field() as u64;
-
-                        wrpm_region.serialize_and_write(len_field_addr, new_length, Tracked(perm));
-                        wrpm_region.serialize_and_write(crc_addr, metadata_crc, Tracked(perm));
-                    }
-                    OpLogEntryType::TrimList { metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc } => {
-                        // trimming the list requires updating several fields -- head node, list length, start index/number of slots skipped in the first node
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
-                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-                        let head_field_addr = slot_addr + ListEntryMetadata::offset_of_head_field() as u64;
-                        let len_field_addr = slot_addr + ListEntryMetadata::offset_of_length_field() as u64;
-                        let list_start_field_addr = slot_addr + ListEntryMetadata::offset_of_first_entry_offset_field() as u64;
-
-                        wrpm_region.serialize_and_write(head_field_addr, new_head_node, Tracked(perm));
-                        wrpm_region.serialize_and_write(len_field_addr, new_list_len, Tracked(perm));
-                        wrpm_region.serialize_and_write(list_start_field_addr, new_list_start_index, Tracked(perm));
-                        wrpm_region.serialize_and_write(crc_addr, metadata_crc, Tracked(perm));
-                    }
-                    OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => {
+                    OpLogEntryType::CommitMetadataEntry { metadata_index } => {
                         // commit metadata just sets the CDB -- the metadata fields have already been filled in.
                         // We also have to commit the item, but we'll do that in item table recovery
                         let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
@@ -491,6 +378,16 @@ verus! {
                         let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
+                    }
+                    OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
+                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+                        let metadata_slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+                        let crc = calculate_crc(new_metadata);
+
+                        wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+                        wrpm_region.serialize_and_write(metadata_slot_addr, new_metadata, Tracked(perm));
                     }
                     _ => {} // the other operations do not modify the metadata table
                 }

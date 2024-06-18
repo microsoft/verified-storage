@@ -15,6 +15,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
@@ -46,10 +47,11 @@ verus! {
     pub const INVALIDATE_ITEM_TABLE_ENTRY: u64 = 1;
     pub const APPEND_LIST_NODE_ENTRY: u64 = 2;
     pub const INSERT_LIST_ELEMENT_ENTRY: u64 = 3;
-    pub const UPDATE_LIST_LEN_ENTRY: u64 = 4; // for new (appended) or in-place element updates
-    pub const TRIM_LIST_METADATA_UPDATE_ENTRY: u64 = 5; // updates head, len, and start index during trim
-    pub const COMMIT_METADATA_ENTRY: u64 = 6;
-    pub const INVALIDATE_METADATA_ENTRY: u64 = 7;
+    // pub const UPDATE_LIST_LEN_ENTRY: u64 = 4; // for new (appended) or in-place element updates
+    // pub const TRIM_LIST_METADATA_UPDATE_ENTRY: u64 = 5; // updates head, len, and start index during trim
+    pub const COMMIT_METADATA_ENTRY: u64 = 4;
+    pub const INVALIDATE_METADATA_ENTRY: u64 = 5;
+    pub const UPDATE_METADATA_ENTRY: u64 = 6;
 
     // layout constants for concrete log entry types
     // the entry type is first in all entries
@@ -111,39 +113,30 @@ verus! {
     {
         ItemTableEntryCommit { 
             item_index: u64,
-            metadata_index: u64,
-            metadata_crc: u64,
+            // new_metadata: ListEntryMetadata,
+            // metadata_crc: u64,
         },
         ItemTableEntryInvalidate { item_index: u64 },
         AppendListNode {
             metadata_index: u64,
             old_tail: u64,
             new_tail: u64,
-            metadata_crc: u64,
+            // metadata_crc: u64,
         },
         InsertListElement {
             node_offset: u64,
             index_in_node: u64,
             list_element: L
         },
-        UpdateListLen {
-            metadata_index: u64,
-            new_length: u64,
-            metadata_crc: u64,
-        },
-        TrimList {
-            metadata_index: u64,
-            new_head_node: u64,
-            new_list_len: u64,
-            new_list_start_index: u64,
-            metadata_crc: u64,
-        },
         CommitMetadataEntry {
             metadata_index: u64,
-            item_index: u64,
         },
         InvalidateMetadataEntry {
             metadata_index: u64,
+        },
+        UpdateMetadataEntry {
+            metadata_index: u64,
+            new_metadata: ListEntryMetadata,
         }
     }
 
@@ -158,19 +151,15 @@ verus! {
         pub exec fn from_commit_entry(value: Box<CommitItemEntry>) -> Self {
             OpLogEntryType::ItemTableEntryCommit {
                 item_index: value.item_index,
-                metadata_index: value.metadata_index,
-                metadata_crc: value.metadata_crc,
             }
         }
 
         pub exec fn to_commit_entry(self) -> Option<CommitItemEntry> {
             match self {
-                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => 
+                OpLogEntryType::ItemTableEntryCommit { item_index } => 
                     Some(CommitItemEntry {
                         entry_type: COMMIT_ITEM_TABLE_ENTRY,
                         item_index,
-                        metadata_index,
-                        metadata_crc,
                     }),
                 _ => None
             }
@@ -196,19 +185,17 @@ verus! {
                 metadata_index: value.metadata_index, 
                 old_tail: value.old_tail, 
                 new_tail: value.new_tail, 
-                metadata_crc: value.metadata_crc 
             }
         }
 
         pub exec fn to_append_list_node_entry(self) -> Option<AppendListNodeEntry> {
             match self {
-                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => 
+                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail } => 
                     Some(AppendListNodeEntry {
                         entry_type: APPEND_LIST_NODE_ENTRY,
                         metadata_index, 
                         old_tail,
                         new_tail, 
-                        metadata_crc 
                     }),
                 _ => None,
             }
@@ -234,79 +221,53 @@ verus! {
             }
         }
 
-        pub exec fn from_update_list_len_entry(value: Box<UpdateListLenEntry>) -> Self {
-            OpLogEntryType::UpdateListLen { 
-                metadata_index: value.metadata_index, 
-                new_length: value.new_length, 
-                metadata_crc: value.metadata_crc 
-            }
-        }
-
-        pub exec fn to_update_list_len_entry(self) -> Option<UpdateListLenEntry> {
-            match self {
-                OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => 
-                    Some(UpdateListLenEntry { 
-                        entry_type: UPDATE_LIST_LEN_ENTRY,
-                        metadata_index, 
-                        new_length, 
-                        metadata_crc 
-                    }),
-                    _ => None
-            }
-        }
-
-        pub exec fn from_trim_list_entry(value: Box<TrimListEntry>) -> Self {
-            OpLogEntryType::TrimList { 
-                metadata_index: value.metadata_index, 
-                new_head_node: value.new_head_node, 
-                new_list_len: value.new_list_len, 
-                new_list_start_index: value.new_list_start_index, 
-                metadata_crc: value.metadata_crc 
-            }
-        }
-
-        pub exec fn to_trim_list_entry(self) -> Option<TrimListEntry> {
-            match self {
-                OpLogEntryType::TrimList { metadata_index, new_head_node, new_list_len, new_list_start_index, metadata_crc } => 
-                    Some(TrimListEntry { 
-                        entry_type: TRIM_LIST_METADATA_UPDATE_ENTRY,
-                        metadata_index, 
-                        new_head_node, 
-                        new_list_len, 
-                        new_list_start_index, 
-                        metadata_crc 
-                    }),
-                    _ => None 
-            }
-        }
-
-        pub exec fn from_commit_metadata_entry(value: Box<CommitMetadataEntry>) -> Self {
+        pub exec fn from_commit_metadata_entry(value: Box<MetadataLogEntry>) -> Self 
+            requires
+                value.entry_type == COMMIT_METADATA_ENTRY
+        {
             OpLogEntryType::CommitMetadataEntry { 
                 metadata_index: value.metadata_index, 
-                item_index: value.item_index 
             }
         }
 
-        pub exec fn to_commit_metadata_entry(self) -> Option<CommitMetadataEntry> {
+        pub exec fn to_commit_metadata_entry(self) -> Option<MetadataLogEntry> {
             match self {
-                OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => 
-                    Some(CommitMetadataEntry { 
+                OpLogEntryType::CommitMetadataEntry { metadata_index } => 
+                    Some(MetadataLogEntry { 
                         entry_type: COMMIT_METADATA_ENTRY, 
                         metadata_index, 
-                        item_index 
                     }),
                 _ => None,
             }
         }
 
-        pub exec fn from_invalidate_metadata_entry(value: Box<InvalidateMetadataEntry>) -> Self {
+        pub exec fn from_invalidate_metadata_entry(value: Box<MetadataLogEntry>) -> Self 
+            requires 
+                value.entry_type == INVALIDATE_METADATA_ENTRY
+        {
             OpLogEntryType::InvalidateMetadataEntry { metadata_index: value.metadata_index }
         }
 
-        pub exec fn to_invalidate_metadata_entry(self) -> Option<InvalidateMetadataEntry> {
+        pub exec fn to_invalidate_metadata_entry(self) -> Option<MetadataLogEntry> {
             match self {
                 OpLogEntryType::InvalidateMetadataEntry { metadata_index } => 
-                    Some(InvalidateMetadataEntry { entry_type: INVALIDATE_METADATA_ENTRY, metadata_index }),
+                    Some(MetadataLogEntry { entry_type: INVALIDATE_METADATA_ENTRY, metadata_index }),
+                _ => None
+            }
+        }
+
+        pub exec fn from_update_metadata_entry(value: Box<MetadataLogEntry>, new_metadata: Box<ListEntryMetadata>) -> Self 
+            requires 
+                value.entry_type == UPDATE_METADATA_ENTRY
+        {
+            OpLogEntryType::UpdateMetadataEntry { metadata_index: value.metadata_index, new_metadata: *new_metadata }
+        }
+
+        pub exec fn to_update_metadata_entry(self) -> Option<MetadataLogEntry> {
+            match self {
+                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
+                    Some(MetadataLogEntry { entry_type: UPDATE_METADATA_ENTRY, metadata_index: metadata_index })
+                }
                 _ => None
             }
         }
@@ -318,8 +279,6 @@ verus! {
     pub struct CommitItemEntry {
         pub entry_type: u64,
         pub item_index: u64,
-        pub metadata_index: u64,
-        pub metadata_crc: u64,
     }
 
     impl PmCopy for CommitItemEntry {}
@@ -357,7 +316,6 @@ verus! {
         pub metadata_index: u64,
         pub old_tail: u64,
         pub new_tail: u64,
-        pub metadata_crc: u64,
     }
 
     impl PmCopy for AppendListNodeEntry {}
@@ -391,80 +349,15 @@ verus! {
 
     impl PmCopy for InsertListElementEntry {}
 
-    // This log entry represents an update to a list's length field
-    // in its metadata structure. The log entry should contain the actual
-    // new length (not a number to add or subtract from the existing length)
-    // to ensure that log replay is idempotent.
-    //
-    // When this log entry is replayed:
-    // 1) The list metadata structure at the specified index has its length
-    //    field updated to `new_length` and its CRC updated accordingly.
-    //
-    // This log entry acts as the committing write for list append operations.
-    // The new list element should be written tentatively to an out-of-bounds
-    // slot; it will become visible when the list length update is applied.
+    // represents commit, invalidate, and update/overwrite metadata entries.
+    // update entries also log the new metadata structure, but that is not 
+    // part of the log entry type
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone)]
-    pub struct UpdateListLenEntry {
+    pub struct MetadataLogEntry {
         pub entry_type: u64,
-        pub metadata_index: u64,
-        pub new_length: u64,
-        pub metadata_crc: u64
+        pub metadata_index: u64,   
     }
 
-
-    impl PmCopy for UpdateListLenEntry {}
-
-    // This log entry represents a list trim operation. It includes the
-    // values with which to update the corresponding list metadata structure,
-    // not the arguments passed in by the user.
-    // When this log entry is replayed:
-    // 1) The list metadata structure at the specified index has its head,
-    //    length, and start index fields updated with those in the log entry,
-    //    as well as a corresponding CRC update.
-    #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
-    pub struct TrimListEntry {
-        pub entry_type: u64,
-        pub metadata_index: u64,
-        pub new_head_node: u64,
-        pub new_list_len: u64,
-        pub new_list_start_index: u64,
-        pub metadata_crc: u64, 
-    }
-
-    impl PmCopy for TrimListEntry {}
-
-    #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
-    pub struct CommitMetadataEntry 
-    {
-        pub entry_type: u64,
-        pub metadata_index: u64,
-        pub item_index: u64, // committing a metadata entry implies committing its item
-    }
-
-    impl CommitMetadataEntry 
-    {
-        pub exec fn new(metadata_index: u64, item_index: u64) -> Self 
-        {
-            Self {
-                entry_type: COMMIT_METADATA_ENTRY,
-                metadata_index,
-                item_index,
-            }
-        }
-    }
-
-    impl PmCopy for CommitMetadataEntry {}
-
-    #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
-    pub struct InvalidateMetadataEntry
-    {
-        pub entry_type: u64,
-        pub metadata_index: u64,
-    }
-
-    impl PmCopy for InvalidateMetadataEntry {}
+    impl PmCopy for MetadataLogEntry {}
 }

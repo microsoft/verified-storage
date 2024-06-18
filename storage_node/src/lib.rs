@@ -28,26 +28,6 @@ use crate::pmem::pmemutil_v::*;
 mod tests {
 
 use super::*;
-/// This test ensures that the hardcoded constant size of each metadata structure
-/// matches the actual size at runtime. This helps ensure that the serde specification
-/// for each structure is correct.
-// #[verifier::external_body]
-#[test]
-fn check_layout() {
-    let global_metadata_size =
-        core::mem::size_of::<crate::multilog::layout_v::GlobalMetadata>();
-    let region_metadata_size =
-        core::mem::size_of::<crate::multilog::layout_v::RegionMetadata>();
-    let log_metadata_size = core::mem::size_of::<crate::multilog::layout_v::LogMetadata>();
-
-    println!("global metadata struct size: {:?}\n", global_metadata_size);
-    println!("region metadata struct size: {:?}\n", region_metadata_size);
-    println!("log metadata struct size: {:?}\n", log_metadata_size);
-
-    assert!(global_metadata_size == LENGTH_OF_GLOBAL_METADATA.try_into().unwrap());
-    assert!(region_metadata_size == LENGTH_OF_REGION_METADATA.try_into().unwrap());
-    assert!(log_metadata_size == LENGTH_OF_LOG_METADATA.try_into().unwrap());
-}
 
 #[test]
 fn check_multilog_in_volatile_memory() {

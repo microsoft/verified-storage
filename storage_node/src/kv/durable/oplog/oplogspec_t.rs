@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
+use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::multilog::multilogspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -42,8 +43,6 @@ verus! {
             Self {
                 op_list: self.op_list.push(OpLogEntryType::ItemTableEntryCommit { 
                     item_index: entry.item_index,
-                    metadata_index: entry.metadata_index ,
-                    metadata_crc: entry.metadata_crc
                 }),
                 op_list_committed: false,
             }
@@ -70,7 +69,6 @@ verus! {
                     metadata_index: entry.metadata_index,
                     old_tail: entry.old_tail,
                     new_tail: entry.new_tail,
-                    metadata_crc: entry.metadata_crc,
                 }),
                 op_list_committed: false,
             }
@@ -93,47 +91,14 @@ verus! {
             }
         }
 
-        pub open spec fn tentatively_append_update_list_len_entry(
-            self,
-            entry: &UpdateListLenEntry
-        ) -> Self
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::UpdateListLen {
-                    metadata_index: entry.metadata_index,
-                    new_length: entry.new_length,
-                    metadata_crc: entry.metadata_crc,
-                }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_append_trim_list_entry(
-            self,
-            entry: &TrimListEntry
-        ) -> Self
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::TrimList {
-                    metadata_index: entry.metadata_index,
-                    new_head_node: entry.new_head_node,
-                    new_list_len: entry.new_list_len,
-                    new_list_start_index: entry.new_list_start_index,
-                    metadata_crc: entry.metadata_crc,
-                }),
-                op_list_committed: false,
-            }
-        }
-
         pub open spec fn tentatively_append_create_list_entry(
             self,
-            entry: &CommitMetadataEntry,
+            entry: &MetadataLogEntry,
         ) -> Self 
         {
             Self {
                 op_list: self.op_list.push(OpLogEntryType::CommitMetadataEntry { 
                     metadata_index: entry.metadata_index, 
-                    item_index: entry.item_index,
                 }),
                 op_list_committed: false,
             }
@@ -141,12 +106,24 @@ verus! {
 
         pub open spec fn tentatively_delete_list_entry(
             self,
-            entry: &InvalidateMetadataEntry
+            entry: &MetadataLogEntry
         ) -> Self 
         {
             Self {
                 op_list: self.op_list.push(OpLogEntryType::InvalidateMetadataEntry { metadata_index: entry.metadata_index }),
                 op_list_committed: false,
+            }
+        }
+
+        pub open spec fn tentatively_update_metadata_entry(
+            self, 
+            entry: &MetadataLogEntry,
+            new_metadata: ListEntryMetadata,
+        ) -> Self 
+        {
+            Self {
+                op_list: self.op_list.push(OpLogEntryType::UpdateMetadataEntry { metadata_index: entry.metadata_index, new_metadata }),
+                op_list_committed: false
             }
         }
 

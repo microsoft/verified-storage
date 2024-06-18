@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::log::logimpl_v::*;
 use crate::log::logimpl_t::*;
 use crate::log::logspec_t::*;
@@ -97,8 +98,6 @@ verus! {
                             let read_entry = CommitItemEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_COMMIT_ITEM_ENTRY as int));
                             let entry = OpLogEntryType::ItemTableEntryCommit {
                                 item_index: read_entry.item_index,
-                                metadata_index: read_entry.metadata_index,
-                                metadata_crc: read_entry.metadata_crc
                             };
                             let log_contents = log_contents.subrange(LENGTH_OF_COMMIT_ITEM_ENTRY as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
@@ -125,7 +124,6 @@ verus! {
                                 metadata_index: read_entry.metadata_index,
                                 old_tail: read_entry.old_tail,
                                 new_tail: read_entry.new_tail,
-                                metadata_crc: read_entry.metadata_crc
                             };
                             let log_contents = log_contents.subrange(LENGTH_OF_APPEND_NODE_ENTRY as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
@@ -146,44 +144,13 @@ verus! {
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
-                    UPDATE_LIST_LEN_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_UPDATE_LIST_LEN_ENTRY {
-                            None 
-                        } else {
-                            let read_entry = UpdateListLenEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_UPDATE_LIST_LEN_ENTRY as int));
-                            let entry = OpLogEntryType::UpdateListLen {
-                                metadata_index: read_entry.metadata_index,
-                                new_length: read_entry.new_length,
-                                metadata_crc: read_entry.metadata_crc
-                            };
-                            let log_contents = log_contents.subrange(LENGTH_OF_UPDATE_LIST_LEN_ENTRY as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    TRIM_LIST_METADATA_UPDATE_ENTRY => {
-                        if log_contents.len() < LENGTH_OF_TRIM_LIST_ENTRY {
-                            None 
-                        } else {
-                            let read_entry = TrimListEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_TRIM_LIST_ENTRY as int));
-                            let entry = OpLogEntryType::TrimList {
-                                metadata_index: read_entry.metadata_index,
-                                new_head_node: read_entry.new_head_node,
-                                new_list_len: read_entry.new_list_len,
-                                new_list_start_index: read_entry.new_list_start_index,
-                                metadata_crc: read_entry.metadata_crc
-                            };
-                            let log_contents = log_contents.subrange(LENGTH_OF_TRIM_LIST_ENTRY as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
                     COMMIT_METADATA_ENTRY => {
                         if log_contents.len() < LENGTH_OF_COMMIT_METADATA_ENTRY {
                             None 
                         } else {
-                            let read_entry = CommitMetadataEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_COMMIT_METADATA_ENTRY as int));
+                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::CommitMetadataEntry {
                                 metadata_index: read_entry.metadata_index,
-                                item_index: read_entry.item_index
                             };
                             let log_contents = log_contents.subrange(LENGTH_OF_COMMIT_METADATA_ENTRY as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
@@ -193,7 +160,7 @@ verus! {
                         if log_contents.len() < LENGTH_OF_INVALIDATE_METADATA_ENTRY {
                             None 
                         } else {
-                            let read_entry = InvalidateMetadataEntry::spec_from_bytes(log_contents.subrange(0 as int, LENGTH_OF_INVALIDATE_METADATA_ENTRY as int));
+                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
                             let entry = OpLogEntryType::InvalidateMetadataEntry {
                                 metadata_index: read_entry.metadata_index
                             };
@@ -395,29 +362,25 @@ verus! {
                     bytes_read += traits_t::size_of::<InsertListElementEntry>() + traits_t::size_of::<L>();
                     OpLogEntryType::from_insert_list_element_entry(log_entry, list_element)
                 }
-                UPDATE_LIST_LEN_ENTRY => {
-                    let log_entry = Self::read_and_cast_type_from_vec::<UpdateListLenEntry>(current_offset, &log_contents,
-                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    bytes_read += traits_t::size_of::<UpdateListLenEntry>();
-                    OpLogEntryType::from_update_list_len_entry(log_entry)
-                }
-                TRIM_LIST_METADATA_UPDATE_ENTRY => {
-                    let log_entry = Self::read_and_cast_type_from_vec::<TrimListEntry>(current_offset, &log_contents,
-                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    bytes_read += traits_t::size_of::<TrimListEntry>();
-                    OpLogEntryType::from_trim_list_entry(log_entry)
-                }
                 COMMIT_METADATA_ENTRY => {
-                    let log_entry = Self::read_and_cast_type_from_vec::<CommitMetadataEntry>(current_offset, &log_contents,
+                    let log_entry = Self::read_and_cast_type_from_vec::<MetadataLogEntry>(current_offset, &log_contents,
                         log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    bytes_read += traits_t::size_of::<CommitMetadataEntry>();
+                    bytes_read += traits_t::size_of::<MetadataLogEntry>();
                     OpLogEntryType::from_commit_metadata_entry(log_entry)
                 }
                 INVALIDATE_METADATA_ENTRY => {
-                    let log_entry = Self::read_and_cast_type_from_vec::<InvalidateMetadataEntry>(current_offset, &log_contents,
+                    let log_entry = Self::read_and_cast_type_from_vec::<MetadataLogEntry>(current_offset, &log_contents,
                         log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    bytes_read += traits_t::size_of::<InvalidateMetadataEntry>();
+                    bytes_read += traits_t::size_of::<MetadataLogEntry>();
                     OpLogEntryType::from_invalidate_metadata_entry(log_entry)
+                }
+                UPDATE_METADATA_ENTRY => {
+                    let log_entry = Self::read_and_cast_type_from_vec::<MetadataLogEntry>(current_offset, &log_contents,
+                        log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    let new_metadata = Self::read_and_cast_type_from_vec::<ListEntryMetadata>(current_offset + traits_t::size_of::<MetadataLogEntry>(), 
+                        &log_contents, log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
+                    bytes_read += traits_t::size_of::<MetadataLogEntry>() + traits_t::size_of::<ListEntryMetadata>();
+                    OpLogEntryType::from_update_metadata_entry(log_entry, new_metadata)
                 }
                 _ => {
                     assert(false);
@@ -477,7 +440,7 @@ verus! {
         {
             assume(false);
             match log_entry {
-                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
+                OpLogEntryType::ItemTableEntryCommit { item_index } => {
                     let log_entry = log_entry.to_commit_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
                 }
@@ -485,7 +448,7 @@ verus! {
                     let log_entry = log_entry.to_invalidate_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
                 }
-                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, metadata_crc } => {
+                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail } => {
                     let log_entry = log_entry.to_append_list_node_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
                 }
@@ -494,22 +457,18 @@ verus! {
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
                     self.append_to_oplog(log_wrpm, log_id, &list_element, Tracked(perm))
                 }
-                OpLogEntryType::UpdateListLen { metadata_index, new_length, metadata_crc } => {
-                    let log_entry = log_entry.to_update_list_len_entry().unwrap();
-                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-                }
-                OpLogEntryType::TrimList { metadata_index, new_head_node, 
-                    new_list_len, new_list_start_index, metadata_crc } => {
-                        let log_entry = log_entry.to_trim_list_entry().unwrap();
-                        self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-                    }
-                OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => {
+                OpLogEntryType::CommitMetadataEntry { metadata_index } => {
                     let log_entry = log_entry.to_commit_metadata_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
                 }
                 OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
                     let log_entry = log_entry.to_invalidate_metadata_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
+                }
+                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
+                    let log_entry = log_entry.to_update_metadata_entry().unwrap();
+                    self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
+                    self.append_to_oplog(log_wrpm, log_id, &new_metadata, Tracked(perm))
                 }
             }
         }

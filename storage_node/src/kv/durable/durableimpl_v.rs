@@ -251,7 +251,10 @@ verus! {
             // 2. tentatively append the new item's commit op to the log. Metadata entry commit 
             // implies item commit and also makes the list accessible so we can append to it
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            let log_entry = CommitMetadataEntry::new(metadata_index, item_index);
+            // let log_entry = CommitMetadataEntry::new(metadata_index, item_index);
+
+            // TODO finish this -- write the log entry, commit the transaction, finish off the operation
+            // figure out exactly what you need to do here
 
 
             Err(KvError::NotImplemented)

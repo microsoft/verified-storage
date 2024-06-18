@@ -136,7 +136,7 @@ verus! {
         {
             let item_entry_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
             match op {
-                OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => {
+                OpLogEntryType::ItemTableEntryCommit { item_index } => {
                     let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
                     let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
@@ -152,17 +152,6 @@ verus! {
                     let invalid_cdb = spec_u64_to_le_bytes(CDB_FALSE);
                     let mem = mem.map(|pos: int, pre_byte: u8| 
                                                         if addr <= pos < addr + invalid_cdb.len() { invalid_cdb[pos - addr]}
-                                                        else { pre_byte }
-                                                    );
-                    mem
-                }
-                OpLogEntryType::CommitMetadataEntry{metadata_index, item_index} => {
-                    // committing a metadata entry implies that the corresponding item needs to be committed as well
-                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
-                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
-                    let mem = mem.map(|pos: int, pre_byte: u8| 
-                                                        if addr <= pos < addr + valid_cdb.len() { valid_cdb[pos - addr]}
                                                         else { pre_byte }
                                                     );
                     mem
@@ -355,9 +344,8 @@ verus! {
                 let log_entry = &log_entries[i];
 
                 let result = match log_entry {
-                    OpLogEntryType::ItemTableEntryCommit { item_index, metadata_index, metadata_crc } => Some((CDB_TRUE, item_index)),
+                    OpLogEntryType::ItemTableEntryCommit { item_index } => Some((CDB_TRUE, item_index)),
                     OpLogEntryType::ItemTableEntryInvalidate { item_index } => Some((CDB_FALSE, item_index)),
-                    OpLogEntryType::CommitMetadataEntry { metadata_index, item_index } => Some((CDB_TRUE, item_index)),
                     _ => None  // the other operations do not modify the item table
                 };
 
