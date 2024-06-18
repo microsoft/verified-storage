@@ -778,8 +778,6 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
-            broadcast use pmcopy_axioms;
-
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -855,6 +853,7 @@ verus! {
                                             LogMetadata::spec_size_of(),  u64::spec_size_of()));
                 }
 
+
                 assert(inactive_metadata_types_set(wrpm_region@.flush().committed())) by {
                     let mem = wrpm_region@.flush().committed();
                     
@@ -872,6 +871,9 @@ verus! {
                     let inactive_metadata_pos = get_log_metadata_pos(!self.cdb);
                     assert(extract_bytes(mem, inactive_metadata_pos as int, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
                     assert(extract_bytes(mem, inactive_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
+                
+                    axiom_bytes_len::<LogMetadata>(new_metadata);
+                    axiom_to_from_bytes::<LogMetadata>(new_metadata);
                 }
             }
 
@@ -898,6 +900,8 @@ verus! {
             let ghost flushed_mem_after_write = pm_region_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
                 let flushed_region = pm_region_after_write.flush();
+                axiom_bytes_len::<u64>(new_cdb);
+                axiom_to_from_bytes::<u64>(new_cdb);
                 lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                             new_cdb_bytes);
             }
@@ -913,7 +917,8 @@ verus! {
             }) by {
                 lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
                                                           pm_region_after_flush.committed());
-
+                axiom_bytes_len::<u64>(new_cdb);
+                axiom_to_from_bytes::<u64>(new_cdb);
                 lemma_metadata_consistent_with_info_after_cdb_update(
                     wrpm_region@,
                     pm_region_after_flush,
