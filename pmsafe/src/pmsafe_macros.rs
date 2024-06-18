@@ -212,59 +212,6 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
         alignment_seq.max()
     };
 
-    // In order to replay the logs, it is also useful to have a method that returns the offset within the struct
-    // for each field. We already calculate this for each field and put it in {spec,exec}_tokens_vec, so we'll 
-    // reuse those TokenStreams to generate the methods we want, and add an implementation for each struct
-    // deriving PmCopy with the methods
-
-    // sanity check that everything is the correct length
-    assert!(exec_tokens_vec.len() == names.len());
-    assert!(spec_tokens_vec.len() == names.len());
-
-    // Build spec and exec field offset functions. The offset of a field is determined by the size and offset 
-    // of all of the prior fields.
-    // Because Verus doesn't currently support associated constants, the exec offset fns need to be external_body
-    // because the offset calculation uses the associated constants from ConstPmSized. 
-    let mut exec_offset_fn_vec = Vec::new();
-    let mut prev_exec_tokens = Vec::new();
-    for (name, offset_token_stream) in names.iter().zip(&exec_tokens_vec) {
-        let fn_name = syn::Ident::new(&format!("offset_of_{}_field", name), name.span());
-        let spec_fn_name = syn::Ident::new(&format!("spec_offset_of_{}_field", name), name.span());
-        let fn_def = quote! {
-            #[verifier::external_body]
-            #[allow(non_snake_case)]
-            fn #fn_name() -> (out: usize)
-                ensures 
-                    out as int == Self::#spec_fn_name()
-            {
-                let offset: usize = 0;
-                #( #prev_exec_tokens )*
-                #offset_token_stream
-                offset
-            }
-        };
-        exec_offset_fn_vec.push(fn_def);
-        prev_exec_tokens.push(offset_token_stream);
-    }
-
-    let mut spec_offset_fn_vec = Vec::new();
-    let mut prev_spec_tokens = Vec::new();
-    for (name, offset_token_stream) in names.iter().zip(&spec_tokens_vec) {
-        let fn_name = syn::Ident::new(&format!("spec_offset_of_{}_field", name), name.span());
-        let fn_def = quote! {
-            #[allow(non_snake_case)]
-            pub open spec fn #fn_name() -> ::builtin::int
-            {
-                let offset: ::builtin::int = 0;
-                #( #prev_spec_tokens )*
-                #offset_token_stream
-                offset
-            }
-        };
-        spec_offset_fn_vec.push(fn_def);
-        prev_spec_tokens.push(offset_token_stream);
-    }
-
     // This is the name of the constant that will perform the compile-time assertion that the calculated size of the struct
     // is equal to the real size. This is not an associated constant in an external trait implementation because the compiler 
     // will optimize the check out if it lives in an associated constant that is never used in any methods. In constrast,
@@ -274,16 +221,6 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
 
     let gen = quote! {
         ::builtin_macros::verus!(
-
-            impl #name {
-                #(
-                    #exec_offset_fn_vec
-                )*
-
-                #(
-                    #spec_offset_fn_vec
-                )*
-            }
 
             impl SpecPmSized for #name {
                 open spec fn spec_size_of() -> ::builtin::int 
