@@ -27,8 +27,6 @@ use vstd::slice::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This structure, `LogInfo`, is used by `UntrustedLogImpl`
     // to store information about a single log. Its fields are:
     //
@@ -687,6 +685,8 @@ verus! {
                     &&& log_crc_bytes == new_crc.spec_to_bytes()
                 }),
         {
+            broadcast use pmcopy_axioms;
+
             // Encode the log metadata as bytes, and compute the CRC of those bytes
 
             let info = &self.info;
@@ -772,6 +772,8 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            broadcast use pmcopy_axioms;
+
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 

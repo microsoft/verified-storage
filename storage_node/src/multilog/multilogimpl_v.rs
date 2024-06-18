@@ -31,8 +31,6 @@ use vstd::slice::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This structure, `LogInfo`, is used by `UntrustedMultiLogImpl`
     // to store information about a single log. Its fields are:
     //
@@ -711,6 +709,8 @@ verus! {
                 wrpm_regions.constants() == old(wrpm_regions).constants(),
                 self.state == old(self).state,
         {
+            broadcast use pmcopy_axioms;
+                
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -920,6 +920,8 @@ verus! {
                 wrpm_regions@.len() > 0,
                 
         {
+            broadcast use pmcopy_axioms;
+
             let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                             else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
             assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
@@ -998,6 +1000,8 @@ verus! {
                     prev_infos == old_prev_infos,
                     prev_state == old_prev_state,
             {
+                broadcast use pmcopy_axioms;
+
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;
 

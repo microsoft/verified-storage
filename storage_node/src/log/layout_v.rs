@@ -66,8 +66,6 @@ use vstd::prelude::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     /// Constants
 
     // These constants describe the absolute or relative positions of

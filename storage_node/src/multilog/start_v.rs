@@ -24,8 +24,6 @@ use vstd::slice::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This exported function reads the corruption-detecting boolean
     // and returns it.
     //

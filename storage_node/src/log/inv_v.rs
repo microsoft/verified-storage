@@ -17,7 +17,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    broadcast use pmcopy_axioms;
 
     // This invariant says that there are no outstanding writes to any
     // part of the metadata subregion of the persistent-memory region.
@@ -1048,6 +1047,8 @@ verus! {
         ensures 
             metadata_types_set(new_pm_region_view.committed())
     {
+        broadcast use pmcopy_axioms;
+
         let old_mem = old_pm_region_view.committed();
         let new_mem = new_pm_region_view.committed();
         lemma_auto_smaller_range_of_seq_is_subrange(old_mem);

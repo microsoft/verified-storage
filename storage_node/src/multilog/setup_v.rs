@@ -22,8 +22,6 @@ use vstd::prelude::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This exported executable function checks whether there's enough
     // space on persistent memory regions to support a multilog.
     //
@@ -186,6 +184,8 @@ verus! {
                 region_size, multilog_id, num_logs, which_log),
             metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
+        broadcast use pmcopy_axioms;
+
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
         // sends us the wrong regions, we can detect it.
@@ -281,6 +281,8 @@ verus! {
             deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
+        broadcast use pmcopy_axioms;
+
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
         // sends us the wrong regions, we can detect it.
