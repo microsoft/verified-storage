@@ -25,8 +25,6 @@ use vstd::slice::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This exported function reads the corruption-detecting boolean
     // and returns it.
     //
@@ -59,7 +57,7 @@ verus! {
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
 
         let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
-        let ghost true_cdb = choose |cdb: u64| true_cdb_bytes == cdb.spec_to_bytes();
+        let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
         // check_cdb does not require that the true bytes be contiguous, so we need to make Z3 confirm that the 
         // contiguous region we are using as the true value matches the address sequence we pass in.
         assert(true_cdb_bytes == Seq::new(u64::spec_size_of() as nat, |i: int| mem[log_cdb_addrs[i]]));
@@ -169,8 +167,8 @@ verus! {
         }
         
         // Obtain the true global metadata and CRC. The precondition ensures that a true value exists for each.
-        let ghost true_global_metadata = choose |metadata: GlobalMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_GLOBAL_CRC as int, ABSOLUTE_POS_OF_GLOBAL_CRC + u64::spec_size_of());
+        let ghost true_global_metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
 
         // Read the global metadata struct and CRC from PM. We still have to prove that they are not corrupted before we can use the metadata.
         let global_metadata = match pm_region.read_aligned::<GlobalMetadata>(ABSOLUTE_POS_OF_GLOBAL_METADATA, Ghost(true_global_metadata)) {
@@ -237,8 +235,8 @@ verus! {
         let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
-        let ghost true_region_metadata = choose |metadata: RegionMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_METADATA as int, ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_REGION_CRC as int, ABSOLUTE_POS_OF_REGION_CRC + u64::spec_size_of());
+        let ghost true_region_metadata = RegionMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()));
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()));
 
         let region_metadata = match pm_region.read_aligned::<RegionMetadata>(ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)) {
             Ok(region_metadata) => region_metadata,
@@ -318,8 +316,8 @@ verus! {
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
         let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
                                                        Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()));
-        let ghost true_log_metadata = choose |metadata: LogMetadata| metadata.spec_to_bytes() == mem.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of());
-        let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(log_crc_pos as int, log_crc_pos + u64::spec_size_of());
+        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as int, LogMetadata::spec_size_of()));
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_crc_pos as int, u64::spec_size_of()));
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
         let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);

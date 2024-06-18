@@ -77,60 +77,35 @@ verus! {
         // `spec_from_bytes` is the inverse of spec_to_bytes. It only returns
         // valid instances of T, because only valid instances of T can be
         // converted to bytes using `spec_to_bytes`. Its relationship 
-        // to `spec_to_bytes` is axiomatized by `axiom_to_from_bytes` and
-        // `axiom_from_to_bytes`. In many cases, it is easier to use 
-        // `spec_to_bytes` with `choose` or `exists` rather than using 
-        // this method, but there are several proofs that do rely on it.
-        // TODO: define as choose? have a body and choose the valid deserialization
-        // might make it easier to prove metadata_types_set
+        // to `spec_to_bytes` is axiomatized by `axiom_to_from_bytes`.
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
+
+        spec fn bytes_parseable(bytes: Seq<u8>) -> bool;
 
         // `spec_crc` returns the CRC of the given value as a u64. 
         spec fn spec_crc(self) -> u64;
-
-        // This method returns a reference to self as an immutable slice of bytes.
-        // This is useful when doing operations like appending to a log where we 
-        // need to have a runtime byte representation of the value to pass 
-        // to another function.
-        exec fn as_byte_slice(&self) -> (out: &[u8])
-            ensures 
-                out@ == self.spec_to_bytes();
-
-        // `axiom_from_to_bytes` is one of two axioms that axiomatize
-        // the fact that `spec_to_bytes` is the inverse of `spec_from_bytes`.
-        // It requires that there exist a valid T representation of `bytes`
-        // so ensure it cannot be used with arbitrary bytes sequences.
-        proof fn axiom_from_to_bytes(bytes: Seq<u8>)
-            requires 
-                exists |s: Self| bytes == s.spec_to_bytes(),
-            ensures 
-                bytes == Self::spec_from_bytes(bytes).spec_to_bytes(),
-        ;
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
         closed spec fn spec_to_bytes(self) -> Seq<u8>;
-        
-        closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
+
+        // The definition is closed because no one should need to reason about it,
+        // thanks to `axiom_to_from_bytes`.
+        closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self
+        {
+            // If the bytes represent some valid `Self`, pick such a `Self`.
+            // Otherwise, pick an arbitrary `Self`. (That's how `choose` works.)
+            choose |x: T| x.spec_to_bytes() == bytes
+        }
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
         }
 
-        #[verifier::external_body]
-        exec fn as_byte_slice(&self) -> (out: &[u8])
+        open spec fn bytes_parseable(bytes: Seq<u8>) -> bool
         {
-            let ptr = self as *const Self;
-            // SAFETY: `ptr` is valid for Self::size_of() bytes because it was obtained by casting a valid
-            // &Self that was allocated by Rust. It is also allocated as a single object and properly 
-            // aligned for the same reason. The borrow checker ensures that Self will not be modified
-            // until the returned slice goes out of scope. Self has a valid size (i.e., <= isize::MAX)
-            // so the total number of bytes in the slice is also <= isize::MAX.
-            unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::size_of() as usize) }
+            Self::spec_from_bytes(bytes).spec_to_bytes() == bytes
         }
-
-        #[verifier::external_body]
-        proof fn axiom_from_to_bytes(bytes: Seq<u8>) {}
     }
 
     // The two following axioms are brodcast in the `pmcopy_axioms`
@@ -231,7 +206,7 @@ verus! {
 
         // This helper method lets us work around the lack of Verus support for &mut and
         // a bug where the body of some external_body functions may be checked by the verifier.
-        // It casts the contesnt of self to a slice of `MaybeUninit<u8>`, then copies the given
+        // It casts the contents of self to a slice of `MaybeUninit<u8>`, then copies the given
         // byte slice to this location. All of the code in this function is safe -- it's safe
         // to cast a MaybeUninit value to a slice of MaybeUninit bytes, and it is safe to 
         // copy initialized bytes to this slice. `MaybeUninit::write_slice` will panic if 

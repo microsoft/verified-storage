@@ -22,8 +22,6 @@ use vstd::prelude::*;
 
 verus! {
 
-    broadcast use pmcopy_axioms;
-
     // This exported executable function checks whether there's enough
     // space on persistent memory regions to support a multilog.
     //
@@ -186,6 +184,8 @@ verus! {
                 region_size, multilog_id, num_logs, which_log),
             metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
+        broadcast use pmcopy_axioms;
+
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
         // sends us the wrong regions, we can detect it.
@@ -252,15 +252,6 @@ verus! {
                    =~= log_metadata.spec_to_bytes());
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
-
-            // Prove that each CRC, when parsed out of persistent
-            // memory, will be valid. This is equivalent to proving
-            // that converting to bytes (upon write) then converting
-            // to a `u64` (upon read) is the identity function.
-
-            assert(u64::spec_from_bytes(global_crc.spec_to_bytes()) == global_crc);
-            assert(u64::spec_from_bytes(region_crc.spec_to_bytes()) == region_crc);
-            assert(u64::spec_from_bytes(log_crc.spec_to_bytes()) == log_crc);
         }
     }
 
@@ -290,6 +281,8 @@ verus! {
             deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
+        broadcast use pmcopy_axioms;
+
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
         // sends us the wrong regions, we can detect it.
@@ -339,14 +332,6 @@ verus! {
             // we get the little-endian encodings of the desired
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
-
-            // TODO: broadcast these (or find a way to do the proof without them)
-            u64::axiom_from_to_bytes(global_crc.spec_to_bytes());
-            u64::axiom_from_to_bytes(region_crc.spec_to_bytes());
-            u64::axiom_from_to_bytes(log_crc.spec_to_bytes());
-            GlobalMetadata::axiom_from_to_bytes(global_metadata.spec_to_bytes());
-            RegionMetadata::axiom_from_to_bytes(region_metadata.spec_to_bytes());
-            LogMetadata::axiom_from_to_bytes(log_metadata.spec_to_bytes());
 
             let mem = pm_regions@[0].flush().committed();
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
