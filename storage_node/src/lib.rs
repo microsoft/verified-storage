@@ -33,6 +33,8 @@ use crate::multilog::multilogimpl_v::*;
 use crate::multilog::multilogspec_t::*;
 #[cfg(target_os = "linux")]
 use crate::pmem::linux_pmemfile_t::*;
+#[cfg(target_os = "windows")]
+use crate::pmem::windows_pmemfile_t::*;
 use crate::pmem::pmemmock_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
