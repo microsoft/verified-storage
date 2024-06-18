@@ -278,7 +278,6 @@ verus! {
             }
 
             assume(false);
-
             // replay log entries onto the item table
             Self::replay_log_item_table(wrpm_region, item_table_id, log_entries, item_slot_size, Tracked(perm), Ghost(state))?;
 
@@ -486,8 +485,11 @@ verus! {
         };
         let metadata_crc = calculate_crc(&metadata_header);
 
-        pm_region.serialize_and_write(ABSOLUTE_POS_OF_METADATA_HEADER, &metadata_header);
-        pm_region.serialize_and_write(ABSOLUTE_POS_OF_HEADER_CRC, &metadata_crc);
+        let metadata_header_addr = ABSOLUTE_POS_OF_METADATA_HEADER;
+        let crc_addr = metadata_header_addr + traits_t::size_of::<ItemTableMetadata>() as u64;
+
+        pm_region.serialize_and_write(metadata_header_addr, &metadata_header);
+        pm_region.serialize_and_write(crc_addr, &metadata_crc);
     }
 
     pub fn read_table_metadata<PM>(pm_region: &PM, table_id: u128) -> (result: Result<Box<ItemTableMetadata>, KvError<K>>)
@@ -521,8 +523,11 @@ verus! {
             let ghost true_metadata_table = choose |metadata: ItemTableMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of());
             let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
 
-            let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata_table)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-            let table_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let metadata_header_addr = ABSOLUTE_POS_OF_METADATA_HEADER;
+            let crc_addr = metadata_header_addr + traits_t::size_of::<ItemTableMetadata>() as u64;
+
+            let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(metadata_header_addr, Ghost(true_metadata_table)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let table_crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
             let ghost header_addrs = Seq::new(ItemTableMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);

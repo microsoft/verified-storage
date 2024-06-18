@@ -12,6 +12,10 @@
 
 use builtin::*;
 use builtin_macros::*;
+use kv::durable::durablelist::durablelistspec_t::*;
+use kv::durable::itemtable::itemtablespec_t::*;
+use kv::durable::metadata::metadataspec_t::*;
+use pmem::wrpm_t::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
@@ -21,6 +25,7 @@ pub mod multilog;
 pub mod pmem;
 
 use kv::durable::durableimpl_v::*;
+use kv::kvspec_t::*;
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
@@ -338,7 +343,6 @@ fn test_durable_on_memory_mapped_file() {
     let _ = std::fs::remove_file(item_table_file_name);
     let _ = std::fs::remove_file(list_file_name);
 
-
     // Create a file, and a PM region, for each component
     let mut log_region = create_pm_region(log_file_name, region_size);
     let mut metadata_region = create_pm_region(metadata_file_name, region_size);
@@ -346,8 +350,15 @@ fn test_durable_on_memory_mapped_file() {
     let mut list_region = create_pm_region(list_file_name, region_size);
 
     let kvstore_id = generate_fresh_log_id();
-    let kv_store = DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
+    DurableKvStore::<_, TestKey, TestItem, TestListElement>::setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, 
         kvstore_id, num_keys, node_size).unwrap();
+
+    let mut log_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedPermission, _>::new(log_region);
+    let mut metadata_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedMetadataPermission, _>::new(metadata_region);
+    let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
+    let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
+    let tracked fake_kv_permission = TrustedKvPermission::<_, TestKey, TestItem, TestListElement>::fake_kv_perm();
+    let kv_store = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&TrustedKvPermission)).unwrap();
 }
 
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion

@@ -122,7 +122,7 @@ verus! {
             num_keys: u64,
             node_size: u32,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
-            Ghost(state): Ghost<DurableKvStoreView<K, I, L>>
+            // Ghost(state): Ghost<DurableKvStoreView<K, I, L>>
         ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
@@ -156,9 +156,7 @@ verus! {
             // TODO: we only need to replay the log if we crashed? We don't have clean shutdown implemented right now anyway though
             let mut log: UntrustedOpLog<K, L> = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
             let log_entries = log.read_op_log(&log_wrpm, kvstore_id)?;
-
             // 2. start the rest of the components using the log
-
             let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, &log_entries, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
             let item_table: DurableItemTable<K, I> = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, &log_entries, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
             let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, &log_entries, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;

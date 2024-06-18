@@ -58,7 +58,7 @@ verus! {
 
     // TODO: it may be more performant to skip some space and
     // start this at 256
-    pub const ABSOLUTE_POS_OF_TABLE_AREA: u64 = 48;
+    pub const ABSOLUTE_POS_OF_TABLE_AREA: u64 = 56;
 
     // This GUID was generated randomly and is meant to describe the
     // item table program, even if it has future versions.
@@ -71,7 +71,7 @@ verus! {
     pub const ITEM_TABLE_VERSION_NUMBER: u64 = 1;
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Debug)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,

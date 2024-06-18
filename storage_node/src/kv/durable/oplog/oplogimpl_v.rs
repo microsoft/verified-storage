@@ -234,9 +234,17 @@ verus! {
                 Err(e) => return Err(KvError::LogErr { log_err: e }),
             };
 
+            if tail == head {
+                return Ok(Vec::new());
+            } else if tail < traits_t::size_of::<u64>() as u128 {
+                // TODO: more detailed error (although this should not ever happen)
+                return Err(KvError::InternalError); 
+            }
+
             // TODO: check for errors on the cast (or take a u128 as len?)
             // Read the log contents and the CRC. Note that the log only supports unaligned reads.
             let len = (tail - head) as u64;
+            
             let (log_bytes, log_addrs) = match log.read(wrpm_region, head, len, Ghost(log_id)) {
                 Ok(bytes) => bytes,
                 Err(e) => return Err(KvError::LogErr { log_err: e }),

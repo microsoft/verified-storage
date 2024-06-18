@@ -97,6 +97,16 @@ verus! {
                 _phantom: Ghost(spec_phantom_data())
             }
         }
+
+        // TODO: REMOVE THIS
+        #[verifier::external_body]
+        pub proof fn fake_kv_perm() -> (tracked perm: Self)
+        {
+            Self {
+                is_state_allowable: |s| true
+            }
+        }
+
     }
 
 
