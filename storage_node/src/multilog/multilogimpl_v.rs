@@ -5,7 +5,9 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
+#[cfg(verus_keep_ghost)]
 use crate::log::inv_v::lemma_auto_smaller_range_of_seq_is_subrange;
+#[cfg(verus_keep_ghost)]
 use crate::log::inv_v::lemma_metadata_matches_implies_metadata_types_set;
 use crate::multilog::append_v::*;
 use crate::multilog::inv_v::*;

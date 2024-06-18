@@ -88,6 +88,8 @@ impl MemoryMappedFile
     }
 }
 
+verus! {
+
 #[verifier::external_body]
 pub struct MemoryMappedFileSection {
     mmf: Rc<RefCell<MemoryMappedFile>>,
@@ -97,6 +99,7 @@ pub struct MemoryMappedFileSection {
 
 impl MemoryMappedFileSection
 {
+    #[verifier::external]
     fn new(mmf: Rc<RefCell<MemoryMappedFile>>, len: usize) -> Result<Self, PmemError>
     {
         let mut mmf_borrowed = mmf.borrow_mut();
@@ -128,7 +131,6 @@ impl MemoryMappedFileSection
     }
 }
 
-verus! {
 
 #[derive(Clone, Copy)]
 pub enum FileOpenBehavior {

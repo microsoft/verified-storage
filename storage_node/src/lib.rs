@@ -2,7 +2,13 @@
 #![feature(maybe_uninit_slice)]
 #![feature(maybe_uninit_write_slice)]
 #![feature(new_uninit)]
+
 #![allow(unused_imports)]
+#![allow(unused_braces)]
+#![allow(unused_variables)]
+#![allow(unused_assignments)]
+#![allow(dead_code)]
+#![allow(unused_mut)]
 
 use builtin::*;
 use builtin_macros::*;
@@ -283,6 +289,25 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     }
     Some(())
 }
+
+// fn test_durable_on_memory_mapped_file() {
+//     let region_size = 1024;
+
+//     // Create the memory out of a single file.
+//     let file_name = "test_log";
+//     #[cfg(target_os = "windows")]
+//     let mut pm_region = FileBackedPersistentMemoryRegion::new(
+//         &file_name, MemoryMappedFileMediaType::SSD,
+//         region_size,
+//         FileCloseBehavior::TestingSoDeleteOnClose
+//     ).ok()?;
+//     #[cfg(target_os = "linux")]
+//     let mut pm_region = FileBackedPersistentMemoryRegion::new(
+//         &file_name,
+//         region_size,
+//         PersistentMemoryCheck::DontCheckForPersistentMemory,
+//     ).ok()?;
+// }
 
 #[allow(dead_code)]
 fn main()

@@ -149,7 +149,7 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     }
 
     let data = &ast.data;
-    let (types, names) = match get_types(name, data) {
+    let (types, _names) = match get_types(name, data) {
         Ok(types) => types,
         Err(e) => return e,
     };
