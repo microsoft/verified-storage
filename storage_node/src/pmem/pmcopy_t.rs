@@ -78,8 +78,6 @@ verus! {
         // valid instances of T, because only valid instances of T can be
         // converted to bytes using `spec_to_bytes`. Its relationship 
         // to `spec_to_bytes` is axiomatized by `axiom_to_from_bytes`.
-        // TODO: define as choose? have a body and choose the valid deserialization
-        // might make it easier to prove metadata_types_set
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
 
         spec fn bytes_parseable(bytes: Seq<u8>) -> bool;
@@ -90,8 +88,15 @@ verus! {
 
     impl<T> PmCopyHelper for T where T: PmCopy {
         closed spec fn spec_to_bytes(self) -> Seq<u8>;
-        
-        closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
+
+        // The definition is closed because no one should need to reason about it,
+        // thanks to `axiom_to_from_bytes`.
+        closed spec fn spec_from_bytes(bytes: Seq<u8>) -> Self
+        {
+            // If the bytes represent some valid `Self`, pick such a `Self`.
+            // Otherwise, pick an arbitrary `Self`. (That's how `choose` works.)
+            choose |x: T| x.spec_to_bytes() == bytes
+        }
 
         open spec fn spec_crc(self) -> u64 {
             spec_crc_u64(self.spec_to_bytes())
