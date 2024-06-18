@@ -172,7 +172,7 @@ where
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
         let offset = self.durable_store.create(&item, &key, Ghost(kvstore_id), perm)?;
-        self.volatile_index.insert_item_offset(key, offset)?;
+        self.volatile_index.insert_key(key, offset)?;
 
         proof {
             // the volatile index and durable store match after creating the new entry in both
@@ -435,13 +435,10 @@ where
             }
     {
         assume(false);
-        let header_offset = self.volatile_index.get(key);
-        let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
-        match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_list_entry_at_index(header_offset, entry_offset, new_list_entry, perm),
-            (None, _) => Err(KvError::KeyNotFound),
-            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
-            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        match self.volatile_index.get_entry_location_by_index(key, idx) {
+            Ok((list_node_addr, offset_within_list_node)) =>
+                self.durable_store.update_list_entry_at_index(list_node_addr, offset_within_list_node, new_list_entry, perm),
+            Err(e) => Err(e),
         }
     }
 
@@ -470,12 +467,11 @@ where
     {
         assume(false);
         let header_offset = self.volatile_index.get(key);
-        let entry_offset = self.volatile_index.get_entry_location_by_index(key, idx);
-        match (header_offset, entry_offset) {
-            (Some(header_offset), Ok(entry_offset)) => self.durable_store.update_entry_at_index_and_item(header_offset, entry_offset, new_item, new_list_entry,  perm),
-            (None, _) => Err(KvError::KeyNotFound),
-            (_, Err(KvError::IndexOutOfRange)) => Err(KvError::IndexOutOfRange),
-            (_, Err(_)) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        match self.volatile_index.get_entry_location_by_index(key, idx) {
+            Ok((list_node_addr, offset_within_list_node)) =>
+                self.durable_store.update_entry_at_index_and_item(list_node_addr, offset_within_list_node,
+                                                                  new_item, new_list_entry,  perm),
+            Err(e) => Err(e),
         }
     }
 
@@ -505,16 +501,26 @@ where
         // TODO: trim_length is in terms of list entries, not bytes, right? Check Jay's impl
         // note: we trim from the beginning of the list, not the end
         assume(false);
-        let item_offset = self.volatile_index.get(key);
-        let old_list_head_offset = self.volatile_index.get_node_offset(key, 0);
-        let new_list_head_offset = self.volatile_index.get_node_offset(key, trim_length);
+        let item_offset = match self.volatile_index.get(key) {
+            Some(header_addr) => header_addr,
+            None => return Err(KvError::KeyNotFound),
+        };
+        if trim_length == 0 {
+            return Ok(());
+        }
+        let first_location_trimmed = self.volatile_index.get_entry_location_by_index(key, 0);
+        let last_location_trimmed = self.volatile_index.get_entry_location_by_index(key, trim_length - 1);
         self.volatile_index.trim_list(key, trim_length)?;
-        match (item_offset, old_list_head_offset, new_list_head_offset) {
-            (Some(item_offset), Ok(old_list_head_offset), Ok(new_list_head_offset)) =>
-                self.durable_store.trim_list(item_offset, old_list_head_offset, new_list_head_offset, trim_length, perm),
-            (None, _, _) => Err(KvError::KeyNotFound),
-            (_, _, Err(KvError::IndexOutOfRange)) | (_, Err(KvError::IndexOutOfRange), _) => Err(KvError::IndexOutOfRange),
-            (_, _, Err(_)) | (_, Err(_), _) => Err(KvError::InternalError), // TODO: better error handling for all cases
+        match (first_location_trimmed, last_location_trimmed) {
+            (Ok((first_trimmed_list_node_addr, first_trimmed_offset_within_list_node)),
+             Ok((last_trimmed_list_node_addr, last_trimmed_offset_within_list_node))) =>
+                // TODO: The interface to `DurableKvStore::trim_list` might
+                // need to change, to also take
+                // `first_trimmed_offset_within_list_node` and
+                // `last_trimmed_offset_within_list_node`.
+                self.durable_store.trim_list(item_offset, first_trimmed_list_node_addr, last_trimmed_list_node_addr, trim_length, perm),
+            (Err(e), _) => Err(e),
+            (_, Err(e)) => Err(e),
         }
     }
 
@@ -541,16 +547,26 @@ where
             }
     {
         assume(false);
-        let item_offset = self.volatile_index.get(key);
-        let old_list_head_offset = self.volatile_index.get_node_offset(key, 0);
-        let new_list_head_offset = self.volatile_index.get_node_offset(key, trim_length);
+        let item_offset = match self.volatile_index.get(key) {
+            Some(header_addr) => header_addr,
+            None => return Err(KvError::KeyNotFound),
+        };
+        if trim_length == 0 {
+            return Ok(());
+        }
+        let first_location_trimmed = self.volatile_index.get_entry_location_by_index(key, 0);
+        let last_location_trimmed = self.volatile_index.get_entry_location_by_index(key, trim_length - 1);
         self.volatile_index.trim_list(key, trim_length)?;
-        match (item_offset, old_list_head_offset, new_list_head_offset) {
-            (Some(item_offset), Ok(old_list_head_offset), Ok(new_list_head_offset)) =>
-                self.durable_store.trim_list_and_update_item(item_offset, old_list_head_offset, new_list_head_offset, trim_length, new_item, perm),
-            (None, _, _) => Err(KvError::KeyNotFound),
-            (_, _, Err(KvError::IndexOutOfRange)) | (_, Err(KvError::IndexOutOfRange), _,) => Err(KvError::IndexOutOfRange),
-            (_, _, Err(_)) | (_, Err(_), _)=> Err(KvError::InternalError), // TODO: better error handling for all cases
+        match (first_location_trimmed, last_location_trimmed) {
+            (Ok((first_trimmed_list_node_addr, first_trimmed_offset_within_list_node)),
+             Ok((last_trimmed_list_node_addr, last_trimmed_offset_within_list_node))) =>
+                // TODO: The interface to `DurableKvStore::trim_list` might
+                // need to change, to also take
+                // `first_trimmed_offset_within_list_node` and
+                // `last_trimmed_offset_within_list_node`.
+                self.durable_store.trim_list_and_update_item(item_offset, first_trimmed_list_node_addr, last_trimmed_list_node_addr, trim_length, new_item, perm),
+            (Err(e), _) => Err(e),
+            (_, Err(e)) => Err(e),
         }
     }
 

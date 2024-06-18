@@ -172,7 +172,7 @@ verus! {
             &&& self.valid()
             // all keys in the volatile index are stored at the indexed offset in the durable store
             &&& forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
-                    let indexed_offset = volatile_index[k].unwrap().item_offset;
+                    let indexed_offset = volatile_index[k].unwrap().header_addr;
                     &&& self.index_to_key_map.contains_key(indexed_offset)
                     &&& self.index_to_key_map[indexed_offset] == k
                 }
@@ -180,7 +180,7 @@ verus! {
             &&& forall |i: int| #![auto] self.contains_key(i) ==> {
                 &&& self.index_to_key_map.contains_key(i)
                 &&& volatile_index.contains_key(self.index_to_key_map[i])
-                &&& volatile_index[self.index_to_key_map[i]].unwrap().item_offset == i
+                &&& volatile_index[self.index_to_key_map[i]].unwrap().header_addr == i
             }
         }
     }

@@ -69,21 +69,21 @@ verus! {
         ensures
             ({
                 let new_durable_state = old_durable_state.create(offset, item).unwrap();
-                let new_volatile_state = old_volatile_state.insert_item_offset(key, offset);
+                let new_volatile_state = old_volatile_state.insert_key(key, offset);
                 new_durable_state.matches_volatile_index(new_volatile_state)
             })
     {
         let new_durable_state = old_durable_state.create(offset, item).unwrap();
-        let new_volatile_state = old_volatile_state.insert_item_offset(key, offset);
+        let new_volatile_state = old_volatile_state.insert_key(key, offset);
 
         assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {
-            let indexed_offset = new_volatile_state[k].unwrap().item_offset;
+            let indexed_offset = new_volatile_state[k].unwrap().header_addr;
             &&& new_durable_state.index_to_key_map.contains_key(indexed_offset)
             &&& new_durable_state.index_to_key_map[indexed_offset] == k
         } by {
             if k != key {
                 assert(old_volatile_state.contains_key(k));
-                let indexed_offset = new_volatile_state[k].unwrap().item_offset;
+                let indexed_offset = new_volatile_state[k].unwrap().header_addr;
                 assert(old_durable_state.index_to_key_map.contains_key(indexed_offset));
                 assert(old_durable_state.index_to_key_map[indexed_offset] == new_durable_state.index_to_key_map[indexed_offset]);
             }
