@@ -353,7 +353,7 @@ verus! {
                 // This part of the proof can be flaky -- invoking this axiom helps stabilize it
                 // by helping Z3 prove that the real CDB is neither valid value, which implies we are 
                 // not impervious to corruption
-                u64::axiom_from_to_bytes(cdb_c@);
+               axiom_to_from_bytes::<u64>(*cdb_val);
             }
             None
         }

@@ -77,10 +77,7 @@ verus! {
         // `spec_from_bytes` is the inverse of spec_to_bytes. It only returns
         // valid instances of T, because only valid instances of T can be
         // converted to bytes using `spec_to_bytes`. Its relationship 
-        // to `spec_to_bytes` is axiomatized by `axiom_to_from_bytes` and
-        // `axiom_from_to_bytes`. In many cases, it is easier to use 
-        // `spec_to_bytes` with `choose` or `exists` rather than using 
-        // this method, but there are several proofs that do rely on it.
+        // to `spec_to_bytes` is axiomatized by `axiom_to_from_bytes`.
         // TODO: define as choose? have a body and choose the valid deserialization
         // might make it easier to prove metadata_types_set
         spec fn spec_from_bytes(bytes: Seq<u8>) -> Self;
@@ -89,17 +86,6 @@ verus! {
 
         // `spec_crc` returns the CRC of the given value as a u64. 
         spec fn spec_crc(self) -> u64;
-
-        // `axiom_from_to_bytes` is one of two axioms that axiomatize
-        // the fact that `spec_to_bytes` is the inverse of `spec_from_bytes`.
-        // It requires that there exist a valid T representation of `bytes`
-        // so ensure it cannot be used with arbitrary bytes sequences.
-        proof fn axiom_from_to_bytes(bytes: Seq<u8>)
-            requires 
-                exists |s: Self| bytes == s.spec_to_bytes(),
-            ensures 
-                bytes == Self::spec_from_bytes(bytes).spec_to_bytes(),
-        ;
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
@@ -115,9 +101,6 @@ verus! {
         {
             Self::spec_from_bytes(bytes).spec_to_bytes() == bytes
         }
-
-        #[verifier::external_body]
-        proof fn axiom_from_to_bytes(bytes: Seq<u8>) {}
     }
 
     // The two following axioms are brodcast in the `pmcopy_axioms`

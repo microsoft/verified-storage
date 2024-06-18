@@ -333,14 +333,6 @@ verus! {
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
 
-            // TODO: broadcast these (or find a way to do the proof without them)
-            u64::axiom_from_to_bytes(global_crc.spec_to_bytes());
-            u64::axiom_from_to_bytes(region_crc.spec_to_bytes());
-            u64::axiom_from_to_bytes(log_crc.spec_to_bytes());
-            GlobalMetadata::axiom_from_to_bytes(global_metadata.spec_to_bytes());
-            RegionMetadata::axiom_from_to_bytes(region_metadata.spec_to_bytes());
-            LogMetadata::axiom_from_to_bytes(log_metadata.spec_to_bytes());
-
             let mem = pm_regions@[0].flush().committed();
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
