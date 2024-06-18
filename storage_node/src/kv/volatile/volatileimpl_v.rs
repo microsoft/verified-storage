@@ -64,13 +64,13 @@ verus! {
                 // which they can use to prove this.
                 old(self)@.contains_key(*key),
                 ({
-                    let (_, node_view) = old(self)@.get_node_view::<E>(*key, old(self)@.list_len(*key) - 1).unwrap();
+                    let (_, node_view) = old(self)@.get_node_view(*key, old(self)@.list_len(*key) - 1).unwrap();
                     node_view.has_free_space()
                 })
             ensures
                 self.valid(),
                 ({
-                    let spec_result = old(self)@.append_to_list::<E>(*key);
+                    let spec_result = old(self)@.append_to_list(*key);
                     match (result, spec_result) {
                         (Ok(()), Ok(new_state)) => self@ == new_state,
                         (Ok(()), Err(_)) => false,
@@ -134,7 +134,7 @@ verus! {
                 self.valid(),
             ensures
                 ({
-                    let spec_result = self@.get_node_offset::<E>(*key, idx as int);
+                    let spec_result = self@.get_node_offset(*key, idx as int);
                     match (result, spec_result) {
                         (Ok(node_offset), Ok(spec_offset)) => node_offset as int == spec_offset,
                         (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => !self@.contains_key(*key),
@@ -177,7 +177,7 @@ verus! {
             ensures
                 self.valid(),
                 ({
-                    let spec_result = old(self)@.trim_list::<E>(*key, trim_length as int);
+                    let spec_result = old(self)@.trim_list(*key, trim_length as int);
                     match (result, spec_result) {
                         (Ok(()), Ok(spec_self)) => self@ == spec_self,
                         (Err(KvError::KeyNotFound), Err(KvError::KeyNotFound)) => {

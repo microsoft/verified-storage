@@ -69,7 +69,6 @@ where
             id: self.id,
             contents: AbstractKvStoreState::construct_view_contents(
                 self.volatile_index@, self.durable_store@),
-            _phantom: None,
         }
     }
 
@@ -144,7 +143,6 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            key == item.spec_key(),
         ensures
             self.valid(),
             match result {
@@ -169,7 +167,7 @@ where
 
         // `item` stores its own key, so we don't have to pass its key to the durable
         // store separately.
-        let offset = self.durable_store.create(&item, &key, kvstore_id, perm)?;
+        let offset = self.durable_store.create(&key, &item, kvstore_id, perm)?;
         self.volatile_index.insert_item_offset(key, offset)?;
 
         proof {

@@ -19,11 +19,9 @@ use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 
 verus! {
-    pub proof fn lemma_empty_index_matches_empty_store<K, I, L, E>(durable_store: DurableKvStoreView<K, I, L, E>, volatile_index: VolatileKvIndexView<K>)
+    pub proof fn lemma_empty_index_matches_empty_store<K, I, L>(durable_store: DurableKvStoreView<K, I, L>, volatile_index: VolatileKvIndexView<K>)
         where
             K: Hash + Eq + std::fmt::Debug,
-            I: Item<K>,
-            E: std::fmt::Debug
         requires
             durable_store.empty(),
             durable_store.valid(),
@@ -50,8 +48,8 @@ verus! {
     /// all keys to an offset with the corresponding durable entry and the durable store's
     /// entries correspond to the volatile index), then after creating a new entry in each
     /// using the same offset, key, and item, the durable and volatile states still match.
-    pub proof fn lemma_volatile_matches_durable_after_create<K, I, L, E>(
-        old_durable_state: DurableKvStoreView<K, I, L, E>,
+    pub proof fn lemma_volatile_matches_durable_after_create<K, I, L>(
+        old_durable_state: DurableKvStoreView<K, I, L>,
         old_volatile_state: VolatileKvIndexView<K>,
         offset: int,
         key: K,
@@ -59,21 +57,18 @@ verus! {
     )
         where
             K: Hash + Eq + std::fmt::Debug,
-            I: Item<K>,
-            E: std::fmt::Debug
         requires
             old_durable_state.matches_volatile_index(old_volatile_state),
             old_durable_state[offset] is None,
             old_volatile_state[key] is None,
-            item.spec_key() == key,
         ensures
             ({
-                let new_durable_state = old_durable_state.create(offset, item).unwrap();
+                let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
                 let new_volatile_state = old_volatile_state.insert_item_offset(key, offset);
                 new_durable_state.matches_volatile_index(new_volatile_state)
             })
     {
-        let new_durable_state = old_durable_state.create(offset, item).unwrap();
+        let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
         let new_volatile_state = old_volatile_state.insert_item_offset(key, offset);
 
         assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {

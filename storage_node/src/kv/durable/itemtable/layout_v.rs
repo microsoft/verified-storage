@@ -90,11 +90,10 @@ verus! {
 
     // TODO: This should be a closed method of the item table view type?
     // TODO: maybe apply log to bytes BEFORE doing this?
-    pub open spec fn parse_item_table<I, K, E>(metadata_header: ItemTableMetadata, mem: Seq<u8>) -> Option<DurableItemTableView<I, K, E>>
+    pub open spec fn parse_item_table<I, K>(metadata_header: ItemTableMetadata, mem: Seq<u8>) -> Option<DurableItemTableView<I, K>>
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
-            E: std::fmt::Debug
     {
         // Check that the header is valid and the memory is the correct size.
         // We probably already did these checks when we parsed the metadata header, but

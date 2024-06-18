@@ -474,6 +474,60 @@ verus! {
             Ok(())
         }
 
+        pub exec fn look_up_item_index<PM>(
+            &self,
+            pm_region: &PM,
+            table_id: u128,
+            metadata_index: u64,
+        ) -> (result: Result<u64, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                pm_region.inv(),
+                // TODO
+            ensures 
+                // TODO
+        {
+            assume(false);
+
+            // TODO: store this so we don't have to recalculate it every time
+            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let entry_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+
+            // 1. Read the metadata entry and CRC at the index
+            let ghost mem = pm_region@.committed();
+            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as int, ListEntryMetadata::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, entry_addr + ListEntryMetadata::spec_size_of(), u64::spec_size_of());
+            let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
+            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| entry_addr + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
+
+            // TODO: error handling
+            let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr, Ghost(true_entry)) {
+                Ok(metadata_entry) => metadata_entry,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                Ok(metadata_entry) => metadata_entry,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+
+            // 2. Check for corruption
+            if !check_crc(metadata_entry.as_slice(), crc.as_slice(), Ghost(mem),
+                Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(crc_addrs)) 
+            {
+                return Err(KvError::CRCMismatch);
+            }
+
+            // 3. Return just the index for the record's item
+            let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption));
+            Ok(metadata_entry.item_index)
+        }
+        
+
         pub exec fn invalidate_entry<PM>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,

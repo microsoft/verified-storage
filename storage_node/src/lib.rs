@@ -325,8 +325,15 @@ struct TestListElement {
 }
 impl PmCopy for TestListElement {}
 
+#[verifier::external_body]
+fn remove_file(name: &str) {
+    let _ = std::fs::remove_file(name);
+}
+
 
 fn test_durable_on_memory_mapped_file() {
+    assume(false);
+
     let region_size = 4096;
     let log_file_name = "/home/hayley/kv_files/test_log";
     let metadata_file_name = "/home/hayley/kv_files/test_metadata";
@@ -338,10 +345,10 @@ fn test_durable_on_memory_mapped_file() {
 
     // delete the test files if they already exist. Ignore the result,
     // since it's ok if the files don't exist.
-    let _ = std::fs::remove_file(log_file_name);
-    let _ = std::fs::remove_file(metadata_file_name);
-    let _ = std::fs::remove_file(item_table_file_name);
-    let _ = std::fs::remove_file(list_file_name);
+    remove_file(log_file_name);
+    remove_file(metadata_file_name);
+    remove_file(item_table_file_name);
+    remove_file(list_file_name);
 
     // Create a file, and a PM region, for each component
     let mut log_region = create_pm_region(log_file_name, region_size);
@@ -358,11 +365,25 @@ fn test_durable_on_memory_mapped_file() {
     let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedItemTablePermission, _>::new(item_table_region);
     let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::<TrustedListPermission, _>::new(list_region);
     let tracked fake_kv_permission = TrustedKvPermission::<_, TestKey, TestItem, TestListElement>::fake_kv_perm();
-    let kv_store = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&TrustedKvPermission)).unwrap();
+    let mut kv_store = DurableKvStore::<_, TestKey, TestItem, TestListElement>::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
+
+    let key1 = TestKey { val: 0 };
+    let key2 = TestKey { val: 1 };
+
+    let item1 = TestItem { val: 10 };
+    let item2 = TestItem { val: 20 };
+
+    // Create a few kv pairs 
+    kv_store.create(&key1, &item1,  kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    kv_store.create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+
+
+
 }
 
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 {
+    assume(false);
     #[cfg(target_os = "windows")]
     let mut pm_region = FileBackedPersistentMemoryRegion::new(
         &file_name, MemoryMappedFileMediaType::SSD,

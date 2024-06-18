@@ -184,10 +184,16 @@ verus! {
             }
         }
 
+        // Creates a new durable record in the KV store. Note that since the durable KV store 
+        // identifies records by their metadata table index, rather than their key, this 
+        // function does NOT return an error if you attempt to create two records with the same 
+        // key. 
+        // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
+        // The caller should do this because this can be done quickly with the volatile info.
         pub fn create(
             &mut self,
-            item: &I,
             key: &K,
+            item: &I,
             kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
         ) -> (result: Result<u64, KvError<K>>)
@@ -198,7 +204,7 @@ verus! {
                 ({
                     match result {
                         Ok(offset) => {
-                            let spec_result = old(self)@.create(offset as int, *item);
+                            let spec_result = old(self)@.create(offset as int, *key, *item);
                             match spec_result {
                                 Ok(spec_result) => {
                                     &&& self@.len() == old(self)@.len() + 1
@@ -282,6 +288,8 @@ verus! {
             Ok(metadata_index)
         }
 
+        // This function takes an offset into the METADATA table, looks up the corresponding item,
+        // and returns it if it exists.
         pub fn read_item(
             &self,
             offset: u64

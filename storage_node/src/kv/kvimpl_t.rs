@@ -170,7 +170,6 @@ where
     fn create(&mut self, key: &K, item: &I, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
-            key == item.spec_key(),
         ensures
             self.valid(),
             match result {

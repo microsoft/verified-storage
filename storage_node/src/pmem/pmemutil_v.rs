@@ -545,4 +545,38 @@ verus! {
         }
         digest.sum64()
     }
+
+    // This lemma establishes that for any `i` and `n`, if
+    //
+    // `forall |k| 0 <= k < n ==> mem1[i+k] == mem2[i+k]`
+    //
+    // holds, then
+    //
+    // `extract_bytes(mem1, i, n) == mem2.extract_bytes(mem2, i, n)`
+    //
+    // also holds.
+    //
+    // This is an obvious fact, so the body of the lemma is
+    // empty. Nevertheless, the lemma is useful because it establishes
+    // a trigger. Specifically, it hints Z3 that whenever Z3 is
+    // thinking about two terms `extract_bytes(mem1, i, n)` and
+    // `extract_bytes(mem2, i, n)` where `mem1` and `mem2` are the
+    // specific memory byte sequences passed to this lemma, Z3 should
+    // also think about this lemma's conclusion. That is, it should
+    // try to prove that
+    //
+    // `forall |k| 0 <= k < n ==> mem1[i+k] == mem2[i+k]`
+    //
+    // and, whenever it can prove that, conclude that
+    //
+    // `extract_bytes(mem1, i, n) == mem2.extract_bytes(mem2, i, n)`
+    pub proof fn lemma_establish_extract_bytes_equivalence(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+    )
+        ensures
+            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
+                #[trigger] extract_bytes(mem1, i, n) == #[trigger] extract_bytes(mem2, i, n)
+    {
+    }
 }

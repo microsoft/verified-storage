@@ -74,11 +74,11 @@ verus! {
     #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct ListEntryMetadata
     {
-        head: u64,
-        tail: u64,
-        length: u64,
-        first_entry_offset: u64, // offset of the first live entry in the head node
-        item_index: u64,
+        pub head: u64,
+        pub tail: u64,
+        pub length: u64,
+        pub first_entry_offset: u64, // offset of the first live entry in the head node
+        pub item_index: u64,
     }
 
     impl ListEntryMetadata {

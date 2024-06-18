@@ -27,10 +27,9 @@ verus! {
 
         // Reflects an entry being appended to the corresponding durable list node
         // by updating the number of entries for the node in the index
-        pub open spec fn append_entry<K, E>(self) -> Result<Self, KvError<K>>
+        pub open spec fn append_entry<K>(self) -> Result<Self, KvError<K>>
             where
                 K: std::fmt::Debug,
-                E: std::fmt::Debug,
         {
             if self.free_entries <= 0 {
                 Err(KvError::OutOfSpace)
@@ -127,9 +126,7 @@ verus! {
 
         // Returns the index key and the view of the list node that contains the specified
         // logical list index.
-        pub open spec fn get_node_view<E>(&self, key: K, index: int) -> Result<((int, int), ListNodeIndexEntry), KvError<K>>
-            where
-                E: std::fmt::Debug
+        pub open spec fn get_node_view(&self, key: K, index: int) -> Result<((int, int), ListNodeIndexEntry), KvError<K>>
         {
             if !self.contains_key(key) {
                 Err(KvError::KeyNotFound)
@@ -153,9 +150,7 @@ verus! {
         }
 
         // returns the offset of the node that contains the specified logical list index
-        pub open spec fn get_node_offset<E>(&self, key: K, index: int) -> Result<int, KvError<K>>
-            where
-                E: std::fmt::Debug
+        pub open spec fn get_node_offset(&self, key: K, index: int) -> Result<int, KvError<K>>
         {
             match self.get_node_view(key, index) {
                 Ok((_, node_view)) => Ok(node_view.physical_offset),
@@ -176,9 +171,7 @@ verus! {
         // Updates the index to reflect that an entry has been appended to the end of the list.
         // It doesn't actually matter what the entry is -- we just need to update the index
         // to reflect that something new has been added
-        pub open spec fn append_to_list<E>(self, key: K) -> Result<Self, KvError<K>>
-            where
-                E: std::fmt::Debug
+        pub open spec fn append_to_list(self, key: K) -> Result<Self, KvError<K>>
         {
             if !self.contents.contains_key(key) {
                 Err(KvError::KeyNotFound)
@@ -210,9 +203,7 @@ verus! {
         }
 
         // TODO: clean this up/split into multiple spec functions
-        pub open spec fn trim_list<E>(self, key: K, trim_length: int) -> Result<Self, KvError<K>>
-            where
-                E: std::fmt::Debug
+        pub open spec fn trim_list(self, key: K, trim_length: int) -> Result<Self, KvError<K>>
         {
             if !self.contents.contains_key(key) {
                 Err(KvError::KeyNotFound)

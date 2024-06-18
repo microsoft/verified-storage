@@ -103,7 +103,8 @@ verus! {
         pub proof fn fake_kv_perm() -> (tracked perm: Self)
         {
             Self {
-                is_state_allowable: |s| true
+                is_state_allowable: |s| true,
+                _phantom: Ghost(spec_phantom_data())
             }
         }
 

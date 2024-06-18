@@ -126,7 +126,7 @@ verus! {
             self.contents.len()
         }
 
-        pub open spec fn create(self, offset: int, item: I) -> Result<Self, KvError<K>>
+        pub open spec fn create(self, offset: int, key: K, item: I) -> Result<Self, KvError<K>>
         {
             if self.contents.contains_key(offset) {
                 Err(KvError::KeyAlreadyExists)
@@ -136,12 +136,12 @@ verus! {
                         contents: self.contents.insert(
                             offset,
                             DurableKvStoreViewEntry {
-                                key: item.spec_key(),
+                                key,
                                 item,
                                 list: DurableKvStoreList::empty()
                             }
                         ),
-                        index_to_key_map: self.index_to_key_map.insert(offset, item.spec_key()),
+                        index_to_key_map: self.index_to_key_map.insert(offset, key),
                     }
                 )
             }
