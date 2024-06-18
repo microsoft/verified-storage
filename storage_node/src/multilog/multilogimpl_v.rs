@@ -1000,7 +1000,7 @@ verus! {
                     prev_infos == old_prev_infos,
                     prev_state == old_prev_state,
             {
-                broadcast use pmcopy_axioms;
+                broadcast use pmcopy_axioms; // Remove this workaround once https://github.com/verus-lang/verus/issues/1166 is fixed
 
                 assert(is_valid_log_index(current_log, self.num_logs));
                 let ghost cur = current_log as int;

@@ -206,7 +206,7 @@ verus! {
 
         // This helper method lets us work around the lack of Verus support for &mut and
         // a bug where the body of some external_body functions may be checked by the verifier.
-        // It casts the contesnt of self to a slice of `MaybeUninit<u8>`, then copies the given
+        // It casts the contents of self to a slice of `MaybeUninit<u8>`, then copies the given
         // byte slice to this location. All of the code in this function is safe -- it's safe
         // to cast a MaybeUninit value to a slice of MaybeUninit bytes, and it is safe to 
         // copy initialized bytes to this slice. `MaybeUninit::write_slice` will panic if 
