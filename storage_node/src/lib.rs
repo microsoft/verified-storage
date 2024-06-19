@@ -400,6 +400,12 @@ fn test_durable_on_memory_mapped_file() {
     assert(kv_store.get_list_len(kvstore_id, invalid_index).is_err());
 
     // check that we can update the items associated with each key
+    let item3 = TestItem { val: 13 };
+    kv_store.update_item(key1_index, kvstore_id, item3).unwrap();
+
+    let read_item3 = kv_store.read_item(kvstore_id, key1_index).unwrap();
+    runtime_assert(read_item3.val == item3.val);
+
 
 }
 

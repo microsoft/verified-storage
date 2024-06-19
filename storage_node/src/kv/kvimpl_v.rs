@@ -288,6 +288,7 @@ where
         &mut self,
         key: &K,
         new_item: I,
+        kvstore_id: u128,
         perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
     ) -> (result: Result<(), KvError<K>>)
         requires
@@ -308,7 +309,7 @@ where
         assume(false);
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.update_item(offset, new_item),
+            Some(offset) => self.durable_store.update_item(offset, kvstore_id, new_item),
             None => Err(KvError::KeyNotFound)
         }
     }

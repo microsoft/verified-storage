@@ -93,15 +93,12 @@ verus! {
     {
         ItemTableEntryCommit { 
             item_index: u64,
-            // new_metadata: ListEntryMetadata,
-            // metadata_crc: u64,
         },
         ItemTableEntryInvalidate { item_index: u64 },
         AppendListNode {
             metadata_index: u64,
             old_tail: u64,
             new_tail: u64,
-            // metadata_crc: u64,
         },
         InsertListElement {
             node_offset: u64,

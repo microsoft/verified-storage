@@ -446,6 +446,48 @@ verus! {
             Ok(free_index)
         }
 
+        // Overwrite an existing metadata table entry with a new one. The function does NOT overwrite the key,
+        // but we need to use the key to calculate the new CRC and reading it from PM here would require an extra
+        // CRC check. This is a committing operation, so the overwrite must have already been logged. 
+        pub exec fn overwrite_entry<PM>(
+            &mut self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+            metadata_index: u64,
+            new_metadata: &ListEntryMetadata,
+            key: &K,
+            Ghost(table_id): Ghost<u128>,
+            Tracked(perm): Tracked<&TrustedMetadataPermission>
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                old(wrpm_region).inv(),
+                // TODO
+                // the key that is passed in is the same as the one already with the entry on PM
+            ensures 
+                wrpm_region.inv(),
+                // TODO
+        {
+            assume(false);
+
+            // 1. calculate the CRC of the entry + key 
+            let mut digest = CrcDigest::new();
+            digest.write(new_metadata);
+            digest.write(key);
+            let crc = digest.sum64();
+
+            // 2. Write the CRC and entry (but not the key)
+            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
+            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(entry_addr, new_metadata, Tracked(perm));
+
+            Ok(())
+        }
+
         // Makes a slot valid by setting its valid CDB.
         // Must log the commit operation before calling this function.
         pub exec fn commit_entry<PM>(

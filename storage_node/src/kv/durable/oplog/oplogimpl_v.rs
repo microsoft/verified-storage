@@ -447,7 +447,7 @@ verus! {
             log_id: u128,
             log_entry: OpLogEntryType<L>,
             Tracked(perm): Tracked<&TrustedPermission>,
-        ) -> (result: Result<(), LogErr>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -497,7 +497,7 @@ verus! {
             log_id: u128,
             to_write: &S,
             Tracked(perm): Tracked<&TrustedPermission>,
-        ) -> (result: Result<(), LogErr>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 S: PmCopy + PmSafe
@@ -507,7 +507,10 @@ verus! {
             // for us the way serialize_and_write does. We need to convert it to a byte-level 
             // representation first, then append that to the log.
             let bytes = to_write.as_byte_slice();
-            self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm))?;
+            match self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm)) {
+                Ok(_) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
             self.current_transaction_crc.write(to_write);
             Ok(())
         }
@@ -518,7 +521,7 @@ verus! {
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
             Tracked(perm): Tracked<&TrustedPermission>,
-        ) -> (result: Result<(), LogErr>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -529,8 +532,14 @@ verus! {
             assume(false);
             let transaction_crc = self.current_transaction_crc.sum64();
             let bytes = transaction_crc.as_byte_slice();
-            self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm))?;
-            self.log.commit(log_wrpm, Ghost(log_id), Tracked(perm))?;
+            match self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm)) {
+                Ok(_) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
+            match self.log.commit(log_wrpm, Ghost(log_id), Tracked(perm)) {
+                Ok(_) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
             Ok(())
         }
 
@@ -539,7 +548,7 @@ verus! {
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
             Tracked(perm): Tracked<&TrustedPermission>,
-        ) -> (result: Result<(), LogErr>)
+        ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -549,8 +558,14 @@ verus! {
         {
             assume(false);
             // look up the tail of the log, then advance the head to that point
-            let (head, tail, capacity) = self.log.get_head_tail_and_capacity(log_wrpm, Ghost(log_id))?;
-            self.log.advance_head(log_wrpm, tail, Ghost(log_id), Tracked(perm))
+            let (head, tail, capacity) = match self.log.get_head_tail_and_capacity(log_wrpm, Ghost(log_id)) {
+                Ok((head, tail, capacity)) => (head, tail, capacity),
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            };
+            match self.log.advance_head(log_wrpm, tail, Ghost(log_id), Tracked(perm)) {
+                Ok(()) => Ok(()),
+                Err(e) => Err(KvError::LogErr { log_err: e })
+            }
         }
 
 
