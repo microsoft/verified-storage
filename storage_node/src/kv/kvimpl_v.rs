@@ -317,6 +317,7 @@ where
     pub fn untrusted_delete(
         &mut self,
         key: &K,
+        kvstore_id: u128,
         perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
     ) -> (result: Result<(), KvError<K>>)
         requires
@@ -337,7 +338,7 @@ where
         assume(false);
         // Remove the entry from the volatile index, obtaining the physical offset as the return value
         let offset = self.volatile_index.remove(key)?;
-        self.durable_store.delete(offset, perm)
+        self.durable_store.delete(offset, kvstore_id, perm)
     }
 
     pub fn untrusted_append_to_list(

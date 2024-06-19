@@ -360,7 +360,7 @@ verus! {
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        match (old(self)@[offset as int], self@[offset as int]) {
+                        match (old(self)@[metadata_index as int], self@[metadata_index as int]) {
                             (Some(old_entry), Some(entry)) => {
                                 &&& entry.key() == old_entry.key()
                                 &&& entry.item() == new_item
@@ -369,7 +369,7 @@ verus! {
                             (_, _) => false
                         }
                     }
-                    Err(KvError::KeyNotFound) => self@[offset as int].is_None(),
+                    Err(KvError::KeyNotFound) => self@[metadata_index as int].is_None(),
                     Err(_) => true // TODO
                 }
         {
@@ -392,7 +392,7 @@ verus! {
             // 3. Update the metadata structure with the new item index
             metadata.item_index = new_item_index;
 
-            // 3. Log the metadata update, the new item commit, and the old item invalidate
+            // 4. Log the metadata update, the new item commit, and the old item invalidate
             let metadata_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata: *metadata };
             let new_item_commit = OpLogEntryType::ItemTableEntryCommit { item_index: new_item_index };
             let old_item_invalid = OpLogEntryType::ItemTableEntryInvalidate { item_index: old_item_index };
@@ -402,10 +402,10 @@ verus! {
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, new_item_commit, Tracked(&fake_log_perm))?;
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, old_item_invalid, Tracked(&fake_log_perm))?;
 
-            // 4. Commit the transaction
-            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(fake_log_perm))?;
+            // 5. Commit the transaction
+            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
 
-            // 5. Perform the updates: overwrite the metadata, commit and invalidate the items
+            // 6. Perform the updates: overwrite the metadata, commit and invalidate the items
             let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
             self.metadata_table.overwrite_entry(&mut self.metadata_wrpm, metadata_index, &metadata, &key, Ghost(kvstore_id), Tracked(&fake_metadata_perm))?;
 
@@ -413,7 +413,7 @@ verus! {
             self.item_table.commit_item(&mut self.item_table_wrpm, kvstore_id, new_item_index, Tracked(&fake_item_perm))?;
             self.item_table.invalidate_item(&mut self.item_table_wrpm, kvstore_id, old_item_index, Tracked(&fake_item_perm))?;
 
-            // 5. Clear the log
+            // 7. Clear the log
             self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
 
             Ok(())
@@ -421,7 +421,8 @@ verus! {
 
         pub fn delete(
             &mut self,
-            offset: u64,
+            metadata_index: u64,
+            kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
@@ -430,13 +431,42 @@ verus! {
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        self@[offset as int].is_None()
+                        self@[metadata_index as int].is_None()
                     }
                     Err(_) => true // TODO
                 }
         {
             assume(false);
-            Err(KvError::NotImplemented)
+
+            // TODO: I don't think items actually need to be valid/invalid -- the same info can be obtained
+            // by determining which items are reachable from valid metadata entries
+
+            // 1. look up the item index so that we can invalidate it 
+            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+            let item_index = metadata.item_index;
+
+            // 2. Log the item and metadata invalidation
+            let item_invalidate = OpLogEntryType::ItemTableEntryInvalidate { item_index };
+            let metadata_invalidate = OpLogEntryType::InvalidateMetadataEntry { metadata_index };
+
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, item_invalidate, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, metadata_invalidate, Tracked(&fake_log_perm))?;
+
+            // 3. Commit the transaction
+            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 4. Invalidate the item and metadata 
+            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_metadata_perm = TrustedMetadataPermission:: fake_metadata_perm();
+            self.item_table.invalidate_item(&mut self.item_table_wrpm, kvstore_id, item_index, Tracked(&fake_item_perm))?;
+            self.metadata_table.invalidate_entry(&mut self.metadata_wrpm, kvstore_id, metadata_index, Tracked(&fake_metadata_perm))?;
+
+            // 5. Clear the log
+            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            Ok(())
         }
 
         pub fn append(

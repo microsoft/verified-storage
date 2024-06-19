@@ -396,16 +396,21 @@ fn test_durable_on_memory_mapped_file() {
     // since we don't have control over the indices assigned to the keys, fail the test here if we accidentally collide
     // to make it easier to differentiate between an actual failure and a collision
     runtime_assert(invalid_index != key1_index && invalid_index != key2_index);
-    assert(kv_store.read_item(kvstore_id, invalid_index).is_err());
-    assert(kv_store.get_list_len(kvstore_id, invalid_index).is_err());
+    runtime_assert(kv_store.read_item(kvstore_id, invalid_index).is_none());
+    runtime_assert(kv_store.get_list_len(kvstore_id, invalid_index).is_err());
 
-    // check that we can update the items associated with each key
+    // check that we can update the items associated with each key and get the updated value back
+    // when we read
     let item3 = TestItem { val: 13 };
     kv_store.update_item(key1_index, kvstore_id, item3).unwrap();
 
     let read_item3 = kv_store.read_item(kvstore_id, key1_index).unwrap();
     runtime_assert(read_item3.val == item3.val);
 
+    // check that deleting an item succeeds and works correctly
+    kv_store.delete(key2_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.read_item(kvstore_id, key2_index).is_none());
+    runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).is_err());
 
 }
 

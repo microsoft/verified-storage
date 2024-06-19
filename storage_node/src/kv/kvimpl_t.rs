@@ -300,7 +300,7 @@ where
 
     }
 
-    fn delete(&mut self, key: &K) -> (result: Result<(), KvError<K>>)
+    fn delete(&mut self, key: &K, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid()
         ensures
@@ -318,7 +318,7 @@ where
     {
         if self.untrusted_kv_impl.untrusted_contains_key(key) {
             let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.delete(*key).unwrap());
-            self.untrusted_kv_impl.untrusted_delete(key, Tracked(&perm))
+            self.untrusted_kv_impl.untrusted_delete(key, kvstore_id, Tracked(&perm))
         } else {
             Err(KvError::KeyNotFound)
         }
