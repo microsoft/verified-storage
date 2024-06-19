@@ -434,9 +434,10 @@ verus! {
             // 4. write CRC and entry 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + free_index * entry_slot_size;
-            let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-            let entry_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA;
-            let key_addr = slot_addr + RELATIVE_POS_OF_ENTRY_KEY;
+            // CDB is at slot addr -- we aren't setting that one yet
+            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
+            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+            let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
             wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
             wrpm_region.serialize_and_write(entry_addr, &entry, Tracked(perm));
@@ -467,7 +468,7 @@ verus! {
 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
             let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
-            let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
+            let cdb_addr = slot_addr;
 
             wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
 
@@ -495,7 +496,8 @@ verus! {
 
             // TODO: store this so we don't have to recalculate it every time
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let entry_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
             let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 

@@ -244,8 +244,8 @@ verus! {
             let metadata_index = self.metadata_table.tentative_create(
                 &mut self.metadata_wrpm, 
                 Ghost(kvstore_id), 
-                item_index, 
                 head_index, 
+                item_index, 
                 key,
                 Tracked(&fake_metadata_perm)
             )?;
@@ -319,6 +319,22 @@ verus! {
                 }
                 None => None
             }
+        }
+
+        pub fn get_list_len(
+            &self,
+            kvstore_id: u128,
+            metadata_index: u64
+        ) -> Result<u64, KvError<K>>
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            let (_, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+            Ok(metadata.length)
         }
 
         pub fn read_list_entry_at_index(

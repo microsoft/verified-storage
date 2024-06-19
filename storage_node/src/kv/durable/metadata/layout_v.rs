@@ -71,7 +71,7 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Debug)]
     pub struct ListEntryMetadata
     {
         pub head: u64,

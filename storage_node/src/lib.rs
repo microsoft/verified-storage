@@ -380,17 +380,16 @@ fn test_durable_on_memory_mapped_file() {
     let key2_index = kv_store.create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
     // Make sure that reading items using the indices returned by create returns the correct values.
-    let read_item1 = kv_store.read_item(kvstore_id, key1_index);
-    let read_item2 = kv_store.read_item(kvstore_id, key2_index);
+    let read_item1 = kv_store.read_item(kvstore_id, key1_index).unwrap();
+    let read_item2 = kv_store.read_item(kvstore_id, key2_index).unwrap();
 
-    if let Some(read_item1) = read_item1 {
-        // we can't directly compare the items(?) but they only have one field, so we compare the fields
-        runtime_assert(read_item1.val == item1.val);
-    }
-    if let Some(read_item2) = read_item2 {
-        // we can't directly compare the items(?) but they only have one field, so we compare the fields
-        runtime_assert(read_item2.val == item2.val);
-    }
+    // we can't directly compare the items(?) but they only have one field, so we compare the fields
+    runtime_assert(read_item1.val == item1.val);
+    runtime_assert(read_item2.val == item2.val);
+
+    // `create` sets up an empty list for each record. Make sure that the lists both have a length of 0
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
+    runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).unwrap() == 0);
 
 }
 
