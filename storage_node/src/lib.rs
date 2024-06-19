@@ -314,7 +314,7 @@ struct TestKey {
 impl PmCopy for TestKey {}
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug, PartialEq, Eq)]
 struct TestItem {
     val: u64,
 }
@@ -376,10 +376,21 @@ fn test_durable_on_memory_mapped_file() {
     let item2 = TestItem { val: 20 };
 
     // Create a few kv pairs 
-    kv_store.create(&key1, &item1,  kvstore_id, Tracked(&fake_kv_permission)).unwrap();
-    kv_store.create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let key1_index = kv_store.create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let key2_index = kv_store.create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
+    // Make sure that reading items using the indices returned by create returns the correct values.
+    let read_item1 = kv_store.read_item(kvstore_id, key1_index);
+    let read_item2 = kv_store.read_item(kvstore_id, key2_index);
 
+    if let Some(read_item1) = read_item1 {
+        // we can't directly compare the items(?) but they only have one field, so we compare the fields
+        runtime_assert(read_item1.val == item1.val);
+    }
+    if let Some(read_item2) = read_item2 {
+        // we can't directly compare the items(?) but they only have one field, so we compare the fields
+        runtime_assert(read_item2.val == item2.val);
+    }
 
 }
 

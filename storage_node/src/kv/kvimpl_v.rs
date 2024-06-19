@@ -182,7 +182,7 @@ where
         Ok(())
     }
 
-    pub fn untrusted_read_item(&self, key: &K) -> (result: Option<&I>)
+    pub fn untrusted_read_item(&self, key: &K) -> (result: Option<Box<I>>)
         requires
             self.valid()
         ensures
@@ -203,7 +203,7 @@ where
         // First, get the offset of the header in the durable store using the volatile index
         let offset = self.volatile_index.get(key);
         match offset {
-            Some(offset) => self.durable_store.read_item(offset),
+            Some(offset) => self.durable_store.read_item(self.id, offset),
             None => None
         }
     }

@@ -433,6 +433,72 @@ verus! {
             Ok(())
         }
 
+        // Read an item from the item table given an index. Returns `None` if the index is 
+        // does not contain a valid, uncorrupted item. 
+        // TODO: should probably return result, not option
+        pub exec fn read_item<PM>(
+            &self,
+            pm_region: &PM,
+            item_table_id: u128,
+            item_table_index: u64,
+        ) -> (result: Option<Box<I>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            let ghost impervious_to_corruption = pm_region.constants().impervious_to_corruption;
+            // TODO: store slot size so we don't have to calculate it each time
+            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
+            let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
+
+            let cdb_addr = item_slot_offset;
+            let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64; 
+            // Read the item and CRC at this slot
+            let ghost mem = pm_region@.committed();
+
+            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as int, u64::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
+            let ghost true_item_bytes = extract_bytes(mem, item_addr as int, I::spec_size_of());
+
+            let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost true_item = I::spec_from_bytes(true_item_bytes);
+
+            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
+            let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + i);
+
+            let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).ok();
+            let crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).ok();
+            let item = pm_region.read_aligned::<I>(item_addr, Ghost(true_item)).ok();
+            match (cdb, crc, item) {
+                (Some(cdb), Some(crc), Some(item)) => {
+                    // Check that the CDB is uncorrupted and indicates that the item is valid
+                    match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
+                        Some(true) => {
+                            // The CDB is valid. Check the item's CRC 
+                            if !check_crc(item.as_slice(), crc.as_slice(), Ghost(mem), 
+                                Ghost(impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) 
+                            {
+                                None
+                            } else {
+                                let item = item.extract_init_val(Ghost(true_item), Ghost(true_item_bytes), Ghost(impervious_to_corruption));
+                                Some(item)
+                            }
+                        }
+                        _ => None // the item is not valid, or the CDB has been corrupted
+
+                    }
+                }
+                _ => None
+            }
+        }
+
         // clears the valid bit for an entry. this should also
         // deallocate it
         pub exec fn invalidate_item<PM>(

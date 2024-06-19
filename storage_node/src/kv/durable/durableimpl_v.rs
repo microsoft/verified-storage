@@ -292,23 +292,33 @@ verus! {
         // and returns it if it exists.
         pub fn read_item(
             &self,
-            offset: u64
-        ) -> (result: Option<&I>)
+            kvstore_id: u128,
+            metadata_index: u64
+        ) -> (result: Option<Box<I>>)
             requires
                 self.valid(),
             ensures
                 match result {
                     Some(item) => {
-                        match self@[offset as int] {
+                        match self@[metadata_index as int] {
                             Some(entry) => entry.item() == item,
                             None => false
                         }
                     }
-                    None => self@[offset as int].is_None()
+                    None => self@[metadata_index as int].is_None()
                 }
         {
             assume(false);
-            None
+            let result = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index).ok();
+            match result {
+                Some((key, metadata)) => {
+                    // using the metadata, determine the location of the item we want and look it up in the item table
+                    let item_index = metadata.item_index;
+                    self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
+                }
+                None => None
+            }
         }
 
         pub fn read_list_entry_at_index(

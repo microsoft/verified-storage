@@ -273,6 +273,102 @@ verus! {
         crcs_match
     }
 
+    pub exec fn check_crc_for_two_reads(
+        data1_c: &[u8],
+        data2_c: &[u8],
+        crc_c: &[u8],
+        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(data1_addrs): Ghost<Seq<int>>,
+        Ghost(data2_addrs): Ghost<Seq<int>>,
+        Ghost(crc_addrs): Ghost<Seq<int>>,
+    ) -> (b: bool)
+        requires
+            data1_addrs.len() + data2_addrs.len() <= mem.len(),
+            crc_addrs.len() <= mem.len(),
+            crc_c@.len() == u64::spec_size_of(),
+            all_elements_unique(data1_addrs + data2_addrs),
+            all_elements_unique(crc_addrs),
+            ({
+                let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
+                let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
+                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+                &&& if impervious_to_corruption {
+                        &&& data1_c@ == true_data1_bytes
+                        &&& data2_c@ == true_data2_bytes
+                        &&& crc_c@ == true_crc_bytes
+                    }
+                    else {
+                        &&& maybe_corrupted(data1_c@, true_data1_bytes, data1_addrs)
+                        &&& maybe_corrupted(data2_c@, true_data2_bytes, data2_addrs)
+                        &&& maybe_corrupted(crc_c@, true_crc_bytes, crc_addrs)
+                    }
+            })
+        ensures
+            ({
+                let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
+                let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
+                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes) ==> {
+                    if b {
+                        &&& data1_c@ == true_data1_bytes
+                        &&& data2_c@ == true_data2_bytes
+                        &&& crc_c@ == true_crc_bytes
+                    }
+                    else {
+                        !impervious_to_corruption
+                    }
+                }
+            })
+    {
+        // calculate the CRC using a digest including both data1_c and data2_c
+        let mut digest = CrcDigest::new();
+        digest.write_bytes(data1_c);
+        digest.write_bytes(data2_c);
+        proof {
+            reveal_with_fuel(Seq::flatten, 3);
+            assert(digest.bytes_in_digest().flatten() =~= data1_c@ + data2_c@);
+        }
+        let computed_crc = digest.sum64();
+
+        assert(computed_crc == spec_crc_u64(data1_c@ + data2_c@));
+
+        // Check whether the CRCs match. This is done in an external body function so that we can convert the maybe-corrupted
+        // CRC to a u64 for comparison to the computed CRC.
+        let crcs_match = compare_crcs(crc_c, computed_crc);
+
+        proof {
+            let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
+            let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
+            let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+
+            // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
+            // we can conclude that the data matches as well. That axiom only applies in the case
+            // when all three of the following conditions hold: (1) the last-written CRC really is
+            // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
+            // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
+            // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
+            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
+            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
+            // detected corruption.
+            if {
+                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
+                &&& !impervious_to_corruption
+                &&& crcs_match
+            } {
+                let data_c = data1_c@ + data2_c@;
+                let true_data = true_data1_bytes + true_data2_bytes;
+                axiom_bytes_uncorrupted2(data_c, true_data, data1_addrs + data2_addrs, 
+                    crc_c@, true_crc_bytes, crc_addrs);
+                assert(extract_bytes(data_c, 0, data1_c@.len() as int) == data1_c@);
+                assert(extract_bytes(data_c, data1_c@.len() as int, data2_c@.len() as int) == data2_c@);
+                assert(data1_c@ == true_data1_bytes);
+                assert(data2_c@ == true_data2_bytes);
+            }
+        }
+        crcs_match
+    }
+
 
     // This function converts the given encoded CDB read from persistent
     // memory into a boolean. It checks for corruption as it does so. It

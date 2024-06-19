@@ -192,7 +192,7 @@ where
         }
     }
 
-    fn read_item(&self, key: &K) -> (result: Option<&I>)
+    fn read_item(&self, key: &K) -> (result: Option<Box<I>>)
         requires
             self.valid()
         ensures
