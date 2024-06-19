@@ -391,6 +391,16 @@ fn test_durable_on_memory_mapped_file() {
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
     runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).unwrap() == 0);
 
+    // check that attempting to access an invalid index results in an error
+    let invalid_index = 0;
+    // since we don't have control over the indices assigned to the keys, fail the test here if we accidentally collide
+    // to make it easier to differentiate between an actual failure and a collision
+    runtime_assert(invalid_index != key1_index && invalid_index != key2_index);
+    assert(kv_store.read_item(kvstore_id, invalid_index).is_err());
+    assert(kv_store.get_list_len(kvstore_id, invalid_index).is_err());
+
+    // check that we can update the items associated with each key
+
 }
 
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
