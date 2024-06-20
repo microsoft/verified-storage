@@ -202,8 +202,10 @@ where
         key: &K
     ) -> (result: Option<u64>)
     {
-        assume(false);
-        None
+        match self.m.get(key) {
+            Some(entry) => Some(entry.header_addr),
+            None => None,
+        }
     }
 
     // Returns the address of the node that contains the list entry at the specified index,
