@@ -14,36 +14,39 @@ use std::hash::Hash;
 
 verus! {
 
-pub struct VolatileKvListEntryLocationImpl
-{
-    pub list_node_addr: u64,
-    pub offset_within_list_node: u64,
-}
-
-impl View for VolatileKvListEntryLocationImpl
-{
-    type V = VolatileKvListEntryLocation;
-    open spec fn view(&self) -> Self::V
-    {
-        VolatileKvListEntryLocation {
-            list_node_addr: self.list_node_addr as int,
-            offset_within_list_node: self.offset_within_list_node as int,
-        }
-    }
-}
-
 pub struct VolatileKvIndexEntryImpl
 {
     pub header_addr: u64,
     pub list_len: u64,
-    pub entry_locations: Vec<VolatileKvListEntryLocationImpl>,
+    pub list_node_addrs: Vec<u64>,
+    pub num_list_entries_skipped: u64,
+    pub num_list_entries_per_node: Ghost<nat>,
 }
 
 impl VolatileKvIndexEntryImpl
 {
+    pub open spec fn all_locations_in_list_node(&self, list_node_addr: int) -> Seq<VolatileKvListEntryLocation>
+    {
+        Seq::new(self.num_list_entries_per_node@,
+                 |i: int| VolatileKvListEntryLocation{ list_node_addr, offset_within_list_node: i  })
+    }
+
+    pub open spec fn entry_locations(&self) -> Seq<VolatileKvListEntryLocation>
+    {
+        self.list_node_addrs@
+            .map(|_i, list_node_addr: u64| self.all_locations_in_list_node(list_node_addr as int))
+            .skip(self.num_list_entries_skipped as int)
+            .flatten()
+    }
+
+    pub open spec fn num_locations(&self) -> int
+    {
+        self.list_node_addrs.len() * self.num_list_entries_per_node@ - self.num_list_entries_skipped
+    }
+
     pub open spec fn valid(&self) -> bool
     {
-        self.list_len <= self.entry_locations.len()
+        self.list_len <= self.num_locations()
     }
 }
 
@@ -56,7 +59,7 @@ impl View for VolatileKvIndexEntryImpl
         VolatileKvIndexEntry {
             header_addr: self.header_addr as int,
             list_len: self.list_len as int,
-            entry_locations: Seq::new(self.entry_locations.len() as nat, |i: int| self.entry_locations[i]@),
+            entry_locations: self.entry_locations(),
         }
     }
 }

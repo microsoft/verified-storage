@@ -122,7 +122,7 @@ where
     // Returns the address of the list node that contains the specified logical list index,
     // and which entry in that list node corresponds to that logical index.
     pub open spec fn get_list_entry_location(self, key: K, index: int)
-                                                -> Result<VolatileKvListEntryLocation, KvError<K>>
+                                             -> Result<VolatileKvListEntryLocation, KvError<K>>
         recommends
             self.valid()
     {
