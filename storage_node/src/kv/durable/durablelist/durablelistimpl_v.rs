@@ -28,6 +28,7 @@ verus! {
     {
         list_node_region_free_list: Vec<u64>,
         node_size: u32,
+        elements_per_node: u64,
         num_nodes: u64,
         state: Ghost<DurableListView<K, L>>
     }
@@ -259,6 +260,10 @@ verus! {
             }   
         }
 
+        pub exec fn get_elements_per_node(&self) -> u64 {
+            self.elements_per_node
+        }
+
         pub exec fn setup<PM>(
             pm_region: &mut PM,
             list_id: u128,
@@ -376,7 +381,7 @@ verus! {
             let ghost mem = pm_region@.committed();
 
             // recover the list region from the log entries
-            Self::recover_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
+            Self::replay_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
 
             // reborrow to satisfy the borrow checker
             let pm_region = wrpm_region.get_pm_region_ref();
@@ -461,9 +466,13 @@ verus! {
                 }
             }
 
+            // The number of elements per node is the (node size - the size of the next ptr+crc) / list element size
+            let elements_per_node = node_size as u64 - (traits_t::size_of::<u64>() as u64 * 2) / traits_t::size_of::<L>() as u64;
+
             Ok(Self {
                 list_node_region_free_list,
-                node_size: node_size,
+                node_size,
+                elements_per_node,
                 num_nodes: list_region_metadata.num_nodes,
                 state: Ghost(state) // TODO: this needs to be set up properly
             })
@@ -484,10 +493,53 @@ verus! {
             ensures 
                 // TODO
         {
-            Self::recover_log_list(wrpm_region, list_id, log_entries, self.node_size, Tracked(perm), Ghost(state))
+            assume(false);
+
+            for i in 0..log_entries.len() 
+                invariant 
+                    // TODO 
+            {
+                assume(false);
+                let log_entry = &log_entries[i];
+
+                match log_entry {
+                    OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
+                        Self::apply_append_list_node_log_entry(wrpm_region, list_id, log_entry, 
+                            self.node_size, Tracked(perm), Ghost(state))?;
+                    }
+                    OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
+                        Self::apply_insert_list_element_log_entry(wrpm_region, list_id, log_entry, 
+                            self.node_size, Tracked(perm), Ghost(state))?;
+                    }
+                    OpLogEntryType::NodeDeallocInMemory { old_head, new_head } => {
+                        let mut current_node = Some(*old_head);
+                        // TODO: current_node being None before we hit the new head would indicate
+                        // some kind of more serious problem. This should be taken care of by verif
+                        while current_node.is_some() && current_node.unwrap() != *new_head {
+                            assume(false);
+                            let cur = current_node.unwrap();
+                            // Look up the next pointer
+                            let next_ptr = self.get_next_list_node(wrpm_region.get_pm_region_ref(), cur, list_id)?;
+
+                            // Deallocate the current node
+                            if let Some(next_ptr) = next_ptr {
+                                self.deallocate_node(next_ptr)?;
+                            } else {
+                                // This shouldn't happen
+                                return Err(KvError::InternalError);
+                            }
+                            
+                            // Use the next pointer for the next iteration
+                            current_node = next_ptr;
+                        }
+                    }
+                    _ => {} // all other entry types do not modify the list directly
+                }
+            }
+            Ok(())
         } 
 
-        exec fn recover_log_list<PM>(
+        exec fn replay_log_list<PM>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,
             log_entries: &Vec<OpLogEntryType<L>>,
@@ -513,34 +565,91 @@ verus! {
 
                 match log_entry {
                     OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
-                        // Appending a new list node involves setting the old tail's next pointer/CRC. We have alread set the 
-                        // new tail's pointer and CRC, and we log the metadata update separately.
-                        let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * old_tail;
-
-                        let new_tail_crc = calculate_crc(new_tail);
-
-                        // the tail addr is the address of the next pointer
-                        let old_crc_addr = old_tail_addr + traits_t::size_of::<u64>() as u64;
-
-                        wrpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
-                        wrpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
+                        Self::apply_append_list_node_log_entry(wrpm_region, list_id, log_entry, 
+                            node_size, Tracked(perm), Ghost(state))?;
                     }
                     OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
-                        // to add a new list element, we copy it from the log to the correct index in its node
-                        let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_offset * node_size as u64;
-                        let crc_addr = node_addr + RELATIVE_POS_OF_LIST_CONTENTS_AREA + index_in_node * traits_t::size_of::<L>() as u64;
-                        let list_element_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-
-                        let list_element_crc = calculate_crc(list_element);
-
-                        wrpm_region.serialize_and_write(crc_addr, &list_element_crc, Tracked(perm));
-                        wrpm_region.serialize_and_write(list_element_addr, list_element, Tracked(perm));
+                        Self::apply_insert_list_element_log_entry(wrpm_region, list_id, log_entry, 
+                            node_size, Tracked(perm), Ghost(state))?;
                     }
                     _ => {} // all other entry types do not modify the list directly
                 }
             }
             Ok(())
         }
+
+        // These private apply_* exec fns are a bit janky, but they let us easily reuse the same
+        // replay code in the cases where list crash recovery and regular list log replay share
+        // behavior.
+        exec fn apply_insert_list_element_log_entry<PM>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            list_id: u128,
+            log_entry: &OpLogEntryType<L>,
+            node_size: u32,
+            Tracked(perm): Tracked<&TrustedListPermission>,
+            Ghost(state): Ghost<DurableListView<K, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                // TODO
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            match log_entry {
+                OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
+                    // to add a new list element, we copy it from the log to the correct index in its node
+                    let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_offset * node_size as u64;
+                    let crc_addr = node_addr + RELATIVE_POS_OF_LIST_CONTENTS_AREA + index_in_node * traits_t::size_of::<L>() as u64;
+                    let list_element_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+                    let list_element_crc = calculate_crc(list_element);
+
+                    wrpm_region.serialize_and_write(crc_addr, &list_element_crc, Tracked(perm));
+                    wrpm_region.serialize_and_write(list_element_addr, list_element, Tracked(perm));
+
+                    Ok(())
+                }
+                _ => Err(KvError::InternalError)
+            }
+        }
+
+        exec fn apply_append_list_node_log_entry<PM>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            list_id: u128,
+            log_entry: &OpLogEntryType<L>,
+            node_size: u32,
+            Tracked(perm): Tracked<&TrustedListPermission>,
+            Ghost(state): Ghost<DurableListView<K, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            match log_entry {
+                OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
+                    // Appending a new list node involves setting the old tail's next pointer/CRC. We have alread set the 
+                    // new tail's pointer and CRC, and we log the metadata update separately.
+                    let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * old_tail;
+
+                    let new_tail_crc = calculate_crc(new_tail);
+
+                    // the tail addr is the address of the next pointer
+                    let old_crc_addr = old_tail_addr + traits_t::size_of::<u64>() as u64;
+
+                    wrpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
+                    wrpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
+                    Ok(())
+                }
+                _ => Err(KvError::InternalError)
+            }
+        }
+
 
         // Allocates a new list node, sets its next pointer,
         // and sets its CRC. This operation is not logged because modifications
@@ -737,54 +846,6 @@ verus! {
             Ok(list_elem)
         }
 
-        // Updates the element at the given list index in-place.
-        // This is a committing update, so the caller must have already logged:
-        // 1. The new list element
-        pub exec fn update_element<PM>(
-            &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
-            list_id: u128,
-            node_idx: u64,
-            element_idx: u64,
-            list_element: &L,
-            Tracked(perm): Tracked<&TrustedListPermission>,
-        ) -> (result: Result<(), KvError<K>>)
-            where
-                PM: PersistentMemoryRegion,
-            requires
-                old(wrpm_region).inv(),
-                // TODO: require that the index is live
-                // TODO
-            ensures
-                wrpm_region.inv()
-                // TODO
-        {
-            assume(false);
-
-            // The implementation of this method is pretty much the same as `append_element`, except that we specify
-            // which node to modify (rather than always writing to the tail) and the proof requirements are different,
-            // since updating an element is a committing update
-
-            let list_element_slot_size = L::size_of() + traits_t::size_of::<u64>();
-
-            // 1. obtain the address of the tail node
-            let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_idx;
-
-            // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * element_idx;
-            let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
-
-            // 3. get the CRC of the new list element
-            let crc_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT_CRC;
-            let crc = calculate_crc(list_element);
-
-            // 4. write the new list element and its CRC
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
-            wrpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
-
-            Ok(())
-        }
-
         // Deallocates the node at the given index by adding it back into the free list.
         // TODO: either the caller needs to prove that this node is actually free (i.e. not reachable from 
         // a valid head node), or we need to check it here
@@ -899,6 +960,61 @@ verus! {
             }
 
             Ok(region_header)
+        }
+
+        pub exec fn get_next_list_node<PM>(
+            &self, 
+            pm_region: &PM, 
+            node_index: u64, 
+            list_id: u128
+        ) -> Result<Option<u64>, KvError<K>>
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+
+            // 1. Read the header of the provided node
+            let list_element_slot_size = (L::size_of() + traits_t::size_of::<u64>()) as u64;
+            let next_ptr_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_index;
+            let crc_addr = next_ptr_addr + traits_t::size_of::<u64>() as u64;
+
+            let ghost mem = pm_region@.committed();
+
+            let ghost true_next_ptr_bytes = extract_bytes(mem, next_ptr_addr as int, u64::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
+            let ghost true_next_ptr = u64::spec_from_bytes(true_next_ptr_bytes);
+            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost next_ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| next_ptr_addr + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
+
+            let next_ptr = match pm_region.read_aligned::<u64>(next_ptr_addr, Ghost(true_next_ptr)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+
+            if !check_crc(next_ptr.as_slice(), crc.as_slice(), Ghost(mem), 
+                Ghost(pm_region.constants().impervious_to_corruption), Ghost(next_ptr_addrs), Ghost(crc_addrs))
+            {
+                return Err(KvError::CRCMismatch);
+            }
+            let next_ptr = *next_ptr.extract_init_val(Ghost(true_next_ptr), Ghost(true_next_ptr_bytes), 
+                Ghost(pm_region.constants().impervious_to_corruption));
+
+            // 2. If the node's next pointer does not point to itself, return it; otherwise return None
+            if next_ptr == node_index {
+                Ok(None)
+            } else {
+                Ok(Some(next_ptr))
+            }
+
         }
     }
 }

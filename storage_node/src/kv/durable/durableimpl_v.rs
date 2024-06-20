@@ -552,7 +552,7 @@ verus! {
             Ok(())
         }
 
-        pub fn alloc_list_node(
+        pub fn tentative_alloc_list_node(
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
@@ -595,52 +595,72 @@ verus! {
             Ok(new_list_node_loc)
         }
 
-        pub fn update_list_entry_at_index(
+        pub fn tentative_update_list_entry_at_index(
             &mut self,
-            item_offset: u64, // TODO: is this necessary? maybe just as ghost state
-            entry_offset: u64,
+            node_offset: u64,
+            index_in_node: u64,
             new_entry: L,
+            kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
             ensures
                 self.valid(),
-                match result {
-                    Ok(()) => {
-                        let old_record = old(self)@.contents[item_offset as int];
-                        let new_record = self@.contents[item_offset as int];
-                        let list_index = new_record.list().node_offset_map[entry_offset as int];
-                        &&& list_index == old_record.list().node_offset_map[entry_offset as int]
-                        &&& new_record.list()[list_index as int] is Some
-                        &&& new_record.list()[list_index as int].unwrap() == new_entry
-                    }
-                    Err(_) => false // TODO
-                }
+                // TODO
+                // match result {
+                //     Ok(()) => {
+                //         let old_record = old(self)@.contents[item_offset as int];
+                //         let new_record = self@.contents[item_offset as int];
+                //         let list_index = new_record.list().node_offset_map[entry_offset as int];
+                //         &&& list_index == old_record.list().node_offset_map[entry_offset as int]
+                //         &&& new_record.list()[list_index as int] is Some
+                //         &&& new_record.list()[list_index as int].unwrap() == new_entry
+                //     }
+                //     Err(_) => false // TODO
+                // }
         {
             assume(false);
-            Err(KvError::NotImplemented)
+            
+            // Log entry update involves writing to a live list element, so the actual updates are handled by playing the log forward.
+            // This operation just creates the log entry and puts it in the tentative transaction
+            
+            // 1. Create the log entry
+            let log_entry = OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element: new_entry };
+
+            // 2. Append the log entry to the log
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &log_entry, Tracked(&fake_log_perm))?;
+
+            // 3. Add the pending log entry to the list
+            self.pending_updates.push(log_entry);
+
+            Ok(())
         }
 
-        pub fn trim_list(
+        pub fn tentative_trim_list(
             &mut self,
-            item_offset: u64,
-            old_head_node_offset: u64,
-            new_head_node_offset: u64,
-            trim_length: usize,
+            metadata_index: u64,
+            old_head: u64,
+            new_head: u64,
+            new_skip: u64, // TODO: who is in charge of figuring this out?
+            trim_len: u64,
+            kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
+                // TODO: caller needs to prove that the provided head will actually be the head
+                // when trimming `trim_len` entries
             ensures
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        let old_record = old(self)@.contents[item_offset as int];
-                        let new_record = self@.contents[item_offset as int];
-                        &&& new_record.list().list == old_record.list().list.subrange(trim_length as int, old_record.list().len() as int)
+                        let old_record = old(self)@.contents[metadata_index as int];
+                        let new_record = self@.contents[metadata_index as int];
+                        &&& new_record.list().list == old_record.list().list.subrange(trim_len as int, old_record.list().len() as int)
                         // offset map entries pointing to trimmed indices should have been removed from the view
-                        &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_length ==> {
+                        &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_len ==> {
                             new_record.list().offset_index(i) is None
                         }
                     }
@@ -648,7 +668,44 @@ verus! {
                 }
         {
             assume(false);
-            Err(KvError::NotImplemented)
+
+            // 1. Look up list metadata
+            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+
+            if trim_len > metadata.length {
+                return Err(KvError::IndexOutOfRange);
+            }
+
+            // 2. Update the metadata structure 
+            metadata.head = new_head;
+            metadata.length = metadata.length - trim_len;
+            metadata.first_entry_offset = new_skip;
+            
+            // 3. Calculate the new CRC 
+            let mut digest = CrcDigest::new();
+            digest.write(&*metadata);
+            digest.write(&*key);
+            let new_crc = digest.sum64();
+
+            // 4. Append the update to the log 
+            let metadata_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_crc, new_metadata: *metadata };
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_update, Tracked(&fake_log_perm))?;
+
+            // 5. Add the pending log entry to the list
+            self.pending_updates.push(metadata_update);
+
+            // We don't deallocate any nodes here, since nodes that will be trimmed off are in use until we commit
+            // the transaction.
+            // We'll use a special in-memory-only log entry enum variant to record the old and new heads and 
+            // deallocate everything between them during log replay in commit. We don't log this information,
+            // but that's ok, because after crash/restart we will replay the log and then rebuild the allocators,
+            // which is equivalent to deallocating from the in-memory entry
+            let node_dealloc = OpLogEntryType::NodeDeallocInMemory { old_head, new_head };
+            self.pending_updates.push(node_dealloc);
+
+            Ok(())
         }
     }
 }

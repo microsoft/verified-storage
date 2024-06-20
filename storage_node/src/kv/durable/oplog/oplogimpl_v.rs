@@ -488,6 +488,7 @@ verus! {
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
                     self.append_to_oplog(log_wrpm, log_id, new_metadata, Tracked(perm))
                 }
+                OpLogEntryType::NodeDeallocInMemory { old_head, new_head } => return Err(KvError::InvalidLogEntryType)
             }
         }
 

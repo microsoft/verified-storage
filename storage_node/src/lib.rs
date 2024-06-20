@@ -449,8 +449,28 @@ fn test_durable_on_memory_mapped_file() {
 
     // check that we can allocate a list node. this doesn't change visible state,
     // but the operation should succeed
-    kv_store.alloc_list_node(key1_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    kv_store.tentative_alloc_list_node(key1_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+
+    // we should be able to update an existing list entry 
+    let list_elem2 = TestListElement { val: 15 };
+    kv_store.tentative_update_list_entry_at_index(list1_index, 0, list_elem2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    // the new list element should not be visible yet
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
+    let read_list_elem1 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
+    assert(read_list_elem1.val == list_elem1.val); 
+
+    // after commit, the list length should be the same but the contents of the list changed
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
+    let read_list_elem2 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
+    assert(read_list_elem2.val == list_elem2.val); 
+
+    // trimming the list should succeed
+    kv_store.tentative_trim_list(key1_index, list1_index, list1_index, 1, 1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
 
 }
 

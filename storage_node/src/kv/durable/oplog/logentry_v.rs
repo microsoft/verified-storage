@@ -116,6 +116,13 @@ verus! {
             metadata_index: u64,
             new_crc: u64, // logged so that we don't have to log the key
             new_metadata: ListEntryMetadata,
+        },
+        // This enum is NOT written to the durable log -- it's just a marker in 
+        // the in-memory log entry list to help us determine which list nodes
+        // should be deallocated during commit.
+        NodeDeallocInMemory {
+            old_head: u64,
+            new_head: u64,
         }
     }
 
