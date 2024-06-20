@@ -447,6 +447,11 @@ fn test_durable_on_memory_mapped_file() {
     let read_list_elem1 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
     assert(read_list_elem1.val == list_elem1.val);
 
+    // check that we can allocate a list node. this doesn't change visible state,
+    // but the operation should succeed
+    kv_store.alloc_list_node(key1_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+
 }
 
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion

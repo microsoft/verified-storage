@@ -552,6 +552,49 @@ verus! {
             Ok(())
         }
 
+        pub fn alloc_list_node(
+            &mut self,
+            metadata_index: u64,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        ) -> (result: Result<u64, KvError<K>>)
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            // 1. Look up metadata
+            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+
+            // 2. Tentatively allocate and initialize an unused list node
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            let new_list_node_loc = self.durable_list.alloc_and_init_list_node(&mut self.list_wrpm, Ghost(kvstore_id), Tracked(&fake_list_perm))?;
+
+            // 3. Update the metadata with the new tail node and calculate the new crc
+            let old_tail = metadata.tail;
+            metadata.tail = new_list_node_loc;
+            let mut digest = CrcDigest::new();
+            digest.write(&*metadata);
+            digest.write(&*key);
+            let new_crc = digest.sum64();
+
+            // 4. Log metadata update and list node append 
+            let tail_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_crc, new_metadata: *metadata };
+            let node_append = OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail: new_list_node_loc };
+
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &tail_update, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &node_append, Tracked(&fake_log_perm))?;
+
+            // 5. Add pending log entries to list
+            self.pending_updates.push(tail_update);
+            self.pending_updates.push(node_append);
+
+            Ok(new_list_node_loc)
+        }
+
         pub fn update_list_entry_at_index(
             &mut self,
             item_offset: u64, // TODO: is this necessary? maybe just as ghost state

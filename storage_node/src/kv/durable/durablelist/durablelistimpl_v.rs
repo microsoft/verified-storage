@@ -513,21 +513,17 @@ verus! {
 
                 match log_entry {
                     OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail, } => {
-                        // Appending a new list node involves setting the both the old tail and the new tail's next pointer and CRC
-                        // to point to the new tail. 
+                        // Appending a new list node involves setting the old tail's next pointer/CRC. We have alread set the 
+                        // new tail's pointer and CRC, and we log the metadata update separately.
                         let old_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * old_tail;
-                        let new_tail_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64 * new_tail;
 
                         let new_tail_crc = calculate_crc(new_tail);
 
                         // the tail addr is the address of the next pointer
                         let old_crc_addr = old_tail_addr + traits_t::size_of::<u64>() as u64;
-                        let new_crc_addr = new_tail_addr + traits_t::size_of::<u64>() as u64;
 
                         wrpm_region.serialize_and_write(old_tail_addr, new_tail, Tracked(perm));
-                        wrpm_region.serialize_and_write(new_tail_addr, new_tail, Tracked(perm));
                         wrpm_region.serialize_and_write(old_crc_addr, &new_tail_crc, Tracked(perm));
-                        wrpm_region.serialize_and_write(new_crc_addr, &new_tail_crc, Tracked(perm));
                     }
                     OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
                         // to add a new list element, we copy it from the log to the correct index in its node
