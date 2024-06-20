@@ -115,6 +115,13 @@ where
         Err(KvError::OutOfSpace)
     }
 
+    // for a new list node addr, adds every location in that node to the volatile index
+    fn append_list_node_addr(&mut self, key: &K, list_node_addr: u64) -> (result: Result<(), KvError<K>>)
+    {
+        assume(false);
+        Err(KvError::OutOfSpace)
+    }
+
     fn append_to_list(
         &mut self,
         key: &K,

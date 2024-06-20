@@ -92,9 +92,7 @@ where
         }
     }
 
-    // adds a new list node's offset to the volatile index. In order to call this, we must have first
-    // allocated a new node and inserted an entry into it in the durable store, so we insert
-    // the node into the index with `num_entries` set to 1.
+    // for a new list node addr, adds every location in that node to the volatile index
     pub open spec fn append_list_node_addr(self, key: K, list_node_addr: int) -> Self
         recommends
             self.valid(),
@@ -117,7 +115,6 @@ where
             ..self
         }
     }
-
 
     // Returns the address of the list node that contains the specified logical list index,
     // and which entry in that list node corresponds to that logical index.
@@ -276,6 +273,19 @@ where
                 }
                 Err(_) => false // TODO
             }
+    ;
+
+    // for a new list node addr, adds every location in that node to the volatile index
+    fn append_list_node_addr(&mut self, key: &K, list_node_addr: u64) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            old(self)@.contains_key(*key),
+        ensures
+            self.valid(),
+            match result { 
+                Ok(_) => self@ == old(self)@.append_list_node_addr(*key, list_node_addr as int),
+                Err(_) => false,
+            },
     ;
 
     fn append_to_list(
