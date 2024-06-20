@@ -474,6 +474,8 @@ verus! {
             // TODO: could get rid of item valid/invalid IF we had another way to determine 
             // if they are allocated (like getting that info from the metadata table)
 
+            // TODO: DEALLOCATE LIST NODES
+
             // 1. look up the item index so that we can invalidate it 
             let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
