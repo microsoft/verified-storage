@@ -66,6 +66,18 @@ impl<Key, Value> MyHashMap<Key, Value> where Key: Eq + Hash {
     }
 
     #[verifier::external_body]
+    pub fn remove(&mut self, k: &Key) -> (result: Option<Value>)
+        ensures
+            self@ == old(self)@.remove(*k),
+            match result {
+                Some(v) => old(self)@.contains_key(*k) && old(self)@[*k] == v,
+                None => !old(self)@.contains_key(*k),
+            },
+    {
+        self.m.remove(k)
+    }
+
+    #[verifier::external_body]
     pub fn contains_key(&self, k: &Key) -> (result: bool)
         ensures
             result == self@.contains_key(*k),

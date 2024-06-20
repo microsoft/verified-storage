@@ -39,9 +39,18 @@ pub struct VolatileKvIndexEntryImpl
     pub entry_locations: Vec<VolatileKvListEntryLocationImpl>,
 }
 
+impl VolatileKvIndexEntryImpl
+{
+    pub open spec fn valid(&self) -> bool
+    {
+        self.list_len <= self.entry_locations.len()
+    }
+}
+
 impl View for VolatileKvIndexEntryImpl
 {
     type V = VolatileKvIndexEntry;
+
     open spec fn view(&self) -> Self::V
     {
         VolatileKvIndexEntry {
@@ -75,7 +84,8 @@ where
 
     open spec fn valid(&self) -> bool
     {
-        self@.valid()
+        &&& 0 < self.num_list_entries_per_node
+        &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
     }
 
     fn new(
@@ -84,8 +94,12 @@ where
         num_list_entries_per_node: u64,
     ) -> (result: Result<Self, KvError<K>>)
     {
-        assume(false);
-        Err(KvError::OutOfSpace)
+        let ret = Self {
+            m: MyHashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            num_list_entries_per_node
+        };
+        assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
+        Ok(ret)
     }
 
     fn insert_key(
@@ -133,8 +147,12 @@ where
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
     {
-        assume(false);
-        Err(KvError::OutOfSpace)
+        let result = match self.m.remove(key) {
+            Some(entry) => Ok(entry.header_addr),
+            None => Err(KvError::<K>::KeyNotFound),
+        };
+        assert(self@.contents =~= old(self)@.contents.remove(*key));
+        result
     }
 
     // trims the volatile index for the list associated with the key

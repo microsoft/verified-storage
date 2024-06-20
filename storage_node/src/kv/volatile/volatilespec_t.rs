@@ -28,6 +28,14 @@ pub struct VolatileKvIndexEntry
                           // beyond the tail to reflect free entries
 }
 
+impl VolatileKvIndexEntry
+{
+    pub open spec fn valid(&self) -> bool
+    {
+        0 <= self.list_len <= self.entry_locations.len()
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexView<K>
 where
@@ -53,10 +61,7 @@ where
     pub open spec fn valid(self) -> bool
     {
         &&& 0 < self.num_list_entries_per_node
-        &&& forall |k| self.contains_key(k) ==> {
-               let entry = self.contents[k];
-               0 <= entry.list_len <= entry.entry_locations.len()
-           }
+        &&& forall |k| #[trigger] self.contains_key(k) ==> self.contents[k].valid()
     }
 
     pub open spec fn contains_key(self, key: K) -> bool
@@ -211,7 +216,7 @@ where
         }
     }
 
-    pub closed spec fn remove(self, key: K) -> Self
+    pub open spec fn remove(self, key: K) -> Self
     {
         Self {
             contents: self.contents.remove(key),
@@ -242,13 +247,15 @@ where
         max_keys: usize,
         num_list_entries_per_node: u64,
     ) -> (result: Result<Self, KvError<K>>)
+        requires
+            num_list_entries_per_node > 0,
         ensures
             match result {
                 Ok(volatile_index) => {
                     &&& volatile_index@.empty()
                     &&& volatile_index.valid()
-                }
-                Err(_) => true // TODO
+                },
+                Err(_) => false,
             }
     ;
 
