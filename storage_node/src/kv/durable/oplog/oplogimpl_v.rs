@@ -168,13 +168,13 @@ verus! {
                         }
                     }
                     UPDATE_METADATA_ENTRY => {
-                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
+                        if log_contents.len() < UpdateMetadataEntry::spec_size_of() {
                             None 
                         } else {
-                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
-                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(MetadataLogEntry::spec_size_of() as int, MetadataLogEntry::spec_size_of() + ListEntryMetadata::spec_size_of()));
-                            let entry = OpLogEntryType::UpdateMetadataEntry { metadata_index: read_entry.metadata_index, new_metadata };
-                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
+                            let read_entry = UpdateMetadataEntry::spec_from_bytes(log_contents.subrange(0 as int, UpdateMetadataEntry::spec_size_of() as int));
+                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, UpdateMetadataEntry::spec_size_of() + ListEntryMetadata::spec_size_of()));
+                            let entry = OpLogEntryType::UpdateMetadataEntry { metadata_index: read_entry.metadata_index, new_crc: read_entry.new_crc, new_metadata };
+                            let log_contents = log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
                         }
                     }
@@ -393,11 +393,11 @@ verus! {
                     OpLogEntryType::from_invalidate_metadata_entry(log_entry)
                 }
                 UPDATE_METADATA_ENTRY => {
-                    let log_entry = Self::read_and_cast_type_from_vec::<MetadataLogEntry>(current_offset, &log_contents,
+                    let log_entry = Self::read_and_cast_type_from_vec::<UpdateMetadataEntry>(current_offset, &log_contents,
                         log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    let new_metadata = Self::read_and_cast_type_from_vec::<ListEntryMetadata>(current_offset + traits_t::size_of::<MetadataLogEntry>(), 
+                    let new_metadata = Self::read_and_cast_type_from_vec::<ListEntryMetadata>(current_offset + traits_t::size_of::<UpdateMetadataEntry>(), 
                         &log_contents, log_id, Ghost(mem), Ghost(log_contents_addrs), Ghost(impervious_to_corruption));
-                    bytes_read += traits_t::size_of::<MetadataLogEntry>() + traits_t::size_of::<ListEntryMetadata>();
+                    bytes_read += traits_t::size_of::<UpdateMetadataEntry>() + traits_t::size_of::<ListEntryMetadata>();
                     OpLogEntryType::from_update_metadata_entry(log_entry, new_metadata)
                 }
                 _ => {
@@ -445,7 +445,7 @@ verus! {
             &mut self,
             log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
             log_id: u128,
-            log_entry: OpLogEntryType<L>,
+            log_entry: &OpLogEntryType<L>,
             Tracked(perm): Tracked<&TrustedPermission>,
         ) -> (result: Result<(), KvError<K>>)
             where 
@@ -473,7 +473,7 @@ verus! {
                 OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
                     let log_entry = log_entry.to_insert_list_element_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
-                    self.append_to_oplog(log_wrpm, log_id, &list_element, Tracked(perm))
+                    self.append_to_oplog(log_wrpm, log_id, list_element, Tracked(perm))
                 }
                 OpLogEntryType::CommitMetadataEntry { metadata_index } => {
                     let log_entry = log_entry.to_commit_metadata_entry().unwrap();
@@ -483,10 +483,10 @@ verus! {
                     let log_entry = log_entry.to_invalidate_metadata_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
                 }
-                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
+                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc } => {
                     let log_entry = log_entry.to_update_metadata_entry().unwrap();
                     self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
-                    self.append_to_oplog(log_wrpm, log_id, &new_metadata, Tracked(perm))
+                    self.append_to_oplog(log_wrpm, log_id, new_metadata, Tracked(perm))
                 }
             }
         }

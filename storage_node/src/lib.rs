@@ -376,11 +376,20 @@ fn test_durable_on_memory_mapped_file() {
     let item2 = TestItem { val: 20 };
 
     // Create a few kv pairs 
-    let key1_index = kv_store.create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
-    let key2_index = kv_store.create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let key1_index = kv_store.tentative_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let key2_index = kv_store.tentative_create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
-    // Make sure that reading items using the indices returned by create returns the correct values.
-    let read_item1 = kv_store.read_item(kvstore_id, key1_index).unwrap();
+    // We should not be able to read items or lists from uncommitted records
+    let read_item1 = kv_store.read_item(kvstore_id, key1_index);
+    let read_item2 = kv_store.read_item(kvstore_id, key2_index);
+    runtime_assert(read_item1.is_err());
+    runtime_assert(read_item2.is_err());
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).is_err());
+    runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).is_err());
+
+    // Commit the transaction -- this should succeed, and we should then be able to read the items
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let read_item1: Box<TestItem> = kv_store.read_item(kvstore_id, key1_index).unwrap();
     let read_item2 = kv_store.read_item(kvstore_id, key2_index).unwrap();
 
     // we can't directly compare the items(?) but they only have one field, so we compare the fields
@@ -396,20 +405,30 @@ fn test_durable_on_memory_mapped_file() {
     // since we don't have control over the indices assigned to the keys, fail the test here if we accidentally collide
     // to make it easier to differentiate between an actual failure and a collision
     runtime_assert(invalid_index != key1_index && invalid_index != key2_index);
-    runtime_assert(kv_store.read_item(kvstore_id, invalid_index).is_none());
+    runtime_assert(kv_store.read_item(kvstore_id, invalid_index).is_err());
     runtime_assert(kv_store.get_list_len(kvstore_id, invalid_index).is_err());
 
-    // check that we can update the items associated with each key and get the updated value back
-    // when we read
+    // Try to update one of the items
     let item3 = TestItem { val: 13 };
-    kv_store.update_item(key1_index, kvstore_id, item3).unwrap();
+    kv_store.tentative_update_item(key1_index, kvstore_id, item3).unwrap();
+    // We shouldn't be able to read the new item yet -- reading should return the old value
+    let read_item3 = kv_store.read_item(kvstore_id, key1_index).unwrap();
+    runtime_assert(read_item3.val == item1.val);
 
+    // After committing the transaction, reading the item should return the new value
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     let read_item3 = kv_store.read_item(kvstore_id, key1_index).unwrap();
     runtime_assert(read_item3.val == item3.val);
 
     // check that deleting an item succeeds and works correctly
-    kv_store.delete(key2_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
-    runtime_assert(kv_store.read_item(kvstore_id, key2_index).is_none());
+    kv_store.tentative_delete(key2_index, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    // until we commit the delete, the item should still be visible
+    let read_item4 = kv_store.read_item(kvstore_id, key2_index).unwrap();
+    runtime_assert(read_item4.val == item2.val);
+
+    // after committing, the record is no longer present
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.read_item(kvstore_id, key2_index).is_err());
     runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).is_err());
 
 }

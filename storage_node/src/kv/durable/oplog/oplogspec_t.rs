@@ -117,12 +117,16 @@ verus! {
 
         pub open spec fn tentatively_update_metadata_entry(
             self, 
-            entry: &MetadataLogEntry,
+            entry: &UpdateMetadataEntry,
             new_metadata: ListEntryMetadata,
         ) -> Self 
         {
             Self {
-                op_list: self.op_list.push(OpLogEntryType::UpdateMetadataEntry { metadata_index: entry.metadata_index, new_metadata }),
+                op_list: self.op_list.push(OpLogEntryType::UpdateMetadataEntry { 
+                    metadata_index: entry.metadata_index, 
+                    new_crc: entry.new_crc,
+                    new_metadata, 
+                }),
                 op_list_committed: false
             }
         }

@@ -341,6 +341,21 @@ verus! {
             })
         }
 
+        pub exec fn play_metadata_log<PM, L>(
+            &mut self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+            table_id: u128,
+            log_entries: &Vec<OpLogEntryType<L>>,
+            Tracked(perm): Tracked<&TrustedMetadataPermission>,
+            Ghost(state): Ghost<MetadataTableView<K>>,
+        ) -> Result<(), KvError<K>>
+        where 
+            PM: PersistentMemoryRegion,
+            L: PmCopy,
+        {
+            Self::replay_log_metadata_table(wrpm_region, table_id, log_entries, Tracked(perm), Ghost(state))
+        }
+
         exec fn replay_log_metadata_table<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
@@ -376,15 +391,13 @@ verus! {
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
                     }
-                    OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
+                    OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc } => {
                         let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
-                        let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let metadata_slot_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+                        let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+                        let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
-                        let crc = calculate_crc(new_metadata);
-
-                        wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
-                        wrpm_region.serialize_and_write(metadata_slot_addr, new_metadata, Tracked(perm));
+                        wrpm_region.serialize_and_write(crc_addr, new_crc, Tracked(perm));
+                        wrpm_region.serialize_and_write(entry_addr, new_metadata, Tracked(perm));
                     }
                     _ => {} // the other operations do not modify the metadata table
                 }

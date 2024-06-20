@@ -469,6 +469,24 @@ verus! {
             })
         }
 
+        pub exec fn play_log_list<PM>(
+            &mut self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+            list_id: u128,
+            log_entries: &Vec<OpLogEntryType<L>>,
+            Tracked(perm): Tracked<&TrustedListPermission>,
+            Ghost(state): Ghost<DurableListView<K, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                // TODO 
+            ensures 
+                // TODO
+        {
+            Self::recover_log_list(wrpm_region, list_id, log_entries, self.node_size, Tracked(perm), Ghost(state))
+        } 
+
         exec fn recover_log_list<PM>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
             list_id: u128,

@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::bytes::u64_to_le_bytes;
 use vstd::prelude::*;
 
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
@@ -28,6 +29,7 @@ use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
+use crate::pmem::crc_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -46,7 +48,8 @@ verus! {
         item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
         list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
         log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>
+        metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+        pending_updates: Vec<OpLogEntryType<L>>,
     }
 
     impl<PM, K, I, L> DurableKvStore<PM, K, I, L>
@@ -176,8 +179,46 @@ verus! {
                 item_table_wrpm,
                 list_wrpm,
                 log_wrpm,
-                metadata_wrpm
+                metadata_wrpm,
+                pending_updates: Vec::new(),
             })
+        }
+
+        // Commits all pending updates by committing the log and applying updates to 
+        // each durable component.
+        pub fn commit(
+            &mut self,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            // 1. Commit the log
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 2. Play the log on each durable component
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            // TODO: handle the ghost states properly here
+            self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
+            self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
+            self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
+                Tracked(&fake_list_perm), Ghost(self.durable_list@))?;
+
+            // 3. Clear the log
+            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 4. Clear the local pending log updates list
+            self.pending_updates.clear();
+
+            Ok(())
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -186,7 +227,7 @@ verus! {
         // key. 
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        pub fn create(
+        pub fn tentative_create(
             &mut self,
             key: &K,
             item: &I,
@@ -255,20 +296,14 @@ verus! {
             let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
             let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
 
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, item_log_entry, Tracked(&fake_log_perm))?;
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, metadata_log_entry, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_log_entry, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_log_entry, Tracked(&fake_log_perm))?;
 
-            // 5. commit the log transaction
-            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            // 5. Add log entries to pending list
+            self.pending_updates.push(item_log_entry);
+            self.pending_updates.push(metadata_log_entry);
 
-            // 6. commit the log and metadata entries
-            self.item_table.commit_item(&mut self.item_table_wrpm, kvstore_id, item_index, Tracked(&fake_item_table_perm))?;
-            self.metadata_table.commit_entry(&mut self.metadata_wrpm, kvstore_id, metadata_index, Tracked(&fake_metadata_perm))?;
-
-            // 7. now that the entries have been committed, clear the log
-            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // 8. Return the index of the metadata entry so it can be used in the volatile index.
+            // 6. Return the index of the metadata entry so it can be used in the volatile index.
             Ok(metadata_index)
         }
 
@@ -278,31 +313,25 @@ verus! {
             &self,
             kvstore_id: u128,
             metadata_index: u64
-        ) -> (result: Option<Box<I>>)
+        ) -> (result: Result<Box<I>, KvError<K>>)
             requires
                 self.valid(),
             ensures
                 match result {
-                    Some(item) => {
+                    Ok(item) => {
                         match self@[metadata_index as int] {
                             Some(entry) => entry.item() == item,
                             None => false
                         }
                     }
-                    None => self@[metadata_index as int].is_None()
+                    Err(_) => self@[metadata_index as int].is_None()
                 }
         {
             assume(false);
-            let result = self.metadata_table.get_key_and_metadata_entry_at_index(
-                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index).ok();
-            match result {
-                Some((key, metadata)) => {
-                    // using the metadata, determine the location of the item we want and look it up in the item table
-                    let item_index = metadata.item_index;
-                    self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
-                }
-                None => None
-            }
+            let (key, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+            let item_index = metadata.item_index;
+            self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
         }
 
         pub fn get_list_len(
@@ -348,7 +377,7 @@ verus! {
             Err(KvError::NotImplemented)
         }
 
-        pub fn update_item(
+        pub fn tentative_update_item(
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
@@ -392,34 +421,35 @@ verus! {
             // 3. Update the metadata structure with the new item index
             metadata.item_index = new_item_index;
 
+            // 4. Calculate the CRC for the updated metadata together with the key. We cannot 
+            // trust that the CRC, key, or metadata are correct during replay in general, so we 
+            // either need to log the new CRC or the key so that we can make sure to update the 
+            // entry with the correct CRC when we apply the update at commit time. 
+
+            let mut digest = CrcDigest::new();
+            digest.write(&*metadata);
+            digest.write(&*key);
+            let new_crc = digest.sum64();
+
             // 4. Log the metadata update, the new item commit, and the old item invalidate
-            let metadata_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata: *metadata };
+            let metadata_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata: *metadata, new_crc };
             let new_item_commit = OpLogEntryType::ItemTableEntryCommit { item_index: new_item_index };
             let old_item_invalid = OpLogEntryType::ItemTableEntryInvalidate { item_index: old_item_index };
 
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, metadata_update, Tracked(&fake_log_perm))?;
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, new_item_commit, Tracked(&fake_log_perm))?;
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, old_item_invalid, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_update, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &new_item_commit, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &old_item_invalid, Tracked(&fake_log_perm))?;
 
-            // 5. Commit the transaction
-            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // 6. Perform the updates: overwrite the metadata, commit and invalidate the items
-            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            self.metadata_table.overwrite_entry(&mut self.metadata_wrpm, metadata_index, &metadata, &key, Ghost(kvstore_id), Tracked(&fake_metadata_perm))?;
-
-            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
-            self.item_table.commit_item(&mut self.item_table_wrpm, kvstore_id, new_item_index, Tracked(&fake_item_perm))?;
-            self.item_table.invalidate_item(&mut self.item_table_wrpm, kvstore_id, old_item_index, Tracked(&fake_item_perm))?;
-
-            // 7. Clear the log
-            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            // 5. Add pending log entries to list
+            self.pending_updates.push(metadata_update);
+            self.pending_updates.push(new_item_commit);
+            self.pending_updates.push(old_item_invalid);
 
             Ok(())
         }
 
-        pub fn delete(
+        pub fn tentative_delete(
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
@@ -438,8 +468,8 @@ verus! {
         {
             assume(false);
 
-            // TODO: I don't think items actually need to be valid/invalid -- the same info can be obtained
-            // by determining which items are reachable from valid metadata entries
+            // TODO: could get rid of item valid/invalid IF we had another way to determine 
+            // if they are allocated (like getting that info from the metadata table)
 
             // 1. look up the item index so that we can invalidate it 
             let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
@@ -451,28 +481,27 @@ verus! {
             let metadata_invalidate = OpLogEntryType::InvalidateMetadataEntry { metadata_index };
 
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, item_invalidate, Tracked(&fake_log_perm))?;
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, metadata_invalidate, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_invalidate, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_invalidate, Tracked(&fake_log_perm))?;
 
-            // 3. Commit the transaction
-            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // 4. Invalidate the item and metadata 
-            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_metadata_perm = TrustedMetadataPermission:: fake_metadata_perm();
-            self.item_table.invalidate_item(&mut self.item_table_wrpm, kvstore_id, item_index, Tracked(&fake_item_perm))?;
-            self.metadata_table.invalidate_entry(&mut self.metadata_wrpm, kvstore_id, metadata_index, Tracked(&fake_metadata_perm))?;
-
-            // 5. Clear the log
-            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+            // 3. Add pending log entries to list
+            self.pending_updates.push(item_invalidate);
+            self.pending_updates.push(metadata_invalidate);
 
             Ok(())
         }
 
+        // This function appends a new list entry *without* allocating a new list node.
+        // It fails if there is no space left in the tail node.
+        // TODO: write a variant of this that allows atomically appending an arbitrary number 
+        // of list elements (potentially with allocation) in a single transaction
         pub fn append(
             &mut self,
-            offset: u64,
+            metadata_index: u64,
             new_entry: L,
+            node_location: u64, // ? will always be the tail node
+            index_in_node: u64, // calculated internally? or by caller?
+            kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
@@ -482,17 +511,26 @@ verus! {
                 self.valid(),
                 match result {
                     Ok(()) => {
-                        let old_record = old(self)@.contents[offset as int];
-                        let new_record = self@.contents[offset as int];
+                        let old_record = old(self)@.contents[metadata_index as int];
+                        let new_record = self@.contents[metadata_index as int];
                         &&& new_record.list().list == old_record.list().list.push(new_entry)
                     }
                     Err(_) => false // TODO
                 }
         {
+
+            
             assume(false);
+            // 1. look up list metadata
+            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+
             Err(KvError::NotImplemented)
         }
 
+        // Note: this fn assumes that the volatile component is responsible for keeping track of whether 
+        // we need to allocate a new list node. The durable component could also potentially handle this 
+        // internally
         pub fn alloc_list_node_and_append(
             &mut self,
             offset: u64,

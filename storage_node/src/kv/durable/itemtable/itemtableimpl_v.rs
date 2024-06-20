@@ -21,6 +21,7 @@ verus! {
             I: PmCopy + Sized + std::fmt::Debug,
     {
         item_size: u64,
+        item_slot_size: u64,
         num_keys: u64,
         free_list: Vec<u64>,
         state: Ghost<DurableItemTableView<I, K>>,
@@ -159,6 +160,10 @@ verus! {
 
         // TODO: write invariants
         closed spec fn inv(self) -> bool;
+
+        pub exec fn item_slot_size(&self) -> u64 {
+            self.item_slot_size
+        }
 
         pub exec fn setup<PM>(
             pm_region: &mut PM,
@@ -306,10 +311,30 @@ verus! {
 
             Ok(Self {
                 item_size,
+                item_slot_size,
                 num_keys,
                 free_list: item_table_allocator,
                 state: Ghost(state)
             })
+        }
+
+        pub exec fn play_item_log<PM, L>(
+            &mut self,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
+            table_id: u128,
+            log_entries: &Vec<OpLogEntryType<L>>,
+            Tracked(perm): Tracked<&TrustedItemTablePermission>,
+            Ghost(state): Ghost<DurableItemTableView<I, K>>
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+                L: PmCopy,
+            requires 
+                // TODO
+            ensures 
+                // TODO 
+        {
+            Self::replay_log_item_table(wrpm_region, table_id, log_entries, self.item_slot_size, Tracked(perm), Ghost(state))
         }
 
         exec fn replay_log_item_table<PM, L>(
@@ -441,7 +466,7 @@ verus! {
             pm_region: &PM,
             item_table_id: u128,
             item_table_index: u64,
-        ) -> (result: Option<Box<I>>)
+        ) -> (result: Result<Box<I>, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -473,29 +498,36 @@ verus! {
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
             let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + i);
 
-            let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).ok();
-            let crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).ok();
-            let item = pm_region.read_aligned::<I>(item_addr, Ghost(true_item)).ok();
-            match (cdb, crc, item) {
-                (Some(cdb), Some(crc), Some(item)) => {
-                    // Check that the CDB is uncorrupted and indicates that the item is valid
-                    match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
-                        Some(true) => {
-                            // The CDB is valid. Check the item's CRC 
-                            if !check_crc(item.as_slice(), crc.as_slice(), Ghost(mem), 
-                                Ghost(impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) 
-                            {
-                                None
-                            } else {
-                                let item = item.extract_init_val(Ghost(true_item), Ghost(true_item_bytes), Ghost(impervious_to_corruption));
-                                Some(item)
-                            }
-                        }
-                        _ => None // the item is not valid, or the CDB has been corrupted
-
+            let cdb = match pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let item = match pm_region.read_aligned::<I>(item_addr, Ghost(true_item)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            // Check that the CDB is uncorrupted and indicates that the item is valid
+            match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
+                Some(true) => {
+                    // The CDB is valid. Check the item's CRC 
+                    if !check_crc(item.as_slice(), crc.as_slice(), Ghost(mem), 
+                        Ghost(impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) 
+                    {
+                        Err(KvError::CRCMismatch)
+                    } else {
+                        let item = item.extract_init_val(Ghost(true_item), Ghost(true_item_bytes), Ghost(impervious_to_corruption));
+                        Ok(item)
                     }
                 }
-                _ => None
+                Some(false) => Err(KvError::EntryIsNotValid),
+                _ => {
+                    Err(KvError::CRCMismatch) // the CDB has been corrupted
+                }
+
             }
         }
 

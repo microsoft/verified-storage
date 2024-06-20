@@ -87,6 +87,7 @@ verus! {
     // The concrete types we write to the log are not enums so that we have more control 
     // over layout; this enum is used represent log entries in ghost code and in DRAM 
     // during log replay
+    #[derive(Debug)]
     pub enum OpLogEntryType<L>
         where
             L: PmCopy
@@ -113,6 +114,7 @@ verus! {
         },
         UpdateMetadataEntry {
             metadata_index: u64,
+            new_crc: u64, // logged so that we don't have to log the key
             new_metadata: ListEntryMetadata,
         }
     }
@@ -131,12 +133,12 @@ verus! {
             }
         }
 
-        pub exec fn to_commit_entry(self) -> Option<CommitItemEntry> {
+        pub exec fn to_commit_entry(&self) -> Option<CommitItemEntry> {
             match self {
                 OpLogEntryType::ItemTableEntryCommit { item_index } => 
                     Some(CommitItemEntry {
                         entry_type: COMMIT_ITEM_TABLE_ENTRY,
-                        item_index,
+                        item_index: *item_index,
                     }),
                 _ => None
             }
@@ -146,12 +148,12 @@ verus! {
             OpLogEntryType::ItemTableEntryInvalidate { item_index: value.item_index }
         }
 
-        pub exec fn to_invalidate_entry(self) -> Option<InvalidateItemEntry> {
+        pub exec fn to_invalidate_entry(&self) -> Option<InvalidateItemEntry> {
             match self {
                 OpLogEntryType::ItemTableEntryInvalidate { item_index } => 
                     Some(InvalidateItemEntry {
                         entry_type: INVALIDATE_ITEM_TABLE_ENTRY,
-                        item_index,
+                        item_index: *item_index,
                     }),
                 _ => None
             }
@@ -165,14 +167,14 @@ verus! {
             }
         }
 
-        pub exec fn to_append_list_node_entry(self) -> Option<AppendListNodeEntry> {
+        pub exec fn to_append_list_node_entry(&self) -> Option<AppendListNodeEntry> {
             match self {
                 OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail } => 
                     Some(AppendListNodeEntry {
                         entry_type: APPEND_LIST_NODE_ENTRY,
-                        metadata_index, 
-                        old_tail,
-                        new_tail, 
+                        metadata_index: *metadata_index, 
+                        old_tail: *old_tail,
+                        new_tail: *new_tail, 
                     }),
                 _ => None,
             }
@@ -186,13 +188,13 @@ verus! {
             }
         }
 
-        pub exec fn to_insert_list_element_entry(self) -> Option<InsertListElementEntry> {
+        pub exec fn to_insert_list_element_entry(&self) -> Option<InsertListElementEntry> {
             match self {
                 OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => 
                     Some(InsertListElementEntry { 
                         entry_type: INSERT_LIST_ELEMENT_ENTRY, 
-                        node_offset, 
-                        index_in_node
+                        node_offset: *node_offset, 
+                        index_in_node: *index_in_node,
                     }),
                 _ => None
             }
@@ -207,12 +209,12 @@ verus! {
             }
         }
 
-        pub exec fn to_commit_metadata_entry(self) -> Option<MetadataLogEntry> {
+        pub exec fn to_commit_metadata_entry(&self) -> Option<MetadataLogEntry> {
             match self {
                 OpLogEntryType::CommitMetadataEntry { metadata_index } => 
                     Some(MetadataLogEntry { 
                         entry_type: COMMIT_METADATA_ENTRY, 
-                        metadata_index, 
+                        metadata_index: *metadata_index, 
                     }),
                 _ => None,
             }
@@ -225,25 +227,25 @@ verus! {
             OpLogEntryType::InvalidateMetadataEntry { metadata_index: value.metadata_index }
         }
 
-        pub exec fn to_invalidate_metadata_entry(self) -> Option<MetadataLogEntry> {
+        pub exec fn to_invalidate_metadata_entry(&self) -> Option<MetadataLogEntry> {
             match self {
                 OpLogEntryType::InvalidateMetadataEntry { metadata_index } => 
-                    Some(MetadataLogEntry { entry_type: INVALIDATE_METADATA_ENTRY, metadata_index }),
+                    Some(MetadataLogEntry { entry_type: INVALIDATE_METADATA_ENTRY, metadata_index: *metadata_index }),
                 _ => None
             }
         }
 
-        pub exec fn from_update_metadata_entry(value: Box<MetadataLogEntry>, new_metadata: Box<ListEntryMetadata>) -> Self 
+        pub exec fn from_update_metadata_entry(value: Box<UpdateMetadataEntry>, new_metadata: Box<ListEntryMetadata>) -> Self 
             requires 
                 value.entry_type == UPDATE_METADATA_ENTRY
         {
-            OpLogEntryType::UpdateMetadataEntry { metadata_index: value.metadata_index, new_metadata: *new_metadata }
+            OpLogEntryType::UpdateMetadataEntry { metadata_index: value.metadata_index, new_crc: value.new_crc, new_metadata: *new_metadata }
         }
 
-        pub exec fn to_update_metadata_entry(self) -> Option<MetadataLogEntry> {
+        pub exec fn to_update_metadata_entry(&self) -> Option<UpdateMetadataEntry> {
             match self {
-                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata } => {
-                    Some(MetadataLogEntry { entry_type: UPDATE_METADATA_ENTRY, metadata_index: metadata_index })
+                OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc} => {
+                    Some(UpdateMetadataEntry { entry_type: UPDATE_METADATA_ENTRY, metadata_index: *metadata_index, new_crc: *new_crc })
                 }
                 _ => None
             }
@@ -326,15 +328,24 @@ verus! {
 
     impl PmCopy for InsertListElementEntry {}
 
-    // represents commit, invalidate, and update/overwrite metadata entries.
-    // update entries also log the new metadata structure, but that is not 
-    // part of the log entry type
+    // represents commit and invalidate metadata entries.
+    // update entries record a CRC and use a different log entry type
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone)]
     pub struct MetadataLogEntry {
         pub entry_type: u64,
-        pub metadata_index: u64,   
+        pub metadata_index: u64,
     }
 
     impl PmCopy for MetadataLogEntry {}
+
+    #[repr(C)]
+    #[derive(PmSized, PmSafe, Copy, Clone)]
+    pub struct UpdateMetadataEntry {
+        pub entry_type: u64,
+        pub metadata_index: u64,
+        pub new_crc: u64,
+    }
+
+    impl PmCopy for UpdateMetadataEntry {}
 }
