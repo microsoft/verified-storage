@@ -34,7 +34,7 @@ where
     K: Hash + Eq,
 {
     pub contents: Map<K, VolatileKvIndexEntry>,
-    pub list_entries_per_node: int
+    pub num_list_entries_per_node: int
 }
 
 impl<K> VolatileKvIndexView<K>
@@ -52,7 +52,7 @@ where
 
     pub open spec fn valid(self) -> bool
     {
-        &&& 0 < self.list_entries_per_node
+        &&& 0 < self.num_list_entries_per_node
         &&& forall |k| self.contains_key(k) ==> {
                let entry = self.contents[k];
                0 <= entry.list_len <= entry.entry_locations.len()
@@ -96,7 +96,7 @@ where
             self.contains_key(key),
     {
         let entry = self.contents[key];
-        let new_locations = Seq::new(self.list_entries_per_node as nat, |i| {
+        let new_locations = Seq::new(self.num_list_entries_per_node as nat, |i| {
             VolatileKvListEntryLocation {
                 list_node_addr,
                 offset_within_list_node: i,
@@ -240,6 +240,7 @@ where
     fn new(
         kvstore_id: u128,
         max_keys: usize,
+        num_list_entries_per_node: u64,
     ) -> (result: Result<Self, KvError<K>>)
         ensures
             match result {
