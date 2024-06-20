@@ -160,7 +160,7 @@ verus! {
         // TODO: might be cleaner to define this elsewhere (like in the interface)
         pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
         {
-            &&& self.len() == volatile_index.len()
+            &&& self.len() == volatile_index.contents.len()
             &&& self.contents.dom().finite()
             &&& volatile_index.contents.dom().finite()
             &&& self.valid()

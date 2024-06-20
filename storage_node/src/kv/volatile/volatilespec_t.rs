@@ -69,11 +69,6 @@ where
         self[key] is Some
     }
 
-    pub open spec fn len(self) -> int
-    {
-        self.contents.len() as int
-    }
-
     pub open spec fn insert_key(self, key: K, header_addr: int) -> Self
         recommends
             self.valid(),
@@ -267,11 +262,8 @@ where
         ensures
             self.valid(),
             match result {
-                Ok(()) => {
-                    &&& self@ == old(self)@.insert_key(*key, header_addr as int)
-                    &&& self@.len() == old(self)@.len() + 1
-                }
-                Err(_) => false // TODO
+                Ok(()) => self@ == old(self)@.insert_key(*key, header_addr as int),
+                Err(_) => false, // TODO
             }
     ;
 

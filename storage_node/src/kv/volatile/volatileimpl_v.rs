@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
@@ -35,8 +36,8 @@ impl VolatileKvIndexEntryImpl
     {
         self.list_node_addrs@
             .map(|_i, list_node_addr: u64| self.all_locations_in_list_node(list_node_addr as int))
-            .skip(self.num_list_entries_skipped as int)
             .flatten()
+            .skip(self.num_list_entries_skipped as int)
     }
 
     pub open spec fn num_locations(&self) -> int
@@ -47,6 +48,33 @@ impl VolatileKvIndexEntryImpl
     pub open spec fn valid(&self) -> bool
     {
         self.list_len <= self.num_locations()
+    }
+
+    pub proof fn lemma_num_locations_is_entry_locations_len_helper<T>(s: Seq<Seq<T>>, n: nat)
+        requires
+            forall |i: int| 0 <= i < s.len() ==> #[trigger] s[i].len() == n,
+        ensures
+            s.flatten().len() == s.len() * n,
+        decreases
+            s.len(),
+    {
+        if s.len() > 0 {
+            Self::lemma_num_locations_is_entry_locations_len_helper(s.skip(1), n);
+            assert(n + (s.len() - 1) * n == s.len() * n) by {
+                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(n as int, 1int, s.len() - 1);
+            }
+        }
+    }
+
+    pub proof fn lemma_num_locations_is_entry_locations_len(&self)
+        requires
+            self.valid()
+        ensures
+            self.num_locations() == self.entry_locations().len()
+    {
+        let s = self.list_node_addrs@.map(|_i, list_node_addr: u64|
+                                          self.all_locations_in_list_node(list_node_addr as int));
+        Self::lemma_num_locations_is_entry_locations_len_helper(s, self.num_list_entries_per_node@);
     }
 }
 
@@ -61,6 +89,35 @@ impl View for VolatileKvIndexEntryImpl
             list_len: self.list_len as int,
             entry_locations: self.entry_locations(),
         }
+    }
+}
+
+impl VolatileKvIndexEntryImpl
+{
+    pub fn new(header_addr: u64, num_list_entries_per_node: Ghost<nat>) -> (result: Self)
+        ensures
+            result.valid(),
+            result.header_addr == header_addr,
+            result.list_len == 0,
+            result.list_node_addrs.len() == 0,
+            result.num_list_entries_skipped == 0,
+            result.num_list_entries_per_node == num_list_entries_per_node,
+            result@.valid(),
+            result@ == (VolatileKvIndexEntry{
+                header_addr: header_addr as int,
+                list_len: 0,
+                entry_locations: Seq::empty()
+            }),
+    {
+        let result = VolatileKvIndexEntryImpl {
+            header_addr,
+            list_len: 0,
+            list_node_addrs: Vec::<u64>::new(),
+            num_list_entries_skipped: 0,
+            num_list_entries_per_node,
+        };
+        assert(result@.entry_locations =~= Seq::empty());
+        result
     }
 }
 
@@ -80,7 +137,7 @@ where
     open spec fn view(&self) -> VolatileKvIndexView<K>
     {
         VolatileKvIndexView::<K> {
-            contents: Map::<K, VolatileKvIndexEntry>::new(|k: K| self.m@.contains_key(k), |k: K| self.m@[k]@),
+            contents: self.m@.map_values(|v: VolatileKvIndexEntryImpl| v@),
             num_list_entries_per_node: self.num_list_entries_per_node as int
         }
     }
@@ -89,6 +146,8 @@ where
     {
         &&& 0 < self.num_list_entries_per_node
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
+        &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
+            self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
     }
 
     fn new(
@@ -111,8 +170,15 @@ where
         header_addr: u64,
     ) -> (result: Result<(), KvError<K>>)
     {
-        assume(false);
-        Err(KvError::OutOfSpace)
+        assert(self@.valid()) by {
+            self.lemma_valid_implies_view_valid();
+        }
+        let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
+        let key_clone = key.clone();
+        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+        self.m.insert(key_clone, entry);
+        assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
+        Ok(())
     }
 
     // for a new list node addr, adds every location in that node to the volatile index
@@ -182,6 +248,22 @@ where
     {
         assume(false);
         Vec::<K>::new()
+    }
+}
+
+impl<K> VolatileKvIndexImpl<K>
+where
+    K: Hash + Eq + Clone + Sized + std::fmt::Debug,
+{
+    proof fn lemma_valid_implies_view_valid(&self)
+        requires
+            self.valid(),
+        ensures
+            self@.valid(),
+    {
+        assert forall |k| #[trigger] self@.contains_key(k) implies self@.contents[k].valid() by {
+            self.m@[k].lemma_num_locations_is_entry_locations_len();
+        }
     }
 }
 
