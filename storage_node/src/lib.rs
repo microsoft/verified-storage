@@ -376,8 +376,8 @@ fn test_durable_on_memory_mapped_file() {
     let item2 = TestItem { val: 20 };
 
     // Create a few kv pairs 
-    let key1_index = kv_store.tentative_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
-    let key2_index = kv_store.tentative_create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let (key1_index, list1_index) = kv_store.tentative_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    let (key2_index, list2_index) = kv_store.tentative_create(&key2, &item2, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
 
     // We should not be able to read items or lists from uncommitted records
     let read_item1 = kv_store.read_item(kvstore_id, key1_index);
@@ -430,6 +430,22 @@ fn test_durable_on_memory_mapped_file() {
     kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     runtime_assert(kv_store.read_item(kvstore_id, key2_index).is_err());
     runtime_assert(kv_store.get_list_len(kvstore_id, key2_index).is_err());
+
+    // append a list element
+    let list_elem1 = TestListElement { val: 100 };
+    kv_store.tentative_append(key1_index, &list_elem1, 
+        list1_index, 0, kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    
+    // before commit, the list length should be 0
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
+    // TODO: read fns will currently read whatever is at the specified location (and most likely return a CRC
+    // mismatch error if it's invalid); I plan to handle management of which locations are valid in volatile state
+
+    // after commit, list length should be 1, and we should be able to read the list element
+    kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
+    runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
+    let read_list_elem1 = kv_store.read_list_entry_at_index(list1_index, 0, kvstore_id).unwrap();
+    assert(read_list_elem1.val == list_elem1.val);
 
 }
 

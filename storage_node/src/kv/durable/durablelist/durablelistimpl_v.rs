@@ -446,7 +446,7 @@ verus! {
             // the in-use vector was sorted, but it may not be, and we don't have
             // access to Rust std::vec sort methods
             let mut found = false;
-            for i in 0..list_region_metadata.num_nodes {
+            for i in 0..list_region_metadata.num_nodes - 1 {
                 assume(false);
                 found = false;
                 for j in 0..list_nodes_in_use.len() {
@@ -665,13 +665,14 @@ verus! {
 
             // 1. obtain the address of the tail node
             let tail_node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * tail_node;
-
+            
             // 2. obtain the address at which the new list element will be written
-            let idx_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * idx;
-            let element_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT;
+            let idx_addr = tail_node_addr + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * idx;
+            let crc_addr = idx_addr;
+            let element_addr = idx_addr + traits_t::size_of::<u64>() as u64;
 
             // 3. get the CRC of the new list element
-            let crc_addr = idx_addr + RELATIVE_POS_OF_LIST_ELEMENT_CRC;
+            
             let crc = calculate_crc(list_element);
 
             // 4. write the new list element and its CRC
@@ -679,6 +680,65 @@ verus! {
             wrpm_region.serialize_and_write(element_addr, list_element, Tracked(perm));
 
             Ok(())
+        }
+
+        pub exec fn read_element_at_index<PM>(
+            &self,
+            pm_region: &PM,
+            list_id: u128,
+            node_offset: u64,
+            index_in_node: u64
+        ) -> (result: Result<Box<L>, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                // TODO 
+            ensures 
+                // TODO 
+        {
+            assume(false);
+            // TODO: should probably check that the node is valid
+
+            let list_element_slot_size = L::size_of() + traits_t::size_of::<u64>();
+
+            // 1. obtain the address of the target node
+            let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_offset;
+
+            // 2. obtain the address of the element to read within the node
+            let index_addr = node_addr + (traits_t::size_of::<u64>() * 2) as u64 + list_element_slot_size as u64 * index_in_node;
+            let crc_addr = index_addr;
+            let elem_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+            // 3. Read the CRC and list element
+            let ghost mem = pm_region@.committed();
+            
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
+            let ghost true_elem_bytes = extract_bytes(mem, elem_addr as int, L::spec_size_of());
+            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost true_elem = L::spec_from_bytes(true_elem_bytes);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
+            let ghost elem_addrs = Seq::new(L::spec_size_of() as nat, |i: int| elem_addr + i);
+
+            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let list_elem = match pm_region.read_aligned::<L>(elem_addr, Ghost(true_elem)) {
+                Ok(val) => val,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+
+            // 4. Check for corruption
+            if !check_crc(list_elem.as_slice(), crc.as_slice(), Ghost(mem), 
+                Ghost(pm_region.constants().impervious_to_corruption), Ghost(elem_addrs), Ghost(crc_addrs))
+            {
+                return Err(KvError::CRCMismatch);
+            }
+
+            // 5. Extract and return the uncorrupted list element
+            let list_elem = list_elem.extract_init_val(Ghost(true_elem), Ghost(true_elem_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption));
+            Ok(list_elem)
         }
 
         // Updates the element at the given list index in-place.

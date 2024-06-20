@@ -224,7 +224,7 @@ verus! {
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
         // function does NOT return an error if you attempt to create two records with the same 
-        // key. 
+        // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
         pub fn tentative_create(
@@ -233,14 +233,14 @@ verus! {
             item: &I,
             kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
-        ) -> (result: Result<u64, KvError<K>>)
+        ) -> (result: Result<(u64, u64), KvError<K>>)
             requires
                 old(self).valid(),
             ensures
                 self.valid(),
                 ({
                     match result {
-                        Ok(offset) => {
+                        Ok((offset, head_node)) => {
                             let spec_result = old(self)@.create(offset as int, *key, *item);
                             match spec_result {
                                 Ok(spec_result) => {
@@ -304,7 +304,7 @@ verus! {
             self.pending_updates.push(metadata_log_entry);
 
             // 6. Return the index of the metadata entry so it can be used in the volatile index.
-            Ok(metadata_index)
+            Ok((metadata_index, head_index))
         }
 
         // This function takes an offset into the METADATA table, looks up the corresponding item,
@@ -350,23 +350,26 @@ verus! {
             Ok(metadata.length)
         }
 
+        // TODO: should this require a check to make sure we are reading 
+        // from a valid list node and from the key that we expect?
         pub fn read_list_entry_at_index(
             &self,
-            offset: u64,
-            idx: u64
-        ) -> (result: Result<&L, KvError<K>>)
+            node_location: u64,
+            index_in_node: u64,
+            kvstore_id: u128,
+        ) -> (result: Result<Box<L>, KvError<K>>)
             requires
                 self.valid(),
             ensures
-                match (result, self@[offset as int]) {
+                match (result, self@[node_location as int]) {
                     (Ok(output_list_entry), Some(spec_entry)) => {
-                        let spec_list_entry = spec_entry.list()[idx as int];
+                        let spec_list_entry = spec_entry.list()[index_in_node as int];
                         &&& spec_list_entry is Some
                         &&& spec_list_entry.unwrap() == output_list_entry
                     }
                     (Err(KvError::IndexOutOfRange), _) => {
-                        &&& self@[offset as int] is Some
-                        &&& self@[offset as int].unwrap().list()[idx as int] is None
+                        &&& self@[node_location as int] is Some
+                        &&& self@[node_location as int].unwrap().list()[index_in_node as int] is None
                     }
                     (Err(_), Some(spec_entry)) => false,
                     (Ok(output_list_entry), None) => false,
@@ -374,7 +377,7 @@ verus! {
                 }
         {
             assume(false);
-            Err(KvError::NotImplemented)
+            self.durable_list.read_element_at_index(self.list_wrpm.get_pm_region_ref(), kvstore_id, node_location, index_in_node)
         }
 
         pub fn tentative_update_item(
@@ -495,118 +498,58 @@ verus! {
         // It fails if there is no space left in the tail node.
         // TODO: write a variant of this that allows atomically appending an arbitrary number 
         // of list elements (potentially with allocation) in a single transaction
-        pub fn append(
+        pub fn tentative_append(
             &mut self,
             metadata_index: u64,
-            new_entry: L,
-            node_location: u64, // ? will always be the tail node
-            index_in_node: u64, // calculated internally? or by caller?
+            new_entry: &L,
+            node_location: u64, 
+            index_in_node: u64, 
             kvstore_id: u128,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
                 // should require that there is enough space in the tail node
+                // and that the given node is in fact the tail
             ensures
                 self.valid(),
                 match result {
                     Ok(()) => {
                         let old_record = old(self)@.contents[metadata_index as int];
                         let new_record = self@.contents[metadata_index as int];
-                        &&& new_record.list().list == old_record.list().list.push(new_entry)
+                        &&& new_record.list().list == old_record.list().list.push(*new_entry)
                     }
                     Err(_) => false // TODO
                 }
-        {
+        {   
+            // TODO: add error handling or use preconditions that prevent errors
 
-            
             assume(false);
             // 1. look up list metadata
             let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+            
+            // 2. append the new list element to the list. This is a tentative write and does not need to be logged.
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            self.durable_list.append_element(&mut self.list_wrpm, kvstore_id, node_location, 
+                index_in_node, &new_entry, Tracked(&fake_list_perm))?;
 
-            Err(KvError::NotImplemented)
-        }
+            // 3. Calculate the new CRC
+            metadata.length = metadata.length + 1;
+            let mut digest = CrcDigest::new();
+            digest.write(&*metadata);
+            digest.write(&*key);
+            let new_crc = digest.sum64();
 
-        // Note: this fn assumes that the volatile component is responsible for keeping track of whether 
-        // we need to allocate a new list node. The durable component could also potentially handle this 
-        // internally
-        pub fn alloc_list_node_and_append(
-            &mut self,
-            offset: u64,
-            new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
-        ) -> (result: Result<u64, KvError<K>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                match result {
-                    Ok(node_phys_offset) => {
-                        let old_record = old(self)@.contents[offset as int];
-                        let new_record = self@.contents[offset as int];
-                        &&& new_record.list().list == old_record.list().list.push(new_entry)
-                        &&& new_record.list().node_offset_map ==
-                                old_record.list().node_offset_map.insert(node_phys_offset as int, old(self)@.len() as int)
-                    }
-                    Err(_) => false // TODO
-                }
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
+            // 4. Log the length update to the metadata
+            let list_len_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_crc, new_metadata: *metadata };
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &list_len_update, Tracked(&fake_log_perm))?;
 
-        pub fn update_item_and_append(
-            &mut self,
-            offset: u64,
-            new_entry: L,
-            new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
-        ) -> (result: Result<u64, KvError<K>>)
-            requires
-                old(self).valid()
-                // should require that there is enough space in the tail node
-            ensures
-                self.valid(),
-                match result {
-                    Ok(phys_offset) => {
-                        let old_record = old(self)@.contents[offset as int];
-                        let new_record = self@.contents[offset as int];
-                        &&& new_record.item() == new_item
-                        &&& new_record.list().list == old_record.list().list.push(new_entry)
-                    }
-                    Err(_) => false // TODO
-                }
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
+            // 5. Add pending log entry to list
+            self.pending_updates.push(list_len_update);
 
-        pub fn alloc_list_node_update_item_and_append(
-            &mut self,
-            offset: u64,
-            new_entry: L,
-            new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
-        ) -> (result: Result<u64, KvError<K>>)
-            requires
-                old(self).valid()
-            ensures
-                self.valid(),
-                match result {
-                    Ok(phys_offset) => {
-                        let old_record = old(self)@.contents[offset as int];
-                        let new_record = self@.contents[offset as int];
-                        &&& new_record.item() == new_item
-                        &&& new_record.list().list == old_record.list().list.push(new_entry)
-                        &&& new_record.list().node_offset_map ==
-                                old_record.list().node_offset_map.insert(phys_offset as int, old(self)@.len() as int)
-                    }
-                    Err(_) => false // TODO
-                }
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
+            Ok(())
         }
 
         pub fn update_list_entry_at_index(
@@ -636,35 +579,6 @@ verus! {
             Err(KvError::NotImplemented)
         }
 
-        pub fn update_entry_at_index_and_item(
-            &mut self,
-            item_offset: u64,
-            entry_offset: u64,
-            new_item: I,
-            new_entry: L,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
-        ) -> (result: Result<(), KvError<K>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => {
-                        let old_record = old(self)@.contents[item_offset as int];
-                        let new_record = self@.contents[item_offset as int];
-                        let list_index = new_record.list().node_offset_map[entry_offset as int];
-                        &&& list_index == old_record.list().node_offset_map[entry_offset as int]
-                        &&& new_record.list()[list_index as int] is Some
-                        &&& new_record.list()[list_index as int].unwrap() == new_entry
-                        &&& new_record.item() == new_item
-                    }
-                    Err(_) => false // TODO
-                }
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
-
         pub fn trim_list(
             &mut self,
             item_offset: u64,
@@ -686,36 +600,6 @@ verus! {
                         &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_length ==> {
                             new_record.list().offset_index(i) is None
                         }
-                    }
-                    Err(_) => false // TODO
-                }
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
-
-        pub fn trim_list_and_update_item(
-            &mut self,
-            item_offset: u64,
-            old_head_node_offset: u64,
-            new_head_node_offset: u64,
-            trim_length: usize,
-            new_item: I,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
-        ) -> (result: Result<(), KvError<K>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                match result {
-                    Ok(()) => {
-                        let old_record = old(self)@.contents[item_offset as int];
-                        let new_record = self@.contents[item_offset as int];
-                        &&& new_record.item() == new_item
-                        &&& new_record.list().list == old_record.list().list.subrange(trim_length as int, old_record.list().len() as int)
-                        // offset map entries pointing to trimmed indices should have been removed from the view
-                        &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_length ==>
-                                new_record.list().offset_index(i) is None
                     }
                     Err(_) => false // TODO
                 }
