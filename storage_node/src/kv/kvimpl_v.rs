@@ -337,35 +337,38 @@ where
     // //     }
     // // }
 
-    // pub fn untrusted_update_item(
-    //     &mut self,
-    //     key: &K,
-    //     new_item: I,
-    //     kvstore_id: u128,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
-    // ) -> (result: Result<(), KvError<K>>)
-    //     requires
-    //         old(self).valid(),
-    //     ensures
-    //         self.valid(),
-    //         match result {
-    //             Ok(()) => {
-    //                 &&& self@ == old(self)@.update_item(*key, new_item).unwrap()
-    //             }
-    //             Err(KvError::KeyNotFound) => {
-    //                 &&& !old(self)@.contents.contains_key(*key)
-    //                 &&& old(self)@ == self@
-    //             }
-    //             Err(_) => false
-    //         }
-    // {
-    //     assume(false);
-    //     let offset = self.volatile_index.get(key);
-    //     match offset {
-    //         Some(offset) => self.durable_store.update_item(offset, kvstore_id, new_item),
-    //         None => Err(KvError::KeyNotFound)
-    //     }
-    // }
+    pub fn untrusted_update_item(
+        &mut self,
+        key: &K,
+        new_item: &I,
+        kvstore_id: u128,
+        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self@ == old(self)@.update_item(*key, *new_item).unwrap()
+                }
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
+            }
+    {
+        assume(false);
+        let offset = self.volatile_index.get(key);
+        match offset {
+            Some(offset) => {
+                self.durable_store.tentative_update_item(offset, kvstore_id, new_item)?;
+                self.durable_store.commit(kvstore_id, perm)
+            }
+            None => Err(KvError::KeyNotFound)
+        }
+    }
 
     // pub fn untrusted_delete(
     //     &mut self,

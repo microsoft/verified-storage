@@ -301,30 +301,30 @@ where
 //     //     self.untrusted_kv_impl.untrusted_read_list(key)
 //     // }
 
-//     fn update_item(&mut self, key: &K, new_item: I, kvstore_id: u128) -> (result: Result<(), KvError<K>>)
-//         requires
-//             old(self).valid(),
-//         ensures
-//             self.valid(),
-//             match result {
-//                 Ok(()) => {
-//                     &&& self@ == old(self)@.update_item(*key, new_item).unwrap()
-//                 }
-//                 Err(KvError::KeyNotFound) => {
-//                     &&& !old(self)@.contents.contains_key(*key)
-//                     &&& old(self)@ == self@
-//                 }
-//                 Err(_) => false
-//             }
-//     {
-//         if self.untrusted_kv_impl.untrusted_contains_key(key) {
-//             let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, new_item).unwrap());
-//             self.untrusted_kv_impl.untrusted_update_item(key, new_item, kvstore_id, Tracked(&perm))
-//         } else {
-//             Err(KvError::KeyNotFound)
-//         }
+    pub fn update_item(&mut self, key: &K, new_item: &I, kvstore_id: u128) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+        ensures
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self@ == old(self)@.update_item(*key, *new_item).unwrap()
+                }
+                Err(KvError::KeyNotFound) => {
+                    &&& !old(self)@.contents.contains_key(*key)
+                    &&& old(self)@ == self@
+                }
+                Err(_) => false
+            }
+    {
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, *new_item).unwrap());
+            self.untrusted_kv_impl.untrusted_update_item(key, new_item, kvstore_id, Tracked(&perm))
+        } else {
+            Err(KvError::KeyNotFound)
+        }
 
-//     }
+    }
 
 //     fn delete(&mut self, key: &K, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
 //         requires

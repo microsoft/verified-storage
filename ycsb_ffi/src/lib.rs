@@ -177,7 +177,49 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvRead<'local>(
             unreachable!();
         }
     }
-    
+}
+
+#[no_mangle]
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>, 
+    kv_pointer: jlong, 
+    _table: JByteArray<'local>, 
+    key: JByteArray<'local>, 
+    values: JByteArray<'local>
+) {
+    // Obtain a reference to the KV. We don't use Box::from_raw because we don't want ownership of the KV
+    // (otherwise it will be dropped too early)
+    let raw_kv_pointer = kv_pointer as *mut YcsbKV;
+    let kv: &mut YcsbKV = unsafe { &mut *raw_kv_pointer };
+
+    let key_len: usize = env.get_array_length(&key).unwrap().try_into().unwrap();
+    let value_len: usize = env.get_array_length(&values).unwrap().try_into().unwrap();
+    if key_len > MAX_KEY_LEN {
+        let err_str = format!("Error: key too long (length {:?}, max {:?})", key_len, MAX_KEY_LEN);
+        println!("{}", err_str);
+        env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        unreachable!();
+    } 
+    if value_len > MAX_ITEM_LEN {
+        let err_str = format!("Error: value too long (length {:?}, max {:?})", value_len, MAX_ITEM_LEN);
+        println!("{}", err_str);
+        env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        unreachable!();
+    }
+
+    let ycsb_key = YcsbKey::new(&env, key);
+    let ycsb_item = YcsbItem::new(&env, values);
+
+    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item, kv.kvstore_id);
+    match ret {
+        Ok(_) => {}
+        Err(e) => {
+            let err_str = format!("Error updating item: {:?}", e);
+            println!("{}", err_str);
+            env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        }
+    }
 }
 
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion

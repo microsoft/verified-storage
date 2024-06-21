@@ -58,7 +58,14 @@ public class CapybaraKVClient extends DB {
   @Override
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
-    return Status.ERROR;
+    try {
+      byte[] serializedValues = serializeValues(values);
+      kv.update(table, key, serializedValues);
+      return Status.OK;
+    } catch(IOException | CapybaraKVException e) {
+      LOGGER.error(e.getMessage(), e);
+      return Status.ERROR;
+    }
   }
 
   @Override
@@ -73,7 +80,7 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> result) {
     try {
       byte[] values = kv.read(table, key);
-      // deserializeValues(values, fields, result);
+      deserializeValues(values, fields, result);
       return Status.OK;
     } catch(CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);

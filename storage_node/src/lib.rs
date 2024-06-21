@@ -417,7 +417,7 @@ fn test_durable_on_memory_mapped_file() {
 
     // Try to update one of the items
     let item3 = TestItem { val: 13 };
-    kv_store.tentative_update_item(key1_index, kvstore_id, item3).unwrap();
+    kv_store.tentative_update_item(key1_index, kvstore_id, &item3).unwrap();
     // We shouldn't be able to read the new item yet -- reading should return the old value
     let read_item3 = kv_store.read_item(kvstore_id, key1_index).unwrap();
     runtime_assert(read_item3.val == item1.val);

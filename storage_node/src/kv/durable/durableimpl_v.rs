@@ -391,7 +391,7 @@ verus! {
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
-            new_item: I,
+            new_item: &I,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid()

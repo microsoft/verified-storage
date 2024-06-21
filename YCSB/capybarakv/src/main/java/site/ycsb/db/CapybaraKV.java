@@ -17,6 +17,8 @@ public class CapybaraKV {
   private static native void kvInsert(long kvPtr, byte[] table, 
       byte[] key, byte[] value);
   private static native byte[] kvRead(long kvPtr, byte[] table, byte[] key);
+  private static native void kvUpdate(long kvPtr, byte[] table, 
+      byte[] key, byte[] value);
 
   private long kvPtr;
 
@@ -28,7 +30,6 @@ public class CapybaraKV {
     kvPtr = CapybaraKV.kvInit();
   }
 
-  // this should throw an exception on failure rather than returning err?
   public void insert(String table, String key, byte[] values) throws CapybaraKVException {
     byte[] tableArray = table.getBytes(UTF_8);
     byte[] keyArray = key.getBytes(UTF_8);
@@ -42,6 +43,13 @@ public class CapybaraKV {
 
     byte[] ret = CapybaraKV.kvRead(kvPtr, tableArray, keyArray);
     return ret;
+  }
+
+  public void update(String table, String key, byte[] values) throws CapybaraKVException {
+    byte[] tableArray = table.getBytes(UTF_8);
+    byte[] keyArray = key.getBytes(UTF_8);
+
+    CapybaraKV.kvUpdate(kvPtr, tableArray, keyArray, values);
   }
 
   public void cleanup() {
