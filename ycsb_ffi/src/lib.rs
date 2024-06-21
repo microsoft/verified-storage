@@ -86,6 +86,17 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
     let raw_kv_pointer = kv_pointer as *mut YcsbKV;
     let kv: &mut YcsbKV = unsafe { &mut *raw_kv_pointer };
 
+    let key_len: usize = env.get_array_length(&key).unwrap().try_into().unwrap();
+    let value_len: usize = env.get_array_length(&values).unwrap().try_into().unwrap();
+    if key_len > MAX_KEY_LEN {
+        println!("Error: key too long (length {:?}, max {:?})", key_len, MAX_KEY_LEN);
+        return -1;
+    } 
+    if value_len > MAX_ITEM_LEN {
+        println!("Error: value too long (length {:?}, max {:?})", value_len, MAX_ITEM_LEN);
+        return -1;
+    }
+
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
@@ -94,7 +105,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
         Ok(_) => {
             return 0;
         }
-        Err(e) => {
+        Err(_) => {
             return -1;
         }
     }

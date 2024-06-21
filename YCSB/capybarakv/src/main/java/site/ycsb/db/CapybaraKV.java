@@ -38,16 +38,6 @@ public class CapybaraKV {
     byte[] tableArray = table.getBytes(UTF_8);
     byte[] keyArray = key.getBytes(UTF_8);
 
-    if (keyArray.length > maxKeySize) {
-      LOGGER.error("Key " + key + " is too big (length " + keyArray.length +
-          ", max length " + maxKeySize + ")");
-      return Status.BAD_REQUEST;
-    }
-    if (values.length > maxValueSize) {
-      LOGGER.error("Item for " + key + " is too big (length " + values.length +
-          ", max length " + maxValueSize + ")");
-      return Status.BAD_REQUEST;
-    }
     int ret = CapybaraKV.kvInsert(kvPtr, tableArray, keyArray, values);
     if (ret < 0) {
       return Status.ERROR;
