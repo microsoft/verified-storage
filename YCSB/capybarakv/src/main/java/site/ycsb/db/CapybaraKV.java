@@ -1,7 +1,5 @@
 package site.ycsb.db;
 
-import site.ycsb.Status;
-
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import org.slf4j.Logger;
@@ -12,16 +10,13 @@ import org.slf4j.LoggerFactory;
  */
 public class CapybaraKV {
 
-  // TODO: make configurable
-  private int maxKeySize = 1024;
-  private int maxValueSize = 1140;
-
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKV.class);
 
   private static native long kvInit();
   private static native void kvCleanup(long kvPtr);
-  private static native int kvInsert(long kvPtr, byte[] table, 
+  private static native void kvInsert(long kvPtr, byte[] table, 
       byte[] key, byte[] value);
+  private static native byte[] kvRead(long kvPtr, byte[] table, byte[] key);
 
   private long kvPtr;
 
@@ -34,16 +29,19 @@ public class CapybaraKV {
   }
 
   // this should throw an exception on failure rather than returning err?
-  public Status insert(String table, String key, byte[] values) {
+  public void insert(String table, String key, byte[] values) throws CapybaraKVException {
     byte[] tableArray = table.getBytes(UTF_8);
     byte[] keyArray = key.getBytes(UTF_8);
 
-    int ret = CapybaraKV.kvInsert(kvPtr, tableArray, keyArray, values);
-    if (ret < 0) {
-      return Status.ERROR;
-    } else {
-      return Status.OK;
-    }
+    CapybaraKV.kvInsert(kvPtr, tableArray, keyArray, values);
+  }
+
+  public byte[] read(String table, String key) throws CapybaraKVException {
+    byte[] tableArray = table.getBytes(UTF_8);
+    byte[] keyArray = key.getBytes(UTF_8);
+    System.out.println("reading key " + key);
+    byte[] ret = CapybaraKV.kvRead(kvPtr, tableArray, keyArray);
+    return ret;
   }
 
   public void cleanup() {

@@ -218,25 +218,25 @@ where
         }
     }
 
-//     fn read_item(&self, key: &K) -> (result: Option<Box<I>>)
-//         requires
-//             self.valid()
-//         ensures
-//         ({
-//             let spec_result = self@.read_item_and_list(*key);
-//             match (result, spec_result) {
-//                 (Some(output_item), Some((spec_item, pages))) => {
-//                     &&& spec_item == output_item
-//                 }
-//                 (Some(output_item), None) => false,
-//                 (None, Some((spec_item, pages))) => false,
-//                 (None, None) => true,
-//             }
-//         })
-//     {
-
-//         self.untrusted_kv_impl.untrusted_read_item(key)
-//     }
+    pub fn read_item(&self, key: &K) -> (result: Result<Box<I>, KvError<K>>)
+        requires
+            // self.valid()
+        ensures
+        // ({
+        //     let spec_result = self@.read_item_and_list(*key);
+        //     match (result, spec_result) {
+        //         (Some(output_item), Some((spec_item, pages))) => {
+        //             &&& spec_item == output_item
+        //         }
+        //         (Some(output_item), None) => false,
+        //         (None, Some((spec_item, pages))) => false,
+        //         (None, None) => true,
+        //     }
+        // })
+    {
+        assume(false);
+        self.untrusted_kv_impl.untrusted_read_item(key)
+    }
 
 //     // fn read_item_and_list(&self, key: &K) -> (result: Option<(&I, Vec<&L>)>)
 //     //     requires

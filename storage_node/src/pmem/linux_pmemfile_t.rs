@@ -47,26 +47,32 @@ impl MemoryMappedFile
             FileOpenBehavior::OpenExisting => 0,
         };
 
+        // non-zero region size is only allowed when creating a new file
+        let len = match file_open_behavior {
+            FileOpenBehavior::OpenExisting => 0,
+            FileOpenBehavior::CreateNew => size,
+        };
+
         let addr = unsafe {
             pmem_map_file(
                 file.as_ptr(),
-                size,
+                len,
                 create_flags.try_into().unwrap(),
-                0666,
+                0o666,
                 &mut mapped_len,
                 &mut is_pm,
             )
         };
 
         if addr.is_null() {
-            eprintln!("{}", unsafe {
+            eprintln!("pmem_map_file: {}", unsafe {
                 CString::from_raw(pmem_errormsg() as *mut i8)
                     .into_string()
                     .unwrap()
             });
             Err(PmemError::CannotOpenPmFile)
         } else if is_pm == 0 && require_pm {
-            eprintln!("{}", unsafe {
+            eprintln!("pmem_map_file: {}", unsafe {
                 CString::from_raw(pmem_errormsg() as *mut i8)
                     .into_string()
                     .unwrap()

@@ -26,7 +26,6 @@ public class CapybaraKVClient extends DB {
 
   private CapybaraKV kv;  
   
-
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
 
   @Override
@@ -48,10 +47,9 @@ public class CapybaraKVClient extends DB {
       Map<String, ByteIterator> values) {
     try {
       byte[] serializedValues = serializeValues(values);
-      // Status status = kv.insert(table, key, serializedValues);
-      Status ret = kv.insert(table, key, serializedValues);
-      return ret;
-    } catch(IOException e) {
+      kv.insert(table, key, serializedValues);
+      return Status.OK;
+    } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
       return Status.ERROR;
     }
@@ -66,13 +64,21 @@ public class CapybaraKVClient extends DB {
   @Override
   public Status scan(String table, String startkey, int recordcount,
       Set<String> fields, Vector<HashMap<String, ByteIterator>> result) {
+    // Not supported
     return Status.ERROR;
   }
 
   @Override
   public Status read(String table, String key, Set<String> fields,
       Map<String, ByteIterator> result) {
-    return Status.ERROR;
+    try {
+      byte[] values = kv.read(table, key);
+      // deserializeValues(values, fields, result);
+      return Status.OK;
+    } catch(CapybaraKVException e) {
+      LOGGER.error(e.getMessage(), e);
+      return Status.ERROR;
+    }
   }
 
   @Override 

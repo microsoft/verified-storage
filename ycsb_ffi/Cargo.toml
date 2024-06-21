@@ -15,3 +15,7 @@ vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc
 
 [lib]
 crate_type = ["cdylib"]
+
+[[bin]]
+name = "ycsb_ffi"
+path = "src/lib.rs"
