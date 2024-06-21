@@ -15,7 +15,7 @@ use builtin::*;
 use builtin_macros::*;
 
 const MAX_KEY_LEN: usize = 1024;
-const MAX_ITEM_LEN: usize = 1024;
+const MAX_ITEM_LEN: usize = 1140;
 
 struct YcsbKV {
     kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
@@ -27,13 +27,13 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<
         _class: JClass<'local>) -> jlong {
 
     // TODO: these should be parameters in a config file or something
-    let region_size = 1024*1024;
+    let region_size = 2*1024*1024;
     let log_file_name = "/home/hayley/kv_files/test_log";
     let metadata_file_name = "/home/hayley/kv_files/test_metadata";
     let item_table_file_name = "/home/hayley/kv_files/test_item";
     let list_file_name = "/home/hayley/kv_files/test_list";
 
-    let num_keys = 16;
+    let num_keys = 1000;
     let node_size = 16;
 
     // delete the test files if they already exist. Ignore the result,
@@ -95,7 +95,6 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
             return 0;
         }
         Err(e) => {
-            println!("{:?}", e);
             return -1;
         }
     }
@@ -130,7 +129,9 @@ impl YcsbKey {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
     {
         let mut key = [0i8; MAX_KEY_LEN];
-        env.get_byte_array_region(bytes, 0, &mut key).unwrap();
+        let key_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
+        let key_slice = &mut key[0..key_length];
+        env.get_byte_array_region(bytes, 0, key_slice).unwrap();
         Self { key }
     }
 }
@@ -146,7 +147,9 @@ impl YcsbItem {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
     {
         let mut item = [0i8; MAX_ITEM_LEN];
-        env.get_byte_array_region(bytes, 0, &mut item).unwrap();
+        let item_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
+        let item_slice = &mut item[0..item_length];
+        env.get_byte_array_region(bytes, 0, item_slice).unwrap();
         Self { item }
     }
 }

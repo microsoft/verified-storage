@@ -14,7 +14,7 @@ public class CapybaraKV {
 
   // TODO: make configurable
   private int maxKeySize = 1024;
-  private int maxValueSize = 1024;
+  private int maxValueSize = 1140;
 
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKV.class);
 
@@ -44,11 +44,10 @@ public class CapybaraKV {
       return Status.BAD_REQUEST;
     }
     if (values.length > maxValueSize) {
-      LOGGER.error("Key " + key + " is too big (length " + keyArray.length +
-          ", max length " + maxKeySize + ")");
+      LOGGER.error("Item for " + key + " is too big (length " + values.length +
+          ", max length " + maxValueSize + ")");
       return Status.BAD_REQUEST;
     }
-
     int ret = CapybaraKV.kvInsert(kvPtr, tableArray, keyArray, values);
     if (ret < 0) {
       return Status.ERROR;

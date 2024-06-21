@@ -49,8 +49,8 @@ public class CapybaraKVClient extends DB {
     try {
       byte[] serializedValues = serializeValues(values);
       // Status status = kv.insert(table, key, serializedValues);
-      kv.insert(table, key, serializedValues);
-      return Status.OK;
+      Status ret = kv.insert(table, key, serializedValues);
+      return ret;
     } catch(IOException e) {
       LOGGER.error(e.getMessage(), e);
       return Status.ERROR;
