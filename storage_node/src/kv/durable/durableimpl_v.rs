@@ -77,6 +77,10 @@ verus! {
             true
         }
 
+        pub exec fn get_elements_per_node(&self) -> u64 {
+            self.durable_list.get_elements_per_node()
+        }
+
         // This function doesn't take a perm because it performs initial setup
         // for each structure, which we don't guarantee will be crash consistent
         // TODO: the handling of the PM regions is gross right now, but will get better 

@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+#[cfg(verus_keep_ghost)]
 use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 

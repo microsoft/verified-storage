@@ -1,0 +1,6 @@
+# We have to use 1.76.0 to be compatible with Verus,
+# and we have to use a nightly release to use unstable 
+# features. This release is compatible.
+
+[toolchain]
+channel = "nightly-2023-12-15"

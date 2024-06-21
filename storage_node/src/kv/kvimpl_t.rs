@@ -72,82 +72,107 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
-// // TODO: should the constructor take one PM region and break it up into the required sub-regions,
-// // or should the caller provide it split up in the way that they want?
-// #[verifier::reject_recursive_types(K)]
-// pub struct KvStore<PM, K, I, L, V>
-// where
-//     PM: PersistentMemoryRegion,
-//     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-//     I: PmCopy + Sized + std::fmt::Debug,
-//     L: PmCopy + std::fmt::Debug + Copy,
-//     V: VolatileKvIndex<K>,
-// {
-//     id: u128,
-//     untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V>,
-// }
+// TODO: should the constructor take one PM region and break it up into the required sub-regions,
+// or should the caller provide it split up in the way that they want?
+#[verifier::reject_recursive_types(K)]
+pub struct KvStore<PM, K, I, L, V>
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug + Copy,
+    V: VolatileKvIndex<K>,
+{
+    id: u128,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V>,
+}
 
-// impl<PM, K, I, L, V> KvStore<PM, K, I, L, V>
-// where
-//     PM: PersistentMemoryRegion,
-//     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-//     I: PmCopy + Sized + std::fmt::Debug,
-//     L: PmCopy + std::fmt::Debug + Copy,
-//     V: VolatileKvIndex<K>,
-// {
-//     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
-//     {
-//         self.untrusted_kv_impl@
-//     }
+impl<PM, K, I, L, V> KvStore<PM, K, I, L, V>
+where
+    PM: PersistentMemoryRegion,
+    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    I: PmCopy + Sized + std::fmt::Debug,
+    L: PmCopy + std::fmt::Debug + Copy,
+    V: VolatileKvIndex<K>,
+{
+    pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
+    {
+        self.untrusted_kv_impl@
+    }
 
-//     pub closed spec fn valid(self) -> bool
-//     {
-//         self.untrusted_kv_impl.valid()
-//     }
+    pub closed spec fn valid(self) -> bool
+    {
+        self.untrusted_kv_impl.valid()
+    }
 
-//     // /// The `KvStore` constructor calls the constructors for the durable and
-//     // /// volatile components of the key-value store.
-//     // /// `list_node_size` is the number of list entries in each node (not the number
-//     // /// of bytes used by each node)
-//     // fn setup(
-//     //     pmem: PM,
-//     //     kvstore_id: u128,
-//     //     num_keys: u64,
-//     //     node_size: u32
-//     // ) -> (result: Result<(PM, PM, PM), KvError<K>>)
-//     //     requires
-//     //         pmem.inv(),
-//     //         ({
-//     //             let metadata_size = ListEntryMetadata::spec_size_of();
-//     //             let key_size = K::spec_size_of();
-//     //             let metadata_slot_size = metadata_size + crate::pmem::traits_t::size_of::<u64>() + key_size + CDB_SIZE;
-//     //             let list_element_slot_size = L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
-//     //             &&& metadata_slot_size <= u64::MAX
-//     //             &&& list_element_slot_size <= u64::MAX
-//     //             &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-//     //             &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
-//     //         }),
-//     //         L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < u32::MAX, // size_of is u64, but we store it in a u32 here
-//     //         node_size < u32::MAX,
-//     //         0 <= ItemTableMetadata::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < usize::MAX,
-//     //         ({
-//     //             let item_slot_size = I::spec_size_of() + CDB_SIZE + crate::pmem::traits_t::size_of::<u64>();
-//     //             &&& 0 <= item_slot_size < usize::MAX
-//     //             &&& 0 <= item_slot_size * num_keys < usize::MAX
-//     //             &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
-//     //         })
-//     //     ensures
-//     //         match(result) {
-//     //             Ok((log_region, list_regions, item_region)) => {
-//     //                 &&& log_region.inv()
-//     //                 &&& list_regions.inv()
-//     //                 &&& item_region.inv()
-//     //             }
-//     //             Err(_) => true // TODO
-//     //         }
-//     // {
-//     //     UntrustedKvStoreImpl::<PM, K, I, L, V, E>::untrusted_setup(pmem, kvstore_id, num_keys, node_size)
-//     // }
+    /// The `KvStore` constructor calls the constructors for the durable and
+    /// volatile components of the key-value store.
+    /// `list_node_size` is the number of list entries in each node (not the number
+    /// of bytes used by each node)
+    pub fn setup(
+        metadata_pmem: &mut PM,
+        item_table_pmem: &mut PM,
+        list_pmem: &mut PM,
+        log_pmem: &mut PM,
+        kvstore_id: u128,
+        num_keys: u64,
+        node_size: u32,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            // pmem.inv(),
+            // ({
+            //     let metadata_size = ListEntryMetadata::spec_size_of();
+            //     let key_size = K::spec_size_of();
+            //     let metadata_slot_size = metadata_size + crate::pmem::traits_t::size_of::<u64>() + key_size + CDB_SIZE;
+            //     let list_element_slot_size = L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
+            //     &&& metadata_slot_size <= u64::MAX
+            //     &&& list_element_slot_size <= u64::MAX
+            //     &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+            //     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
+            // }),
+            // L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < u32::MAX, // size_of is u64, but we store it in a u32 here
+            // node_size < u32::MAX,
+            // 0 <= ItemTableMetadata::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < usize::MAX,
+            // ({
+            //     let item_slot_size = I::spec_size_of() + CDB_SIZE + crate::pmem::traits_t::size_of::<u64>();
+            //     &&& 0 <= item_slot_size < usize::MAX
+            //     &&& 0 <= item_slot_size * num_keys < usize::MAX
+            //     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
+            // })
+        ensures
+            // match(result) {
+            //     Ok((log_region, list_regions, item_region)) => {
+            //         &&& log_region.inv()
+            //         &&& list_regions.inv()
+            //         &&& item_region.inv()
+            //     }
+            //     Err(_) => true // TODO
+            // }
+    {
+        UntrustedKvStoreImpl::<PM, K, I, L, V>::untrusted_setup(metadata_pmem, item_table_pmem, list_pmem, log_pmem, kvstore_id, num_keys, node_size)
+    }
+
+    pub fn start(
+        metadata_pmem: PM,
+        item_table_pmem: PM,
+        list_pmem: PM,
+        log_pmem: PM,
+        kvstore_id: u128,
+        num_keys: u64,
+        node_size: u32,
+    ) -> (result: Result<Self, KvError<K>>)
+        requires 
+            // TODO 
+        ensures 
+            // TODO 
+    {
+        assume(false);
+        let kv = UntrustedKvStoreImpl::<PM, K, I, L, V>::untrusted_start(metadata_pmem, item_table_pmem, list_pmem, log_pmem, kvstore_id, num_keys, node_size)?;
+        Ok(Self {
+            untrusted_kv_impl: kv,
+            id: kvstore_id,
+        })
+    }
 
 //     // fn restore(pmem: PM, region_size: usize, kvstore_id: u128) -> (result: Result<Self, KvError<K>>)
 //     //     requires
@@ -167,30 +192,31 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 //     //     Err(KvError::NotImplemented)
 //     // }
 
-//     fn create(&mut self, key: &K, item: &I, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
-//         requires
-//             old(self).valid(),
-//         ensures
-//             self.valid(),
-//             match result {
-//                 Ok(()) => {
-//                     &&& self@ == old(self)@.create(*key, *item).unwrap()
-//                 }
-//                 Err(KvError::KeyAlreadyExists) => {
-//                     &&& old(self)@.contents.contains_key(*key)
-//                     &&& old(self)@ == self@
-//                 }
-//                 Err(_) => false
-//             }
-//     {
-//         if self.untrusted_kv_impl.untrusted_contains_key(key) {
-//             Err(KvError::KeyAlreadyExists)
-//         } else {
-//             let tracked perm =
-//                 TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
-//             self.untrusted_kv_impl.untrusted_create(key, item, kvstore_id, Tracked(&perm))
-//         }
-//     }
+    pub fn create(&mut self, key: &K, item: &I, kvstore_id: u128) -> (result: Result<(), KvError<K>>)
+        requires
+            // old(self).valid(),
+        ensures
+            // self.valid(),
+            // match result {
+            //     Ok(()) => {
+            //         &&& self@ == old(self)@.create(*key, *item).unwrap()
+            //     }
+            //     Err(KvError::KeyAlreadyExists) => {
+            //         &&& old(self)@.contents.contains_key(*key)
+            //         &&& old(self)@ == self@
+            //     }
+            //     Err(_) => false
+            // }
+    {
+        assume(false);
+        if self.untrusted_kv_impl.untrusted_contains_key(key) {
+            Err(KvError::KeyAlreadyExists)
+        } else {
+            let tracked perm =
+                TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
+            self.untrusted_kv_impl.untrusted_create(key, item, kvstore_id, Tracked(&perm))
+        }
+    }
 
 //     fn read_item(&self, key: &K) -> (result: Option<Box<I>>)
 //         requires
@@ -503,6 +529,6 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 //     {
 //         self.untrusted_kv_impl.untrusted_get_keys()
 //     }
-// }
+}
 
 }

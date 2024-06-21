@@ -26,6 +26,8 @@ pub mod pmem;
 
 use kv::durable::durableimpl_v::*;
 use kv::kvspec_t::*;
+use kv::kvimpl_v::*;
+use kv::volatile::volatileimpl_v::*;
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
@@ -54,6 +56,11 @@ fn check_multilog_in_volatile_memory() {
 #[test]
 fn check_durable_on_memory_mapped_file () {
     test_durable_on_memory_mapped_file();
+}
+
+#[test]
+fn check_kv_on_memory_mapped_file () {
+    test_kv_on_memory_mapped_file();
 }
     
 }
@@ -471,6 +478,53 @@ fn test_durable_on_memory_mapped_file() {
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 1);
     kv_store.commit(kvstore_id, Tracked(&fake_kv_permission)).unwrap();
     runtime_assert(kv_store.get_list_len(kvstore_id, key1_index).unwrap() == 0);
+
+}
+
+fn test_kv_on_memory_mapped_file() {
+    assume(false);
+
+    let region_size = 4096;
+    let log_file_name = "/home/hayley/kv_files/test_log";
+    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
+    let item_table_file_name = "/home/hayley/kv_files/test_item";
+    let list_file_name = "/home/hayley/kv_files/test_list";
+
+    let num_keys = 16;
+    let node_size = 16;
+
+    // delete the test files if they already exist. Ignore the result,
+    // since it's ok if the files don't exist.
+    remove_file(log_file_name);
+    remove_file(metadata_file_name);
+    remove_file(item_table_file_name);
+    remove_file(list_file_name);
+
+    // Create a file, and a PM region, for each component
+    let mut log_region = create_pm_region(log_file_name, region_size);
+    let mut metadata_region = create_pm_region(metadata_file_name, region_size);
+    let mut item_table_region = create_pm_region(item_table_file_name, region_size);
+    let mut list_region = create_pm_region(list_file_name, region_size);
+
+    let kvstore_id = generate_fresh_log_id();
+
+    UntrustedKvStoreImpl::<_, TestKey, TestItem, TestListElement, VolatileKvIndexImpl<TestKey>>::untrusted_setup(&mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, kvstore_id, num_keys, node_size).unwrap();
+
+    let mut kv = UntrustedKvStoreImpl::<_, TestKey, TestItem, TestListElement, VolatileKvIndexImpl<TestKey>>::untrusted_start(metadata_region, item_table_region, list_region, log_region, kvstore_id, num_keys, node_size).unwrap();
+
+    let key1 = TestKey { val: 0 };
+    let key2 = TestKey { val: 1 };
+
+    let item1 = TestItem { val: 10 };
+    let item2 = TestItem { val: 20 };
+
+    // create a record
+    let tracked fake_kv_perm = TrustedKvPermission::fake_kv_perm();
+    kv.untrusted_create(&key1, &item1, kvstore_id, Tracked(&fake_kv_perm)).unwrap();
+
+    // read the item of the record we just created
+    let read_item1 = kv.untrusted_read_item(&key1).unwrap();
+    assert(read_item1.val == item1.val);
 
 }
 
