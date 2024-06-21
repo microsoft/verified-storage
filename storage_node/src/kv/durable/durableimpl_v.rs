@@ -130,7 +130,7 @@ verus! {
             node_size: u32,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
             // Ghost(state): Ghost<DurableKvStoreView<K, I, L>>
-        ) -> (result: Result<Self, KvError<K>>)
+        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -164,7 +164,7 @@ verus! {
             let mut log: UntrustedOpLog<K, L> = UntrustedOpLog::start(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
             let log_entries = log.read_op_log(&log_wrpm, kvstore_id)?;
             // 2. start the rest of the components using the log
-            let metadata_table = MetadataTable::start(&mut metadata_wrpm, kvstore_id, &log_entries, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
+            let (metadata_table, key_index_pairs) = MetadataTable::start(&mut metadata_wrpm, kvstore_id, &log_entries, Tracked(&fake_metadata_perm), Ghost(MetadataTableView::init(list_element_size, node_size, num_keys)))?;
             let item_table: DurableItemTable<K, I> = DurableItemTable::start(&mut item_table_wrpm, kvstore_id, &log_entries, Tracked(&fake_item_table_perm), Ghost(DurableItemTableView::init(num_keys as int)))?;
             let durable_list = DurableList::start(&mut list_wrpm, kvstore_id, node_size, &log_entries, Tracked(&fake_list_perm), Ghost(DurableListView::init()))?;
 
@@ -175,17 +175,20 @@ verus! {
 
             // 3. we've successfully replayed the log. clear it to free up space for a new transaction
             log.clear_log(&mut log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-            Ok(Self {
-                item_table,
-                durable_list,
-                log,
-                metadata_table,
-                item_table_wrpm,
-                list_wrpm,
-                log_wrpm,
-                metadata_wrpm,
-                pending_updates: Vec::new(),
-            })
+            Ok((
+                Self {
+                    item_table,
+                    durable_list,
+                    log,
+                    metadata_table,
+                    item_table_wrpm,
+                    list_wrpm,
+                    log_wrpm,
+                    metadata_wrpm,
+                    pending_updates: Vec::new(),
+                }, 
+                key_index_pairs
+            ))
         }
 
         // Commits all pending updates by committing the log and applying updates to 

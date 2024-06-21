@@ -39,7 +39,7 @@ public class CapybaraKV {
   public byte[] read(String table, String key) throws CapybaraKVException {
     byte[] tableArray = table.getBytes(UTF_8);
     byte[] keyArray = key.getBytes(UTF_8);
-    System.out.println("reading key " + key);
+
     byte[] ret = CapybaraKV.kvRead(kvPtr, tableArray, keyArray);
     return ret;
   }

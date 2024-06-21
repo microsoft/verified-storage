@@ -162,12 +162,19 @@ where
         let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::new(item_table_region);
         let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::new(list_region);
         let tracked fake_kv_permission = TrustedKvPermission::fake_kv_perm();
-        let mut durable = DurableKvStore::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
+        let (mut durable, key_index_pairs) = DurableKvStore::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
 
         // Next, start the volatile component. To run YCSB workloads we may need to 
         // add functionality to the durable component for this to work for an 
         // existing KV store
-        let volatile = V::new(kvstore_id, num_keys as usize, durable.get_elements_per_node())?;
+        let mut volatile = V::new(kvstore_id, num_keys as usize, durable.get_elements_per_node())?;
+
+        // TODO: move this into volatile constructor?
+        for i in 0..key_index_pairs.len() {
+            assume(false);
+            // let (key, index) = &key_index_pairs[i]; <- Verus has an issue with this syntax. TODO: report it
+            volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
+        }
     
         Ok(Self {
             id: kvstore_id, 

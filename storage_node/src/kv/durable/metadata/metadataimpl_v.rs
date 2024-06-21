@@ -272,7 +272,7 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
-        ) -> (result: Result<Self, KvError<K>>)
+        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -318,7 +318,10 @@ verus! {
             let ghost mem = pm_region@.committed();
 
             // 5. read valid bytes and construct the allocator 
+            // The volatile component also needs to know what the existing key-index pairs are, so we'll 
+            // obtain these now as well to avoid doing an additional scan over the whole table
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
+            let mut key_index_pairs = Vec::new();
             for index in 0..header.num_keys 
                 // TODO: invariant
             {
@@ -330,15 +333,66 @@ verus! {
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
                 match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index),
-                    Some(true) => {},
+                    Some(true) => {
+                        // read the key at this location and add it to the key-index list
+                        // we can't use get_key_and_metadata_entry_at_index because we don't have a self yet,
+                        // but we'll use the same logic. We don't need the metadata here, but we have to 
+                        // read it so we can check the CRC.
+                        // TODO: refactor to share some code?
+                        let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+                        let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+                        let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+                        let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as int, u64::spec_size_of());
+                        let ghost true_entry_bytes = extract_bytes(mem, entry_addr as int, ListEntryMetadata::spec_size_of());
+                        let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
+                        let ghost true_key_bytes = extract_bytes(mem, key_addr as int, K::spec_size_of());
+
+                        let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                        let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
+                        let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+                        let ghost true_key = K::spec_from_bytes(true_key_bytes);
+
+                        let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+                        let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| entry_addr + i);
+                        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
+                        let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
+
+                        let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr, Ghost(true_entry)) {
+                            Ok(metadata_entry) => metadata_entry,
+                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                        };
+                        let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                            Ok(crc) => crc,
+                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                        };
+                        let key = match pm_region.read_aligned::<K>(key_addr, Ghost(true_key)) {
+                            Ok(key) => key,
+                            Err(e) => return Err(KvError::PmemErr {pmem_err: e })
+                        };
+
+                        if !check_crc_for_two_reads(metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(mem),
+                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs), Ghost(crc_addrs)) 
+                        {
+                            return Err(KvError::CRCMismatch);
+                        }
+
+                        let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
+                            Ghost(pm_region.constants().impervious_to_corruption));
+                        key_index_pairs.push((key, index));
+
+                    },
                     None => return Err(KvError::CRCMismatch),
                 }
             }
 
-            Ok(Self {
-                metadata_table_free_list: metadata_allocator,
-                state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
-            })
+            Ok((
+                Self {
+                    metadata_table_free_list: metadata_allocator,
+                    state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
+                },
+                key_index_pairs
+            ))
         }
 
         pub exec fn play_metadata_log<PM, L>(
