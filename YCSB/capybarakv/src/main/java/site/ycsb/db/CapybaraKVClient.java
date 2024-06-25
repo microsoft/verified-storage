@@ -59,8 +59,15 @@ public class CapybaraKVClient extends DB {
   public Status update(String table, String key,
       Map<String, ByteIterator> values) {
     try {
-      byte[] serializedValues = serializeValues(values);
-      kv.update(table, key, serializedValues);
+      // read the current value at this key
+      byte[] currentValue = kv.read(table, key);
+      final Map<String, ByteIterator> result = new HashMap<>();
+      deserializeValues(currentValue, null, result);
+      // update the result with the new fields
+      result.putAll(values);
+      // serialize the updated value to bytes
+      byte[] updateBytes = serializeValues(result);
+      kv.update(table, key, updateBytes);
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -94,6 +101,9 @@ public class CapybaraKVClient extends DB {
   }
 
   // These functions are borrowed from RocksDBClient.java
+  // FIXME: you are only given a subset of fields to update! This is why this function isn't 
+  // working. Need to read the item, update it according to the new fields in the argument, and 
+  // then write THAT. that has to happen here in the client
   private Map<String, ByteIterator> deserializeValues(final byte[] values, final Set<String> fields,
       final Map<String, ByteIterator> result) {
     final ByteBuffer buf = ByteBuffer.allocate(4);

@@ -441,7 +441,7 @@ verus! {
             digest.write(&*key);
             let new_crc = digest.sum64();
 
-            // 4. Log the metadata update, the new item commit, and the old item invalidate
+            // 5. Log the metadata update, the new item commit, and the old item invalidate
             let metadata_update = OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata: *metadata, new_crc };
             let new_item_commit = OpLogEntryType::ItemTableEntryCommit { item_index: new_item_index };
             let old_item_invalid = OpLogEntryType::ItemTableEntryInvalidate { item_index: old_item_index };
@@ -451,7 +451,7 @@ verus! {
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &new_item_commit, Tracked(&fake_log_perm))?;
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &old_item_invalid, Tracked(&fake_log_perm))?;
 
-            // 5. Add pending log entries to list
+            // 6. Add pending log entries to list
             self.pending_updates.push(metadata_update);
             self.pending_updates.push(new_item_commit);
             self.pending_updates.push(old_item_invalid);

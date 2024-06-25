@@ -416,12 +416,14 @@ verus! {
             assert(free_index < self.num_keys);
             let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + free_index * item_slot_size;
+            let crc_addr = item_slot_offset + traits_t::size_of::<u64>() as u64;
+            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
             // calculate and write the CRC of the provided item
             let crc = calculate_crc(item);
-            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_ITEM_CRC, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
             // write the item itself
-            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_ITEM, item, Tracked(perm));
+            wrpm_region.serialize_and_write(item_addr, item, Tracked(perm));
 
             Ok(free_index)
         }

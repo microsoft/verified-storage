@@ -14,7 +14,9 @@ use builtin::*;
 use builtin_macros::*;
 
 const MAX_KEY_LEN: usize = 1024;
-const MAX_ITEM_LEN: usize = 1140;
+const MAX_ITEM_LEN: usize = 1140; 
+const REGION_SIZE: u64 = 1024*1024*1024; // 1GB
+const NUM_KEYS: u64 = 5000; 
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
@@ -26,13 +28,11 @@ struct YcsbKV {
 
 pub fn main() {
     // TODO: these should be parameters in a config file or something
-    let region_size = 2*1024*1024;
     let log_file_name = "/home/hayley/kv_files/test_log";
     let metadata_file_name = "/home/hayley/kv_files/test_metadata";
     let item_table_file_name = "/home/hayley/kv_files/test_item";
     let list_file_name = "/home/hayley/kv_files/test_list";
 
-    let num_keys = 1000;
     let node_size = 16;
 
     // delete the test files if they already exist. Ignore the result,
@@ -43,14 +43,14 @@ pub fn main() {
     remove_file(list_file_name);
 
     // Create a file, and a PM region, for each component
-    let mut log_region = create_pm_region(log_file_name, region_size);
-    let mut metadata_region = create_pm_region(metadata_file_name, region_size);
-    let mut item_table_region = create_pm_region(item_table_file_name, region_size);
-    let mut list_region = create_pm_region(list_file_name, region_size);
+    let mut log_region = create_pm_region(log_file_name, REGION_SIZE);
+    let mut metadata_region = create_pm_region(metadata_file_name, REGION_SIZE);
+    let mut item_table_region = create_pm_region(item_table_file_name, REGION_SIZE);
+    let mut list_region = create_pm_region(list_file_name, REGION_SIZE);
 
-    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", num_keys, node_size, region_size);
+    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", NUM_KEYS, node_size, REGION_SIZE);
     KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::setup(
-        &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, num_keys, node_size).unwrap();
+        &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
     println!("Done setting up! You can now run YCSB workloads");
 }
 
@@ -59,23 +59,21 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<
         _class: JClass<'local>) -> jlong {
 
     // TODO: these should be parameters in a config file or something
-    let region_size = 2*1024*1024;
     let log_file_name = "/home/hayley/kv_files/test_log";
     let metadata_file_name = "/home/hayley/kv_files/test_metadata";
     let item_table_file_name = "/home/hayley/kv_files/test_item";
     let list_file_name = "/home/hayley/kv_files/test_list";
 
-    let num_keys = 1000;
     let node_size = 16;
 
     // Create a file, and a PM region, for each component
-    let log_region = open_pm_region(log_file_name, region_size);
-    let metadata_region = open_pm_region(metadata_file_name, region_size);
-    let item_table_region = open_pm_region(item_table_file_name, region_size);
-    let list_region = open_pm_region(list_file_name, region_size);
+    let log_region = open_pm_region(log_file_name, REGION_SIZE);
+    let metadata_region = open_pm_region(metadata_file_name, REGION_SIZE);
+    let item_table_region = open_pm_region(item_table_file_name, REGION_SIZE);
+    let list_region = open_pm_region(list_file_name, REGION_SIZE);
 
     let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::start(
-        metadata_region, item_table_region, list_region, log_region, KVSTORE_ID, num_keys, node_size).unwrap();
+        metadata_region, item_table_region, list_region, log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
 
     let ret = Box::new(YcsbKV {
         kv,
@@ -159,8 +157,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvRead<'local>(
     let result = kv.kv.read_item(&ycsb_key);
     match result {
         Ok(item) => {
-            let bytes = item.as_byte_slice();
-            match env.byte_array_from_slice(bytes) {
+            match env.byte_array_from_slice(item.as_byte_slice()) {
                 Ok(arr) => arr,
                 Err(e) => {
                     let err_str = format!("Error getting byte slice: {:?}", e);

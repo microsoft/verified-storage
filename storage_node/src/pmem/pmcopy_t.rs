@@ -93,6 +93,17 @@ verus! {
             ensures 
                 out@ == self.spec_to_bytes();
 
+        exec fn as_signed_byte_slice(&self) -> (out: &[i8])
+            ensures 
+                forall |i: int| #![auto] 0 <= i < out@.len() ==> out[i] as u8 == self.spec_to_bytes()[i]
+;                // out@ == self.spec_to_bytes();
+        // // This function consumse self and returns it as a vector of bytes.
+        // // This is mainly useful in the YCSB FFI layer to interop with Java.
+        // // 
+        // exec fn as_byte_vec(self) -> (out: Vec<u8>)
+        //     ensures 
+        //         out@ == self.spec_to_bytes();
+
     }
 
     impl<T> PmCopyHelper for T where T: PmCopy {
@@ -126,6 +137,18 @@ verus! {
             // until the returned slice goes out of scope. Self has a valid size (i.e., <= isize::MAX)
             // so the total number of bytes in the slice is also <= isize::MAX.
             unsafe { core::slice::from_raw_parts(ptr as *const u8, Self::size_of() as usize) }
+        }
+
+        #[verifier::external_body]
+        exec fn as_signed_byte_slice(&self) -> (out: &[i8])
+        {
+            let ptr = self as *const Self;
+            // SAFETY: `ptr` is valid for Self::size_of() bytes because it was obtained by casting a valid
+            // &Self that was allocated by Rust. It is also allocated as a single object and properly 
+            // aligned for the same reason. The borrow checker ensures that Self will not be modified
+            // until the returned slice goes out of scope. Self has a valid size (i.e., <= isize::MAX)
+            // so the total number of bytes in the slice is also <= isize::MAX.
+            unsafe { core::slice::from_raw_parts(ptr as *const i8, Self::size_of() as usize) }
         }
     }
 

@@ -41,8 +41,8 @@ public class CapybaraKV {
     byte[] tableArray = table.getBytes(UTF_8);
     byte[] keyArray = key.getBytes(UTF_8);
 
-    byte[] ret = CapybaraKV.kvRead(kvPtr, tableArray, keyArray);
-    return ret;
+    byte[] output = CapybaraKV.kvRead(kvPtr, tableArray, keyArray);
+    return output;
   }
 
   public void update(String table, String key, byte[] values) throws CapybaraKVException {
