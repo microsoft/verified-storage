@@ -334,7 +334,22 @@ verus! {
             ensures 
                 // TODO 
         {
-            Self::replay_log_item_table(wrpm_region, table_id, log_entries, self.item_slot_size, Tracked(perm), Ghost(state))
+            Self::replay_log_item_table(wrpm_region, table_id, log_entries, self.item_slot_size, Tracked(perm), Ghost(state))?;
+            // replay_log_item_table cannot add newly-invalidated metadata entries back into the allocator,
+            // because it doesn't (and can't) take &mut self, so as a quick fix we'll just iterate over the log again.
+            // TODO: refactor so this happens in the same pass as is used in replay_log_item_table
+
+            for i in 0..log_entries.len() 
+            {
+                assume(false);
+                let log_entry = &log_entries[i];
+
+                if let OpLogEntryType::ItemTableEntryInvalidate { item_index } = log_entry {
+                    self.free_list.push(*item_index);
+                }
+            }
+
+            Ok(())
         }
 
         exec fn replay_log_item_table<PM, L>(

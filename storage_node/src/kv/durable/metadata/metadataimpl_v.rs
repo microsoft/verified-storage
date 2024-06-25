@@ -407,7 +407,19 @@ verus! {
             PM: PersistentMemoryRegion,
             L: PmCopy,
         {
-            Self::replay_log_metadata_table(wrpm_region, table_id, log_entries, Tracked(perm), Ghost(state))
+            Self::replay_log_metadata_table(wrpm_region, table_id, log_entries, Tracked(perm), Ghost(state))?;
+            // replay_log_metadata_table cannot add newly-invalidated metadata entries back into the allocator,
+            // because it doesn't (and can't) take &mut self, so as a quick fix we'll just iterate over the log again.
+            // TODO: refactor so this happens in the same pass as is used in replay_log_metadata_table
+            for i in 0..log_entries.len() 
+            {
+                assume(false);
+                let log_entry = &log_entries[i];
+                if let OpLogEntryType::InvalidateMetadataEntry { metadata_index } = log_entry {
+                    self.metadata_table_free_list.push(*metadata_index);
+                }
+            }
+            Ok(())
         }
 
         exec fn replay_log_metadata_table<PM, L>(
