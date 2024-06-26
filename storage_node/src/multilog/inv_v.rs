@@ -1024,8 +1024,6 @@ verus! {
         } by {
             lemma_establish_extract_bytes_equivalence(old_pm_regions_view.committed()[i], new_pm_regions_view.committed()[i]);
         }
-
-        assume(false);
     }
 
     // This lemma proves that if there are no outstanding writes to active metadata, and metadata types are set,

@@ -1362,7 +1362,6 @@ verus! {
                     }
                 })
         {
-            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 

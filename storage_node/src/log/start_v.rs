@@ -52,7 +52,6 @@ verus! {
                 Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
             }
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
 
@@ -153,7 +152,6 @@ verus! {
                 }
             })
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
         let ghost state = recover_given_cdb(pm_region@.committed(), log_id, cdb);
 
