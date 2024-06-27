@@ -20,6 +20,11 @@ use super::durable::durablelist::layout_v::*;
 use super::durable::durablespec_t::*;
 use super::durable::itemtable::layout_v::*;
 use super::durable::metadata::layout_v::*;
+use super::durable::oplog::oplogimpl_v::*;
+use super::durable::itemtable::itemtableimpl_v::*;
+use super::durable::metadata::metadataimpl_v::*;
+use super::durable::durablelist::durablelistimpl_v::*;
+use super::durable::metadata::metadataspec_t::*;
 use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
@@ -57,12 +62,93 @@ where
     L: PmCopy + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K>,
 {
-    // This function specifies how all durable contents of the KV
-    // should be viewed upon recovery as an abstract paged KV state.
-    // TODO: write this
-    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    // // This function specifies how all durable contents of the KV
+    // // should be viewed upon recovery as an abstract paged KV state.
+    // // TODO: write this
+    // pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    // {
+    //     None
+    // }
+
+    // It might be easier to recover a durable view first, then recover
+    // the KV store view from that. We'll probably have to write both 
+    // recovery functions anyway and prove that they're the same, 
+    // so it might be easier to just use the same thing...
+    pub open spec fn recover_from_pm(
+        metadata_pmem: Seq<u8>,
+        item_table_pmem: Seq<u8>,
+        list_pmem: Seq<u8>,
+        log_pmem: Seq<u8>,
+        node_size: u32,
+        kvstore_id: u128,
+    ) -> Option<AbstractKvStoreState<K, I, L>>
     {
-        None
+        // 1. Recover a list of log entries from the log
+        let log_view = UntrustedOpLog::<K, L>::recover(log_pmem, kvstore_id);
+        if let Some(log_view) = log_view {
+            let log_entries = log_view.op_list;
+        
+            // 2. Recover the other components using the log
+            let item_table_view = DurableItemTable::<K, I>::recover(item_table_pmem, log_entries, kvstore_id);
+            if let Some(item_table_view) = item_table_view {
+                let metadata_view = MetadataTable::<K>::recover(metadata_pmem, node_size, log_entries, kvstore_id);
+                if let Some(metadata_view) = metadata_view {
+                    let list_view = DurableList::<K, L>::recover(list_pmem, node_size, log_entries, metadata_view, kvstore_id);
+                    if let Some(list_view) = list_view {
+                        // 3. Construct the abstract KV store from the recovered view of each component
+                        // For each metadata entry in the view, resolve its key to its list and item
+                        let metadata_entries = metadata_view.get_metadata_table();
+                        // Construct a mapping from each key in the table to the metadata it is associated with;
+                        // this will make it easier to construct the final KV store view
+                        let metadata_map = Map::new(
+                            |k: K| exists |e: MetadataTableViewEntry<_>| #![auto] metadata_entries.contains(e) && e.key() == k,
+                            |k: K| {
+                                let e = choose |e: MetadataTableViewEntry<_>| #![auto] metadata_entries.contains(e) && e.key() == k;
+                                e
+                            }
+                        );
+                        // Now, use metadata_map to construct a mapping from the keys to their items and lists
+                        let kv_map: Map<K, (I, Seq<L>)> = Map::new(
+                            |k: K| metadata_map.contains_key(k),
+                            |k: K| {
+                                let item_index = metadata_map[k].item_index();
+                                let item: I = item_table_view[item_index as int].unwrap().get_item();
+                                let list_view = list_view[k].unwrap();
+                                let list = Seq::new(list_view.len(), |i: int| list_view[i].list_element());
+                                (item, list)
+                            }
+                        );
+                        Some(AbstractKvStoreState { id: kvstore_id, contents: kv_map })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub open spec fn recover_from_durable_view(durable_view: DurableKvStoreView<K, I, L>, kvstore_id: u128) -> AbstractKvStoreState<K, I, L>
+    {
+        // Each key should only exist once, so we can safely invert
+        // TODO: maintain that as an invariant
+        let key_to_int = durable_view.index_to_key_map.invert();
+        AbstractKvStoreState {
+            id: kvstore_id,
+            contents: Map::new(
+                |k: K| key_to_int.contains_key(k),
+                |k: K| {
+                    let index = key_to_int[k];
+                    let durable_view_entry = durable_view[index].unwrap();
+                    (durable_view_entry.item, durable_view_entry.list)
+                }
+            )
+        }
     }
 
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
@@ -106,7 +192,10 @@ where
         node_size: u32,
     ) -> (result: Result<(), KvError<K>>)
         requires
-            // pmem.inv(),
+            old(metadata_pmem).inv(),
+            old(item_table_pmem).inv(),
+            old(list_pmem).inv(),
+            old(log_pmem).inv(),
             // ({
             //     let metadata_size = ListEntryMetadata::spec_size_of();
             //     let key_size = K::spec_size_of();
@@ -127,18 +216,45 @@ where
             //     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
             // })
         ensures
-            // match(result) {
-            //     Ok((log_region, list_regions, item_region)) => {
-            //         &&& log_region.inv()
-            //         &&& list_regions.inv()
-            //         &&& item_region.inv()
-            //     }
-            //     Err(_) => true // TODO
-            // }
+            match result {
+                Ok(()) => {
+                    &&& metadata_pmem.inv()
+                    &&& item_table_pmem.inv()
+                    &&& list_pmem.inv()
+                    &&& log_pmem.inv()
+                    &&& {
+                        let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                            metadata_pmem@.committed(), 
+                            item_table_pmem@.committed(), 
+                            list_pmem@.committed(),
+                            log_pmem@.committed(), 
+                            node_size,
+                            kvstore_id
+                        );
+                        &&& durable_view is Some 
+                        &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) =~=
+                                AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
+                    }
+                }
+                Err(e) => {
+                    true // TODO
+                }
+            }
     {
-        assume(false);
         DurableKvStore::<PM, K, I, L>::setup(metadata_pmem, item_table_pmem, list_pmem, log_pmem,
-             kvstore_id, num_keys, node_size)
+             kvstore_id, num_keys, node_size)?;
+        proof {
+            // If setup succeeds, prove that recovering the durable view is equivalent to 
+            // recovering an initialized abstract KV store
+            lemma_init_durable_kv_recovery_matches_abstract_kv_recovery::<PM, K, I, L, V>(
+                metadata_pmem@.committed(), 
+                item_table_pmem@.committed(),
+                list_pmem@.committed(), 
+                log_pmem@.committed(),
+                node_size,
+                kvstore_id);
+        }
+        Ok(())
     }
 
     pub fn untrusted_start(

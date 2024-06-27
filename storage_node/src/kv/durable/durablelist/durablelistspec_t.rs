@@ -45,6 +45,11 @@ verus! {
         {
             Self { crc, list_element }
         }
+
+        pub closed spec fn list_element(&self) -> L 
+        {
+            self.list_element
+        }
     }
 
     // The `lists` field represents the current contents of the list. It abstracts away the physical 

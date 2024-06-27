@@ -147,6 +147,13 @@ verus! {
             self.contents.contains_key(key)
         }
 
+        pub open spec fn initialize(kvstore_id: u128) -> Self {
+            Self {
+                id: kvstore_id,
+                contents: Map::empty(),
+            }
+        }
+
         pub open spec fn construct_view_contents(
             volatile_store_state: VolatileKvIndexView<K>,
             durable_store_state: DurableKvStoreView<K, I, L>
@@ -156,7 +163,7 @@ verus! {
                 |k| {
                     let index_entry = volatile_store_state[k].unwrap();
                     let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
-                    (durable_entry.item(), durable_entry.list().list)
+                    (durable_entry.item(), durable_entry.list())
                 }
             )
         }

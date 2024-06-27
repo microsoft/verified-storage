@@ -119,7 +119,10 @@ where
         node_size: u32,
     ) -> (result: Result<(), KvError<K>>)
         requires
-            // pmem.inv(),
+            old(metadata_pmem).inv(),
+            old(item_table_pmem).inv(),
+            old(list_pmem).inv(),
+            old(log_pmem).inv(),
             // ({
             //     let metadata_size = ListEntryMetadata::spec_size_of();
             //     let key_size = K::spec_size_of();
@@ -140,14 +143,30 @@ where
             //     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
             // })
         ensures
-            // match(result) {
-            //     Ok((log_region, list_regions, item_region)) => {
-            //         &&& log_region.inv()
-            //         &&& list_regions.inv()
-            //         &&& item_region.inv()
-            //     }
-            //     Err(_) => true // TODO
-            // }
+            match result {
+                Ok(()) => {
+                    &&& metadata_pmem.inv()
+                    &&& item_table_pmem.inv()
+                    &&& list_pmem.inv()
+                    &&& log_pmem.inv()
+                    &&& {
+                        let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                            metadata_pmem@.committed(), 
+                            item_table_pmem@.committed(), 
+                            list_pmem@.committed(),
+                            log_pmem@.committed(), 
+                            node_size,
+                            kvstore_id
+                        );
+                        &&& durable_view is Some 
+                        &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) ==
+                                AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
+                    }
+                }
+                Err(e) => {
+                    true // TODO
+                }
+            }
     {
         UntrustedKvStoreImpl::<PM, K, I, L, V>::untrusted_setup(metadata_pmem, item_table_pmem, list_pmem, log_pmem, kvstore_id, num_keys, node_size)
     }

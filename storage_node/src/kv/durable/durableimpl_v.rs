@@ -62,6 +62,68 @@ verus! {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
+        pub closed spec fn recover(
+            metadata_pmem: Seq<u8>,
+            item_table_pmem: Seq<u8>,
+            list_pmem: Seq<u8>,
+            log_pmem: Seq<u8>,
+            node_size: u32,
+            kvstore_id: u128,
+        ) -> Option<DurableKvStoreView<K, I, L>>
+        {
+            // 1. Recover a list of log entries from the log
+            let log_view = UntrustedOpLog::<K, L>::recover(log_pmem, kvstore_id);
+            if let Some(log_view) = log_view {
+                let log_entries = log_view.op_list;
+            
+                // 2. Recover the other components using the log
+                let item_table_view = DurableItemTable::<K, I>::recover(item_table_pmem, log_entries, kvstore_id);
+                if let Some(item_table_view) = item_table_view {
+                    let metadata_view = MetadataTable::<K>::recover(metadata_pmem, node_size, log_entries, kvstore_id);
+                    if let Some(metadata_view) = metadata_view {
+                        let list_view = DurableList::<K, L>::recover(list_pmem, node_size, log_entries, metadata_view, kvstore_id);
+                        if let Some(list_view) = list_view {
+                            // 3. Construct the durable KV store view from the recovered view of the components
+                            // The durable view is different from the abstract KV store view -- the abstract view 
+                            // is more like what a user sees, while the durable view includes additional information
+                            // about the location of resources in PM.
+
+                            // We first construct a map from indexes with valid entries to the keys they contain.
+                            let index_to_key_map: Map<int, K> = Map::new(
+                                |i: int| metadata_view[i] is Some && metadata_view[i].unwrap().valid(),
+                                    |i: int| metadata_view[i].unwrap().key()
+                            );
+
+                            // Then a map from indexes to value data (item and list)
+                            let contents = Map::new(
+                                |i: int| metadata_view[i] is Some && metadata_view[i].unwrap().valid(),
+                                    |i: int| {
+                                        let metadata = metadata_view[i].unwrap();
+                                        let list = list_view[metadata.key()].unwrap();
+                                        let data = DurableKvStoreViewEntry {
+                                            key: metadata.key(),
+                                            item: item_table_view[metadata.item_index() as int].unwrap().get_item(),
+                                            list: Seq::new(list.len(), |i: int| list[i].list_element()),
+                                        };
+                                        data
+                                    }
+                            );
+                            
+                            Some(DurableKvStoreView { contents, index_to_key_map })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+
         // Proving crash consistency here will come down to proving that each update
         // to an individual component results in a valid AbstractKvStoreState either with 0
         // log entries replayed or all of the log entries replayed, I think
@@ -103,7 +165,25 @@ verus! {
                 old(log_pmem).inv(),
                 // TODO
             ensures 
-               // TODO
+            match result {
+                Ok(()) => {
+                    &&& metadata_pmem.inv()
+                    &&& item_table_pmem.inv()
+                    &&& list_pmem.inv()
+                    &&& log_pmem.inv()
+                    &&& Self::recover(
+                            metadata_pmem@.committed(), 
+                            item_table_pmem@.committed(), 
+                            list_pmem@.committed(),
+                            log_pmem@.committed(), 
+                            node_size,
+                            kvstore_id
+                        ) == Some(DurableKvStoreView::<K, I, L>::initialize())
+                }
+                Err(e) => {
+                    true // TODO
+                }
+            }
         {
             // TODO: where do component IDs come from -- same as kv store? or generate new?
 
@@ -371,12 +451,11 @@ verus! {
                 match (result, self@[node_location as int]) {
                     (Ok(output_list_entry), Some(spec_entry)) => {
                         let spec_list_entry = spec_entry.list()[index_in_node as int];
-                        &&& spec_list_entry is Some
-                        &&& spec_list_entry.unwrap() == output_list_entry
+                        spec_list_entry == output_list_entry
                     }
                     (Err(KvError::IndexOutOfRange), _) => {
                         &&& self@[node_location as int] is Some
-                        &&& self@[node_location as int].unwrap().list()[index_in_node as int] is None
+                        // &&& self@[node_location as int].unwrap().list()[index_in_node as int] is None
                     }
                     (Err(_), Some(spec_entry)) => false,
                     (Ok(output_list_entry), None) => false,
@@ -526,7 +605,7 @@ verus! {
                     Ok(()) => {
                         let old_record = old(self)@.contents[metadata_index as int];
                         let new_record = self@.contents[metadata_index as int];
-                        &&& new_record.list().list == old_record.list().list.push(*new_entry)
+                        &&& new_record.list() == old_record.list().push(*new_entry)
                     }
                     Err(_) => false // TODO
                 }
@@ -667,11 +746,11 @@ verus! {
                     Ok(()) => {
                         let old_record = old(self)@.contents[metadata_index as int];
                         let new_record = self@.contents[metadata_index as int];
-                        &&& new_record.list().list == old_record.list().list.subrange(trim_len as int, old_record.list().len() as int)
-                        // offset map entries pointing to trimmed indices should have been removed from the view
-                        &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_len ==> {
-                            new_record.list().offset_index(i) is None
-                        }
+                        &&& new_record.list() == old_record.list().subrange(trim_len as int, old_record.list().len() as int)
+                        // // offset map entries pointing to trimmed indices should have been removed from the view
+                        // &&& forall |i: int| 0 <= old_record.list().node_offset_map[i] < trim_len ==> {
+                        //     new_record.list().offset_index(i) is None
+                        // }
                     }
                     Err(_) => false // TODO
                 }

@@ -19,45 +19,45 @@ use std::hash::Hash;
 // TODO: is it safe for the fields of the structs in this file to be pub?
 
 verus! {
-    pub struct DurableKvStoreList<L>
-    {
-        pub list: Seq<L>,
-        pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
-    }
+    // pub struct DurableKvStoreList<L>
+    // {
+    //     pub list: Seq<L>,
+    //     // pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
+    // }
 
-    impl<L> DurableKvStoreList<L>
-    {
-        pub open spec fn spec_index(self, idx: int) -> Option<L>
-        {
-            if idx < self.list.len() {
-                Some(self.list[idx])
-            } else {
-                None
-            }
-        }
+    // impl<L> DurableKvStoreList<L>
+    // {
+    //     pub open spec fn spec_index(self, idx: int) -> Option<L>
+    //     {
+    //         if idx < self.list.len() {
+    //             Some(self.list[idx])
+    //         } else {
+    //             None
+    //         }
+    //     }
 
-        pub open spec fn offset_index(self, offset: int) -> Option<int>
-        {
-            if self.node_offset_map.contains_key(offset) {
-                Some(self.node_offset_map[offset])
-            } else {
-                None
-            }
-        }
+    //     // pub open spec fn offset_index(self, offset: int) -> Option<int>
+    //     // {
+    //     //     if self.node_offset_map.contains_key(offset) {
+    //     //         Some(self.node_offset_map[offset])
+    //     //     } else {
+    //     //         None
+    //     //     }
+    //     // }
 
-        pub open spec fn len(self) -> int
-        {
-            self.list.len() as int
-        }
+    //     pub open spec fn len(self) -> int
+    //     {
+    //         self.list.len() as int
+    //     }
 
-        pub open spec fn empty() -> Self
-        {
-            DurableKvStoreList {
-                list: Seq::empty(),
-                node_offset_map: Map::empty(),
-            }
-        }
-    }
+    //     pub open spec fn empty() -> Self
+    //     {
+    //         DurableKvStoreList {
+    //             list: Seq::empty(),
+    //             // node_offset_map: Map::empty(),
+    //         }
+    //     }
+    // }
 
     pub struct DurableKvStoreViewEntry<K, I, L>
     where
@@ -65,8 +65,7 @@ verus! {
     {
         pub key: K,
         pub item: I,
-        pub list: DurableKvStoreList<L>,
-
+        pub list: Seq<L>,
     }
 
     // TODO: remove since the fields are public
@@ -84,7 +83,7 @@ verus! {
             self.item
         }
 
-        pub open spec fn list(self) -> DurableKvStoreList<L>
+        pub open spec fn list(self) -> Seq<L>
         {
             self.list
         }
@@ -126,6 +125,14 @@ verus! {
             self.contents.len()
         }
 
+        pub open spec fn initialize() -> Self 
+        {
+            Self {
+                contents: Map::empty(),
+                index_to_key_map: Map::empty(),
+            }
+        }
+
         pub open spec fn create(self, offset: int, key: K, item: I) -> Result<Self, KvError<K>>
         {
             if self.contents.contains_key(offset) {
@@ -138,7 +145,7 @@ verus! {
                             DurableKvStoreViewEntry {
                                 key,
                                 item,
-                                list: DurableKvStoreList::empty()
+                                list: Seq::empty()
                             }
                         ),
                         index_to_key_map: self.index_to_key_map.insert(offset, key),

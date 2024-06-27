@@ -48,7 +48,7 @@ verus! {
 
         pub closed spec fn recover(
             mem: Seq<u8>,
-            node_size: u64,
+            node_size: u32,
             op_log: Seq<OpLogEntryType<L>>,
             metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
@@ -61,7 +61,7 @@ verus! {
 
         closed spec fn replay_log_list_nodes(
             mem: Seq<u8>, 
-            node_size: u64, 
+            node_size: u32, 
             op_log: Seq<OpLogEntryType<L>>, 
         ) -> Seq<u8>
             decreases op_log.len() 
@@ -78,7 +78,7 @@ verus! {
 
         closed spec fn apply_log_op_to_list_node_mem(
             mem: Seq<u8>, 
-            node_size: u64, 
+            node_size: u32, 
             op: OpLogEntryType<L>, 
         ) -> Seq<u8>
         {

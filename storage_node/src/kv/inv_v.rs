@@ -16,6 +16,7 @@ use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatileimpl_v::*;
 use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -84,4 +85,45 @@ verus! {
             }
         }
     }
+
+    pub proof fn lemma_inverting_injective_map_preserves_len<K, V>(map: Map<K,V>)
+        requires 
+            map.is_injective(),
+        ensures 
+            map.len() == map.invert().len()
+    {
+       assume(false); // TODO 
+    }
+
+    // This lemma proves that 
+    pub proof fn lemma_init_durable_kv_recovery_matches_abstract_kv_recovery<PM, K, I, L, V>(
+        metadata_pmem: Seq<u8>,
+        item_table_pmem: Seq<u8>,
+        list_pmem: Seq<u8>,
+        log_pmem: Seq<u8>,
+        node_size: u32,
+        kvstore_id: u128,
+    )
+        where 
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
+            V: VolatileKvIndex<K>,
+        requires 
+            DurableKvStore::<PM, K, I, L>::recover(metadata_pmem, item_table_pmem, list_pmem, log_pmem, node_size, kvstore_id) is Some,
+        ensures 
+            ({
+                let durable_init = DurableKvStoreView::<K, I, L>::initialize();
+                let abstract_init = AbstractKvStoreState::<K, I, L>::initialize(kvstore_id);
+                let abstract_from_durable = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_init, kvstore_id);
+                abstract_init == abstract_from_durable
+            })
+    {
+            let durable_init = DurableKvStoreView::<K, I, L>::initialize();
+            let abstract_init = AbstractKvStoreState::<K, I, L>::initialize(kvstore_id);
+            let abstract_from_durable = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_init, kvstore_id);
+            assert(abstract_init.contents == abstract_from_durable.contents);
+    }
+
 }

@@ -32,7 +32,7 @@ verus! {
 
         pub closed spec fn recover<L>(
             mem: Seq<u8>,
-            node_size: u64,
+            node_size: u32,
             op_log: Seq<OpLogEntryType<L>>,
             kvstore_id: u128,
         ) -> Option<MetadataTableView<K>>
