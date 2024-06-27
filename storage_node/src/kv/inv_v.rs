@@ -86,16 +86,8 @@ verus! {
         }
     }
 
-    pub proof fn lemma_inverting_injective_map_preserves_len<K, V>(map: Map<K,V>)
-        requires 
-            map.is_injective(),
-        ensures 
-            map.len() == map.invert().len()
-    {
-       assume(false); // TODO 
-    }
-
-    // This lemma proves that 
+    // This lemma proves that PM that recovers to an initialized DurableKvStoreView also recovers
+    // to an initialized AbstractKvStoreView
     pub proof fn lemma_init_durable_kv_recovery_matches_abstract_kv_recovery<PM, K, I, L, V>(
         metadata_pmem: Seq<u8>,
         item_table_pmem: Seq<u8>,
