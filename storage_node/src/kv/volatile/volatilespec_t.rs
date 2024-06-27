@@ -62,6 +62,7 @@ where
     {
         &&& 0 < self.num_list_entries_per_node
         &&& forall |k| #[trigger] self.contains_key(k) ==> self.contents[k].valid()
+        &&& self.contents.dom().finite()
     }
 
     pub open spec fn contains_key(self, key: K) -> bool
@@ -262,7 +263,10 @@ where
         ensures
             self.valid(),
             match result {
-                Ok(()) => self@ == old(self)@.insert_key(*key, header_addr as int),
+                Ok(()) => {
+                    &&& self@ == old(self)@.insert_key(*key, header_addr as int)
+                    &&& self@.contents.len() == old(self)@.contents.len() + 1
+                }
                 Err(_) => false, // TODO
             }
     ;
@@ -378,6 +382,12 @@ where
         ensures
             self@.keys() == result@.to_set()
     ;
+
+    proof fn lemma_valid_implies_view_valid(&self)
+        requires
+            self.valid(),
+        ensures
+            self@.valid();
 }
 
 }

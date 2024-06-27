@@ -149,6 +149,7 @@ where
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
             self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
+        &&& self.m@.dom().finite()
     }
 
     fn new(
@@ -252,21 +253,13 @@ where
         assume(false);
         Vec::<K>::new()
     }
-}
 
-impl<K> VolatileKvIndexImpl<K>
-where
-    K: Hash + Eq + Clone + Sized + std::fmt::Debug,
-{
     proof fn lemma_valid_implies_view_valid(&self)
-        requires
-            self.valid(),
-        ensures
-            self@.valid(),
     {
         assert forall |k| #[trigger] self@.contains_key(k) implies self@.contents[k].valid() by {
             self.m@[k].lemma_num_locations_is_entry_locations_len();
         }
+        assert(self.m@.dom() == self@.contents.dom());
     }
 }
 

@@ -101,7 +101,9 @@ verus! {
     // they're related by `maybe_corrupted_byte`.
     pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
-    pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
+    pub open spec fn all_elements_unique<T>(seq: Seq<T>) -> bool 
+        where T: Eq
+    {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
     }
 

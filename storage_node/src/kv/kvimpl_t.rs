@@ -181,11 +181,43 @@ where
         node_size: u32,
     ) -> (result: Result<Self, KvError<K>>)
         requires 
-            // TODO 
+            metadata_pmem.inv(),
+            item_table_pmem.inv(),
+            list_pmem.inv(),
+            log_pmem.inv(),
+            ({
+                let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                    metadata_pmem@.committed(), 
+                    item_table_pmem@.committed(), 
+                    list_pmem@.committed(),
+                    log_pmem@.committed(), 
+                    node_size,
+                    kvstore_id
+                );
+                &&& durable_view is Some 
+                &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) ==
+                        AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
+            })
         ensures 
-            // TODO 
+            match result {
+                Ok(trusted_kvstore) => {
+                    &&& trusted_kvstore.valid()
+                    &&& ({
+                            let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                                metadata_pmem@.committed(), 
+                                item_table_pmem@.committed(), 
+                                list_pmem@.committed(),
+                                log_pmem@.committed(), 
+                                node_size,
+                                kvstore_id
+                            );
+                            &&& durable_view is Some 
+                            &&& trusted_kvstore@ == UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id)
+                        })
+                }
+                Err(_) => true // TODO
+            }
     {
-        assume(false);
         let kv = UntrustedKvStoreImpl::<PM, K, I, L, V>::untrusted_start(metadata_pmem, item_table_pmem, list_pmem, log_pmem, kvstore_id, num_keys, node_size)?;
         Ok(Self {
             untrusted_kv_impl: kv,

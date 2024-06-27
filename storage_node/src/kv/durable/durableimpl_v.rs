@@ -133,10 +133,9 @@ verus! {
             None
         }
 
-        pub closed spec fn valid(self) -> bool
+        pub open spec fn valid(self) -> bool
         {
-            // TODO
-            true
+            self@.contents.dom().finite()
         }
 
         pub exec fn get_elements_per_node(&self) -> u64 {
@@ -218,14 +217,34 @@ verus! {
                 item_table_wrpm.inv(),
                 list_wrpm.inv(),
                 log_wrpm.inv(),
-                L::spec_size_of() + u64::spec_size_of() <= u32::MAX
-                // TODO
+                // L::spec_size_of() + u64::spec_size_of() <= u32::MAX,
+                // we don't know this yet
+                // ({
+                //     let recovered_view = DurableKvStore::<PM, K, I, L>::recover(
+                //         metadata_wrpm@.committed(), 
+                //         item_table_wrpm@.committed(),
+                //         list_wrpm@.committed(),
+                //         log_wrpm@.committed(),
+                //         node_size,
+                //         kvstore_id,
+                //     );
+                //     &&& recovered_view is Some 
+                //     &&& recovered_view.unwrap() == DurableKvStoreView::<K, I, L>::initialize()
+                // })
             ensures
                 metadata_wrpm.inv(),
                 item_table_wrpm.inv(),
                 list_wrpm.inv(),
                 log_wrpm.inv(),
-                // TODO
+                match result {
+                    Ok((kv, key_index_vec)) => {
+                        &&& forall |i: int, j: int| #![auto] 0 <= i < j < key_index_vec@.len() ==>
+                                key_index_vec@[i].0 != key_index_vec@[j].0 && key_index_vec@[i].1 != key_index_vec@[j].1
+                        &&& key_index_vec@.len() == kv@.len()
+                        &&& kv@.valid()
+                    }
+                    Err(_) => true
+                }
         {
             assume(false);
 

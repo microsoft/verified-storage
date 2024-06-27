@@ -267,38 +267,103 @@ where
         node_size: u32,
     ) -> (result: Result<Self, KvError<K>>)
         requires 
-            // TODO 
+            metadata_region.inv(),
+            item_table_region.inv(),
+            list_region.inv(),
+            log_region.inv(),
+            ({
+                let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                    metadata_region@.committed(), 
+                    item_table_region@.committed(), 
+                    list_region@.committed(),
+                    log_region@.committed(), 
+                    node_size,
+                    kvstore_id
+                );
+                &&& durable_view is Some 
+                &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) ==
+                        AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
+            })
         ensures 
-            // TODO 
+            match result {
+                Ok(trusted_kvstore) => {
+                    &&& trusted_kvstore.valid()
+                    &&& ({
+                            let durable_view = DurableKvStore::<PM, K, I, L>::recover(
+                                metadata_region@.committed(), 
+                                item_table_region@.committed(), 
+                                list_region@.committed(),
+                                log_region@.committed(), 
+                                node_size,
+                                kvstore_id
+                            );
+                            &&& durable_view is Some 
+                            &&& trusted_kvstore@ == UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id)
+                        })
+                }
+                Err(_) => true // TODO
+            }
     {
-        assume(false);
         // First, start the durable component
         let mut log_wrpm = WriteRestrictedPersistentMemoryRegion::new(log_region);
         let mut metadata_wrpm = WriteRestrictedPersistentMemoryRegion::new(metadata_region);
         let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::new(item_table_region);
         let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::new(list_region);
         let tracked fake_kv_permission = TrustedKvPermission::fake_kv_perm();
-        let (mut durable, key_index_pairs) = DurableKvStore::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
-
+        let (mut durable, key_index_pairs) = DurableKvStore::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission))?;
+        
         // Next, start the volatile component. To run YCSB workloads we may need to 
         // add functionality to the durable component for this to work for an 
         // existing KV store
-        let mut volatile = V::new(kvstore_id, num_keys as usize, durable.get_elements_per_node())?;
+        let elements_per_node = durable.get_elements_per_node();
+        if elements_per_node <= 0 {
+            return Err(KvError::InvalidListRegionMetadata);
+        }
 
-        // TODO: move this into volatile constructor?
-        for i in 0..key_index_pairs.len() {
-            assume(false);
-            // let (key, index) = &key_index_pairs[i]; <- Verus has an issue with this syntax. TODO: report it
+        let mut volatile = V::new(kvstore_id, num_keys as usize, elements_per_node)?;
+
+        let ghost old_key_index_pairs = key_index_pairs@;
+        for i in 0..key_index_pairs.len() 
+            invariant 
+                volatile.valid(),
+                volatile@.contents.dom().finite(),
+                key_index_pairs@ =~= old_key_index_pairs,
+                forall |j: int, k: int| #![auto] 0 <= j < k < key_index_pairs@.len() ==> 
+                    key_index_pairs@[k].0 != key_index_pairs@[j].0,
+                forall |j: int| #![auto] i <= j < key_index_pairs@.len() ==> 
+                    volatile@[*key_index_pairs[j].0] is None,
+                forall |j: int| 0 < j < i ==> {
+                    let entry = volatile@[#[trigger] *key_index_pairs[j].0];
+                    entry == Some(VolatileKvIndexEntry {
+                        header_addr: #[trigger] key_index_pairs[j].1 as int,
+                        list_len: 0,
+                        entry_locations: Seq::empty()
+                    })
+                },
+                i <= volatile@.contents.len() < i + 1,
+                i == key_index_pairs@.len() ==> volatile@.contents.len() == i,
+                volatile.valid(),
+        {
             volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
         }
-    
-        Ok(Self {
+        assert(volatile@.contents.len() == key_index_pairs@.len());
+
+        let ret = Self {
             id: kvstore_id, 
             durable_store: durable,
             volatile_index: volatile,
             node_size,
             _phantom: Ghost(spec_phantom_data()),
-        })
+        };
+        proof {
+            // this isn't a trait method..
+            ret.volatile_index.lemma_valid_implies_view_valid();
+        }
+        assert(ret.valid());
+    
+        assume(false);
+
+        Ok(ret)
     }
 
     pub fn untrusted_create(

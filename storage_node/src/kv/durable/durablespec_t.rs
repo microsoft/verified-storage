@@ -162,14 +162,14 @@ verus! {
                     &&& self[i] is Some
                     &&& self[i].unwrap().key() == self.index_to_key_map[i]
                 }
+            &&& self.contents.dom().finite()
         }
 
         // TODO: might be cleaner to define this elsewhere (like in the interface)
         pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
         {
             &&& self.len() == volatile_index.contents.len()
-            &&& self.contents.dom().finite()
-            &&& volatile_index.contents.dom().finite()
+            &&& volatile_index.valid()
             &&& self.valid()
             // all keys in the volatile index are stored at the indexed offset in the durable store
             &&& forall |k: K| #![auto] volatile_index.contains_key(k) ==> {

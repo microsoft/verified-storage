@@ -26,8 +26,8 @@ verus! {
         requires
             durable_store.empty(),
             durable_store.valid(),
-            durable_store.contents.dom().finite(),
             volatile_index.empty(),
+            volatile_index.valid(),
         ensures
             durable_store.matches_volatile_index(volatile_index)
     {
@@ -117,5 +117,16 @@ verus! {
             let abstract_from_durable = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_init, kvstore_id);
             assert(abstract_init.contents == abstract_from_durable.contents);
     }
+
+    pub proof fn lemma_insert_new_key_increments_map_length<K, V>(map: Map<K,V>, key: K, value: V)
+        requires 
+            !map.contains_key(key),
+            map.dom().finite(),
+        ensures
+            ({
+                let new_map = map.insert(key, value);
+                new_map.len() == map.len() + 1
+            })
+    {}
 
 }
