@@ -103,6 +103,16 @@ impl<Key, Value> MyHashMap<Key, Value> where Key: Eq + Hash {
     {
         self.m.clear()
     }
+
+    #[verifier::external_body]
+    pub fn keys(&self) -> (result: Vec<&Key>)
+        ensures
+            forall |k: &Key| #[trigger] result@.contains(k) ==> self@.dom().contains(*k),
+            forall |k: Key| self@.dom().contains(k) ==> exists |kr: &Key| result@.contains(kr) && *kr == k,
+    {
+        self.m.keys().collect()
+    }
+            
 }
 
 pub broadcast proof fn axiom_hash_map_with_view_spec_len<Key, Value>(
