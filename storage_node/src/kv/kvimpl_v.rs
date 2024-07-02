@@ -281,8 +281,8 @@ where
                     kvstore_id
                 );
                 &&& durable_view is Some 
-                &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) ==
-                        AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
+                // &&& UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id) ==
+                //         AbstractKvStoreState::<K, I, L>::initialize(kvstore_id)
             })
         ensures 
             match result {
@@ -330,9 +330,11 @@ where
                 key_index_pairs@ =~= old_key_index_pairs,
                 forall |j: int, k: int| #![auto] 0 <= j < k < key_index_pairs@.len() ==> 
                     key_index_pairs@[k].0 != key_index_pairs@[j].0,
+                // the volatile index does not contain any keys we haven't iterated over yet
                 forall |j: int| #![auto] i <= j < key_index_pairs@.len() ==> 
                     volatile@[*key_index_pairs[j].0] is None,
-                forall |j: int| 0 < j < i ==> {
+                // the volatile index DOES contain the keys that we have iterated over
+                forall |j: int| 0 <= j < i ==> {
                     let entry = volatile@[#[trigger] *key_index_pairs[j].0];
                     entry == Some(VolatileKvIndexEntry {
                         header_addr: #[trigger] key_index_pairs[j].1 as int,
@@ -356,9 +358,23 @@ where
             _phantom: Ghost(spec_phantom_data()),
         };
         proof {
-            // this isn't a trait method..
             ret.volatile_index.lemma_valid_implies_view_valid();
         }
+
+        assert(forall |i: int| #![auto] ret.durable_store@.contains_key(i) ==> {
+            &&& ret.durable_store@.index_to_key_map.contains_key(i)
+            &&& ret.volatile_index@.contains_key(ret.durable_store@.index_to_key_map[i])
+            &&& ret.volatile_index@[ret.durable_store@.index_to_key_map[i]].unwrap().header_addr == i
+        });
+
+        // assume(false);
+        
+        assert(forall |k: K| #![auto] ret.volatile_index@.contains_key(k) ==> {
+            let indexed_offset = ret.volatile_index@[k].unwrap().header_addr;
+            &&& ret.durable_store@.index_to_key_map.contains_key(indexed_offset)
+            &&& ret.durable_store@.index_to_key_map[indexed_offset] == k
+        });
+ 
         assert(ret.valid());
     
         assume(false);

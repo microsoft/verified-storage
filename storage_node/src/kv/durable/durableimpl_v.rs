@@ -217,20 +217,6 @@ verus! {
                 item_table_wrpm.inv(),
                 list_wrpm.inv(),
                 log_wrpm.inv(),
-                // L::spec_size_of() + u64::spec_size_of() <= u32::MAX,
-                // we don't know this yet
-                // ({
-                //     let recovered_view = DurableKvStore::<PM, K, I, L>::recover(
-                //         metadata_wrpm@.committed(), 
-                //         item_table_wrpm@.committed(),
-                //         list_wrpm@.committed(),
-                //         log_wrpm@.committed(),
-                //         node_size,
-                //         kvstore_id,
-                //     );
-                //     &&& recovered_view is Some 
-                //     &&& recovered_view.unwrap() == DurableKvStoreView::<K, I, L>::initialize()
-                // })
             ensures
                 metadata_wrpm.inv(),
                 item_table_wrpm.inv(),
@@ -242,6 +228,14 @@ verus! {
                                 key_index_vec@[i].0 != key_index_vec@[j].0 && key_index_vec@[i].1 != key_index_vec@[j].1
                         &&& key_index_vec@.len() == kv@.len()
                         &&& kv@.valid()
+                        &&& forall |i: int| #![auto] 0 <= i < key_index_vec@.len() ==> {
+                                &&& kv@.contains_key(key_index_vec[i].1 as int)
+                                &&& kv@[key_index_vec[i].1 as int].unwrap().key == key_index_vec[i].0
+                            }
+                        &&& forall |i: int| kv@.contains_key(i) ==> {
+                            let indexes = Seq::new(key_index_vec@.len(), |i: int| key_index_vec[i].1 as int);
+                            indexes.contains(i)
+                        }
                     }
                     Err(_) => true
                 }
