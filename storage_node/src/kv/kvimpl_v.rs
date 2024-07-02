@@ -322,6 +322,8 @@ where
 
         let mut volatile = V::new(kvstore_id, num_keys as usize, elements_per_node)?;
 
+        let ghost keys_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0);
+
         let ghost old_key_index_pairs = key_index_pairs@;
         for i in 0..key_index_pairs.len() 
             invariant 
@@ -336,19 +338,22 @@ where
                 // the volatile index DOES contain the keys that we have iterated over
                 forall |j: int| 0 <= j < i ==> {
                     let entry = volatile@[#[trigger] *key_index_pairs[j].0];
-                    entry == Some(VolatileKvIndexEntry {
-                        header_addr: #[trigger] key_index_pairs[j].1 as int,
-                        list_len: 0,
-                        entry_locations: Seq::empty()
-                    })
+                    &&& entry == Some(VolatileKvIndexEntry {
+                            header_addr: #[trigger] key_index_pairs[j].1 as int,
+                            list_len: 0,
+                            entry_locations: Seq::empty()
+                        })
                 },
+                forall |k: K| #![auto] volatile@.contains_key(k) ==> keys_from_pairs.contains(k),
+                // this is apparently not known in the loop context so we need to put it in the invariant
+                keys_from_pairs == Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0),
                 i <= volatile@.contents.len() < i + 1,
                 i == key_index_pairs@.len() ==> volatile@.contents.len() == i,
                 volatile.valid(),
         {
+            assert(keys_from_pairs[i as int] == *key_index_pairs[i as int].0);
             volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
         }
-        assert(volatile@.contents.len() == key_index_pairs@.len());
 
         let ret = Self {
             id: kvstore_id, 
@@ -361,19 +366,13 @@ where
             ret.volatile_index.lemma_valid_implies_view_valid();
         }
 
-        assert(forall |i: int| #![auto] ret.durable_store@.contains_key(i) ==> {
-            &&& ret.durable_store@.index_to_key_map.contains_key(i)
-            &&& ret.volatile_index@.contains_key(ret.durable_store@.index_to_key_map[i])
-            &&& ret.volatile_index@[ret.durable_store@.index_to_key_map[i]].unwrap().header_addr == i
-        });
-
-        // assume(false);
-        
-        assert(forall |k: K| #![auto] ret.volatile_index@.contains_key(k) ==> {
-            let indexed_offset = ret.volatile_index@[k].unwrap().header_addr;
-            &&& ret.durable_store@.index_to_key_map.contains_key(indexed_offset)
-            &&& ret.durable_store@.index_to_key_map[indexed_offset] == k
-        });
+        // These assertions help prove that the KV is valid by helping to establish that the volatile and durable
+        // components are in sync.
+        let ghost indexes_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].1 as int).to_set();
+        let ghost keys_set = keys_from_pairs.to_set();
+        assert(forall |k: K| #![auto] ret.volatile_index@.contents.contains_key(k) ==>
+            keys_from_pairs.contains(k));
+        assert(ret.volatile_index@.contents.dom() =~= keys_set);
  
         assert(ret.valid());
     
