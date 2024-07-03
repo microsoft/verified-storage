@@ -34,3 +34,11 @@ In `YCSB/`:
 
 ### YCSB script
 The `run_ycsb.sh` script runs all YCSB workloads that are supported by our KV store (i.e., all that don't include `scan` operations) with the options described above on a given KV store. Note that you still need to manually start a redis server before running this script on redis. The script expects the exact setup described in the Running Experiments section.
+
+## magic-trace
+
+These are instructions for running `magic-trace` in WSL2 -- it's slightly easier on baremetal.
+
+1. Download magic-trace
+2. Run `sudo apt install linux-tools-generic`
+3. Prepend the path to `perf` to your `PATH` variable (e.g. `PATH=/usr/lib/linux-tools/5.15.0-113-generic/:$PATH`; the version number may be different).

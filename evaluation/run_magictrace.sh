@@ -1,0 +1,111 @@
+#!/bin/bash
+
+DB=$1
+RESULTS_DIR=$2
+PM=$3
+OP_COUNT=500000
+RECORD_COUNT=500000
+mount_point=/mnt/pmem
+pm_device=/dev/pmem0
+dram_db_dir=/home/hayley/kv_files
+
+REDIS_PID=0
+
+setup_capybarakv() {
+    use_pm=$1
+    target_dir=""
+    echo "Setting up CapybaraKV"
+    if [ $use_pm = true ]; then 
+        setup_pm
+        target_dir=$mount_point
+    else 
+        rm -rf $dram_db_dir 2> /dev/null
+        mkdir -p $dram_db_dir
+        check_error $?
+        target_dir=$dram_db_dir
+    fi
+    cd ../ycsb_ffi
+    cargo run $target_dir/log $target_dir/metadata $target_dir/items $target_dir/list
+    check_error $?
+    cd ../YCSB
+}
+
+setup_redis() {
+    
+    use_pm=$1
+    # kill existing redis process, if any
+    if [ $REDIS_PID != 0 ]; then 
+        echo "Killing redis server with PID $REDIS_PID"
+        kill $REDIS_PID
+        sleep 1
+    fi 
+    if [ $use_pm = true ]; then 
+        setup_pm
+        cd ../pmem-redis 
+        ./src/redis-server --nvm-maxcapacity 1 --nvm-dir $mount_point --nvm-threshold 0 &
+        REDIS_PID=$!
+        echo "redis is running with PID $REDIS_PID"
+        cd ../YCSB
+    else 
+        rm -rf $dram_db_dir 2> /dev/null
+        mkdir -p $dram_db_dir
+        cd redis 
+        ./src/redis-server --dir $dram_db_dir &
+        REDIS_PID=$!
+        cd ..
+    fi
+}
+
+setup_pm() {
+    echo "Creating new EXT4-DAX file system on device $pm_device at mount point $mount_point"
+    sudo umount $pm_device 
+    sudo mkfs.ext4 $pm_device -F
+    check_error $?
+    sudo mount -o dax $pm_device $mount_point
+    check_error $?
+    sudo chmod 777 $mount_point
+    echo "Mounted EXT4-DAX"
+}
+
+cleanup() {
+    if [ $REDIS_PID != 0 ]; then 
+        echo "Killing redis server with PID $REDIS_PID"
+        kill $REDIS_PID
+        sleep 1
+    fi 
+    sudo umount $pm_device
+}
+
+check_error() {
+    if [ $1 != 0 ]; then 
+        echo "Error $1, exiting"
+        exit $1
+    fi
+}
+
+use_pm=false
+if [ ! -z $PM ] && [ $PM = "--pm" ]; then 
+    use_pm=true
+    echo "Using persistent memory"
+fi
+
+options=""
+if [ $DB = "rocksdb" ]; then 
+    options="-p rocksdb.dir=~/rocksdb_files -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
+elif [ $DB = "redis" ]; then 
+    options="-p redis.host=127.0.0.1 -p redis.port=6379"
+elif [ $DB = "capybarakv" ]; then 
+    options="-p capybarakv.config=../ycsb_ffi/config.toml"
+fi 
+
+export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/debug
+
+cd YCSB
+if [ $DB = "capybarakv" ]; then 
+    setup_capybarakv $use_pm
+elif [ $DB = "redis" ]; then 
+    echo "Starting redis..."
+    setup_redis $use_pm
+fi
+
+magic-trace run ./bin/ycsb -- load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options
