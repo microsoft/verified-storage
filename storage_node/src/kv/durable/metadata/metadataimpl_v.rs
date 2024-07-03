@@ -2,6 +2,9 @@ use builtin::*;
 use builtin_macros::*;
 use std::fs::Metadata;
 use std::hash::Hash;
+use crate::kv::volatile::hash_map::*;
+use crate::kv::volatile::volatileimpl_v::VolatileKvIndexEntryImpl;
+use crate::kv::volatile::volatilespec_t::VolatileKvIndexEntry; // replace with std::hash_map when available
 use vstd::prelude::*;
 use vstd::bytes::*;
 use crate::kv::durable::oplog::logentry_v::*;
@@ -23,7 +26,7 @@ verus! {
 
     impl<K> MetadataTable<K>
         where 
-            K: PmCopy + std::fmt::Debug,
+            K: PmCopy + std::fmt::Debug + Eq + Hash,
     {
         pub closed spec fn view(self) -> MetadataTableView<K> 
         {
@@ -272,7 +275,7 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedMetadataPermission>,
             Ghost(state): Ghost<MetadataTableView<K>>,
-        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
+        ) -> (result: Result<(Self, MyHashMap<K, Box<ListEntryMetadata>>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
@@ -321,7 +324,8 @@ verus! {
             // The volatile component also needs to know what the existing key-index pairs are, so we'll 
             // obtain these now as well to avoid doing an additional scan over the whole table
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
-            let mut key_index_pairs = Vec::new();
+            // let mut key_index_pairs = Vec::new();
+            let mut key_index_pairs = MyHashMap::new();
             for index in 0..header.num_keys 
                 // TODO: invariant
             {
@@ -379,7 +383,10 @@ verus! {
 
                         let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
-                        key_index_pairs.push((key, index));
+                        let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes), 
+                            Ghost(pm_region.constants().impervious_to_corruption));
+                        // key_index_pairs.push((key, index));
+                        key_index_pairs.insert(*key, metadata_entry);
 
                     },
                     None => return Err(KvError::CRCMismatch),

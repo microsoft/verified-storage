@@ -671,8 +671,8 @@ verus! {
         mem2: Seq<u8>,
     )
         ensures
-            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
-                #[trigger] extract_bytes(mem1, i, n) == #[trigger] extract_bytes(mem2, i, n)
+            forall |addr: int, len: int| extract_bytes(mem1, addr, len) =~= extract_bytes(mem2, addr, len) ==>
+                #[trigger] extract_bytes(mem1, addr, len) == #[trigger] extract_bytes(mem2, addr, len)
     {
     }
 }

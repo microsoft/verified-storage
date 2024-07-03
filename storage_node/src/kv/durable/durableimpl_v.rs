@@ -17,10 +17,12 @@ use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
+use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatilespec_t::*;
+use crate::kv::volatile::hash_map::*; // replace with std::hash_map when available
 use crate::log::logimpl_v::*;
 use crate::log::logimpl_t::*;
 use crate::log::logspec_t::*;
@@ -88,11 +90,11 @@ verus! {
                             // is more like what a user sees, while the durable view includes additional information
                             // about the location of resources in PM.
 
-                            // We first construct a map from indexes with valid entries to the keys they contain.
-                            let index_to_key_map: Map<int, K> = Map::new(
-                                |i: int| metadata_view[i] is Some && metadata_view[i].unwrap().valid(),
-                                    |i: int| metadata_view[i].unwrap().key()
-                            );
+                            // // We first construct a map from indexes with valid entries to the keys they contain.
+                            // let index_to_key_map: Map<int, K> = Map::new(
+                            //     |i: int| metadata_view[i] is Some && metadata_view[i].unwrap().valid(),
+                            //         |i: int| metadata_view[i].unwrap().key()
+                            // );
 
                             // Then a map from indexes to value data (item and list)
                             let contents = Map::new(
@@ -109,7 +111,7 @@ verus! {
                                     }
                             );
                             
-                            Some(DurableKvStoreView { contents, index_to_key_map })
+                            Some(DurableKvStoreView { contents })
                         } else {
                             None
                         }
@@ -209,7 +211,7 @@ verus! {
             node_size: u32,
             Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
             // Ghost(state): Ghost<DurableKvStoreView<K, I, L>>
-        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
+        ) -> (result: Result<(Self, MyHashMap<K, Box<ListEntryMetadata>>), KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
             requires
@@ -223,19 +225,29 @@ verus! {
                 list_wrpm.inv(),
                 log_wrpm.inv(),
                 match result {
-                    Ok((kv, key_index_vec)) => {
-                        &&& forall |i: int, j: int| #![auto] 0 <= i < j < key_index_vec@.len() ==>
-                                key_index_vec@[i].0 != key_index_vec@[j].0 && key_index_vec@[i].1 != key_index_vec@[j].1
-                        &&& key_index_vec@.len() == kv@.len()
-                        &&& kv@.valid()
-                        &&& forall |i: int| #![auto] 0 <= i < key_index_vec@.len() ==> {
-                                &&& kv@.contains_key(key_index_vec[i].1 as int)
-                                &&& kv@[key_index_vec[i].1 as int].unwrap().key == key_index_vec[i].0
-                            }
-                        &&& forall |i: int| kv@.contains_key(i) ==> {
-                            let indexes = Seq::new(key_index_vec@.len(), |i: int| key_index_vec[i].1 as int);
-                            indexes.contains(i)
-                        }
+                    Ok((kv, key_metadata_map)) => {
+                        // &&& forall |k1: K, k2: K| key_index_map@.contains_key(k1) && key_index_map@.contains_key(k2) && k1 != k2 ==> 
+                        //         key_index_map@[k1] != key_index_map@[k2]
+                        // &&& key_index_map@.len() == kv@.len()
+                        // &&& kv@.valid()
+                        // &&& key_index_map@.is_injective()
+                        // // TODO matches syntax
+                        // &&& forall |k: K| key_index_map@.contains_key(k) ==> {
+                        //     &&& kv@.contains_key(key_index_map@[k] as int)
+                        //     &&& kv@[key_index_map@[k] as int].unwrap().key == k
+                        // }
+                        // // &&& forall |i: int, j: int| #![auto] 0 <= i < j < key_index_vec@.len() ==>
+                        // //         key_index_vec@[i].0 != key_index_vec@[j].0 && key_index_vec@[i].1 != key_index_vec@[j].1
+                        // // &&& key_index_vec@.len() == kv@.len()
+                        // // &&& kv@.valid()
+                        // // &&& forall |i: int| #![auto] 0 <= i < key_index_vec@.len() ==> {
+                        // //         &&& kv@.contains_key(key_index_vec[i].1 as int)
+                        // //         &&& kv@[key_index_vec[i].1 as int].unwrap().key == key_index_vec[i].0
+                        // //     }
+                        // &&& forall |i: u64| kv@.contains_key(i as int) ==> key_index_map@.invert().contains_key(i)
+                        // TODO matches
+                        &&& Self::recover(metadata_wrpm@.committed(), item_table_wrpm@.committed(), 
+                                list_wrpm@.committed(), log_wrpm@.committed(), node_size, kvstore_id).unwrap() == kv@
                     }
                     Err(_) => true
                 }

@@ -135,19 +135,35 @@ where
 
     pub open spec fn recover_from_durable_view(durable_view: DurableKvStoreView<K, I, L>, kvstore_id: u128) -> AbstractKvStoreState<K, I, L>
     {
-        // Each key should only exist once, so we can safely invert
-        // TODO: maintain that as an invariant
-        let key_to_int = durable_view.index_to_key_map.invert();
+        // // We basically need to convert from a Map<int, (K, I, Seq<L>)> to a 
+        // // Map<K, (I, Seq<L>)>. First manipulate the maps to get a way to look up
+        // // the index associated with a key
+        // let index_key_map = durable_view.contents.map_values(
+        //     |v: DurableKvStoreViewEntry<K, I, L>| v.key
+        // );
+
+        // // TODO: should maintain that index_key_map is injective as an invariant
+        // let key_index_map = index_key_map.invert();
+        let key_index_map = Map::new(
+            |k: K| exists |v: DurableKvStoreViewEntry<K, I, L>| #![auto] durable_view.contents.values().contains(v) && v.key == k,
+            |k: K| {
+                let i = choose |i: int| #![auto] durable_view.contents[i].key == k;
+                i
+            }
+        );
+
+        let contents = Map::new(
+            |k: K| key_index_map.contains_key(k),
+            |k: K| {
+                let index = key_index_map[k];
+                let entry = durable_view.contents[index];
+                (entry.item, entry.list)
+            }
+        );
+
         AbstractKvStoreState {
             id: kvstore_id,
-            contents: Map::new(
-                |k: K| key_to_int.contains_key(k),
-                |k: K| {
-                    let index = key_to_int[k];
-                    let durable_view_entry = durable_view[index].unwrap();
-                    (durable_view_entry.item, durable_view_entry.list)
-                }
-            )
+            contents,
         }
     }
 
@@ -286,8 +302,8 @@ where
             })
         ensures 
             match result {
-                Ok(trusted_kvstore) => {
-                    &&& trusted_kvstore.valid()
+                Ok(untrusted_kvstore) => {
+                    &&& untrusted_kvstore.valid()
                     &&& ({
                             let durable_view = DurableKvStore::<PM, K, I, L>::recover(
                                 metadata_region@.committed(), 
@@ -298,7 +314,8 @@ where
                                 kvstore_id
                             );
                             &&& durable_view is Some 
-                            &&& trusted_kvstore@ == UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id)
+                            &&& untrusted_kvstore@ == UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_view.unwrap(), kvstore_id)
+                            // &&& untrusted_kvstore@ == AbstractKvStoreState::construct_view_contents(untrusted_kvstore.volatile_index@, durable_view.unwrap())
                         })
                 }
                 Err(_) => true // TODO
@@ -322,38 +339,38 @@ where
 
         let mut volatile = V::new(kvstore_id, num_keys as usize, elements_per_node)?;
 
-        let ghost keys_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0);
+        // let ghost keys_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0);
 
-        let ghost old_key_index_pairs = key_index_pairs@;
-        for i in 0..key_index_pairs.len() 
-            invariant 
-                volatile.valid(),
-                volatile@.contents.dom().finite(),
-                key_index_pairs@ =~= old_key_index_pairs,
-                forall |j: int, k: int| #![auto] 0 <= j < k < key_index_pairs@.len() ==> 
-                    key_index_pairs@[k].0 != key_index_pairs@[j].0,
-                // the volatile index does not contain any keys we haven't iterated over yet
-                forall |j: int| #![auto] i <= j < key_index_pairs@.len() ==> 
-                    volatile@[*key_index_pairs[j].0] is None,
-                // the volatile index DOES contain the keys that we have iterated over
-                forall |j: int| 0 <= j < i ==> {
-                    let entry = volatile@[#[trigger] *key_index_pairs[j].0];
-                    &&& entry == Some(VolatileKvIndexEntry {
-                            header_addr: #[trigger] key_index_pairs[j].1 as int,
-                            list_len: 0,
-                            entry_locations: Seq::empty()
-                        })
-                },
-                forall |k: K| #![auto] volatile@.contains_key(k) ==> keys_from_pairs.contains(k),
-                // this is apparently not known in the loop context so we need to put it in the invariant
-                keys_from_pairs == Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0),
-                i <= volatile@.contents.len() < i + 1,
-                i == key_index_pairs@.len() ==> volatile@.contents.len() == i,
-                volatile.valid(),
-        {
-            assert(keys_from_pairs[i as int] == *key_index_pairs[i as int].0);
-            volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
-        }
+        // let ghost old_key_index_pairs = key_index_pairs@;
+        // for i in 0..key_index_pairs.len() 
+        //     invariant 
+        //         volatile.valid(),
+        //         volatile@.contents.dom().finite(),
+        //         key_index_pairs@ =~= old_key_index_pairs,
+        //         forall |j: int, k: int| #![auto] 0 <= j < k < key_index_pairs@.len() ==> 
+        //             key_index_pairs@[k].0 != key_index_pairs@[j].0,
+        //         // the volatile index does not contain any keys we haven't iterated over yet
+        //         forall |j: int| #![auto] i <= j < key_index_pairs@.len() ==> 
+        //             volatile@[*key_index_pairs[j].0] is None,
+        //         // the volatile index DOES contain the keys that we have iterated over
+        //         forall |j: int| 0 <= j < i ==> {
+        //             let entry = volatile@[#[trigger] *key_index_pairs[j].0];
+        //             &&& entry == Some(VolatileKvIndexEntry {
+        //                     header_addr: #[trigger] key_index_pairs[j].1 as int,
+        //                     list_len: 0,
+        //                     entry_locations: Seq::empty()
+        //                 })
+        //         },
+        //         forall |k: K| #![auto] volatile@.contains_key(k) ==> keys_from_pairs.contains(k),
+        //         // this is apparently not known in the loop context so we need to put it in the invariant
+        //         keys_from_pairs == Seq::new(key_index_pairs@.len(), |i: int| *key_index_pairs[i].0),
+        //         i <= volatile@.contents.len() < i + 1,
+        //         i == key_index_pairs@.len() ==> volatile@.contents.len() == i,
+        //         volatile.valid(),
+        // {
+        //     assert(keys_from_pairs[i as int] == *key_index_pairs[i as int].0);
+        //     volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
+        // }
 
         let ret = Self {
             id: kvstore_id, 
@@ -366,17 +383,69 @@ where
             ret.volatile_index.lemma_valid_implies_view_valid();
         }
 
-        // These assertions help prove that the KV is valid by helping to establish that the volatile and durable
-        // components are in sync.
-        let ghost indexes_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].1 as int).to_set();
-        let ghost keys_set = keys_from_pairs.to_set();
-        assert(forall |k: K| #![auto] ret.volatile_index@.contents.contains_key(k) ==>
-            keys_from_pairs.contains(k));
-        assert(ret.volatile_index@.contents.dom() =~= keys_set);
+        // // These assertions help prove that the KV is valid by helping to establish that the volatile and durable
+        // // components are in sync.
+        // let ghost indexes_from_pairs = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].1 as int).to_set();
+        // let ghost keys_set = keys_from_pairs.to_set();
+        // assert(forall |k: K| #![auto] ret.volatile_index@.contents.contains_key(k) ==>
+        //     keys_from_pairs.contains(k));
+        // assert(ret.volatile_index@.contents.dom() =~= keys_set);
  
-        assert(ret.valid());
+        // assert(ret.valid());
     
-        assume(false);
+        // assert(ret@.contents == AbstractKvStoreState::construct_view_contents(ret.volatile_index@, ret.durable_store@));
+        // let ghost durable_recovered_view = DurableKvStore::<PM, K, I, L>::recover(
+        //     metadata_region@.committed(), 
+        //     item_table_region@.committed(), 
+        //     list_region@.committed(),
+        //     log_region@.committed(), 
+        //     node_size,
+        //     kvstore_id
+        // ).unwrap();
+        
+        // assert(ret.durable_store@ == durable_recovered_view);
+
+
+        // // more generally -- if durable_store@ == durable_recovered_view then constructing view contents from durable_store is the same as 
+        // // recovering from durable_recovered_view
+        // // these are constructed pretty differently though
+        // proof {
+        //     let constructed_kv_state = AbstractKvStoreState::construct_view_contents(ret.volatile_index@, ret.durable_store@);
+        //     let recovered_kv_state = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_recovered_view, kvstore_id).contents;
+
+        //     assert(constructed_kv_state.dom() == volatile@.contents.dom());
+
+        //     // let key_index_map = Map::new(
+        //     //     |k: K| exists |v: DurableKvStoreViewEntry<K, I, L>| #![auto] durable_recovered_view.contents.values().contains(v) && v.key == k,
+        //     //     |k: K| {
+        //     //         let i = choose |i: int| #![auto] durable_recovered_view.contents[i].key == k;
+        //     //         i
+        //     //     }
+        //     // );
+        //     // assert(recovered_kv_state.dom() == key_index_map.dom());
+
+        //     // assert(volatile@.contents.dom() == keys_set);
+        //     // assert(keys_set == key_index_map.dom());
+            
+
+        //     // assert(volatile@.contents.dom() == key_index_map.dom());
+
+        //     // assert(forall |k| constructed_kv_state.contains_key(k) ==> recovered_kv_state.contains_key(k));
+        //     assert(constructed_kv_state.submap_of(recovered_kv_state));
+        //     assume(false);
+        //     assert(recovered_kv_state.submap_of(constructed_kv_state));
+            
+        //     assert(constructed_kv_state == recovered_kv_state);
+        //     // // if durable view matches volatile view, then constructing view is equivalent to recovering it?
+        //     // // that's actually what we need to prove (and might be a good general lemma?)
+        //     // assert(durable_recovered_view.matches_volatile_index(volatile@) ==> constructed_kv_state == recovered_kv_state);
+        // }
+        // assert(AbstractKvStoreState::construct_view_contents(ret.volatile_index@, ret.durable_store@) == 
+        //     UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_recovered_view, kvstore_id).contents);
+
+        // // this is what we have to prove here
+        // // ret@.contents is a map from keys to (I, Seq<L>)
+        // assert(ret@.contents == UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_recovered_view, kvstore_id).contents);
 
         Ok(ret)
     }

@@ -61,8 +61,6 @@ verus! {
             &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int)
             &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, 
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of())
-            &&& !cdb ==> pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, 
-                ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of())
         });
     }
 

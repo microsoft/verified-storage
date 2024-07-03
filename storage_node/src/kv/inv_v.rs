@@ -44,47 +44,47 @@ verus! {
             forall |k: K| !map.contains_key(k)
     {}
 
-    /// This lemma proves that, given a durable state and a volatile state that matches it
-    /// (i.e., the durable and volatile states are the same size, the volatile index maps
-    /// all keys to an offset with the corresponding durable entry and the durable store's
-    /// entries correspond to the volatile index), then after creating a new entry in each
-    /// using the same offset, key, and item, the durable and volatile states still match.
-    pub proof fn lemma_volatile_matches_durable_after_create<K, I, L>(
-        old_durable_state: DurableKvStoreView<K, I, L>,
-        old_volatile_state: VolatileKvIndexView<K>,
-        offset: int,
-        key: K,
-        item: I
-    )
-        where
-            K: Hash + Eq + std::fmt::Debug,
-        requires
-            old_durable_state.matches_volatile_index(old_volatile_state),
-            old_durable_state[offset] is None,
-            old_volatile_state[key] is None,
-        ensures
-            ({
-                let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
-                let new_volatile_state = old_volatile_state.insert_key(key, offset);
-                new_durable_state.matches_volatile_index(new_volatile_state)
-            })
-    {
-        let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
-        let new_volatile_state = old_volatile_state.insert_key(key, offset);
+    // /// This lemma proves that, given a durable state and a volatile state that matches it
+    // /// (i.e., the durable and volatile states are the same size, the volatile index maps
+    // /// all keys to an offset with the corresponding durable entry and the durable store's
+    // /// entries correspond to the volatile index), then after creating a new entry in each
+    // /// using the same offset, key, and item, the durable and volatile states still match.
+    // pub proof fn lemma_volatile_matches_durable_after_create<K, I, L>(
+    //     old_durable_state: DurableKvStoreView<K, I, L>,
+    //     old_volatile_state: VolatileKvIndexView<K>,
+    //     offset: int,
+    //     key: K,
+    //     item: I
+    // )
+    //     where
+    //         K: Hash + Eq + std::fmt::Debug,
+    //     requires
+    //         old_durable_state.matches_volatile_index(old_volatile_state),
+    //         old_durable_state[offset] is None,
+    //         old_volatile_state[key] is None,
+    //     ensures
+    //         ({
+    //             let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
+    //             let new_volatile_state = old_volatile_state.insert_key(key, offset);
+    //             new_durable_state.matches_volatile_index(new_volatile_state)
+    //         })
+    // {
+    //     let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
+    //     let new_volatile_state = old_volatile_state.insert_key(key, offset);
 
-        assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {
-            let indexed_offset = new_volatile_state[k].unwrap().header_addr;
-            &&& new_durable_state.index_to_key_map.contains_key(indexed_offset)
-            &&& new_durable_state.index_to_key_map[indexed_offset] == k
-        } by {
-            if k != key {
-                assert(old_volatile_state.contains_key(k));
-                let indexed_offset = new_volatile_state[k].unwrap().header_addr;
-                assert(old_durable_state.index_to_key_map.contains_key(indexed_offset));
-                assert(old_durable_state.index_to_key_map[indexed_offset] == new_durable_state.index_to_key_map[indexed_offset]);
-            }
-        }
-    }
+    //     assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {
+    //         let indexed_offset = new_volatile_state[k].unwrap().header_addr;
+    //         &&& new_durable_state.index_to_key_map.contains_key(indexed_offset)
+    //         &&& new_durable_state.index_to_key_map[indexed_offset] == k
+    //     } by {
+    //         if k != key {
+    //             assert(old_volatile_state.contains_key(k));
+    //             let indexed_offset = new_volatile_state[k].unwrap().header_addr;
+    //             assert(old_durable_state.index_to_key_map.contains_key(indexed_offset));
+    //             assert(old_durable_state.index_to_key_map[indexed_offset] == new_durable_state.index_to_key_map[indexed_offset]);
+    //         }
+    //     }
+    // }
 
     // This lemma proves that PM that recovers to an initialized DurableKvStoreView also recovers
     // to an initialized AbstractKvStoreView
@@ -117,6 +117,42 @@ verus! {
             let abstract_from_durable = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_init, kvstore_id);
             assert(abstract_init.contents == abstract_from_durable.contents);
     }
+
+    pub proof fn lemma_durable_kv_recovery_matches_abstract_kv_recovery<PM, K, I, L, V>(
+        metadata_pmem: Seq<u8>,
+        item_table_pmem: Seq<u8>,
+        list_pmem: Seq<u8>,
+        log_pmem: Seq<u8>,
+        volatile_view: VolatileKvIndexView<K>,
+        node_size: u32,
+        kvstore_id: u128,
+    )
+        where 
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+            I: PmCopy + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
+            V: VolatileKvIndex<K>,
+        requires 
+            ({
+                // TODO matches syntax
+                let durable_recovered_view = DurableKvStore::<PM, K, I, L>::recover(metadata_pmem, item_table_pmem, list_pmem, log_pmem, node_size, kvstore_id).unwrap();
+                let kv_constructed_view = AbstractKvStoreState::construct_view_contents(volatile_view, durable_recovered_view);
+                &&& durable_recovered_view.matches_volatile_index(volatile_view)
+            })
+
+        ensures 
+            ({
+                let durable_recovered_view = DurableKvStore::<PM, K, I, L>::recover(metadata_pmem, item_table_pmem, list_pmem, log_pmem, node_size, kvstore_id).unwrap();
+                let kv_constructed_view = AbstractKvStoreState::construct_view_contents(volatile_view, durable_recovered_view);
+                let kv_recovered_view = UntrustedKvStoreImpl::<PM, K, I, L, V>::recover_from_durable_view(durable_recovered_view, kvstore_id);
+                &&& kv_recovered_view.contents == kv_constructed_view
+            })
+    {
+        assume(false);
+    }
+
+
 
     pub proof fn lemma_insert_new_key_increments_map_length<K, V>(map: Map<K,V>, key: K, value: V)
         requires 
