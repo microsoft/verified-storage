@@ -1,0 +1,5 @@
+
+*** FATAL CONFIG FILE ERROR ***
+Reading the configuration file, at line 21
+>>> 'pointer-based-aof yes'
+Bad directive or wrong number of arguments

@@ -1,6 +1,10 @@
 use jni::JNIEnv;
-use jni::objects::{JClass, JByteArray};
+use jni::objects::{JClass, JString, JByteArray};
 use jni::sys::jlong;
+use jni::strings::JavaStr;
+
+use toml::{Table, Value};
+use std::path::Path;
 
 use storage_node::kv::kvimpl_t::*;
 use storage_node::kv::volatile::volatileimpl_v::*;
@@ -26,51 +30,90 @@ struct YcsbKV {
     kvstore_id: u128,
 }
 
-pub fn main() {
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+fn read_filenames(config_path: &str) -> (String, String, String, String) {
+    let contents = std::fs::read_to_string(config_path).unwrap();
+    
+    let table = contents.parse::<Table>().unwrap();
+    let config_values = &table["config"];
 
+    let kv_directory = if let Value::String(kv_directory) = &config_values["kv_directory"] {
+        kv_directory
+    } else {
+        panic!("invalid toml file");
+    };
+    let log_file = if let Value::String(log_file) = &config_values["log_file_name"] {
+        log_file
+    } else {
+        panic!("invalid toml file");
+    };
+    let metadata_file = if let Value::String(metadata_file) = &config_values["metadata_file_name"] {
+        metadata_file
+    } else {
+        panic!("invalid toml file");
+    };
+    let list_file = if let Value::String(list_file) = &config_values["list_file_name"] {
+        list_file
+    } else {
+        panic!("invalid toml file");
+    };
+    let item_table_file = if let Value::String(item_table_file) = &config_values["item_table_file_name"] {
+        item_table_file
+    } else {
+        panic!("invalid toml file");
+    };
+    let log_file_name = Path::new(&kv_directory).join(Path::new(&log_file));
+    let log_file_name = log_file_name.to_str().unwrap().to_string();
+    let metadata_file_name = Path::new(&kv_directory).join(Path::new(&metadata_file));
+    let metadata_file_name = metadata_file_name.to_str().unwrap().to_string();
+    let list_file_name = Path::new(&kv_directory).join(Path::new(&list_file));
+    let list_file_name = list_file_name.to_str().unwrap().to_string();
+    let item_table_file_name = Path::new(&kv_directory).join(Path::new(&item_table_file));
+    let item_table_file_name = item_table_file_name.to_str().unwrap().to_string();
+
+    (log_file_name, metadata_file_name, list_file_name, item_table_file_name)
+}
+
+
+pub fn main() {
+    let (log_file_name, metadata_file_name, list_file_name, item_table_file_name) = read_filenames("config.toml");
     let node_size = 16;
 
     // delete the test files if they already exist. Ignore the result,
     // since it's ok if the files don't exist.
-    remove_file(log_file_name);
-    remove_file(metadata_file_name);
-    remove_file(item_table_file_name);
-    remove_file(list_file_name);
+    remove_file(&log_file_name);
+    remove_file(&metadata_file_name);
+    remove_file(&item_table_file_name);
+    remove_file(&list_file_name);
 
     // Create a file, and a PM region, for each component
-    let mut log_region = create_pm_region(log_file_name, REGION_SIZE);
-    let mut metadata_region = create_pm_region(metadata_file_name, REGION_SIZE);
-    let mut item_table_region = create_pm_region(item_table_file_name, REGION_SIZE);
-    let mut list_region = create_pm_region(list_file_name, REGION_SIZE);
+    let mut log_region = create_pm_region(&log_file_name, REGION_SIZE);
+    let mut metadata_region = create_pm_region(&metadata_file_name, REGION_SIZE);
+    let mut item_table_region = create_pm_region(&item_table_file_name, REGION_SIZE);
+    let mut list_region = create_pm_region(&list_file_name, REGION_SIZE);
 
-    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", NUM_KEYS, node_size, REGION_SIZE);
+    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?} byte regions", NUM_KEYS, node_size, REGION_SIZE);
     KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::setup(
         &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
     println!("Done setting up! You can now run YCSB workloads");
 }
 
 #[no_mangle]
-pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<'local>,
-        _class: JClass<'local>) -> jlong {
-
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
+        mut env: JNIEnv<'local>,
+        _class: JClass<'local>,
+        config_file: JString<'local>
+    ) -> jlong 
+{
+    let config_file_name: String = env.get_string(&config_file).unwrap().into();
+    let (log_file_name, metadata_file_name, list_file_name, item_table_file_name) = read_filenames(&config_file_name);
 
     let node_size = 16;
 
     // Create a file, and a PM region, for each component
-    let log_region = open_pm_region(log_file_name, REGION_SIZE);
-    let metadata_region = open_pm_region(metadata_file_name, REGION_SIZE);
-    let item_table_region = open_pm_region(item_table_file_name, REGION_SIZE);
-    let list_region = open_pm_region(list_file_name, REGION_SIZE);
+    let log_region = open_pm_region(&log_file_name, REGION_SIZE);
+    let metadata_region = open_pm_region(&metadata_file_name, REGION_SIZE);
+    let item_table_region = open_pm_region(&item_table_file_name, REGION_SIZE);
+    let list_region = open_pm_region(&list_file_name, REGION_SIZE);
 
     let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::start(
         metadata_region, item_table_region, list_region, log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();

@@ -5,6 +5,11 @@
 ### Setup
 1. Install dependencies: `sudo apt install default-jdk default-jre maven`
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build`.
+3. Build YCSB:
+    - CapybaraKV: `mvn -pl site.ycsb:capybarakv-binding -am clean package`
+    - redis (PM and standard): `mvn -pl site.ycsb:redis-binding -am clean package`
+    - RocksDB: `mvn -pl site.ycsb:rocksdb-binding -am clean package`
+
 3. Run `export LD_LIBRARY_PATH=~/verified-storage/ycsb_ffi/target/debug`
 
 ### redis setup

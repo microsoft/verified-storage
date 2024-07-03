@@ -1,5 +1,6 @@
 package site.ycsb.db;
 
+import site.ycsb.*;
 import site.ycsb.ByteArrayByteIterator;
 import site.ycsb.ByteIterator;
 import site.ycsb.DB;
@@ -28,13 +29,17 @@ public class CapybaraKVClient extends DB {
   
   private static final Logger LOGGER = LoggerFactory.getLogger(CapybaraKVClient.class);
 
+  static final String PROPERTY_CAPYBARAKV_CONFIG = "capybarakv.config";
+
   @Override
   public void init() throws DBException {
-    initCapybaraKV();
+    String configFile = getProperties().getProperty(PROPERTY_CAPYBARAKV_CONFIG);
+    LOGGER.info(configFile);
+    initCapybaraKV(configFile);
   }
 
-  private void initCapybaraKV() throws DBException {
-    kv = new CapybaraKV();
+  private void initCapybaraKV(String configFile) throws DBException {
+    kv = new CapybaraKV(configFile);
   }
 
   @Override
