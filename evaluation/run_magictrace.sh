@@ -24,10 +24,10 @@ setup_capybarakv() {
         check_error $?
         target_dir=$dram_db_dir
     fi
-    cd ../ycsb_ffi
-    cargo run $target_dir/log $target_dir/metadata $target_dir/items $target_dir/list
-    check_error $?
-    cd ../YCSB
+    # cd ../ycsb_ffi # todo: move this functionality to the other crate
+    # cargo run
+    # check_error $?
+    # cd ../YCSB
 }
 
 setup_redis() {
@@ -95,10 +95,8 @@ if [ $DB = "rocksdb" ]; then
 elif [ $DB = "redis" ]; then 
     options="-p redis.host=127.0.0.1 -p redis.port=6379"
 elif [ $DB = "capybarakv" ]; then 
-    options="-p capybarakv.config=../ycsb_ffi/config.toml"
+    options="-p capybarakv.config=../capybarak_interface/config.toml"
 fi 
-
-export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/debug
 
 cd YCSB
 if [ $DB = "capybarakv" ]; then 
@@ -108,4 +106,25 @@ elif [ $DB = "redis" ]; then
     setup_redis $use_pm
 fi
 
-magic-trace run ./bin/ycsb -- load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options
+cd .. 
+mkdir -p $RESULTS_DIR
+
+# magic-trace run -multi-thread ./bin/ycsb -- load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options
+cd capybarakv_interface 
+cargo build
+magic-trace run -o ../$RESULTS_DIR/trace.fxt -trigger capybarakv_stop_indicator target/debug/capybarakv_interface -- --nocapture #&
+# PID=$!
+# echo "capybarakv PID: $PID"
+# magic-trace attach -o ../$RESULTS_DIR/trace.fxt -pid $PID -trigger capybarakv_interface::capybarakv_stop_indicator
+# cargo test loada_test -- --nocapture
+
+# wait for the capybarakv process to complete
+# while kill -0 $PID 2> /dev/null; do 
+#     sleep 1
+# done 
+echo "Done, cleaning up"
+cleanup
+
+
+
+# magic-trace run -timer-resolution high java -- -cp /mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/capybarakv/conf:/mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/capybarakv/target/capybarakv-binding-0.18.0-SNAPSHOT.jar:/home/hayley/.m2/repository/org/apache/htrace/htrace-core4/4.1.0-incubating/htrace-core4-4.1.0-incubating.jar:/home/hayley/.m2/repository/org/slf4j/slf4j-api/1.7.25/slf4j-api-1.7.25.jar:/home/hayley/.m2/repository/org/hdrhistogram/HdrHistogram/2.1.4/HdrHistogram-2.1.4.jar:/home/hayley/.m2/repository/org/codehaus/jackson/jackson-mapper-asl/1.9.4/jackson-mapper-asl-1.9.4.jar:/home/hayley/.m2/repository/org/codehaus/jackson/jackson-core-asl/1.9.4/jackson-core-asl-1.9.4.jar:/mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/core/target/core-0.18.0-SNAPSHOT.jar site.ycsb.Client -db site.ycsb.db.CapybaraKVClient -threads 1 -s -P workloads/workloada -p recordcount=500000 -p operationcount=500000 -p capybarakv.config=../ycsb_ffi/config.toml -load

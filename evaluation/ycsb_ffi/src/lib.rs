@@ -17,62 +17,61 @@ use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
 
-const MAX_KEY_LEN: usize = 1024;
-const MAX_ITEM_LEN: usize = 1140; 
-const REGION_SIZE: u64 = 1024*1024*1024*10; // 20GB
-const NUM_KEYS: u64 = 500001; 
+pub const MAX_KEY_LEN: usize = 24;
+pub const MAX_ITEM_LEN: usize = 1140; 
+pub const REGION_SIZE: u64 = 1024*1024*1024*10; // 20GB
+pub const NUM_KEYS: u64 = 500001; 
 
-// use a constant log id so we don't run into issues trying to restore a KV
-const KVSTORE_ID: u128 = 500;
+use capybarakv_interface::capybarakv_interface::{read_filenames, remove_file, open_pm_region, 
+    create_pm_region, KVSTORE_ID};
 
-struct YcsbKV {
-    kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
-    kvstore_id: u128,
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct YcsbKey {
+    key: [i8; MAX_KEY_LEN],
+}
+impl PmCopy for YcsbKey {}
+
+impl YcsbKey {
+    fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
+    {
+        let mut key = [0i8; MAX_KEY_LEN];
+        let key_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
+        let key_slice = &mut key[0..key_length];
+        env.get_byte_array_region(bytes, 0, key_slice).unwrap();
+        Self { key }
+    }
 }
 
-fn read_filenames(config_path: &str) -> (String, String, String, String) {
-    let contents = std::fs::read_to_string(config_path).unwrap();
-    
-    let table = contents.parse::<Table>().unwrap();
-    let config_values = &table["config"];
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct YcsbItem {
+    item: [i8; MAX_ITEM_LEN]
+}
+impl PmCopy for YcsbItem {}
 
-    let kv_directory = if let Value::String(kv_directory) = &config_values["kv_directory"] {
-        kv_directory
-    } else {
-        panic!("invalid toml file");
-    };
-    let log_file = if let Value::String(log_file) = &config_values["log_file_name"] {
-        log_file
-    } else {
-        panic!("invalid toml file");
-    };
-    let metadata_file = if let Value::String(metadata_file) = &config_values["metadata_file_name"] {
-        metadata_file
-    } else {
-        panic!("invalid toml file");
-    };
-    let list_file = if let Value::String(list_file) = &config_values["list_file_name"] {
-        list_file
-    } else {
-        panic!("invalid toml file");
-    };
-    let item_table_file = if let Value::String(item_table_file) = &config_values["item_table_file_name"] {
-        item_table_file
-    } else {
-        panic!("invalid toml file");
-    };
-    let log_file_name = Path::new(&kv_directory).join(Path::new(&log_file));
-    let log_file_name = log_file_name.to_str().unwrap().to_string();
-    let metadata_file_name = Path::new(&kv_directory).join(Path::new(&metadata_file));
-    let metadata_file_name = metadata_file_name.to_str().unwrap().to_string();
-    let list_file_name = Path::new(&kv_directory).join(Path::new(&list_file));
-    let list_file_name = list_file_name.to_str().unwrap().to_string();
-    let item_table_file_name = Path::new(&kv_directory).join(Path::new(&item_table_file));
-    let item_table_file_name = item_table_file_name.to_str().unwrap().to_string();
-
-    (log_file_name, metadata_file_name, list_file_name, item_table_file_name)
+impl YcsbItem {
+    fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
+    {
+        let mut item = [0i8; MAX_ITEM_LEN];
+        let item_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
+        let item_slice = &mut item[0..item_length];
+        env.get_byte_array_region(bytes, 0, item_slice).unwrap();
+        Self { item }
+    }
 }
 
+#[repr(C)]
+#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+struct TestListElement {
+    val: u64,
+}
+impl PmCopy for TestListElement {}
+
+pub struct YcsbKV {
+    pub kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
+    pub kvstore_id: u128,
+}
 
 pub fn main() {
     let (log_file_name, metadata_file_name, list_file_name, item_table_file_name) = read_filenames("config.toml");
@@ -96,6 +95,7 @@ pub fn main() {
         &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
     println!("Done setting up! You can now run YCSB workloads");
 }
+
 
 #[no_mangle]
 pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(
@@ -260,86 +260,4 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
             env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
         }
     }
-}
-
-fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
-{
-    #[cfg(target_os = "windows")]
-    let pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name, MemoryMappedFileMediaType::SSD,
-        region_size,
-        FileCloseBehavior::TestingSoDeleteOnClose
-    ).unwrap();
-    #[cfg(target_os = "linux")]
-    let pm_region = FileBackedPersistentMemoryRegion::new(
-        &file_name,
-        region_size,
-        PersistentMemoryCheck::DontCheckForPersistentMemory,
-    ).unwrap();
-
-    pm_region
-}
-
-fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
-{
-    #[cfg(target_os = "windows")]
-    let pm_region = FileBackedPersistentMemoryRegion::restore(
-        &file_name, 
-        MemoryMappedFileMediaType::SSD,
-        region_size,
-    ).unwrap();
-    #[cfg(target_os = "linux")]
-    let pm_region = FileBackedPersistentMemoryRegion::restore(
-        &file_name, 
-        region_size
-    ).unwrap();
-
-    pm_region
-}
-
-#[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]
-struct YcsbKey {
-    key: [i8; MAX_KEY_LEN],
-}
-impl PmCopy for YcsbKey {}
-
-impl YcsbKey {
-    fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
-    {
-        let mut key = [0i8; MAX_KEY_LEN];
-        let key_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
-        let key_slice = &mut key[0..key_length];
-        env.get_byte_array_region(bytes, 0, key_slice).unwrap();
-        Self { key }
-    }
-}
-
-#[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, PartialEq, Eq)]
-struct YcsbItem {
-    item: [i8; MAX_ITEM_LEN]
-}
-impl PmCopy for YcsbItem {}
-
-impl YcsbItem {
-    fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
-    {
-        let mut item = [0i8; MAX_ITEM_LEN];
-        let item_length: usize = env.get_array_length(&bytes).unwrap().try_into().unwrap();
-        let item_slice = &mut item[0..item_length];
-        env.get_byte_array_region(bytes, 0, item_slice).unwrap();
-        Self { item }
-    }
-}
-
-#[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
-struct TestListElement {
-    val: u64,
-}
-impl PmCopy for TestListElement {}
-
-fn remove_file(name: &str) {
-    let _ = std::fs::remove_file(name);
 }

@@ -206,16 +206,12 @@ where
             //         &&& old(self)@ == self@
             //     }
             //     Err(_) => false
-            // }
+            // }f
     {
         assume(false);
-        if self.untrusted_kv_impl.untrusted_contains_key(key) {
-            Err(KvError::KeyAlreadyExists)
-        } else {
-            let tracked perm =
-                TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
-            self.untrusted_kv_impl.untrusted_create(key, item, kvstore_id, Tracked(&perm))
-        }
+        let tracked perm =
+            TrustedKvPermission::new_two_possibilities(self.id, self@, self@.create(*key, *item).unwrap());
+        self.untrusted_kv_impl.untrusted_create(key, item, kvstore_id, Tracked(&perm))
     }
 
     pub fn read_item(&self, key: &K) -> (result: Result<Box<I>, KvError<K>>)
@@ -317,13 +313,8 @@ where
                 Err(_) => false
             }
     {
-        if self.untrusted_kv_impl.untrusted_contains_key(key) {
-            let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, *new_item).unwrap());
-            self.untrusted_kv_impl.untrusted_update_item(key, new_item, kvstore_id, Tracked(&perm))
-        } else {
-            Err(KvError::KeyNotFound)
-        }
-
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self@.update_item(*key, *new_item).unwrap());
+        self.untrusted_kv_impl.untrusted_update_item(key, new_item, kvstore_id, Tracked(&perm))
     }
 
 //     fn delete(&mut self, key: &K, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)

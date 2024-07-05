@@ -25,13 +25,12 @@ setup_capybarakv() {
         target_dir=$dram_db_dir
     fi
     cd ../ycsb_ffi
-    cargo run $target_dir/log $target_dir/metadata $target_dir/items $target_dir/list
+    cargo run
     check_error $?
     cd ../YCSB
 }
 
 setup_redis() {
-    
     use_pm=$1
     # kill existing redis process, if any
     if [ $REDIS_PID != 0 ]; then 
@@ -53,6 +52,17 @@ setup_redis() {
         ./src/redis-server --dir $dram_db_dir &
         REDIS_PID=$!
         cd ..
+    fi
+}
+
+setup_rocksdb() {
+    use_pm=$1
+    if [ $use_pm = true ]; then 
+        setup_pm
+    else 
+        rm -rf $dram_db_dir 2> /dev/null
+        mkdir $dram_db_dir
+        check_error $?
     fi
 }
 
@@ -91,7 +101,11 @@ fi
 
 options=""
 if [ $DB = "rocksdb" ]; then 
-    options="-p rocksdb.dir=~/rocksdb_files -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
+    if [ $PM == "--pm" ]; then
+        options="-p rocksdb.dir=$mount_point -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
+    else 
+        options="-p rocksdb.dir=$dram_db_dir -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
+    fi
 elif [ $DB = "redis" ]; then 
     options="-p redis.host=127.0.0.1 -p redis.port=6379"
 elif [ $DB = "capybarakv" ]; then 
@@ -124,6 +138,11 @@ if [ $DB = "capybarakv" ]; then
 elif [ $DB = "redis" ]; then 
     echo "Starting redis..."
     setup_redis $use_pm
+elif [ $DB = "rocksdb" ]; then 
+    setup_rocksdb $use_pm
+else 
+    echo "Unrecognized database $DB"
+    exit 1
 fi
 
 ./bin/ycsb load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
@@ -139,6 +158,11 @@ if [ $DB = "capybarakv" ]; then
     setup_capybarakv $use_pm
 elif [ $DB = "redis" ]; then 
     setup_redis $use_pm
+elif [ $DB = "rocksdb" ]; then 
+    setup_rocksdb $use_pm
+else 
+    echo "Unrecognized database $DB"
+    exit 1
 fi
 ./bin/ycsb load $DB -threads 1 -s -P workloads/workloade -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loade/Run$iter
 check_error $?

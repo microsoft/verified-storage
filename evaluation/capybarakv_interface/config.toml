@@ -1,0 +1,6 @@
+[config]
+kv_directory = "/mnt/pmem"
+metadata_file_name = "metadata"
+item_table_file_name = "items" 
+list_file_name = "list" 
+log_file_name = "log" 

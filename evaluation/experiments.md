@@ -40,5 +40,6 @@ The `run_ycsb.sh` script runs all YCSB workloads that are supported by our KV st
 These are instructions for running `magic-trace` in WSL2 -- it's slightly easier on baremetal.
 
 1. Download magic-trace
-2. Run `sudo apt install linux-tools-generic`
+2. Run `sudo apt install linux-tools-generic` (TODO: what to do if this fails)
 3. Prepend the path to `perf` to your `PATH` variable (e.g. `PATH=/usr/lib/linux-tools/5.15.0-113-generic/:$PATH`; the version number may be different).
+    - TODO: `perf` build/installation instructions
