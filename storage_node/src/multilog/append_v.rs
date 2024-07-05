@@ -9,6 +9,7 @@ use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use builtin::*;
@@ -60,6 +61,9 @@ verus! {
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
+            metadata_types_set(pm_regions_view.committed()),
+            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let prev_info = prev_infos[which_log as int];
                 let log_area_len = prev_info.log_area_len;
@@ -101,8 +105,16 @@ verus! {
                 // After initiating the write, any crash and recovery will enter the abstract state
                 // `new_state.drop_pending_appends()`, so as long as that state is permitted the
                 // write will be.
-                &&& forall |mem| pm_regions_view2.can_crash_as(mem) ==>
+                &&& forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) ==>
                       recover_all(mem, multilog_id) == Some(new_state.drop_pending_appends())
+                // The active metadata is unchanged after the write
+                &&& active_metadata_is_equal(pm_regions_view, pm_regions_view2)
+                // Metadata types are set after the write and a subsequent commit
+                &&& metadata_types_set(pm_regions_view2.committed())
+                // Metadata types are set after the write and a subsequent crash
+                &&& forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) ==>
+                      metadata_types_set(mem)
+                &&& no_outstanding_writes_to_active_metadata(pm_regions_view2, cdb)
             }),
     {
         let w = which_log as int;
@@ -119,6 +131,7 @@ verus! {
                                                 log_area_len as int);
         let pm_regions_view2 = pm_regions_view.write(which_log as int, write_addr, bytes_to_append);
         let new_state = prev_state.tentatively_append(w, bytes_to_append);
+        let num_bytes = bytes_to_append.len();
 
         // To prove that the post-write metadata is consistent with
         // `new_infos`, we have to reason about the equivalence of
@@ -162,7 +175,38 @@ verus! {
         // about addresses in the log area (that there are no
         // outstanding writes to certain of them).
 
-        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_regions_view[w], prev_info);
+        assert(pm_regions_view.no_outstanding_writes_in_range(w, write_addr, write_addr + num_bytes)) by {
+            lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_regions_view[w], prev_info);
+        }
+
+        assert(no_outstanding_writes_to_active_metadata(pm_regions_view2, cdb)) by {
+            lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(
+                pm_regions_view2, num_logs, cdb
+            );
+        };
+
+        assert(active_metadata_is_equal(pm_regions_view, pm_regions_view2)) by {
+            assert(pm_regions_view[w].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                           ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
+                   pm_regions_view2[w].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                            ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+            let log_metadata_pos = get_log_metadata_pos(cdb);
+            assert(pm_regions_view[w].committed().subrange(
+                log_metadata_pos as int,
+                log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
+            ) == pm_regions_view2[w].committed().subrange(
+                log_metadata_pos as int,
+                log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
+            ));
+        }
+
+        assert(metadata_types_set(pm_regions_view2.committed())) by {
+            lemma_regions_metadata_matches_implies_metadata_types_set(pm_regions_view, pm_regions_view2, cdb);
+        }
+
+        assert forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) implies metadata_types_set(mem) by {
+            lemma_metadata_set_after_crash(pm_regions_view2, cdb);
+        }
     }
 
     // This lemma establishes useful facts about performing two
@@ -209,6 +253,9 @@ verus! {
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
+            no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
+            metadata_types_set(pm_regions_view.committed()),
+            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let w = which_log as int;
                 let prev_info = prev_infos[w];
@@ -266,6 +313,16 @@ verus! {
                 // the write will be.
                 &&& forall |mem| pm_regions_view3.can_crash_as(mem) ==>
                        recover_all(mem, multilog_id) == Some(prev_state.drop_pending_appends())
+                // The active metadata is unchanged after the write
+                &&& active_metadata_is_equal(pm_regions_view, pm_regions_view3)
+                // Metadata types are set after the write and a subsequent commit
+                &&& metadata_types_set(pm_regions_view3.committed())
+                // Metadata types are set after each write and a subsequent crash
+                &&& forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) ==>
+                      metadata_types_set(mem)
+                &&& forall |mem| #[trigger] pm_regions_view3.can_crash_as(mem) ==>
+                      metadata_types_set(mem)
+                &&& no_outstanding_writes_to_active_metadata(pm_regions_view3, cdb)
             }),
     {
         let w = which_log as int;
