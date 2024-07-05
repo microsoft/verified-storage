@@ -18,7 +18,11 @@
 3. `cd redis` and run `make`
 
 ### RockSDB setup
-RocksDB requires no additional setup; everything is handled by the YCSB RocksDB client.
+~~RocksDB requires no additional setup; everything is handled by the YCSB RocksDB client.~~
+
+#### pmem-rocksdb
+1. Run `sudo apt install libpmemobj-dev libsnappy-dev`
+2. Build with `make ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true`
 
 ### Running experiments
 In `YCSB/`:

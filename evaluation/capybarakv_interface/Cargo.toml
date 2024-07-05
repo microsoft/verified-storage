@@ -13,6 +13,9 @@ builtin = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac
 vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
 toml = "0.8.14"
 
+[target.'cfg(target_os = "linux")'.build-dependencies]
+bindgen = "0.69.1"
+
 [lib]
 name = "capybarakv_interface"
 path = "src/lib.rs"

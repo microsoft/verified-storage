@@ -1,15 +1,7 @@
-
-
 use capybarakv_interface::*;
-use toml::{Table, Value};
-use std::path::Path;
 
 use storage_node::kv::kvimpl_t::*;
 use storage_node::kv::volatile::volatileimpl_v::*;
-use storage_node::pmem::linux_pmemfile_t::*;
-use storage_node::pmem::pmcopy_t::*;
-use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
-use pmsafe::{PmSized, PmSafe};
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
@@ -51,7 +43,7 @@ fn loada_test() {
         let key_bytes_i8 = unsafe { std::slice::from_raw_parts(key_bytes.as_ptr() as *const i8, key_bytes.len()) };
         let mut byte_array = [0i8; MAX_KEY_LEN];
         byte_array[0..key_bytes.len()].copy_from_slice(key_bytes_i8);
-        let mut key = YcsbKey { key: byte_array };
+        let key = YcsbKey { key: byte_array };
         
         kv.create(&key, &item, KVSTORE_ID).unwrap();
         keys_vec.push(key);
@@ -59,7 +51,7 @@ fn loada_test() {
 
     println!("Reading items");
     for i in 0..500000 {
-        let item = kv.read_item(&keys_vec[i]).unwrap();
+        let _item = kv.read_item(&keys_vec[i]).unwrap();
         capybarakv_stop_indicator();
     }
 }
