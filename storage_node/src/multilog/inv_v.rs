@@ -261,7 +261,7 @@ verus! {
         assert(metadata_consistent_with_info(new_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int])) by {
             let old_mem = old_pm_region_view[0int].committed();
             let new_mem = new_pm_region_view[0int].committed();
-            lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+            lemma_establish_subrange_equivalence(old_mem, new_mem);
         }
     }
 
@@ -477,7 +477,7 @@ verus! {
         assert forall |s| #![auto] {
             &&& pm_region_view.can_crash_as(s) 
         } implies metadata_types_set_in_region(s, cdb) by {
-            lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+            lemma_establish_subrange_equivalence(s, pm_region_view.committed());
         }
     }
 
@@ -513,7 +513,7 @@ verus! {
             &&& cdb == cdb2.unwrap()
             &&& metadata_types_set_in_first_region(s)
         } by {
-            lemma_establish_extract_bytes_equivalence(s, pm_bytes);
+            lemma_establish_subrange_equivalence(s, pm_bytes);
             assert(pm_regions_view[0].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
             assert(extract_bytes(pm_bytes, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= 
                 extract_bytes(s, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
@@ -649,7 +649,7 @@ verus! {
         // invariants), the metadata in `mem` must also match `state`.
 
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-        lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+        lemma_establish_subrange_equivalence(mem, pm_region_view.committed());
 
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
@@ -705,7 +705,7 @@ verus! {
         assert (recover_cdb(mems[0]) == Some(cdb)) by {
             assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in the invariants
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_regions_view[0]);
-            lemma_establish_extract_bytes_equivalence(mems[0], pm_regions_view.committed()[0]);
+            lemma_establish_subrange_equivalence(mems[0], pm_regions_view.committed()[0]);
         }
 
         // Use `lemma_invariants_imply_crash_recover_for_one_log` on
@@ -817,7 +817,7 @@ verus! {
         // `extract_bytes` will also match.
 
         assert(each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)) by {
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
+            lemma_establish_subrange_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
         }
     }
 
@@ -881,7 +881,7 @@ verus! {
         // `extract_bytes` will also match.
 
         assert(each_metadata_consistent_with_info(pm_regions_view2, multilog_id, num_logs, cdb, infos)) by {
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
+            lemma_establish_subrange_equivalence(pm_regions_view[w].committed(), pm_regions_view2[w].committed());
         }
     }
 
@@ -930,7 +930,7 @@ verus! {
             metadata_consistent_with_info(pm_regions_view2[which_log as int], multilog_id, num_logs, which_log, cdb,
                                           infos[which_log as int])
         } by {
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[which_log as int].committed(),
+            lemma_establish_subrange_equivalence(pm_regions_view[which_log as int].committed(),
                                                       pm_regions_view2[which_log as int].committed());
         }
     }
@@ -966,7 +966,7 @@ verus! {
         
         assert(metadata_types_set_in_first_region(pm2[0].committed()));
         assert forall |i: int| #![auto] 1 <= i < pm1.len() implies metadata_types_set_in_region(pm2.committed()[i], cdb) by {
-            lemma_establish_extract_bytes_equivalence(pm1.committed()[i], pm2.committed()[i]);
+            lemma_establish_subrange_equivalence(pm1.committed()[i], pm2.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm1.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm2.committed()[i]);
             assert(pm1[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
@@ -1011,7 +1011,7 @@ verus! {
         ensures 
             metadata_types_set(new_pm_regions_view.committed())
     {
-        lemma_establish_extract_bytes_equivalence(old_pm_regions_view.committed()[0], new_pm_regions_view.committed()[0]);
+        lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[0], new_pm_regions_view.committed()[0]);
 
         // The CDB has been updated in log 0, so its type is set
         assert(extract_bytes(new_pm_regions_view.committed()[0], ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= new_cdb_bytes);
@@ -1022,7 +1022,7 @@ verus! {
         assert forall |i: int| #![auto] 1 <= i < old_pm_regions_view.len() implies {
             metadata_types_set_in_region(new_pm_regions_view.committed()[i], new_cdb)
         } by {
-            lemma_establish_extract_bytes_equivalence(old_pm_regions_view.committed()[i], new_pm_regions_view.committed()[i]);
+            lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[i], new_pm_regions_view.committed()[i]);
         }
     }
 
@@ -1051,7 +1051,7 @@ verus! {
 
         let first_region_committed = pm_regions_view.committed()[0];
         let first_region_flushed = pm_regions_view.flush().committed()[0];
-        lemma_establish_extract_bytes_equivalence(first_region_committed, first_region_flushed);
+        lemma_establish_subrange_equivalence(first_region_committed, first_region_flushed);
 
         assert(metadata_types_set_in_first_region(pm_regions_view.flush().committed()[0]));
 
@@ -1060,7 +1060,7 @@ verus! {
         by {
             let committed = pm_regions_view.committed()[i];
             let flushed = pm_regions_view.flush().committed()[i];
-            lemma_establish_extract_bytes_equivalence(committed, flushed);
+            lemma_establish_subrange_equivalence(committed, flushed);
         }
         
     }
