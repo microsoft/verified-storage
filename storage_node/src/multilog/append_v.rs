@@ -142,7 +142,7 @@ verus! {
             metadata_consistent_with_info(pm_regions_view2[a], multilog_id, num_logs, any_log, cdb, new_infos[a])
         } by {
             let a = any_log as int;
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
+            lemma_establish_subrange_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
         }
 
         // To prove that the post-write CDB is the same as the
@@ -152,7 +152,7 @@ verus! {
 
         assert (memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
             assert(is_valid_log_index(0, num_logs));
-            lemma_establish_extract_bytes_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
+            lemma_establish_subrange_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
         }
 
         // We need extensional equality to reason that the old and new

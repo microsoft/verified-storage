@@ -716,7 +716,7 @@ verus! {
                 &&& metadata_types_set(pm_regions_after_flush.committed())
             } by {
                 let w = which_log as int;
-                lemma_establish_extract_bytes_equivalence(
+                lemma_establish_subrange_equivalence(
                     wrpm_regions@[which_log as int].committed(),
                     pm_regions_after_flush[which_log as int].committed());
 
@@ -1044,7 +1044,7 @@ verus! {
                                                       self.num_logs, current_log, !self.cdb, self.infos@[cur])) by {
                     let mem1 = wrpm_regions@[cur].committed();
                     let mem2 = flushed[cur].committed();
-                    lemma_establish_extract_bytes_equivalence(mem1, mem2);
+                    lemma_establish_subrange_equivalence(mem1, mem2);
                     lemma_write_reflected_after_flush_committed(wrpm_regions@[cur], unused_metadata_pos as int,
                                                                 log_metadata_bytes + log_crc_bytes);
                     assert(extract_log_metadata(mem2, !self.cdb) =~= log_metadata_bytes);
