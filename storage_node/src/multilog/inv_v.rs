@@ -6,7 +6,7 @@
 //! of the system's correctness.
 //!
 
-use crate::log::inv_v::*;
+use crate::log::inv_v::{lemma_auto_smaller_range_of_seq_is_subrange, lemma_active_metadata_bytes_equal_implies_metadata_types_set};
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};

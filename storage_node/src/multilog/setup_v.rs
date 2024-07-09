@@ -5,7 +5,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
-use crate::log::inv_v::*;
+use crate::log::inv_v::lemma_auto_smaller_range_of_seq_is_subrange;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
