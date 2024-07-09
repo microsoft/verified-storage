@@ -328,68 +328,39 @@ impl FileBackedPersistentMemoryRegion
         Self{ section }
     }
 
-    #[verifier::external_body]
-
-    fn get_slice_at_offset(&self, addr: u64, len: u64) -> (result: Result<&[u8], PmemError>)
-
-        requires 
-
-            0 <= addr <= addr + len <= self@.len()
-
-        ensures 
-
-            match result {
-
-                Ok(slice) => if self.constants().impervious_to_corruption {
-
-                    slice@ == self@.committed().subrange(addr as int, addr + len)
-
-                } else {
-
-                    let addrs = Seq::new(len as nat, |i: int| addr + i);
-
-                    maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
-
-                }
-
-                _ => false
-
-            }
-
-    {
-
-        // SAFETY: The `offset` method is safe as long as both the start
-
-        // and resulting pointer are in bounds and the computed offset does
-
-        // not overflow `isize`. The precondition ensures that addr + len are 
-
-        // in bounds, and when we set up the region we ensured that 
-
-        // in-bounds accesses cannot overflow isize.
-
+    #[verifier::external_body]
+    fn get_slice_at_offset(&self, addr: u64, len: u64) -> (result: Result<&[u8], PmemError>)
+        requires 
+            0 <= addr <= addr + len <= self@.len()
+        ensures 
+            match result {
+                Ok(slice) => if self.constants().impervious_to_corruption {
+                    slice@ == self@.committed().subrange(addr as int, addr + len)
+                } else {
+                    let addrs = Seq::new(len as nat, |i: int| addr + i);
+                    maybe_corrupted(slice@, self@.committed().subrange(addr as int, addr + len), addrs)
+                }
+                _ => false
+            }
+    {
+        // SAFETY: The `offset` method is safe as long as both the start
+        // and resulting pointer are in bounds and the computed offset does
+        // not overflow `isize`. The precondition ensures that addr + len are 
+        // in bounds, and when we set up the region we ensured that 
+        // in-bounds accesses cannot overflow isize.
         let addr_on_pm: *const u8 = unsafe {
             (self.section.h_map_addr as *const u8).offset(addr.try_into().unwrap())
         };
 
-        // SAFETY: The precondition establishes that num_bytes bytes
-
-        // from addr_on_pmem are valid bytes on PM. The bytes will not 
-
-        // be modified during this call since the system is single threaded.
-
-        let pm_slice: &[u8] = unsafe {
-
-            core::slice::from_raw_parts(addr_on_pm, len as usize)
-
-        };
-
-
-
-        Ok(pm_slice)
-
-    }
-
+        // SAFETY: The precondition establishes that num_bytes bytes
+        // from addr_on_pmem are valid bytes on PM. The bytes will not 
+        // be modified during this call since the system is single threaded.
+        let pm_slice: &[u8] = unsafe {
+            core::slice::from_raw_parts(addr_on_pm, len as usize)
+        };
+
+        Ok(pm_slice)
+    }
 }
 
 impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
@@ -404,46 +375,31 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
         self.section.size as u64
     }
 
-    fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
-
-        where
-
-            S: PmCopy 
-
-    {
-
-        let pm_slice = self.get_slice_at_offset(addr, S::size_of() as u64)?;
-
-        let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
-
-        let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
-
-
-
+    fn read_aligned<S>(&self, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        where
+            S: PmCopy 
+    {
+        let pm_slice = self.get_slice_at_offset(addr, S::size_of() as u64)?;
+        let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
+        let ghost true_bytes = self@.committed().subrange(addr as int, addr + S::spec_size_of());
+        let ghost true_val = <S as PmCopyHelper>::spec_from_bytes(true_bytes);
+        let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
+
         maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs),
-                                            Ghost(self.constants().impervious_to_corruption));
-
-        
-
-        Ok(maybe_corrupted_val)
-
-    }
-
-
-
+                                            Ghost(self.constants().impervious_to_corruption));
+        
+        Ok(maybe_corrupted_val)
+    }
+
     #[verifier::external_body]
     fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
     {
         let pm_slice = self.get_slice_at_offset(addr, num_bytes)?;
 
-        // Allocate an unaligned buffer to copy the bytes into
-
-        let unaligned_buffer = copy_from_slice(pm_slice);
-
-
-
-        Ok(unaligned_buffer)
-
+        // Allocate an unaligned buffer to copy the bytes into
+        let unaligned_buffer = copy_from_slice(pm_slice);
+
+        Ok(unaligned_buffer)
     }
 
     #[verifier::external_body]
@@ -621,34 +577,20 @@ impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
     }
 
 
-    #[verifier::external_body]
-
-    fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
-
-        where
-
-            S: PmCopy
-
-    {
-
-        self.regions[index].read_aligned::<S>(addr, Ghost(true_val))
-
-    }
-
-
-
-    #[verifier::external_body]
-
-    fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
-
-    {
-
-        self.regions[index].read_unaligned(addr, num_bytes)
-
-    }
-
-
-
+    #[verifier::external_body]
+    fn read_aligned<S>(&self, index: usize, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        where
+            S: PmCopy
+    {
+        self.regions[index].read_aligned::<S>(addr)
+    }
+
+    #[verifier::external_body]
+    fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
+    {
+        self.regions[index].read_unaligned(addr, num_bytes)
+    }
+
     #[verifier::external_body]
     fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
     {

@@ -421,17 +421,15 @@ verus! {
                 result == self@.len()
         ;
 
-        // This function takes a ghost `true_val` representing the value we originally wrote to this location, rather than 
-        // choosing it internally, so that the caller can get more specific information about this structure if they want.
-        fn read_aligned<S>(&self, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        fn read_aligned<S>(&self, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy + Sized,
             requires
                 self.inv(),
                 0 <= addr < addr + S::spec_size_of() <= self@.len(),
                 self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
-                // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
-                self@.committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
+                // We must have previously written a serialized S to this addr
+                <S as PmCopyHelper>::bytes_parseable(self@.committed().subrange(addr as int, addr + S::spec_size_of()))
             ensures
                 match bytes {
                     Ok(bytes) => {
@@ -542,7 +540,7 @@ verus! {
                 result == self@[index as int].len(),
         ;
 
-        fn read_aligned<S>(&self, index: usize, addr: u64, Ghost(true_val): Ghost<S>) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
+        fn read_aligned<S>(&self, index: usize, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
             where 
                 S: PmCopy,
             requires 
@@ -550,22 +548,25 @@ verus! {
                 index < self@.len(),
                 0 <= addr < addr + S::spec_size_of() <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
-                // We must have previously written a serialized S -- specifically, the serialization of `true_val` -- to this addr
-                self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of()) == true_val.spec_to_bytes(),
+                // We must have previously written a serialized S to this addr
+                <S as PmCopyHelper>::bytes_parseable(
+                    self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of())
+                ),
             ensures 
                 match bytes {
                     Ok(bytes) => {
                         let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
+                        let true_bytes = self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of());
                         &&& // If the persistent memory regions are impervious
-                            // to corruption, read returns the last bytes
-                            // written. Otherwise, it returns a
-                            // possibly-corrupted version of those bytes.
-                            if self.constants().impervious_to_corruption {
-                                bytes@ == true_val.spec_to_bytes()
-                            }
-                            else {
-                                maybe_corrupted(bytes@, true_val.spec_to_bytes(), addrs)
-                            }
+                           // to corruption, read returns the last bytes
+                           // written. Otherwise, it returns a
+                           // possibly-corrupted version of those bytes.
+                           if self.constants().impervious_to_corruption {
+                               bytes@ == true_bytes
+                           }
+                           else {
+                               maybe_corrupted(bytes@, true_bytes, addrs)
+                           }
                         }
                     _ => false,
                 }
