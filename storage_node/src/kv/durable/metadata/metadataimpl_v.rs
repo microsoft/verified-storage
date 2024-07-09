@@ -178,8 +178,8 @@ verus! {
             let ghost true_metadata = choose |metadata: MetadataTableHeader| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of());
             let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
 
-            let metadata = pm_regions.read_aligned::<MetadataTableHeader>(0, ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_metadata)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-            let metadata_crc = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let metadata = pm_regions.read_aligned::<MetadataTableHeader>(0, ABSOLUTE_POS_OF_METADATA_HEADER).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let metadata_crc = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_HEADER_CRC).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
             let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
@@ -329,9 +329,9 @@ verus! {
                 let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
                 let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                 let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of());
-                let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+                let cdb = pm_region.read_aligned::<u64>(cdb_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-                match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
+                match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index),
                     Some(true) => {
                         // read the key at this location and add it to the key-index list
@@ -358,15 +358,15 @@ verus! {
                         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
                         let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
 
-                        let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr, Ghost(true_entry)) {
+                        let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr) {
                             Ok(metadata_entry) => metadata_entry,
                             Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                         };
-                        let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+                        let crc = match pm_region.read_aligned::<u64>(crc_addr) {
                             Ok(crc) => crc,
                             Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                         };
-                        let key = match pm_region.read_aligned::<K>(key_addr, Ghost(true_key)) {
+                        let key = match pm_region.read_aligned::<K>(key_addr) {
                             Ok(key) => key,
                             Err(e) => return Err(KvError::PmemErr {pmem_err: e })
                         };
@@ -642,11 +642,11 @@ verus! {
             let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
 
             // 2. Check the CDB to determine whether the entry is valid
-            let cdb = match pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)) {
+            let cdb = match pm_region.read_aligned::<u64>(cdb_addr) {
                 Ok(cdb) => cdb,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let cdb_result = check_cdb(cdb, Ghost(true_cdb), Ghost(mem), 
+            let cdb_result = check_cdb(cdb, Ghost(mem), 
                 Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
             match cdb_result {
                 Some(true) => {} // continue 
@@ -655,15 +655,15 @@ verus! {
             }
 
             // TODO: error handling
-            let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr, Ghost(true_entry)) {
+            let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr) {
                 Ok(metadata_entry) => metadata_entry,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+            let crc = match pm_region.read_aligned::<u64>(crc_addr) {
                 Ok(crc) => crc,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let key = match pm_region.read_aligned::<K>(key_addr, Ghost(true_key)) {
+            let key = match pm_region.read_aligned::<K>(key_addr) {
                 Ok(key) => key,
                 Err(e) => return Err(KvError::PmemErr {pmem_err: e })
             };
@@ -833,8 +833,8 @@ verus! {
             let ghost true_header = choose |header: MetadataTableHeader| header.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of());  
             let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
             
-            let header = pm_region.read_aligned::<MetadataTableHeader>(ABSOLUTE_POS_OF_METADATA_HEADER, Ghost(true_header)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-            let header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let header = pm_region.read_aligned::<MetadataTableHeader>(ABSOLUTE_POS_OF_METADATA_HEADER).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_HEADER_CRC).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
             let ghost header_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost header_crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);

@@ -299,8 +299,8 @@ verus! {
                 let cdb_addr = item_slot_offset + RELATIVE_POS_OF_VALID_CDB;
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
                 let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of());
-                let cdb = pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-                match check_cdb(cdb, Ghost(true_cdb), Ghost(mem),
+                let cdb = pm_region.read_aligned::<u64>(cdb_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+                match check_cdb(cdb, Ghost(mem),
                             Ghost(pm_region.constants().impervious_to_corruption),
                             Ghost(cdb_addrs)) {
                     Some(false) => item_table_allocator.push(index),
@@ -515,20 +515,20 @@ verus! {
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
             let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + i);
 
-            let cdb = match pm_region.read_aligned::<u64>(cdb_addr, Ghost(true_cdb)) {
+            let cdb = match pm_region.read_aligned::<u64>(cdb_addr) {
                 Ok(val) => val,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let crc = match pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)) {
+            let crc = match pm_region.read_aligned::<u64>(crc_addr) {
                 Ok(val) => val,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let item = match pm_region.read_aligned::<I>(item_addr, Ghost(true_item)) {
+            let item = match pm_region.read_aligned::<I>(item_addr) {
                 Ok(val) => val,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
             // Check that the CDB is uncorrupted and indicates that the item is valid
-            match check_cdb(cdb, Ghost(true_cdb), Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
+            match check_cdb(cdb, Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
                 Some(true) => {
                     // The CDB is valid. Check the item's CRC 
                     if !check_crc(item.as_slice(), crc.as_slice(), Ghost(mem), 
@@ -641,8 +641,8 @@ verus! {
             let metadata_header_addr = ABSOLUTE_POS_OF_METADATA_HEADER;
             let crc_addr = metadata_header_addr + traits_t::size_of::<ItemTableMetadata>() as u64;
 
-            let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(metadata_header_addr, Ghost(true_metadata_table)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-            let table_crc = pm_region.read_aligned::<u64>(crc_addr, Ghost(true_crc)).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let table_metadata = pm_region.read_aligned::<ItemTableMetadata>(metadata_header_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+            let table_crc = pm_region.read_aligned::<u64>(crc_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
             let ghost header_addrs = Seq::new(ItemTableMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
