@@ -57,13 +57,15 @@ verus! {
         prev_state: AbstractMultiLogState,
     )
         requires
-            is_valid_log_index(which_log, num_logs),
+            log_index_trigger(which_log as int),
+            which_log < num_logs,
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
-            no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
+            no_outstanding_writes_to_metadata(pm_regions_view),
             metadata_types_set(pm_regions_view.committed()),
-            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
+                ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let prev_info = prev_infos[which_log as int];
                 let log_area_len = prev_info.log_area_len;
@@ -138,7 +140,7 @@ verus! {
         // extracted byte sequences that match between the old and new
         // metadata regions.
 
-        assert forall |any_log: u32| #[trigger] is_valid_log_index(any_log, num_logs) implies {
+        assert forall |any_log: u32| #[trigger] log_index_trigger(any_log as int) && any_log < num_logs implies {
             let a = any_log as int;
             metadata_consistent_with_info(pm_regions_view2[a], multilog_id, num_logs, any_log, cdb, new_infos[a])
         } by {
@@ -152,7 +154,7 @@ verus! {
         // region #0, where the CDB is stored.
 
         assert (memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
-            assert(is_valid_log_index(0, num_logs));
+            assert(log_index_trigger(0));
             lemma_establish_subrange_equivalence(pm_regions_view[0].committed(), pm_regions_view2[0].committed());
         }
 
@@ -181,7 +183,7 @@ verus! {
 
         assert(no_outstanding_writes_to_active_metadata(pm_regions_view2, cdb)) by {
             lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(
-                pm_regions_view2, num_logs, cdb
+                pm_regions_view2, cdb
             );
         };
 
@@ -249,13 +251,15 @@ verus! {
         prev_state: AbstractMultiLogState,
     )
         requires
-            is_valid_log_index(which_log, num_logs),
+            log_index_trigger(which_log as int),
+            which_log < num_logs,
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
-            no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
+            no_outstanding_writes_to_metadata(pm_regions_view),
             metadata_types_set(pm_regions_view.committed()),
-            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
+                ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let w = which_log as int;
                 let prev_info = prev_infos[w];

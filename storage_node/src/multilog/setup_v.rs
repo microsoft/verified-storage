@@ -8,7 +8,7 @@
 use crate::log::inv_v::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::multilog::multilogspec_t::{AbstractLogState, AbstractMultiLogState};
 use crate::multilog::inv_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -278,6 +278,7 @@ verus! {
                 pm_regions@[0].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, 0),
             metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
+            metadata_types_set_in_region(pm_regions@[0].flush().committed(), false),
             deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
@@ -390,20 +391,22 @@ verus! {
             old(pm_regions).inv(),
             old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
             1 <= old(pm_regions)@.len() <= u32::MAX,
-            forall |i: int| 0 <= i < old(pm_regions)@.len() ==> #[trigger] old(pm_regions)@[i].len() == region_sizes@[i],
-            forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
-                #[trigger] old(pm_regions)@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-            forall |i: int| 0 <= i < old(pm_regions)@.len() ==>
-                #[trigger] old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(pm_regions)@.len() ==>
+                old(pm_regions)@[i].len() == region_sizes@[i],
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(pm_regions)@.len() ==>
+                old(pm_regions)@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(pm_regions)@.len() ==>
+                old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
             pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
+            forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            regions_metadata_types_set(pm_regions@),
+            metadata_types_set(pm_regions@.committed()),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -413,6 +416,7 @@ verus! {
 
         // the first region is set up differently, so we do it outside of the loop to make the loop invariant
         // easier to maintain
+        assert(log_index_trigger(0));
         let region_size: u64 = region_sizes[0];
         assert (region_size == pm_regions@[0].len());
         write_setup_metadata_to_first_region(pm_regions, region_size, multilog_id, num_logs);
@@ -425,25 +429,30 @@ verus! {
                 pm_regions@.len() == old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
                 pm_regions@.len() >= 1,
                 pm_regions@.len() <= u32::MAX,
-                forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len(),
-                forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() == region_sizes@[i],
-                forall |i: int| 0 <= i < pm_regions@.len() ==>
-                    #[trigger] pm_regions@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-                forall |i: int| 0 <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].len() ==
-                    log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
-                forall |i: int| which_log <= i < pm_regions@.len() ==> #[trigger] pm_regions@[i].no_outstanding_writes(),
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                    pm_regions@[i].len() == old(pm_regions)@[i].len(),
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                    pm_regions@[i].len() == region_sizes@[i],
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                    pm_regions@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
+                forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                    pm_regions@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
+                forall |i: int| #[trigger] log_index_trigger(i) && which_log <= i < pm_regions@.len() ==>
+                    pm_regions@[i].no_outstanding_writes(),
                 // The key invariant is that every region less than `which_log` has been set up correctly.
-                forall |i: u32| i < which_log ==>
-                    memory_correctly_set_up_on_single_region(#[trigger] pm_regions@[i as int].flush().committed(),
+                forall |i: u32| #[trigger] log_index_trigger(i as int) && i < which_log ==>
+                    memory_correctly_set_up_on_single_region(pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
                 metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
-                forall |i: u32| 1 <= i < which_log ==> metadata_types_set_in_region(#[trigger] pm_regions@[i as int].flush().committed(), false),
+                forall |i: u32| #[trigger] log_index_trigger(i as int) && i < which_log ==>
+                    metadata_types_set_in_region(pm_regions@[i as int].flush().committed(), false),
         {
+            assert(log_index_trigger(which_log as int));
             let region_size: u64 = region_sizes[which_log as usize];
             assert (region_size == pm_regions@[which_log as int].len());
             write_setup_metadata_to_single_region(pm_regions, region_size, multilog_id, num_logs, which_log);
         }
-        
+
         proof {
             // First, establish that recovering after a flush will get
             // abstract state
@@ -453,21 +462,22 @@ verus! {
             let pm_regions_committed = flushed_regions.committed();
             assert(recover_all(pm_regions_committed, multilog_id)
                    =~= Some(AbstractMultiLogState::initialize(log_capacities))) by {
-                assert(forall |i: int| 0 <= i < pm_regions_committed.len() ==>
-                       #[trigger] pm_regions_committed[i].len() == pm_regions@[i as int].len());
-                assert(forall |i| 0 <= i < pm_regions@.len() ==>
-                       #[trigger] pm_regions_committed[i] == pm_regions@[i as int].flush().committed());
-                assert(forall |i| 0 <= i < pm_regions_committed.len() ==>
-                       extract_log(#[trigger] pm_regions_committed[i], log_capacities[i] as int, 0int, 0int) =~= Seq::<u8>::empty());
+                // We have to use the trigger `pm_regions_committed[i]` to reason about
+                // what happens in the sequence interpolation in `recover_all`.
+                assert(forall |i: int| log_index_trigger(i) && 0 <= i < pm_regions_committed.len() ==>
+                       recover_abstract_log_from_region_given_cdb(#[trigger] pm_regions_committed[i], multilog_id,
+                                                                  pm_regions_committed.len() as int, i, false) ==
+                       Some(AbstractLogState::initialize(log_capacities[i] as int)));
             }
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            assert(forall |i| 0 <= i < pm_regions@.len() ==> pm_regions@[i].len() == #[trigger] flushed_regions[i].len());
+            assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions@.len() ==>
+                   pm_regions@[i].len() == flushed_regions[i].len());
             
             // Finally, help Verus establish that the metadata types are set for all regions
             lemma_metadata_types_set_flush_committed(pm_regions@, false);
-            assert(regions_metadata_types_set(pm_regions@.flush()));
+            assert(metadata_types_set(pm_regions@.flush().committed()));
         }
 
         pm_regions.flush()
