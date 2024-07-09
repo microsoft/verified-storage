@@ -391,18 +391,18 @@ verus! {
             old(pm_regions).inv(),
             old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
             1 <= old(pm_regions)@.len() <= u32::MAX,
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < old(pm_regions)@.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < old(pm_regions)@.len() ==>
                 old(pm_regions)@[i].len() == region_sizes@[i],
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < old(pm_regions)@.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < old(pm_regions)@.len() ==>
                 old(pm_regions)@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < old(pm_regions)@.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < old(pm_regions)@.len() ==>
                 old(pm_regions)@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
             old(pm_regions)@.no_outstanding_writes(),
         ensures
             pm_regions.inv(),
             pm_regions.constants() == old(pm_regions).constants(),
             pm_regions@.len() == old(pm_regions)@.len(),
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                 pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
@@ -429,13 +429,13 @@ verus! {
                 pm_regions@.len() == old(pm_regions)@.len() == region_sizes@.len() == log_capacities.len(),
                 pm_regions@.len() >= 1,
                 pm_regions@.len() <= u32::MAX,
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                     pm_regions@[i].len() == old(pm_regions)@[i].len(),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                     pm_regions@[i].len() == region_sizes@[i],
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                     pm_regions@[i].len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                     pm_regions@[i].len() == log_capacities[i] + ABSOLUTE_POS_OF_LOG_AREA,
                 forall |i: int| #[trigger] is_valid_log_index(i) && which_log <= i < pm_regions@.len() ==>
                     pm_regions@[i].no_outstanding_writes(),
@@ -464,7 +464,7 @@ verus! {
                    =~= Some(AbstractMultiLogState::initialize(log_capacities))) by {
                 // We have to use the trigger `pm_regions_committed[i]` to reason about
                 // what happens in the sequence interpolation in `recover_all`.
-                assert(forall |i: int| is_valid_log_index(i) && i < pm_regions_committed.len() ==>
+                assert(forall |i: int| is_valid_log_index(i) && 0 <= i < pm_regions_committed.len() ==>
                        recover_abstract_log_from_region_given_cdb(#[trigger] pm_regions_committed[i], multilog_id,
                                                                   pm_regions_committed.len() as int, i, false) ==
                        Some(AbstractLogState::initialize(log_capacities[i] as int)));
@@ -472,7 +472,7 @@ verus! {
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            assert(forall |i| #[trigger] is_valid_log_index(i) && i < pm_regions@.len() ==>
+            assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                    pm_regions@[i].len() == flushed_regions[i].len());
             
             // Finally, help Verus establish that the metadata types are set for all regions

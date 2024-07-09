@@ -109,7 +109,7 @@ verus! {
             &&& each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends())
             &&& metadata_types_set(wrpm_regions@.committed())
-            &&& forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+            &&& forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                    ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len()
         }
 
@@ -262,9 +262,9 @@ verus! {
                 // `is_valid_log_index` to ones that use triggers in
                 // the postcondition specified for this function.
 
-                assert(forall |i: int| is_valid_log_index(i) && i < pm_regions@.len() ==>
+                assert(forall |i: int| is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                        #[trigger] log_capacities@[i] <= pm_regions@[i].len());
-                assert(forall |i: int| is_valid_log_index(i) && i < pm_regions@.len() ==>
+                assert(forall |i: int| is_valid_log_index(i) && 0 <= i < pm_regions@.len() ==>
                        #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len());
                 
             }
@@ -643,14 +643,14 @@ verus! {
                 each_info_consistent_with_log_area(old(wrpm_regions)@.flush(), old(self).num_logs,
                                                 old(self).infos@, old(self).state@),
                 each_info_consistent_with_log_area(old(wrpm_regions)@, old(self).num_logs, prev_infos, prev_state),
-                forall |which_log: int| #[trigger] is_valid_log_index(which_log) && which_log < old(self).num_logs as nat ==>
+                forall |which_log: int| #[trigger] is_valid_log_index(which_log) && 0 <= which_log < old(self).num_logs ==>
                     old(self).infos@[which_log].log_area_len == prev_infos[which_log].log_area_len,
                 forall |s| {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
                 regions_metadata_types_set(old(wrpm_regions)@),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < old(wrpm_regions)@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < old(wrpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
             ensures
@@ -683,7 +683,7 @@ verus! {
             self.update_inactive_log_metadata(wrpm_regions, Ghost(multilog_id), Ghost(prev_infos), Ghost(prev_state), Tracked(perm));
 
             assert(self.num_logs == wrpm_regions@.len());
-            assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+            assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                     inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb));
 
             proof {
@@ -744,11 +744,11 @@ verus! {
                 );
 
                 assert(pm_regions_after_flush.len() == wrpm_regions@.len());
-                assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions_after_flush.len() ==> 
+                assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions_after_flush.len() ==> 
                     wrpm_regions@[i].len() == pm_regions_after_flush[i].len());
-                assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==> 
+                assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==> 
                     ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len());
-                assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==> 
+                assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==> 
                     inactive_metadata_types_set_in_region(wrpm_regions@.committed()[i], self.cdb));
                 lemma_metadata_types_set_after_cdb_update(wrpm_regions@, pm_regions_after_flush, multilog_id, new_cdb_bytes, self.cdb);
             }
@@ -808,9 +808,9 @@ verus! {
                 assert(can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends()));
 
                 // We need these asserts to hit the triggers needed to prove that the size of each region has not been changed.
-                assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                        old(wrpm_regions)@[i].len() == wrpm_regions@[i].len());
-                assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                        ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len());
             }
         }
@@ -834,14 +834,14 @@ verus! {
                 each_info_consistent_with_log_area(old(wrpm_regions)@.flush(), old(self).num_logs,
                                                 old(self).infos@, old(self).state@),
                 each_info_consistent_with_log_area(old(wrpm_regions)@, old(self).num_logs, prev_infos, prev_state),
-                forall |which_log: int| #[trigger] is_valid_log_index(which_log) && which_log < old(self).num_logs ==>
+                forall |which_log: int| #[trigger] is_valid_log_index(which_log) && 0 <= which_log < old(self).num_logs ==>
                     old(self).infos@[which_log].log_area_len == prev_infos[which_log].log_area_len,
                 forall |s| {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
                 regions_metadata_types_set(old(wrpm_regions)@),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < old(wrpm_regions)@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < old(wrpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
             ensures
@@ -854,8 +854,8 @@ verus! {
                 each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                 forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                     #[trigger] perm.check_permission(s),
-                forall |w: int| #[trigger] is_valid_log_index(w) && w < self.num_logs ==>
-                    self.infos@[w].log_area_len == prev_infos[w].log_area_len,
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < self.num_logs ==>
+                    self.infos@[i].log_area_len == prev_infos[i].log_area_len,
                 forall |which_log: u32| #[trigger] is_valid_log_index(which_log as int) && which_log < self.num_logs ==> {
                     let w = which_log as int;
                     let flushed = wrpm_regions@.flush();
@@ -865,11 +865,11 @@ verus! {
                 no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb),
                 metadata_types_set(wrpm_regions@.committed()),
                 active_metadata_is_equal(old(wrpm_regions)@, wrpm_regions@),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                     wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
-                forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                     inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
                 wrpm_regions@.len() > 0,
                 
@@ -904,7 +904,7 @@ verus! {
                     each_info_consistent_with_log_area(wrpm_regions@.flush(), self.num_logs, self.infos@, self.state@),
                     forall |s| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends()) ==>
                         #[trigger] perm.check_permission(s),
-                    forall |which_log: int| #[trigger] is_valid_log_index(which_log) && which_log < self.num_logs ==>
+                    forall |which_log: int| #[trigger] is_valid_log_index(which_log) && 0 <= which_log < self.num_logs ==>
                         self.infos@[which_log].log_area_len == prev_infos[which_log].log_area_len,
 
                     // For logs we haven't updated the metadata for
@@ -942,11 +942,11 @@ verus! {
                     active_metadata_is_equal(old_wrpm_regions, wrpm_regions@),
 
                     // The loop does not change the size of any of the regions
-                    forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                    forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                         wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
-                    forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() ==>
+                    forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() ==>
                         ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
-                    forall |i: int| #[trigger] is_valid_log_index(i) && i < current_log ==>
+                    forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < current_log ==>
                         inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
                     wrpm_regions@.len() > 0,
 
@@ -992,7 +992,7 @@ verus! {
                 proof {
                     // The proofs in this block apply to both the crash case and the regular case, and help us prove
                     // that the metadata types are still set after the write regardless of whether it completes or not.
-                    assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions_new.len() && i != cur ==> 
+                    assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions_new.len() && i != cur ==> 
                         wrpm_regions@[i] == wrpm_regions_new[i]); 
                     lemma_write_to_inactive_metadata_implies_active_metadata_stays_equal(wrpm_regions@, wrpm_regions_new, 
                         cur, unused_metadata_pos as int, log_metadata_bytes, self.cdb);
@@ -1020,7 +1020,7 @@ verus! {
                 let ghost wrpm_regions_new = wrpm_regions@.write(cur, unused_metadata_pos + LogMetadata::spec_size_of(), log_crc_bytes);
                 proof {
                     // Prove that there are no outstanding writes to active metadata in any of the logs
-                    assert(forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions_new.len() && i != cur ==> 
+                    assert(forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions_new.len() && i != cur ==> 
                         wrpm_regions@[i] == wrpm_regions_new[i]); 
 
                     lemma_write_to_inactive_metadata_implies_active_metadata_stays_equal(wrpm_regions@, wrpm_regions_new, 
@@ -1044,12 +1044,12 @@ verus! {
 
                 wrpm_regions.serialize_and_write(current_log as usize, unused_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
                 
-                assert forall |i: int| #[trigger] is_valid_log_index(i) && i < wrpm_regions@.len() implies
+                assert forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < wrpm_regions@.len() implies
                            wrpm_regions@.flush().committed()[i].len() > ABSOLUTE_POS_OF_LOG_AREA by {
                     assert(wrpm_regions@[i].len() == wrpm_regions@.flush().committed()[i].len());
                     assert(wrpm_regions@[i].len() > ABSOLUTE_POS_OF_LOG_AREA);
                 }
-                assert forall |i: int| #[trigger] is_valid_log_index(i) && i < cur implies
+                assert forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < cur implies
                     inactive_metadata_types_set_in_region(#[trigger] wrpm_regions@.flush().committed()[i], self.cdb) 
                 by {
                     assert(old_wrpm_regions.flush().committed()[i] == wrpm_regions@.flush().committed()[i]);
@@ -1074,7 +1074,7 @@ verus! {
 
                 assert(wrpm_regions@.flush().committed()[cur].subrange(unused_metadata_pos as int, unused_metadata_pos + LogMetadata::spec_size_of()) ==
                         log_metadata.spec_to_bytes());
-                assert forall |i: int| #[trigger] is_valid_log_index(i) && i < cur implies
+                assert forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < cur implies
                     inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb) 
                 by {
                     assert(exists |log_metadata: LogMetadata| 
@@ -1262,7 +1262,7 @@ verus! {
                 return Err(MultiLogErr::InvalidLogIndex{ });
             }
 
-            assert(is_valid_log_index(which_log as int) && which_log < self.num_logs); // trigger useful foralls in invariants
+            assert(is_valid_log_index(which_log as int)); // trigger useful foralls in invariants
             let info = &self.infos[which_log as usize];
             if new_head < info.head {
                 return Err(MultiLogErr::CantAdvanceHeadPositionBeforeHead{ head: info.head })
@@ -1408,7 +1408,8 @@ verus! {
             addr: int,
         )
             requires
-                is_valid_log_index(which_log as int) && which_log < self.num_logs,
+                is_valid_log_index(which_log as int),
+                which_log < self.num_logs,
                 len > 0,
                 each_metadata_consistent_with_info(pm_regions_view, multilog_id, self.num_logs, self.cdb, self.infos@),
                 each_info_consistent_with_log_area(pm_regions_view, self.num_logs, self.infos@, self.state@),
@@ -1505,7 +1506,7 @@ verus! {
                 return Err(MultiLogErr::InvalidLogIndex{ });
             }
 
-            assert(is_valid_log_index(which_log as int) && which_log < self.num_logs); // triggers useful foralls in invariants
+            assert(is_valid_log_index(which_log as int)); // triggers useful foralls in invariants
 
             let info = &self.infos[which_log as usize];
             if pos < info.head {
@@ -1705,7 +1706,7 @@ verus! {
             }
 
             let ghost w = which_log as int;
-            assert(is_valid_log_index(which_log as int) && which_log < self.num_logs); // triggers useful foralls in invariants
+            assert(is_valid_log_index(which_log as int)); // triggers useful foralls in invariants
 
             // We cache information in `self.infos` that lets us easily
             // compute the return values.

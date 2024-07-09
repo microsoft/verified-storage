@@ -56,13 +56,14 @@ verus! {
         prev_state: AbstractMultiLogState,
     )
         requires
-            is_valid_log_index(which_log as int) && which_log < num_logs,
+            is_valid_log_index(which_log as int),
+            which_log < num_logs,
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             no_outstanding_writes_to_metadata(pm_regions_view),
             metadata_types_set(pm_regions_view.committed()),
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions_view.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let prev_info = prev_infos[which_log as int];
@@ -249,13 +250,14 @@ verus! {
         prev_state: AbstractMultiLogState,
     )
         requires
-            is_valid_log_index(which_log as int) && which_log < num_logs,
+            is_valid_log_index(which_log as int),
+            which_log < num_logs,
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             no_outstanding_writes_to_metadata(pm_regions_view),
             metadata_types_set(pm_regions_view.committed()),
-            forall |i: int| #[trigger] is_valid_log_index(i) && i < pm_regions_view.len() ==>
+            forall |i: int| #[trigger] is_valid_log_index(i) && 0 <= i < pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
                 let w = which_log as int;
