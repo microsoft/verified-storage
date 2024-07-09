@@ -257,6 +257,16 @@ verus! {
                 lemma_if_no_outstanding_writes_then_flush_is_idempotent(pm_regions@);
                 lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(
                     pm_regions@);
+
+                // Convert quantifiers triggered on
+                // `is_valid_log_index` to ones that use triggers in
+                // the postcondition specified for this function.
+
+                assert(forall |i: int| is_valid_log_index(i) && i < pm_regions@.len() ==>
+                       #[trigger] log_capacities@[i] <= pm_regions@[i].len());
+                assert(forall |i: int| is_valid_log_index(i) && i < pm_regions@.len() ==>
+                       #[trigger] pm_regions@[i].len() == old(pm_regions)@[i].len());
+                
             }
 
             Ok(log_capacities)
