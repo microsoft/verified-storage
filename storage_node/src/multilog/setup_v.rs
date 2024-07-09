@@ -406,7 +406,7 @@ verus! {
                 pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            regions_metadata_types_set(pm_regions@),
+            metadata_types_set(pm_regions@.committed()),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -477,7 +477,7 @@ verus! {
             
             // Finally, help Verus establish that the metadata types are set for all regions
             lemma_metadata_types_set_flush_committed(pm_regions@, false);
-            assert(regions_metadata_types_set(pm_regions@.flush()));
+            assert(metadata_types_set(pm_regions@.flush().committed()));
         }
 
         pm_regions.flush()

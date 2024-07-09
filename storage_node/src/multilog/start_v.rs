@@ -238,20 +238,28 @@ verus! {
 
         // Read the region metadata and its CRC, and check that the
         // CRC matches.
-        let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
+        let ghost metadata_addrs = Seq::new(RegionMetadata::spec_size_of() as nat,
+                                            |i: int| ABSOLUTE_POS_OF_REGION_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
-        let ghost true_region_metadata = RegionMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()));
+        let ghost true_region_metadata = RegionMetadata::spec_from_bytes(
+            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+        );
+        let ghost true_crc = u64::spec_from_bytes(
+            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+        );
 
-        let region_metadata = match pm_regions.read_aligned::<RegionMetadata>(which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)) {
+        let region_metadata = match pm_regions.read_aligned::<RegionMetadata>(
+            which_log as usize, ABSOLUTE_POS_OF_REGION_METADATA, Ghost(true_region_metadata)
+        ) {
             Ok(region_metadata) => region_metadata,
             Err(e) => {
                 assert(false);
                 return Err(MultiLogErr::PmemErr { err: e });
             }
         };
-        let region_crc = match pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC, Ghost(true_crc)) {
+        let region_crc = match pm_regions.read_aligned::<u64>(which_log as usize, ABSOLUTE_POS_OF_REGION_CRC,
+                                                              Ghost(true_crc)) {
             Ok(region_crc) => region_crc,
             Err(e) => {
                 assert(false);
@@ -333,8 +341,10 @@ verus! {
                              else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
 
-        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as int, LogMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()));
+        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as int,
+                                                                                 LogMetadata::spec_size_of()));
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_metadata_pos + LogMetadata::spec_size_of(),
+                                                                u64::spec_size_of()));
 
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
@@ -343,7 +353,8 @@ verus! {
         let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
 
         assert(extract_bytes(mem, log_metadata_pos as int, LogMetadata::spec_size_of()) == true_bytes);
-        let log_metadata = match pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos, Ghost(true_log_metadata)) {
+        let log_metadata = match pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos,
+                                                                        Ghost(true_log_metadata)) {
             Ok(log_metadata) => log_metadata,
             Err(e) => {
                 assert(false);
@@ -359,7 +370,8 @@ verus! {
         };
 
         assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
-        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem), Ghost(pm_regions.constants().impervious_to_corruption),
+        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem),
+                      Ghost(pm_regions.constants().impervious_to_corruption),
                                     Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
             return Err(MultiLogErr::CRCMismatch);
         }

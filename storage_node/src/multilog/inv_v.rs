@@ -87,16 +87,13 @@ verus! {
         cdb: bool
     ) -> bool {
         &&& pm_bytes1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
-                pm_bytes2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) 
+           pm_bytes2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) 
         &&& {
-            if cdb {
-                extract_bytes(pm_bytes1, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    extract_bytes(pm_bytes2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) 
-            } else {
-                extract_bytes(pm_bytes1, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    extract_bytes(pm_bytes2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of() + u64::spec_size_of()) 
-            }
-        }
+               let metatata_pos = if cdb {ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int }
+                                  else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int };
+               extract_bytes(pm_bytes1, metatata_pos, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+               extract_bytes(pm_bytes2, metatata_pos, LogMetadata::spec_size_of() + u64::spec_size_of())
+           }
     }
 
     // This invariant is similar to no_outstanding_writes_to_metadata, except that it allows outstanding writes
@@ -116,16 +113,15 @@ verus! {
     ) -> bool 
     {
         // Note that we include the active log metadata's CRC in the region
-        let active_log_metadata_result = if cdb {
+        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                        ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int)
+        &&& if cdb {
             pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int,
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of())
         } else {
             pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of())
-        };
-        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                                        ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int)
-        &&& active_log_metadata_result
+        }
     }
 
     // This invariant says that there are no outstanding writes to the
@@ -141,7 +137,7 @@ verus! {
     pub open spec fn memory_matches_deserialized_cdb(pm_regions_view: PersistentMemoryRegionsView, cdb: bool) -> bool
     {
         &&& pm_regions_view.no_outstanding_writes_in_range(0int, ABSOLUTE_POS_OF_LOG_CDB as int,
-            ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
+                                                         ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
         &&& deserialize_and_check_log_cdb(pm_regions_view[0].committed()) == Some(cdb)
     }
 
@@ -184,11 +180,7 @@ verus! {
         let log_crc = deserialize_log_crc(mem, cdb);
 
         // No outstanding writes to global metadata, region metadata, or the log metadata CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                                        ABSOLUTE_POS_OF_LOG_CDB as int)
-        // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
-        &&& pm_region_view.no_outstanding_writes_in_range(get_log_metadata_pos(cdb) as int,
-                                                        get_log_crc_end(cdb) as int)
+        &&& no_outstanding_writes_to_active_metadata_in_region(pm_region_view, cdb)
 
         // All the CRCs match
         &&& global_crc == global_metadata.spec_crc()
@@ -245,13 +237,14 @@ verus! {
         // The 0th old region (where the CDB is stored) is consistent with the new CDB; this follows from
         // the precondition.
         assert(log_index_trigger(0));
-        assert(metadata_consistent_with_info(old_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int]));
+        assert(metadata_consistent_with_info(old_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb,
+                                             infos[0]));
 
-        // The metadata in the updated region is also consistent
-        assert(metadata_consistent_with_info(new_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int])) by {
-            let old_mem = old_pm_region_view[0int].committed();
-            let new_mem = new_pm_region_view[0int].committed();
-            lemma_establish_subrange_equivalence(old_mem, new_mem);
+        // The metadata in the updated region is also consistent.
+        assert(metadata_consistent_with_info(new_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb,
+                                             infos[0])) by {
+            lemma_establish_subrange_equivalence(old_pm_region_view[0].committed(),
+                                                 new_pm_region_view[0].committed());
         }
     }
 
@@ -350,12 +343,6 @@ verus! {
         }
     }
 
-    pub open spec fn regions_metadata_types_set(pm_regions: PersistentMemoryRegionsView) -> bool 
-    {
-        let mems = pm_regions.committed();
-        metadata_types_set(mems)
-    }
-
     pub open spec fn metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
     {
         &&& metadata_types_set_in_first_region(mems[0])
@@ -374,60 +361,50 @@ verus! {
 
     pub open spec fn metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
     {
-        &&& GlobalMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()))
-        &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()))
         &&& {
-            let metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
-            let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
-            crc == spec_crc_u64(metadata.spec_to_bytes())
+            let metadata_pos = ABSOLUTE_POS_OF_GLOBAL_METADATA as int;
+            let crc_pos = ABSOLUTE_POS_OF_GLOBAL_CRC as int;
+            let metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos,
+                                                                         GlobalMetadata::spec_size_of()));
+            let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos, u64::spec_size_of()));
+            &&& GlobalMetadata::bytes_parseable(extract_bytes(mem, metadata_pos, GlobalMetadata::spec_size_of()))
+            &&& u64::bytes_parseable(extract_bytes(mem, crc_pos, u64::spec_size_of()))
+            &&& crc == spec_crc_u64(metadata.spec_to_bytes())
         }
-        &&& RegionMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()))
-        &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()))
         &&& {
-            let metadata = RegionMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of()));
-            let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of()));
-            crc == spec_crc_u64(metadata.spec_to_bytes())
+            let metadata_pos = ABSOLUTE_POS_OF_REGION_METADATA as int;
+            let crc_pos = ABSOLUTE_POS_OF_REGION_CRC as int;
+            let metadata = RegionMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos,
+                                                                         RegionMetadata::spec_size_of()));
+            let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos, u64::spec_size_of()));
+            &&& RegionMetadata::bytes_parseable(extract_bytes(mem, metadata_pos, RegionMetadata::spec_size_of()))
+            &&& u64::bytes_parseable(extract_bytes(mem, crc_pos, u64::spec_size_of()))
+            &&& crc == spec_crc_u64(metadata.spec_to_bytes())
         }
-        &&& if cdb {
-               &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()))
-               &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()))
-               &&& {
-                   let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()));
-                   let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()));
-                   crc == spec_crc_u64(metadata.spec_to_bytes())
-               }
-           }
-           else {
-               &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()))
-               &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()))
-               &&& {
-                   let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()));
-                   let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()));
-                   crc == spec_crc_u64(metadata.spec_to_bytes())
-               }
-           }
+        &&& {
+            let metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int }
+                               else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int };
+            let crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int }
+                          else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int };
+            let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos, LogMetadata::spec_size_of()));
+            let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos, u64::spec_size_of()));
+            &&& LogMetadata::bytes_parseable(extract_bytes(mem, metadata_pos, LogMetadata::spec_size_of()))
+            &&& u64::bytes_parseable(extract_bytes(mem, crc_pos, u64::spec_size_of()))
+            &&& crc == spec_crc_u64(metadata.spec_to_bytes())
+        }
     }
 
     pub open spec fn inactive_metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool 
     {
-        &&& if cdb {
-            &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()))
-            &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()))
-            &&& {
-                let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of()));
-                let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of()));
-                crc == spec_crc_u64(metadata.spec_to_bytes())
-            }
-        }
-        else {
-            &&& LogMetadata::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()))
-            &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()))
-            &&& {
-                let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, LogMetadata::spec_size_of()));
-                let crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int, u64::spec_size_of()));
-                crc == spec_crc_u64(metadata.spec_to_bytes())
-            }
-        }
+        let metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int }
+                           else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int };
+        let crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int }
+                          else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int };
+        let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos, LogMetadata::spec_size_of()));
+        let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos, u64::spec_size_of()));
+        &&& LogMetadata::bytes_parseable(extract_bytes(mem, metadata_pos, LogMetadata::spec_size_of()))
+        &&& u64::bytes_parseable(extract_bytes(mem, crc_pos, u64::spec_size_of()))
+        &&& crc == spec_crc_u64(metadata.spec_to_bytes())
     }
 
     // This lemma helps us establish that metadata types are set in the a region even when we obtain 
@@ -438,7 +415,8 @@ verus! {
     )
         ensures 
             forall |i: int| {
-                &&& #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len()
+                &&& #[trigger] log_index_trigger(i)
+                &&& 0 <= i < pm_regions_view.len()
                 &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed(), cdb) 
             } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
     {} 
@@ -454,7 +432,6 @@ verus! {
         ensures 
             forall |s| pm_region_view.can_crash_as(s) ==> metadata_types_set_in_region(s, cdb),
     {
-        let pm_bytes = pm_region_view.committed();
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
 
         assert forall |s| pm_region_view.can_crash_as(s) implies metadata_types_set_in_region(s, cdb) by {
@@ -469,16 +446,13 @@ verus! {
         requires 
             no_outstanding_writes_to_active_metadata_in_region(pm_regions_view[0], cdb),
             metadata_types_set_in_first_region(pm_regions_view[0].committed()),
-            deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
-            cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
+            deserialize_and_check_log_cdb(pm_regions_view[0].committed()) == Some(cdb),
         ensures 
             forall |s| {
                 &&& #[trigger] pm_regions_view[0].can_crash_as(s) 
                 &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
             } ==> {
-                let cdb2 = deserialize_and_check_log_cdb(s);
-                &&& cdb2 is Some
-                &&& cdb2.unwrap() == cdb
+                &&& deserialize_and_check_log_cdb(s) == Some(cdb)
                 &&& metadata_types_set_in_first_region(s)
             }
     {
@@ -489,16 +463,10 @@ verus! {
             &&& #[trigger] pm_regions_view[0].can_crash_as(s) 
             &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
         } implies {
-            let cdb2 = deserialize_and_check_log_cdb(s);
-            &&& cdb2 is Some
-            &&& cdb == cdb2.unwrap()
+            &&& deserialize_and_check_log_cdb(s) == Some(cdb)
             &&& metadata_types_set_in_first_region(s)
         } by {
             lemma_establish_subrange_equivalence(s, pm_bytes);
-            assert(pm_regions_view[0].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int,
-                                                                     ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
-            assert(extract_bytes(pm_bytes, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= 
-                   extract_bytes(s, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
         }
     }
 
@@ -508,29 +476,19 @@ verus! {
     ) 
         requires 
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
-            regions_metadata_types_set(pm_regions_view),
+            metadata_types_set(pm_regions_view.committed()),
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
-            // is this just the same as above...?
-            deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
-            cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
             pm_regions_view.len() > 0,
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
-                0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len()
+                ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len()
         ensures 
             forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==> metadata_types_set(s),
     {
         assert(metadata_types_set(pm_regions_view.committed()));
-        // Z3 cannot always tell that pm_regions_view[i].committed() == pm_regions_view.committed()[i]; we have to help it out here
-        assert forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() implies
-                   metadata_types_set_in_region(pm_regions_view[i].committed(), cdb) by {
-            assert(metadata_types_set_in_region(pm_regions_view.committed()[i], cdb));
-        };
 
         assert forall |s| #[trigger] pm_regions_view.can_crash_as(s) implies metadata_types_set(s) by {
             assert forall |s| #[trigger] pm_regions_view[0].can_crash_as(s) implies {
-                let cdb2 = deserialize_and_check_log_cdb(s);
-                &&& cdb2 is Some
-                &&& cdb2.unwrap() == cdb
+                &&& deserialize_and_check_log_cdb(s) == Some(cdb)
                 &&& metadata_types_set_in_first_region(s)
             } by {
                 assert(log_index_trigger(0));
@@ -943,27 +901,17 @@ verus! {
             metadata_types_set(pm2.committed())
     {
         let log_metadata_pos = get_log_metadata_pos(cdb);
-        
-        lemma_auto_smaller_range_of_seq_is_subrange(pm1[0].committed());
-        lemma_auto_smaller_range_of_seq_is_subrange(pm2[0].committed());
 
-        assert(log_index_trigger(0));
-        assert(metadata_types_set_in_first_region(pm2[0].committed()));
+        assert(metadata_types_set_in_first_region(pm2.committed()[0])) by {
+            assert(log_index_trigger(0));
+            lemma_auto_smaller_range_of_seq_is_subrange(pm1[0].committed());
+            lemma_auto_smaller_range_of_seq_is_subrange(pm2[0].committed());
+        }
+
         assert forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm1.len() implies
                    metadata_types_set_in_region(pm2.committed()[i], cdb) by {
             lemma_establish_subrange_equivalence(pm1.committed()[i], pm2.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm1.committed()[i]);
-            lemma_auto_smaller_range_of_seq_is_subrange(pm2.committed()[i]);
-            assert(pm1[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                               ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
-                   pm2[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                               ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
-            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                 GlobalMetadata::spec_size_of()) ==
-                   extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                 GlobalMetadata::spec_size_of()));
-            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()) ==
-                   extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
         }
     }
 
@@ -1059,7 +1007,6 @@ verus! {
             let flushed = pm_regions_view.flush().committed()[i];
             lemma_establish_subrange_equivalence(committed, flushed);
         }
-        
     }
 
     // This lemma proves that active metadata remains the same after writing to inactive metadata.
@@ -1094,10 +1041,9 @@ verus! {
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() ==> {
                 &&& wrpm_regions_new[i].len() == wrpm_regions_old[i].len()
                 &&& wrpm_regions_new[i].len() > ABSOLUTE_POS_OF_LOG_AREA
-               &&& wrpm_regions_old[i].len() > ABSOLUTE_POS_OF_LOG_AREA
+                &&& wrpm_regions_old[i].len() > ABSOLUTE_POS_OF_LOG_AREA
             },
-            deserialize_and_check_log_cdb(wrpm_regions_old[0].committed()) is Some,
-            deserialize_and_check_log_cdb(wrpm_regions_old[0].committed()).unwrap() == cdb,
+            deserialize_and_check_log_cdb(wrpm_regions_old[0].committed()) == Some(cdb),
         ensures
             metadata_types_set(wrpm_regions_new.committed()),
             active_metadata_is_equal(wrpm_regions_new, wrpm_regions_old)
@@ -1118,8 +1064,8 @@ verus! {
         assert(log_index_trigger(which_log as int));
         assert(cur_old.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
-                cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+               cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
 
         let old_cdb = deserialize_and_check_log_cdb(wrpm_regions_old[0].committed());
         let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
