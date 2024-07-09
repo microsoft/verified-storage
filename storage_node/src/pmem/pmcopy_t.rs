@@ -283,7 +283,6 @@ verus! {
         #[verifier::external_body]
         pub exec fn extract_cdb(
             self, 
-            Ghost(true_val): Ghost<u64>, 
             Ghost(true_bytes): Ghost<Seq<u8>>, 
             Ghost(addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>
@@ -294,8 +293,11 @@ verus! {
                 } else {
                     maybe_corrupted(self@, true_bytes, addrs)
                 },
-                true_val.spec_to_bytes() == true_bytes,
-                true_val == CDB_TRUE || true_val == CDB_FALSE,
+                ({
+                    let true_val = <u64 as PmCopyHelper>::spec_from_bytes(true_bytes);
+                    ||| true_val == CDB_TRUE
+                    ||| true_val == CDB_FALSE
+                }),
             ensures 
                 out.spec_to_bytes() == self@
         {

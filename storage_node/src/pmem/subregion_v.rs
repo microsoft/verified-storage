@@ -524,7 +524,7 @@ impl WriteRestrictedPersistentMemorySubregion
             assert(wrpm@.state[i] == self.view(wrpm).state[i - self.start()]);
         }
 
-        wrpm.get_pm_region_ref().read_aligned::<S>(absolute_addr, Ghost(true_val))
+        wrpm.get_pm_region_ref().read_aligned::<S>(absolute_addr)
     }
 
     pub exec fn write_relative<Perm, PMRegion>(
@@ -880,7 +880,6 @@ impl PersistentMemorySubregion
         self: &Self,
         pm: &'a PMRegion,
         relative_addr: u64,
-        Ghost(true_val): Ghost<S>,
     ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
@@ -892,7 +891,9 @@ impl PersistentMemorySubregion
                 relative_addr as int,
                 relative_addr + S::spec_size_of(),
             ),
-            self.view(pm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of()) == true_val.spec_to_bytes(),
+            <S as PmCopyHelper>::bytes_parseable(
+                self.view(pm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of())
+            ),
         ensures
             match result {
                 Ok(bytes) => {
@@ -910,14 +911,13 @@ impl PersistentMemorySubregion
                 Err(e) => e == PmemError::AccessOutOfRange
             }
     {
-        self.read_absolute_aligned(pm, relative_addr + self.start_, Ghost(true_val))
+        self.read_absolute_aligned(pm, relative_addr + self.start_)
     }
 
     pub exec fn read_absolute_aligned<'a, S, PMRegion>(
         self: &Self,
         pm: &'a PMRegion,
         absolute_addr: u64,
-        Ghost(true_val): Ghost<S>,
     ) -> (result: Result<MaybeCorruptedBytes<S>, PmemError>)
         where
             S: PmCopy + Sized,
@@ -930,7 +930,10 @@ impl PersistentMemorySubregion
                 absolute_addr - self.start(),
                 absolute_addr + S::spec_size_of() - self.start(),
             ),
-            self.view(pm).committed().subrange(absolute_addr - self.start(), absolute_addr + S::spec_size_of() - self.start()) == true_val.spec_to_bytes(),
+            <S as PmCopyHelper>::bytes_parseable(
+                self.view(pm).committed().subrange(absolute_addr - self.start(),
+                                                   absolute_addr + S::spec_size_of() - self.start())
+            ),
         ensures
             match result {
                 Ok(bytes) => {
@@ -963,7 +966,7 @@ impl PersistentMemorySubregion
             assert(pm@.state[i] == self.view(pm).state[i - self.start()]);
         }
 
-        pm.read_aligned::<S>(absolute_addr, Ghost(true_val))
+        pm.read_aligned::<S>(absolute_addr)
     }
 }
 
