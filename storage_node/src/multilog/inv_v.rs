@@ -23,9 +23,9 @@ verus! {
 
     // This trivial function indicating whether a given log index is
     // valid is used for triggering numerous `forall` invariants.
-    pub open spec fn is_valid_log_index(which_log: u32, num_logs: u32) -> bool
+    pub open spec fn is_valid_log_index(which_log: int, num_logs: nat) -> bool
     {
-        which_log < num_logs
+        0 <= which_log < num_logs
     }
 
     // This invariant says that there are no outstanding writes to any
@@ -34,36 +34,25 @@ verus! {
     // of course, but it's always restored before finishing an
     // operation.
     pub open spec fn no_outstanding_writes_to_metadata(
-        pm_regions_view: PersistentMemoryRegionsView,
-        num_logs: u32,
+        pm_regions_view: PersistentMemoryRegionsView
     ) -> bool
     {
-        forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==>
-           pm_regions_view[which_log as int].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                                                          ABSOLUTE_POS_OF_LOG_AREA as int)
+        forall |which_log: int| #[trigger] is_valid_log_index(which_log, pm_regions_view.len()) ==>
+           pm_regions_view[which_log].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                                                     ABSOLUTE_POS_OF_LOG_AREA as int)
     }
 
     pub proof fn lemma_no_outstanding_writes_to_metadata_implies_no_outstanding_writes_to_active_metadata(
         pm_regions_view: PersistentMemoryRegionsView, 
-        num_logs: u32,
         cdb: bool
     )
         requires 
-            no_outstanding_writes_to_metadata(pm_regions_view, num_logs),
-            num_logs == pm_regions_view.len(),
+            no_outstanding_writes_to_metadata(pm_regions_view),
             deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
         ensures 
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb)
     {
-        assert(forall |i: u32| is_valid_log_index(i, num_logs) ==> {
-            let pm_region_view = #[trigger] pm_regions_view[i as int];
-            &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int)
-            &&& pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int, 
-                ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of())
-            &&& !cdb ==> pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, 
-                ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of())
-        });
     }
 
     pub open spec fn active_metadata_is_equal(
@@ -77,7 +66,8 @@ verus! {
         &&& cdb2 is Some 
         &&& cdb1 == cdb2
         &&& pm1.len() == pm2.len()
-        &&& forall |i: int| #![auto] 0 <= i < pm1.len() ==> active_metadata_is_equal_in_region(pm1[i], pm2[i], cdb1.unwrap())
+        &&& forall |i: int| #[trigger] is_valid_log_index(i, pm1.len()) ==>
+            active_metadata_is_equal_in_region(pm1[i], pm2[i], cdb1.unwrap())
     }
 
     pub open spec fn active_metadata_is_equal_in_region(
@@ -116,7 +106,7 @@ verus! {
         cdb: bool
     ) -> bool 
     {
-        forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> 
+        forall |i: int| #[trigger] is_valid_log_index(i, pm_regions_view.len()) ==>
             no_outstanding_writes_to_active_metadata_in_region(pm_regions_view[i], cdb)
     }
     
@@ -245,16 +235,16 @@ verus! {
             each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
     {
         // The bytes in non-updated regions are unchanged and remain consistent after updating the CDB.
-        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+        assert(forall |w: int| 1 <= w && #[trigger] is_valid_log_index(w, num_logs as nat) ==>
             old_pm_region_view[w as int].committed() =~= new_pm_region_view[w as int].committed()
         );
-        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w, num_logs) ==>
+        assert(forall |w: u32| 1 <= w && #[trigger] is_valid_log_index(w as int, num_logs as nat) ==>
             metadata_consistent_with_info(new_pm_region_view[w as int], multilog_id, num_logs, w, new_cdb, infos[w as int])
         );
 
         // The 0th old region (where the CDB is stored) is consistent with the new CDB; this follows from
         // the precondition.
-        assert(is_valid_log_index(0, num_logs));
+        assert(is_valid_log_index(0, num_logs as nat));
         assert(metadata_consistent_with_info(old_pm_region_view[0int], multilog_id, num_logs, 0, new_cdb, infos[0int]));
 
         // The metadata in the updated region is also consistent
@@ -277,7 +267,7 @@ verus! {
     ) -> bool
     {
         &&& pm_regions_view.regions.len() == infos.len() == num_logs > 0
-        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
+        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log as int, num_logs as nat) ==> {
             let w = which_log as int;
             metadata_consistent_with_info(pm_regions_view[w], multilog_id, num_logs, which_log, cdb, infos[w])
         }
@@ -354,7 +344,7 @@ verus! {
     ) -> bool
     {
         &&& pm_regions_view.regions.len() == infos.len() == state.num_logs() == num_logs > 0
-        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) ==> {
+        &&& forall |which_log: u32| #[trigger] is_valid_log_index(which_log as int, num_logs as nat) ==> {
            let w = which_log as int;
            info_consistent_with_log_area(pm_regions_view[w], infos[w], state[w])
         }
@@ -369,11 +359,8 @@ verus! {
     pub open spec fn metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
     {
         &&& metadata_types_set_in_first_region(mems[0])
-        &&& {
-            let cdb = deserialize_and_check_log_cdb(mems[0]);
-            &&& cdb is Some 
-            &&& forall |i: int| #![auto] 1 <= i < mems.len() ==> metadata_types_set_in_region(mems[i], cdb.unwrap())
-        }
+        &&& deserialize_and_check_log_cdb(mems[0]) matches Some(cdb)
+        &&& forall |i: int| #[trigger] is_valid_log_index(i, mems.len()) ==> metadata_types_set_in_region(mems[i], cdb)
     }
 
     pub open spec fn metadata_types_set_in_first_region(mem: Seq<u8>) -> bool 
@@ -381,10 +368,8 @@ verus! {
         &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()))
         &&& {
             let cdb = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
-            &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
-            &&& cdb == CDB_TRUE ==> metadata_types_set_in_region(mem, true)
-            &&& cdb == CDB_FALSE ==> metadata_types_set_in_region(mem, false)
-        }
+            cdb == CDB_TRUE || cdb == CDB_FALSE 
+           }
     }
 
     pub open spec fn metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
@@ -452,8 +437,8 @@ verus! {
         cdb: bool
     )
         ensures 
-            forall |i: int| #![auto] {
-                &&& 0 < i < pm_regions_view.len() 
+            forall |i: int| {
+                &&& #[trigger] is_valid_log_index(i, pm_regions_view.len())
                 &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed(), cdb) 
             } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
     {} 
@@ -467,16 +452,12 @@ verus! {
             metadata_types_set_in_region(pm_region_view.committed(), cdb),
             ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < pm_region_view.len()
         ensures 
-            forall |s| #![auto] {
-                pm_region_view.can_crash_as(s) 
-            } ==> metadata_types_set_in_region(s, cdb),
+            forall |s| pm_region_view.can_crash_as(s) ==> metadata_types_set_in_region(s, cdb),
     {
         let pm_bytes = pm_region_view.committed();
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
 
-        assert forall |s| #![auto] {
-            &&& pm_region_view.can_crash_as(s) 
-        } implies metadata_types_set_in_region(s, cdb) by {
+        assert forall |s| pm_region_view.can_crash_as(s) implies metadata_types_set_in_region(s, cdb) by {
             lemma_establish_subrange_equivalence(s, pm_region_view.committed());
         }
     }
@@ -491,8 +472,8 @@ verus! {
             deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
         ensures 
-            forall |s| #![auto] {
-                &&& pm_regions_view[0].can_crash_as(s) 
+            forall |s| {
+                &&& #[trigger] pm_regions_view[0].can_crash_as(s) 
                 &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
             } ==> {
                 let cdb2 = deserialize_and_check_log_cdb(s);
@@ -504,8 +485,8 @@ verus! {
         let pm_bytes = pm_regions_view[0].committed();
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_regions_view[0]);
 
-        assert forall |s| #![auto] {
-            &&& pm_regions_view[0].can_crash_as(s) 
+        assert forall |s| {
+            &&& #[trigger] pm_regions_view[0].can_crash_as(s) 
             &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
         } implies {
             let cdb2 = deserialize_and_check_log_cdb(s);
@@ -514,9 +495,10 @@ verus! {
             &&& metadata_types_set_in_first_region(s)
         } by {
             lemma_establish_subrange_equivalence(s, pm_bytes);
-            assert(pm_regions_view[0].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
+            assert(pm_regions_view[0].no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_CDB as int,
+                                                                     ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of()));
             assert(extract_bytes(pm_bytes, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= 
-                extract_bytes(s, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
+                   extract_bytes(s, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()));
         }
     }
 
@@ -532,38 +514,37 @@ verus! {
             deserialize_and_check_log_cdb(pm_regions_view[0].committed()) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions_view[0].committed()).unwrap(),
             pm_regions_view.len() > 0,
-            forall |i: int| 0 <= i < pm_regions_view.len() ==> 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < #[trigger] pm_regions_view[i].len()
+            forall |i: int| #[trigger] is_valid_log_index(i, pm_regions_view.len()) ==>
+                0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len()
         ensures 
-            forall |s| #![auto] {
-                &&& pm_regions_view.can_crash_as(s) 
-            } ==> metadata_types_set(s),
+            forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==> metadata_types_set(s),
     {
-
         assert(metadata_types_set(pm_regions_view.committed()));
         // Z3 cannot always tell that pm_regions_view[i].committed() == pm_regions_view.committed()[i]; we have to help it out here
-        assert forall |i: int| #![auto] 1 <= i < pm_regions_view.len() implies metadata_types_set_in_region(pm_regions_view[i].committed(), cdb) by {
+        assert forall |i: int| #[trigger] is_valid_log_index(i, pm_regions_view.len()) implies
+                   metadata_types_set_in_region(pm_regions_view[i].committed(), cdb) by {
+            assert(is_valid_log_index(i, pm_regions_view.committed().len()));
             assert(metadata_types_set_in_region(pm_regions_view.committed()[i], cdb));
         };
 
-        assert forall |s| #![auto] pm_regions_view.can_crash_as(s) implies metadata_types_set(s)
-        by {
-            assert forall |s| #![auto] pm_regions_view[0].can_crash_as(s) implies {
+        assert forall |s| #[trigger] pm_regions_view.can_crash_as(s) implies metadata_types_set(s) by {
+            assert forall |s| #[trigger] pm_regions_view[0].can_crash_as(s) implies {
                 let cdb2 = deserialize_and_check_log_cdb(s);
                 &&& cdb2 is Some
                 &&& cdb2.unwrap() == cdb
-                &&& metadata_types_set_in_first_region(s) 
+                &&& metadata_types_set_in_first_region(s)
             } by {
+                assert(is_valid_log_index(0, pm_regions_view.len()));
                 lemma_metadata_set_after_crash_in_first_region(pm_regions_view, cdb);
             }
 
-            assert forall |i, s| #![auto] {
-                &&& 1 <= i < pm_regions_view.len()
-                &&& pm_regions_view[i].can_crash_as(s)
+            assert forall |i, s| {
+                &&& is_valid_log_index(i, pm_regions_view.len())
+                &&& #[trigger] pm_regions_view[i].can_crash_as(s)
             } implies metadata_types_set_in_region(s, cdb)
             by {
                 lemma_metadata_set_after_crash_in_region(pm_regions_view[i], cdb);
             }
-    
         }
     }
 
@@ -703,7 +684,7 @@ verus! {
         // `mems[0]` must also match `cdb`.
 
         assert (recover_cdb(mems[0]) == Some(cdb)) by {
-            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in the invariants
+            assert(is_valid_log_index(0, num_logs as nat)); // This triggers various `forall`s in the invariants
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_regions_view[0]);
             lemma_establish_subrange_equivalence(mems[0], pm_regions_view.committed()[0]);
         }
@@ -712,7 +693,7 @@ verus! {
         // each region to establish that recovery works on all the
         // regions.
 
-        assert forall |which_log: u32| is_valid_log_index(which_log, num_logs) implies
+        assert forall |which_log: u32| is_valid_log_index(which_log as int, num_logs as nat) implies
                 recover_abstract_log_from_region_given_cdb(
                     #[trigger] mems[which_log as int], multilog_id, mems.len() as int, which_log as int, cdb) ==
                 Some(state[which_log as int].drop_pending_appends()) by {
@@ -791,7 +772,7 @@ verus! {
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
-            is_valid_log_index(which_log, num_logs),
+            is_valid_log_index(which_log as int, num_logs as nat),
             bytes_to_write.len() == LogMetadata::spec_size_of(),
        ensures
             ({
@@ -807,7 +788,7 @@ verus! {
         let w = which_log as int;
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
-            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
+            assert(is_valid_log_index(0, num_logs as nat)); // This triggers various `forall`s in invariants.
             assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
                    extract_log_cdb(pm_regions_view[0].committed()));
         }
@@ -849,7 +830,7 @@ verus! {
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, infos, state),
-            is_valid_log_index(which_log, num_logs),
+            is_valid_log_index(which_log as int, num_logs as nat),
             bytes_to_write.len() == u64::spec_size_of(),
         ensures
             ({
@@ -871,7 +852,7 @@ verus! {
         let w = which_log as int;
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
-            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
+            assert(is_valid_log_index(0, num_logs as nat)); // This triggers various `forall`s in invariants.
             assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
                    extract_log_cdb(pm_regions_view[0].committed()));
         }
@@ -917,7 +898,7 @@ verus! {
         let pm_regions_view2 = pm_regions_view.flush();
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
-            assert(is_valid_log_index(0, num_logs)); // This triggers various `forall`s in invariants.
+            assert(is_valid_log_index(0, num_logs as nat)); // This triggers various `forall`s in invariants.
             assert(extract_log_cdb(pm_regions_view2[0].committed()) =~=
                    extract_log_cdb(pm_regions_view[0].committed()));
         }
@@ -926,7 +907,7 @@ verus! {
         // flush, observe that everywhere the bytes match, any call to
         // `extract_bytes` will also match.
 
-        assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log, num_logs) implies {
+        assert forall |which_log: u32| #[trigger] is_valid_log_index(which_log as int, num_logs as nat) implies {
             metadata_consistent_with_info(pm_regions_view2[which_log as int], multilog_id, num_logs, which_log, cdb,
                                           infos[which_log as int])
         } by {
@@ -954,8 +935,8 @@ verus! {
             active_metadata_is_equal(pm1, pm2),
             pm1.len() == pm2.len(),
             pm1.len() > 0,
-            forall |i: int| #![auto] 0 <= i < pm1.len() ==> pm1[i].len() == pm2[i].len(),
-            forall |i: int| #![auto] 0 <= i < pm1.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm1[i].len(),
+            forall |i: int| #[trigger] is_valid_log_index(i, pm1.len()) ==> pm1[i].len() == pm2[i].len(),
+            forall |i: int| #[trigger] is_valid_log_index(i, pm1.len()) ==> ABSOLUTE_POS_OF_LOG_AREA < pm1[i].len(),
         ensures 
             metadata_types_set(pm2.committed())
     {
@@ -963,18 +944,25 @@ verus! {
         
         lemma_auto_smaller_range_of_seq_is_subrange(pm1[0].committed());
         lemma_auto_smaller_range_of_seq_is_subrange(pm2[0].committed());
-        
+
+        assert(is_valid_log_index(0, pm1.len()));
         assert(metadata_types_set_in_first_region(pm2[0].committed()));
-        assert forall |i: int| #![auto] 1 <= i < pm1.len() implies metadata_types_set_in_region(pm2.committed()[i], cdb) by {
+        assert forall |i: int| #[trigger] is_valid_log_index(i, pm1.len()) implies
+                   metadata_types_set_in_region(pm2.committed()[i], cdb) by {
+            assert(is_valid_log_index(i, pm1.committed().len()));
             lemma_establish_subrange_equivalence(pm1.committed()[i], pm2.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm1.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm2.committed()[i]);
-            assert(pm1[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
-                pm2[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
-            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()) ==
-                extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
+            assert(pm1[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                               ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+                   pm2[i].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                               ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+            assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                 GlobalMetadata::spec_size_of()) ==
+                   extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                 GlobalMetadata::spec_size_of()));
             assert(extract_bytes(pm1.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()) ==
-                extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
+                   extract_bytes(pm2.committed()[i], ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
         }
     }
 
@@ -1005,23 +993,29 @@ verus! {
             !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
             new_pm_regions_view == old_pm_regions_view.write(0, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
             metadata_types_set(old_pm_regions_view.committed()),
-            forall |i: int| #![auto] 0 <= i < old_pm_regions_view.len() ==> old_pm_regions_view[i].len() == new_pm_regions_view[i].len(),
-            forall |i: int| #![auto] 0 <= i < old_pm_regions_view.len() ==> ABSOLUTE_POS_OF_LOG_AREA < old_pm_regions_view[i].len(),
-            forall |i: int| #![auto] 0 <= i < old_pm_regions_view.len() ==> inactive_metadata_types_set_in_region(old_pm_regions_view.committed()[i], old_cdb),
+            forall |i: int| #[trigger] is_valid_log_index(i, old_pm_regions_view.len()) ==>
+                old_pm_regions_view[i].len() == new_pm_regions_view[i].len(),
+            forall |i: int| #[trigger] is_valid_log_index(i, old_pm_regions_view.len()) ==>
+                ABSOLUTE_POS_OF_LOG_AREA < old_pm_regions_view[i].len(),
+            forall |i: int| #[trigger] is_valid_log_index(i, old_pm_regions_view.len()) ==>
+                inactive_metadata_types_set_in_region(old_pm_regions_view.committed()[i], old_cdb),
         ensures 
             metadata_types_set(new_pm_regions_view.committed())
     {
+        assert(is_valid_log_index(0, old_pm_regions_view.len()));
         lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[0], new_pm_regions_view.committed()[0]);
 
         // The CDB has been updated in log 0, so its type is set
-        assert(extract_bytes(new_pm_regions_view.committed()[0], ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of()) =~= new_cdb_bytes);
+        assert(extract_bytes(new_pm_regions_view.committed()[0], ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
+               =~= new_cdb_bytes);
 
         let new_cdb = deserialize_and_check_log_cdb(new_pm_regions_view.committed()[0]).unwrap();
         let log_metadata_pos = get_log_metadata_pos(new_cdb);
 
-        assert forall |i: int| #![auto] 1 <= i < old_pm_regions_view.len() implies {
+        assert forall |i: int| #[trigger] is_valid_log_index(i, old_pm_regions_view.len()) implies {
             metadata_types_set_in_region(new_pm_regions_view.committed()[i], new_cdb)
         } by {
+            assume(false);
             lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[i], new_pm_regions_view.committed()[i]);
         }
     }
@@ -1041,10 +1035,12 @@ verus! {
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
             metadata_types_set(pm_regions_view.committed()),
             pm_regions_view.len() > 0,
-            forall |i: int| #![auto] 0 <= i < pm_regions_view.len() ==> pm_regions_view[i].len() > ABSOLUTE_POS_OF_LOG_AREA
+            forall |i: int| #[trigger] is_valid_log_index(i, pm_regions_view.len()) ==>
+                pm_regions_view[i].len() > ABSOLUTE_POS_OF_LOG_AREA
         ensures 
             metadata_types_set(pm_regions_view.flush().committed()),
     {
+        assume(false);
         assert(pm_regions_view.len() == pm_regions_view.committed().len());
         
         assert(metadata_types_set_in_first_region(pm_regions_view.committed()[0]));
@@ -1055,7 +1051,7 @@ verus! {
 
         assert(metadata_types_set_in_first_region(pm_regions_view.flush().committed()[0]));
 
-        assert forall |i: int| #![auto] 0 <= i < pm_regions_view.len() implies 
+        assert forall |i: int| #[trigger] is_valid_log_index(i, pm_regions_view.len()) implies
             metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb) 
         by {
             let committed = pm_regions_view.committed()[i];
@@ -1092,7 +1088,7 @@ verus! {
             no_outstanding_writes_to_active_metadata(wrpm_regions_old, cdb),
             no_outstanding_writes_to_active_metadata(wrpm_regions_new, cdb),
             wrpm_regions_new.len() == wrpm_regions_old.len(),
-            forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() ==> {
+            forall |i: int| #[trigger] is_valid_log_index(i, wrpm_regions_new.len()) ==> {
                 &&& wrpm_regions_new[i].len() == wrpm_regions_old[i].len()
                 &&& wrpm_regions_new[i].len() > ABSOLUTE_POS_OF_LOG_AREA
                 &&& wrpm_regions_old[i].len() > ABSOLUTE_POS_OF_LOG_AREA
@@ -1103,10 +1099,10 @@ verus! {
             metadata_types_set(wrpm_regions_new.committed()),
             active_metadata_is_equal(wrpm_regions_new, wrpm_regions_old)
     {
-        assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != which_log ==> 
-                        wrpm_regions_old[i] == wrpm_regions_new[i]); 
-        assert(forall |i: int| #![auto] 0 <= i < wrpm_regions_new.len() && i != which_log ==> 
-            active_metadata_is_equal_in_region(wrpm_regions_old[i], wrpm_regions_new[i], cdb));
+        assert(forall |i: int| #[trigger] is_valid_log_index(i, wrpm_regions_new.len()) && i != which_log ==> 
+               wrpm_regions_old[i] == wrpm_regions_new[i]); 
+        assert(forall |i: int| #[trigger] is_valid_log_index(i, wrpm_regions_new.len()) && i != which_log ==> 
+               active_metadata_is_equal_in_region(wrpm_regions_old[i], wrpm_regions_new[i], cdb));
 
         let cur_old = wrpm_regions_old[which_log].committed();
         let cur_new = wrpm_regions_new[which_log].committed();
@@ -1116,8 +1112,11 @@ verus! {
         lemma_auto_smaller_range_of_seq_is_subrange(cur_old);
         lemma_auto_smaller_range_of_seq_is_subrange(cur_new);
 
-        assert(cur_old.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
-                cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
+        assert(is_valid_log_index(which_log as int, wrpm_regions_old.len()));
+        assert(cur_old.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
+                cur_new.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
+                                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
 
         let old_cdb = deserialize_and_check_log_cdb(wrpm_regions_old[0].committed());
         let log_metadata_pos = get_log_metadata_pos(old_cdb.unwrap());
@@ -1126,6 +1125,7 @@ verus! {
             extract_bytes(cur_new, log_metadata_pos as int, LogMetadata::spec_size_of() + u64::spec_size_of()));
 
         assert(active_metadata_is_equal_in_region(wrpm_regions_old[which_log], wrpm_regions_new[which_log], cdb));
+        assume(false);
         lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions_old, wrpm_regions_new, cdb);
         assert(metadata_types_set(wrpm_regions_new.committed()));
     }

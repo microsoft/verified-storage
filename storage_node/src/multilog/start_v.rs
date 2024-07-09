@@ -130,7 +130,7 @@ verus! {
     ) -> (result: Result<LogInfo, MultiLogErr>)
         requires
             pm_regions.inv(),
-            is_valid_log_index(which_log, num_logs),
+            is_valid_log_index(which_log as int, num_logs as nat),
             num_logs == pm_regions@.len(),
             pm_regions@[which_log as int].no_outstanding_writes(),
             metadata_types_set(pm_regions@.committed()),
