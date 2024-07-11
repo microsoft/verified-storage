@@ -65,11 +65,25 @@ where
         None
     }
 
+    pub closed spec fn construct_view_contents(
+        volatile_store_state: VolatileKvIndexView<K>,
+        durable_store_state: DurableKvStoreView<K, I, L>
+    ) -> Map<K, (I, Seq<L>)> {
+        Map::new(
+            |k| { volatile_store_state.contains_key(k) },
+            |k| {
+                let index_entry = volatile_store_state[k].unwrap();
+                let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
+                (durable_entry.item(), durable_entry.list().list)
+            }
+        )
+    }
+
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
         AbstractKvStoreState {
             id: self.id,
-            contents: AbstractKvStoreState::construct_view_contents(
+            contents: Self::construct_view_contents(
                 self.volatile_index@, self.durable_store@),
         }
     }

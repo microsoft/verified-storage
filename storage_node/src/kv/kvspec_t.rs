@@ -12,11 +12,7 @@ use vstd::prelude::*;
 use crate::pmem::wrpm_t::*;
 
 use crate::kv::durable::durableimpl_v::*;
-use crate::kv::durable::durablespec_t::*;
 use crate::kv::kvimpl_t::*;
-use crate::kv::kvimpl_v::*;
-use crate::kv::volatile::volatileimpl_v::*;
-use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
@@ -145,20 +141,6 @@ verus! {
         pub open spec fn contains_key(&self, key: K) -> bool
         {
             self.contents.contains_key(key)
-        }
-
-        pub open spec fn construct_view_contents(
-            volatile_store_state: VolatileKvIndexView<K>,
-            durable_store_state: DurableKvStoreView<K, I, L>
-        ) -> Map<K, (I, Seq<L>)> {
-            Map::new(
-                |k| { volatile_store_state.contains_key(k) },
-                |k| {
-                    let index_entry = volatile_store_state[k].unwrap();
-                    let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
-                    (durable_entry.item(), durable_entry.list().list)
-                }
-            )
         }
 
         pub open spec fn create(self, key: K, item: I) -> Result<Self, KvError<K>>
