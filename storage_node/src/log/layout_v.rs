@@ -721,47 +721,38 @@ verus! {
         assert(recovered_mem.is_Some());
     }
 
-    // This lemma establishes that for any `i` and `n`, if
+    // This lemma establishes that for any `i` and `j`, if
     //
-    // `forall |k| 0 <= k < n ==> mem1[i+k] == mem2[i+k]`
+    // `forall |k| i <= k < j ==> mem1[k] == mem2[k]`
     //
     // holds, then
     //
-    // `extract_bytes(mem1, i, n) == mem2.extract_bytes(mem2, i, n)`
+    // `mem1.subrange(i, j) == mem2.subrange(i, j)`
     //
     // also holds.
     //
-    // This is an obvious fact, so the body of the lemma is
-    // empty. Nevertheless, the lemma is useful because it establishes
-    // a trigger. Specifically, it hints Z3 that whenever Z3 is
-    // thinking about two terms `extract_bytes(mem1, i, n)` and
-    // `extract_bytes(mem2, i, n)` where `mem1` and `mem2` are the
-    // specific memory byte sequences passed to this lemma, Z3 should
-    // also think about this lemma's conclusion. That is, it should
-    // try to prove that
+    // This is an obvious fact, so the body of the lemma is empty.
+    // Nevertheless, the lemma is useful because it establishes a
+    // trigger. Specifically, it hints Z3 that whenever Z3 is thinking
+    // about two terms `mem1.subrange(i, j)` and `mem2.subrange(i, j)`
+    // where `mem1` and `mem2` are the specific memory byte sequences
+    // passed to this lemma, Z3 should also think about this lemma's
+    // conclusion. That is, it should try to prove that
     //
-    // `forall |k| 0 <= k < n ==> mem1[i+k] == mem2[i+k]`
+    // `forall |k| i <= k < j ==> mem1[k] == mem2[k]`
     //
     // and, whenever it can prove that, conclude that
     //
-    // `extract_bytes(mem1, i, n) == mem2.extract_bytes(mem2, i, n)`
-    pub proof fn lemma_establish_extract_bytes_equivalence(
+    // `mem1.subrange(i, j) == mem2.subrange(i, j)`
+    pub proof fn lemma_establish_subrange_equivalence(
         mem1: Seq<u8>,
         mem2: Seq<u8>,
     )
         ensures
-            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
-                #[trigger] extract_bytes(mem1, i, n) == #[trigger] extract_bytes(mem2, i, n)
+            forall |i: int, j: int| mem1.subrange(i, j) =~= mem2.subrange(i, j) ==>
+                #[trigger] mem1.subrange(i, j) == #[trigger] mem2.subrange(i, j)
     {
     }
-
-    pub proof fn lemma_same_bytes_same_deserialization<S>(mem1: Seq<u8>, mem2: Seq<u8>)
-        where
-            S: PmCopy + Sized
-        ensures
-            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
-                S::spec_from_bytes(#[trigger] extract_bytes(mem1, i, n)) == S::spec_from_bytes(#[trigger] extract_bytes(mem2, i, n))
-    {}
 
     // This lemma establishes that if the given persistent memory
     // region's contents can be recovered to a valid abstract state,
@@ -803,7 +794,7 @@ verus! {
             recover_state(mem1, log_id) == recover_state(mem2, log_id),
             metadata_types_set(mem2),
     {
-        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        lemma_establish_subrange_equivalence(mem1, mem2);
         assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
 
         assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
