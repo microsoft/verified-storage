@@ -3,3 +3,4 @@ test_multilog
 lib.exe
 liblib.rlib
 Cargo.lock
+.vscode/
