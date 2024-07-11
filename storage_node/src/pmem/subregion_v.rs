@@ -891,9 +891,8 @@ impl PersistentMemorySubregion
                 relative_addr as int,
                 relative_addr + S::spec_size_of(),
             ),
-            <S as PmCopyHelper>::bytes_parseable(
-                self.view(pm).committed().subrange(relative_addr as int, relative_addr + S::spec_size_of())
-            ),
+            S::bytes_parseable(self.view(pm).committed().subrange(relative_addr as int,
+                                                                  relative_addr + S::spec_size_of())),
         ensures
             match result {
                 Ok(bytes) => {
@@ -930,7 +929,7 @@ impl PersistentMemorySubregion
                 absolute_addr - self.start(),
                 absolute_addr + S::spec_size_of() - self.start(),
             ),
-            <S as PmCopyHelper>::bytes_parseable(
+            S::bytes_parseable(
                 self.view(pm).committed().subrange(absolute_addr - self.start(),
                                                    absolute_addr + S::spec_size_of() - self.start())
             ),

@@ -72,7 +72,7 @@ verus! {
             let pm_slice = &self.contents[addr as usize..addr as usize + S::size_of() as usize];
             let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
             let ghost true_bytes = self@.committed().subrange(addr as int, addr + S::size_of());
-            let ghost true_val = <S as PmCopyHelper>::spec_from_bytes(true_bytes);
+            let ghost true_val = S::spec_from_bytes(true_bytes);
 
             let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
             maybe_corrupted_val.copy_from_slice(pm_slice, Ghost(true_val), Ghost(addrs),

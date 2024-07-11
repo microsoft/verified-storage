@@ -309,7 +309,7 @@ verus! {
             ({
                 let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-                &&& <u64 as PmCopyHelper>::bytes_parseable(true_cdb_bytes)
+                &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
                 &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
                         else { maybe_corrupted(cdb_c@, true_cdb_bytes, cdb_addrs) }

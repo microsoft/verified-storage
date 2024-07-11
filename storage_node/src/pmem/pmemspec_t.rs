@@ -433,7 +433,7 @@ verus! {
                 0 <= addr < addr + S::spec_size_of() <= self@.len(),
                 self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S to this addr
-                <S as PmCopyHelper>::bytes_parseable(self@.committed().subrange(addr as int, addr + S::spec_size_of()))
+                S::bytes_parseable(self@.committed().subrange(addr as int, addr + S::spec_size_of()))
             ensures
                 match bytes {
                     Ok(bytes) => {
@@ -553,9 +553,7 @@ verus! {
                 0 <= addr < addr + S::spec_size_of() <= self@[index as int].len(),
                 self@.no_outstanding_writes_in_range(index as int, addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S to this addr
-                <S as PmCopyHelper>::bytes_parseable(
-                    self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of())
-                ),
+                S::bytes_parseable(self@[index as int].committed().subrange(addr as int, addr + S::spec_size_of())),
             ensures 
                 match bytes {
                     Ok(bytes) => {
