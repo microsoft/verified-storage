@@ -95,7 +95,6 @@ verus! {
         K: Hash + Eq + std::fmt::Debug,
     {
         pub contents: Map<int, DurableKvStoreViewEntry<K, I, L>>,
-        pub index_to_key_map: Map<int, K>,
     }
 
     impl<K, I, L> DurableKvStoreView<K, I, L>
@@ -141,20 +140,14 @@ verus! {
                                 list: DurableKvStoreList::empty()
                             }
                         ),
-                        index_to_key_map: self.index_to_key_map.insert(offset, key),
                     }
                 )
             }
         }
 
-        // Returns true if the keys in the durable store match the keys in the ghost index_to_key_map
         pub open spec fn valid(self) -> bool
         {
-            &&& forall |i: int| #![auto] self.contains_key(i) <==> self.index_to_key_map.contains_key(i)
-            &&& forall |i: int| #![auto] self.index_to_key_map.contains_key(i) ==> {
-                    &&& self[i] is Some
-                    &&& self[i].unwrap().key() == self.index_to_key_map[i]
-                }
+            true
         }
 
         // TODO: might be cleaner to define this elsewhere (like in the interface)
@@ -165,16 +158,15 @@ verus! {
             &&& volatile_index.contents.dom().finite()
             &&& self.valid()
             // all keys in the volatile index are stored at the indexed offset in the durable store
-            &&& forall |k: K| #![auto] volatile_index.contains_key(k) ==> {
+            &&& forall |k: K| #[trigger] volatile_index.contains_key(k) ==> {
                     let indexed_offset = volatile_index[k].unwrap().header_addr;
-                    &&& self.index_to_key_map.contains_key(indexed_offset)
-                    &&& self.index_to_key_map[indexed_offset] == k
+                    &&& self.contains_key(indexed_offset)
+                    &&& self[indexed_offset].unwrap().key == k
                 }
             // all offsets in the durable store have a corresponding entry in the volatile index
-            &&& forall |i: int| #![auto] self.contains_key(i) ==> {
-                &&& self.index_to_key_map.contains_key(i)
-                &&& volatile_index.contains_key(self.index_to_key_map[i])
-                &&& volatile_index[self.index_to_key_map[i]].unwrap().header_addr == i
+            &&& forall |i: int| #[trigger] self.contains_key(i) ==> {
+                &&& volatile_index.contains_key(self[i].unwrap().key)
+                &&& volatile_index[self[i].unwrap().key].unwrap().header_addr == i
             }
         }
     }

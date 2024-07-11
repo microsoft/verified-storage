@@ -50,7 +50,7 @@ verus! {
     /// using the same offset, key, and item, the durable and volatile states still match.
     pub proof fn lemma_volatile_matches_durable_after_create<K, I, L>(
         old_durable_state: DurableKvStoreView<K, I, L>,
-        old_volatile_state: VolatileKvIndexView<K>,
+        old_volatile_index: VolatileKvIndexView<K>,
         offset: int,
         key: K,
         item: I
@@ -58,30 +58,33 @@ verus! {
         where
             K: Hash + Eq + std::fmt::Debug,
         requires
-            old_durable_state.matches_volatile_index(old_volatile_state),
+            old_volatile_index.valid(),
+            old_durable_state.matches_volatile_index(old_volatile_index),
             old_durable_state[offset] is None,
-            old_volatile_state[key] is None,
+            old_volatile_index[key] is None,
         ensures
             ({
                 let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
-                let new_volatile_state = old_volatile_state.insert_key(key, offset);
-                new_durable_state.matches_volatile_index(new_volatile_state)
+                let new_volatile_index = old_volatile_index.insert_key(key, offset);
+                new_durable_state.matches_volatile_index(new_volatile_index)
             })
     {
         let new_durable_state = old_durable_state.create(offset, key, item).unwrap();
-        let new_volatile_state = old_volatile_state.insert_key(key, offset);
+        let new_volatile_index = old_volatile_index.insert_key(key, offset);
 
-        assert forall |k: K| #![auto] new_volatile_state.contains_key(k) implies {
-            let indexed_offset = new_volatile_state[k].unwrap().header_addr;
-            &&& new_durable_state.index_to_key_map.contains_key(indexed_offset)
-            &&& new_durable_state.index_to_key_map[indexed_offset] == k
+        assert forall |k: K| #[trigger] new_volatile_index.contains_key(k) implies {
+            let indexed_offset = new_volatile_index[k].unwrap().header_addr;
+            &&& new_durable_state.contains_key(indexed_offset)
+            &&& new_durable_state[indexed_offset].unwrap().key == k
         } by {
-            if k != key {
-                assert(old_volatile_state.contains_key(k));
-                let indexed_offset = new_volatile_state[k].unwrap().header_addr;
-                assert(old_durable_state.index_to_key_map.contains_key(indexed_offset));
-                assert(old_durable_state.index_to_key_map[indexed_offset] == new_durable_state.index_to_key_map[indexed_offset]);
-            }
+            assert(old_volatile_index.contains_key(k) <==> k != key);
+        }
+
+        assert forall |i: int| #[trigger] new_durable_state.contains_key(i) implies {
+                &&& new_volatile_index.contains_key(new_durable_state[i].unwrap().key)
+                &&& new_volatile_index[new_durable_state[i].unwrap().key].unwrap().header_addr == i
+                } by {
+            assert(old_durable_state.contains_key(i) <==> new_durable_state[i].unwrap().key != key);
         }
     }
 }
