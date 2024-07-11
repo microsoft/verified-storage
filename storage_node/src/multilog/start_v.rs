@@ -11,7 +11,7 @@ use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::MultiLogErr;
 use crate::multilog::multilogimpl_v::LogInfo;
 use crate::multilog::multilogspec_t::AbstractMultiLogState;
-use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE, CDB_SIZE};
+use crate::pmem::pmemspec_t::{extract_bytes, PersistentMemoryRegions};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::size_of;

@@ -711,7 +711,7 @@ verus! {
                 let state_after_flush = subregion.view(wrpm_region).flush().committed();
                 assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of() as int)
                        =~= log_metadata.spec_to_bytes());
-                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of() as int, CRC_SIZE as int)
+                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of() as int, u64::spec_size_of() as int)
                        =~= log_crc.spec_to_bytes());
             }
         }

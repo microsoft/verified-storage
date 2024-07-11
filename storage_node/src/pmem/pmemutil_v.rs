@@ -211,7 +211,7 @@ verus! {
         requires
             data_addrs.len() <= mem.len(),
             crc_addrs.len() <= mem.len(),
-            crc_c@.len() == CRC_SIZE,
+            crc_c@.len() == u64::spec_size_of(),
             all_elements_unique(data_addrs),
             all_elements_unique(crc_addrs),
             ({

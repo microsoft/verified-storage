@@ -115,8 +115,6 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
-    pub const CRC_SIZE: u64 = 8;
-
     pub open spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8> {
         spec_crc_u64(bytes).spec_to_bytes()
     }
@@ -129,7 +127,7 @@ verus! {
     pub exec fn bytes_crc(bytes: &[u8]) -> (out: Vec<u8>)
         ensures
             spec_u64_to_le_bytes(spec_crc_u64(bytes@)) == out@,
-            out@.len() == CRC_SIZE
+            out@.len() == u64::spec_size_of(),
     {
         let mut digest = Digest::new();
         digest.write(bytes);
@@ -188,8 +186,6 @@ verus! {
 
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
-
-    pub const CDB_SIZE: u64 = 8;
 
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
@@ -636,5 +632,13 @@ verus! {
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.flush(),
         ;
+    }
+
+    // This function extracts the subsequence of `bytes` that lie
+    // between `pos` and `pos + len` inclusive of `pos` but exclusive
+    // of `pos + len`.
+    pub open spec fn extract_bytes(bytes: Seq<u8>, pos: int, len: int) -> Seq<u8>
+    {
+        bytes.subrange(pos, pos + len)
     }
 }

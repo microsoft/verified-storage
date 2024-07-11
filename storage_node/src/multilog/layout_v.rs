@@ -154,14 +154,6 @@ verus! {
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.
 
-    // This function extracts the subsequence of `bytes` that lie
-    // between `pos` and `pos + len` inclusive of `pos` but exclusive
-    // of `pos + len`.
-    pub open spec fn extract_bytes(bytes: Seq<u8>, pos: int, len: int) -> Seq<u8>
-    {
-        bytes.subrange(pos, pos + len)
-    }
-
     // This function extracts the bytes encoding global metadata from
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
