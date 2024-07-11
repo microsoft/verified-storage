@@ -298,7 +298,7 @@ verus! {
                 let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size;
                 let cdb_addr = item_slot_offset + RELATIVE_POS_OF_VALID_CDB;
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-                let ghost true_cdb = choose |val: u64| val.spec_to_bytes() == mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of());
+                let ghost true_cdb = u64::spec_from_bytes(mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of()));
                 let cdb = pm_region.read_aligned::<u64>(cdb_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
                 match check_cdb(cdb, Ghost(mem),
                             Ghost(pm_region.constants().impervious_to_corruption),
@@ -635,8 +635,8 @@ verus! {
 
             // read in the metadata structure and its CRC, make sure it has not been corrupted
 
-            let ghost true_metadata_table = choose |metadata: ItemTableMetadata| metadata.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of());
-            let ghost true_crc = choose |crc: u64| crc.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of());
+            let ghost true_metadata_table = ItemTableMetadata::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of()));
+            let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of()));
 
             let metadata_header_addr = ABSOLUTE_POS_OF_METADATA_HEADER;
             let crc_addr = metadata_header_addr + traits_t::size_of::<ItemTableMetadata>() as u64;

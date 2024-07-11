@@ -414,8 +414,8 @@ verus! {
                 // The true next pointer and CRC are the deserializations of the bytes we originally wrote to these addresses.
                 // To prove that the values we read are uncorrupted and initialized, we need to prove that they match these true values
                 // using check_crc.
-                let ghost true_next_pointer = choose |val: u64| val.spec_to_bytes() == mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_size_of());
-                let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem1.subrange(crc_addr as int, crc_addr + u64::spec_size_of());
+                let ghost true_next_pointer = u64::spec_from_bytes(mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_size_of()));
+                let ghost true_crc = u64::spec_from_bytes(mem1.subrange(crc_addr as int, crc_addr + u64::spec_size_of()));
 
                 let next_pointer = pm_region.read_aligned::<u64>(ptr_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
                 let node_header_crc = pm_region.read_aligned::<u64>(crc_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
@@ -925,8 +925,8 @@ verus! {
 
             let ghost mem = pm_region@.committed();
 
-            let ghost true_region_header = choose |header: ListRegionHeader| header.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of());
-            let ghost true_crc = choose |val: u64| val.spec_to_bytes() == mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of());
+            let ghost true_region_header = ListRegionHeader::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of()));
+            let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of()));
 
             // Read the list region header and its CRC and check for corruption
             let region_header = pm_region.read_aligned::<ListRegionHeader>(ABSOLUTE_POS_OF_LIST_REGION_HEADER).map_err(|e| KvError::PmemErr { pmem_err: e })?;

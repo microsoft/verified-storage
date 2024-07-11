@@ -308,7 +308,7 @@ verus! {
                 
                 let ghost entry_type_addrs = log_contents_addrs.subrange(current_offset as int, current_offset + u64::spec_size_of());
                 let ghost true_entry_type_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[entry_type_addrs[i]]);
-                let ghost true_entry_type = choose |val: u64| true_entry_type_bytes == val.spec_to_bytes();
+                let ghost true_entry_type = u64::spec_from_bytes(true_entry_type_bytes);
 
                 entry_type_value.copy_from_slice(entry_type_slice, Ghost(true_entry_type), 
                     Ghost(entry_type_addrs), Ghost(impervious_to_corruption));
@@ -433,7 +433,7 @@ verus! {
             let bytes_slice = slice_range(&log_contents, current_offset, traits_t::size_of::<T>());
             let ghost addrs = log_contents_addrs.subrange(current_offset as int, current_offset + T::spec_size_of());
             let ghost true_bytes = Seq::new(T::spec_size_of() as nat, |i: int| mem[addrs[i]]);
-            let ghost true_entry = choose |val: T| true_bytes == val.spec_to_bytes();
+            let ghost true_entry = T::spec_from_bytes(true_bytes);
 
             bytes.copy_from_slice(bytes_slice, Ghost(true_entry), Ghost(addrs), Ghost(impervious_to_corruption));
             let init_val = bytes.extract_init_val(Ghost(true_entry), Ghost(true_bytes), Ghost(impervious_to_corruption));
