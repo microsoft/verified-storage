@@ -338,7 +338,7 @@ verus! {
                     maybe_corrupted(self@, true_bytes, addrs)
                 },
                 ({
-                    let true_val = <u64 as PmCopyHelper>::spec_from_bytes(true_bytes);
+                    let true_val = u64::spec_from_bytes(true_bytes);
                     ||| true_val == CDB_TRUE
                     ||| true_val == CDB_FALSE
                 }),
