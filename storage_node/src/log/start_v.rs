@@ -11,7 +11,7 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
-use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemspec_t::{extract_bytes, PersistentMemoryRegion, PmemError, spec_crc_bytes};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc};
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
@@ -52,7 +52,6 @@ verus! {
                 Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
             }
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
 
@@ -153,7 +152,6 @@ verus! {
                 }
             })
     {
-        assume(false);
         let ghost mem = pm_region@.committed();
         let ghost state = recover_given_cdb(pm_region@.committed(), log_id, cdb);
 

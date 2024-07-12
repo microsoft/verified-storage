@@ -196,7 +196,7 @@ verus! {
         assert(metadata_consistent_with_info(new_pm_region_view, log_id, new_cdb, info)) by {
             let old_mem = old_pm_region_view.committed();
             let new_mem = new_pm_region_view.committed();
-            lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+            lemma_establish_subrange_equivalence(old_mem, new_mem);
         }
     }
 
@@ -417,7 +417,7 @@ verus! {
         // invariants), the metadata in `mem` must also match `state`.
 
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-        lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+        lemma_establish_subrange_equivalence(mem, pm_region_view.committed());
 
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
@@ -477,7 +477,7 @@ verus! {
 
         assert (recover_cdb(mem) == Some(cdb)) by {
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-            lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+            lemma_establish_subrange_equivalence(mem, pm_region_view.committed());
         }
 
         // Use `lemma_invariants_imply_crash_recover_for_one_log` on
@@ -586,7 +586,7 @@ verus! {
         // write, observe that everywhere the bytes match, any call to
         // `extract_bytes` will also match.
 
-        lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
+        lemma_establish_subrange_equivalence(pm_region_view.committed(), pm_region_view2.committed());
 
         let mem = pm_region_view.committed();
         let global_metadata = deserialize_global_metadata(mem);
@@ -608,7 +608,7 @@ verus! {
         let global_metadata_bytes2 = extract_bytes(mem2, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int);
     
         assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
-            lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
+            lemma_establish_subrange_equivalence(pm_region_view.committed(), pm_region_view2.committed());
         }
 
         assert(mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
@@ -693,7 +693,7 @@ verus! {
         // `extract_bytes` will also match.
 
         assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
-            lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
+            lemma_establish_subrange_equivalence(pm_region_view.committed(), pm_region_view2.committed());
         }
 
         lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2.flush(), cdb);
@@ -740,8 +740,7 @@ verus! {
         // `extract_bytes` will also match.
 
         assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
-            lemma_establish_extract_bytes_equivalence(pm_region_view.committed(),
-                                                      pm_region_view2.committed());
+            lemma_establish_subrange_equivalence(pm_region_view.committed(), pm_region_view2.committed());
         }
 
         // Prove that the bytes in the active metadata are unchanged after the flush, so 
@@ -836,7 +835,7 @@ verus! {
             recover_state(crash_state, log_id) == recover_state(v1.committed(), log_id),
     {
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
-        lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
+        lemma_establish_subrange_equivalence(crash_state, v1.committed());
         assert(recover_state(crash_state, log_id) =~= recover_state(v1.committed(), log_id));
     }
 
@@ -881,14 +880,14 @@ verus! {
                    &&& deserialize_log_crc(s, false) == deserialize_log_crc(pm_bytes, false)
                }
         } by {
-            lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+            lemma_establish_subrange_equivalence(s, pm_region_view.committed());
         }
 
         assert forall |s| #![auto] {
             &&& pm_region_view.can_crash_as(s) 
             &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
         } implies metadata_types_set(s) by {
-            lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
+            lemma_establish_subrange_equivalence(s, pm_region_view.committed());
         }
     }
 
@@ -939,7 +938,7 @@ verus! {
         ensures 
             metadata_types_set(mem2),
     {
-        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        lemma_establish_subrange_equivalence(mem1, mem2);
 
         // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
         // so knowing that the assertions below cover subranges of larger, equal subranges is enough to establish equality
@@ -997,7 +996,7 @@ verus! {
         ensures 
             active_metadata_bytes_are_equal(mem1, mem2)
     {
-        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        lemma_establish_subrange_equivalence(mem1, mem2);
 
         lemma_auto_smaller_range_of_seq_is_subrange(mem1);
 

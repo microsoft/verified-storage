@@ -599,7 +599,7 @@ verus! {
                 );
                 assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
-                lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
+                lemma_establish_subrange_equivalence(wrpm_region@.committed(), alt_region_view.committed());
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.committed(), alt_region_view.committed());
                 lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
                 lemma_metadata_set_after_crash(alt_region_view, self.cdb);
@@ -628,8 +628,8 @@ verus! {
 
             proof {
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-                lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
-                                                          wrpm_region@.committed());
+                lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
+                                                     wrpm_region@.committed());
                 assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
                 ABSOLUTE_POS_OF_LOG_AREA as int, self.info.log_area_len as int, is_writable_absolute_addr_fn));
                 assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
@@ -697,15 +697,9 @@ verus! {
             };
             let log_crc = calculate_crc(&log_metadata);
 
-            proof {
-                axiom_to_from_bytes::<u64>(log_crc);
-                axiom_bytes_len::<u64>(log_crc);
-                axiom_to_from_bytes::<LogMetadata>(log_metadata);
-                axiom_bytes_len::<LogMetadata>(log_metadata);
-                assert(log_metadata.spec_to_bytes().len() == LogMetadata::spec_size_of());
-                assert(log_crc.spec_to_bytes().len() == u64::spec_size_of());
-            }   
-            
+            assert(log_metadata.spec_to_bytes().len() == LogMetadata::spec_size_of());
+            assert(log_crc.spec_to_bytes().len() == u64::spec_size_of());
+
             // Write the new metadata to the inactive header (without the CRC)
             subregion.serialize_and_write_relative(wrpm_region, 0, &log_metadata, Tracked(perm));
             subregion.serialize_and_write_relative(wrpm_region, size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
@@ -778,6 +772,8 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            broadcast use pmcopy_axioms;
+
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -830,7 +826,7 @@ verus! {
                 let mem1 = old_wrpm.committed();
                 let mem2 = wrpm_region@.committed();
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-                lemma_establish_extract_bytes_equivalence(mem1, mem2);
+                lemma_establish_subrange_equivalence(mem1, mem2);
         
                 assert(wrpm_region.inv());
                 assert(wrpm_region.constants() == old(wrpm_region).constants());
@@ -844,7 +840,7 @@ verus! {
                 assert(self.info.log_area_len == prev_info.log_area_len);
                 assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
                     let mem3 = wrpm_region@.flush().committed();
-                    lemma_establish_extract_bytes_equivalence(mem1, mem3);
+                    lemma_establish_subrange_equivalence(mem1, mem3);
                     assert(extract_bytes(mem3, unused_metadata_pos as int, LogMetadata::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
                                             LogMetadata::spec_size_of() as int));
@@ -852,7 +848,6 @@ verus! {
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
                                             LogMetadata::spec_size_of(),  u64::spec_size_of()));
                 }
-
 
                 assert(inactive_metadata_types_set(wrpm_region@.flush().committed())) by {
                     let mem = wrpm_region@.flush().committed();
@@ -871,9 +866,6 @@ verus! {
                     let inactive_metadata_pos = get_log_metadata_pos(!self.cdb);
                     assert(extract_bytes(mem, inactive_metadata_pos as int, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
                     assert(extract_bytes(mem, inactive_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
-                
-                    axiom_bytes_len::<LogMetadata>(new_metadata);
-                    axiom_to_from_bytes::<LogMetadata>(new_metadata);
                 }
             }
 
@@ -900,8 +892,6 @@ verus! {
             let ghost flushed_mem_after_write = pm_region_after_write.flush();
             assert(memory_matches_deserialized_cdb(flushed_mem_after_write, !self.cdb)) by {
                 let flushed_region = pm_region_after_write.flush();
-                axiom_bytes_len::<u64>(new_cdb);
-                axiom_to_from_bytes::<u64>(new_cdb);
                 lemma_write_reflected_after_flush_committed(wrpm_region@, ABSOLUTE_POS_OF_LOG_CDB as int,
                                                             new_cdb_bytes);
             }
@@ -915,10 +905,9 @@ verus! {
                 &&& info_consistent_with_log_area_in_region(pm_region_after_flush, self.info, self.state@)
                 &&& metadata_types_set(pm_region_after_flush.committed())
             }) by {
-                lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
-                                                          pm_region_after_flush.committed());
-                axiom_bytes_len::<u64>(new_cdb);
-                axiom_to_from_bytes::<u64>(new_cdb);
+                lemma_establish_subrange_equivalence(wrpm_region@.committed(),
+                                                     pm_region_after_flush.committed());
+
                 lemma_metadata_consistent_with_info_after_cdb_update(
                     wrpm_region@,
                     pm_region_after_flush,
@@ -1144,6 +1133,7 @@ verus! {
         // state with all pending appends dropped, or (2) the state
         // after advancing the head and then dropping all pending
         // appends.
+        #[verifier::rlimit(30)]
         pub exec fn advance_head<PMRegion>(
             &mut self,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PMRegion>,
@@ -1266,6 +1256,14 @@ verus! {
             self.update_log_metadata(wrpm_region, Ghost(log_id), Ghost(prev_info), Ghost(prev_state),
                                      Tracked(perm));
 
+            /*
+            assume(self.inv(wrpm_region, log_id));
+            assume(wrpm_region.constants() == old(wrpm_region).constants());
+            assume(can_only_crash_as_state(wrpm_region@, log_id, self@.drop_pending_appends()));
+            assume(old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len());
+            assume(self@ == old(self)@.advance_head(new_head as int));
+            */
+
             Ok(())
         }
 
@@ -1362,7 +1360,6 @@ verus! {
                     }
                 })
         {
-            assume(false);
             // Handle error cases due to improper parameters passed to the
             // function.
 
