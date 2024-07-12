@@ -11,4 +11,6 @@ pub mod inv_v;
 pub mod kvimpl_t;
 pub mod kvimpl_v;
 pub mod kvspec_t;
+pub mod layout_v;
+pub mod setup_v;
 pub mod volatile;
