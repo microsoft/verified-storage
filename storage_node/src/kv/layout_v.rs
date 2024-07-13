@@ -37,21 +37,6 @@ verus! {
     pub const ABSOLUTE_POS_OF_VERSION_METADATA: u64 = 0;
     pub const ABSOLUTE_POS_OF_VERSION_CRC: u64 = 32;
 
-    pub const ABSOLUTE_POS_OF_OVERALL_METADATA: u64 = 40;
-    pub const ABSOLUTE_POS_OF_OVERALL_CRC: u64 = 100;
-
-    pub const ABSOLUTE_POS_OF_LOG_CDB: u64 = 80;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE: u64 = 88;
-    pub const ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE: u64 = 128;
-    pub const RELATIVE_POS_OF_LOG_LOG_LENGTH: u64 = 0;
-    pub const RELATIVE_POS_OF_LOG_PADDING: u64 = 8;
-    pub const RELATIVE_POS_OF_LOG_HEAD: u64 = 16;
-    pub const LENGTH_OF_LOG_METADATA: u64 = 32;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE: u64 = 120;
-    pub const ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE: u64 = 160;
-    pub const ABSOLUTE_POS_OF_LOG_AREA: u64 = 256;
-    pub const MIN_LOG_AREA_SIZE: u64 = 1;
-
     // This GUID was generated randomly and is meant to describe the
     // KV store program, even if it has future versions.
     pub const KVSTORE_PROGRAM_GUID: u128 = 0x5380e95bfa3c40a5b59a217771724d11;
@@ -66,9 +51,9 @@ verus! {
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct VersionMetadata {
-        pub version_number: u64,
-        pub length_of_overall_metadata: u64,
         pub program_guid: u128,
+        pub version_number: u64,
+        pub overall_metadata_addr: u64,
     }
 
     impl PmCopy for VersionMetadata {}
@@ -81,13 +66,13 @@ verus! {
         pub list_element_size: u32, // NOTE: this includes the CRC of each element
         pub item_size: u64, // just I::size_of() -- does not include key, CRC, CDB
         pub metadata_node_size: u32,
-        pub log_entry_size: u64,
+        pub log_entry_size: u32,
         pub num_keys: u64,
-        pub list_node_size: u32,
+        pub num_list_entries_per_node: u32,
+        pub list_node_size: u64,
         pub num_list_nodes: u64,
-        pub num_elements_per_list_node: u64,
-        pub metadata_table_addr: u64,
-        pub metadata_table_size: u64,
+        pub main_table_addr: u64,
+        pub main_table_size: u64,
         pub item_table_addr: u64,
         pub item_table_size: u64,
         pub list_area_addr: u64,
@@ -127,26 +112,27 @@ verus! {
 
     // This function extracts the bytes encoding overall metadata
     // from the contents `mem` of a persistent memory overall.
-    pub open spec fn extract_overall_metadata(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_overall_metadata(mem: Seq<u8>, overall_metadata_addr: u64) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_OVERALL_METADATA as int, OverallMetadata::spec_size_of() as int)
+        extract_bytes(mem, overall_metadata_addr as int, OverallMetadata::spec_size_of() as int)
     }
 
-    pub open spec fn deserialize_overall_metadata(mem: Seq<u8>) -> OverallMetadata
+    pub open spec fn deserialize_overall_metadata(mem: Seq<u8>, overall_metadata_addr: u64) -> OverallMetadata
     {
-        OverallMetadata::spec_from_bytes(extract_overall_metadata(mem))
+        OverallMetadata::spec_from_bytes(extract_overall_metadata(mem, overall_metadata_addr))
     }
 
     // This function extracts the CRC of the overall metadata from the
     // contents `mem` of a persistent memory overall.
-    pub open spec fn extract_overall_crc(mem: Seq<u8>) -> Seq<u8>
+    pub open spec fn extract_overall_crc(mem: Seq<u8>, overall_metadata_addr: u64) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_OVERALL_CRC as int, u64::spec_size_of() as int)
+        let crc_addr = overall_metadata_addr + OverallMetadata::spec_size_of();
+        extract_bytes(mem, crc_addr, u64::spec_size_of() as int)
     }
 
-    pub open spec fn deserialize_overall_crc(mem: Seq<u8>) -> u64
+    pub open spec fn deserialize_overall_crc(mem: Seq<u8>, overall_metadata_addr: u64) -> u64
     {
-        let bytes = extract_overall_crc(mem);
+        let bytes = extract_overall_crc(mem, overall_metadata_addr);
         u64::spec_from_bytes(bytes)
     }
 }

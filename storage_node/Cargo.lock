@@ -375,6 +375,7 @@ dependencies = [
  "builtin",
  "builtin_macros",
  "deps_hack",
+ "pmsafe",
  "vstd",
 ]
 
