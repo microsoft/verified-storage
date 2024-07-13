@@ -23,12 +23,6 @@ use super::kvimpl_t::KvError;
 
 verus! {
 
-#[verifier::opaque]
-pub open spec fn multiply_opaque(x: int, y: int) -> int
-{
-    x * y
-}
-
 pub open spec fn overall_metadata_valid<K, I, L>(
     overall_metadata: OverallMetadata,
     overall_metadata_addr: u64,
@@ -309,9 +303,8 @@ pub fn setup<PM, K, I, L> (
     )?;
     let overall_crc = calculate_crc(&overall_metadata);
 
-    assume(VersionMetadata::spec_size_of() >= 0);
-    assume(OverallMetadata::spec_size_of() >= 0);
-    assume(u64::spec_size_of() >= 0);
+    assume(VersionMetadata::spec_size_of() >= 0); // TODO - Remove this assumption
+    assume(OverallMetadata::spec_size_of() >= 0); // TODO - Remove this assumption
 
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_METADATA, &version_metadata);
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_CRC, &version_crc);
