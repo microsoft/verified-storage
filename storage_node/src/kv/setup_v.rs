@@ -42,6 +42,7 @@ where
     &&& overall_metadata.kvstore_id == kvstore_id
     &&& overall_metadata.list_element_size == L::spec_size_of()
     &&& overall_metadata.item_size == I::spec_size_of()
+    &&& overall_metadata.key_size == K::spec_size_of()
     &&& overall_metadata.metadata_node_size ==
         ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
     // TODO: Check minimum log entry size
@@ -247,8 +248,9 @@ pub fn initialize_overall_metadata<K, I, L> (
     let overall_metadata = OverallMetadata{
         region_size,
         kvstore_id,
-        list_element_size,
+        key_size,
         item_size,
+        list_element_size,
         metadata_node_size,
         log_entry_size,
         num_keys,
@@ -310,9 +312,6 @@ pub fn setup<PM, K, I, L> (
     assume(VersionMetadata::spec_size_of() >= 0);
     assume(OverallMetadata::spec_size_of() >= 0);
     assume(u64::spec_size_of() >= 0);
-    assume(L::spec_size_of() >= 0);
-    assume(I::spec_size_of() >= 0);
-    assume(K::spec_size_of() >= 0);
 
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_METADATA, &version_metadata);
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_CRC, &version_crc);

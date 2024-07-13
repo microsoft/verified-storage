@@ -63,8 +63,9 @@ verus! {
     pub struct OverallMetadata {
         pub region_size: u64,
         pub kvstore_id: u128,
-        pub list_element_size: u32, // NOTE: this includes the CRC of each element
-        pub item_size: u64, // just I::size_of() -- does not include key, CRC, CDB
+        pub key_size: u32, // K::size_of()
+        pub item_size: u64, // I::size_of()
+        pub list_element_size: u32, // L::size_of()
         pub metadata_node_size: u32,
         pub log_entry_size: u32,
         pub num_keys: u64,
