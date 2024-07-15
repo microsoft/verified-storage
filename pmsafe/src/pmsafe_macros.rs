@@ -178,7 +178,7 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     let mut spec_tokens_vec = Vec::new();
     for ty in types.iter() {
         let new_tokens = quote! {
-            let offset: ::builtin::int = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
+            let offset: ::builtin::nat = offset + <#ty>::spec_size_of() + spec_padding_needed(offset, <#ty>::spec_align_of()); 
         };
         spec_tokens_vec.push(new_tokens);
     }
@@ -203,7 +203,7 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
     // side code generation will have to include proof code.
     let spec_alignment = quote! {
         let alignment_seq = seq![#(<#types>::spec_align_of(),)*];
-        alignment_seq.max()
+        nat_seq_max(alignment_seq)
     };
 
     // This is the name of the constant that will perform the compile-time assertion that the calculated size of the struct
@@ -217,14 +217,14 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
         ::builtin_macros::verus!(
 
             impl SpecPmSized for #name {
-                open spec fn spec_size_of() -> ::builtin::int 
+                open spec fn spec_size_of() -> ::builtin::nat 
                 {
-                    let offset: ::builtin::int = 0;
+                    let offset: ::builtin::nat = 0;
                     #( #spec_tokens_vec )*
                     offset
                 }      
 
-                open spec fn spec_align_of() -> ::builtin::int 
+                open spec fn spec_align_of() -> ::builtin::nat 
                 {
                     #spec_alignment
                 }
@@ -337,8 +337,8 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
     let gen = quote!{
         ::builtin_macros::verus!(
             impl SpecPmSized for #ty {
-                open spec fn spec_size_of() -> ::builtin::int { #size as ::builtin::int }
-                open spec fn spec_align_of() -> ::builtin::int { #align as ::builtin::int }
+                open spec fn spec_size_of() -> ::builtin::nat { #size as ::builtin::nat }
+                open spec fn spec_align_of() -> ::builtin::nat { #align as ::builtin::nat }
             }
         );
 

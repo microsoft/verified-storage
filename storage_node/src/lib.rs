@@ -13,6 +13,7 @@ pub mod kv;
 pub mod log;
 pub mod multilog;
 pub mod pmem;
+pub mod util_v;
 
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;

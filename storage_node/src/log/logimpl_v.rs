@@ -589,8 +589,8 @@ verus! {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
                 &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
-                                                           ABSOLUTE_POS_OF_LOG_AREA as int,
-                                                           info.log_area_len as int,
+                                                           ABSOLUTE_POS_OF_LOG_AREA as nat,
+                                                           info.log_area_len as nat,
                                                            is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
@@ -606,7 +606,7 @@ verus! {
             }
             let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-                Ghost(self.info.log_area_len as int), Ghost(is_writable_absolute_addr_fn)
+                Ghost(self.info.log_area_len as nat), Ghost(is_writable_absolute_addr_fn)
             );
 
             // Call `tentatively_append_to_log` to do the real work of this function,
@@ -631,7 +631,7 @@ verus! {
                 lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
                                                      wrpm_region@.committed());
                 assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
-                ABSOLUTE_POS_OF_LOG_AREA as int, self.info.log_area_len as int, is_writable_absolute_addr_fn));
+                ABSOLUTE_POS_OF_LOG_AREA as nat, self.info.log_area_len as nat, is_writable_absolute_addr_fn));
                 assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.committed(), wrpm_region@.committed());
@@ -709,9 +709,9 @@ verus! {
 
             proof {
                 let state_after_flush = subregion.view(wrpm_region).flush().committed();
-                assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of() as int)
+                assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of())
                        =~= log_metadata.spec_to_bytes());
-                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of() as int, u64::spec_size_of() as int)
+                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of(), u64::spec_size_of())
                        =~= log_crc.spec_to_bytes());
             }
         }
@@ -801,7 +801,7 @@ verus! {
             assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& condition(s1)
                 &&& s1.len() == s2.len() == wrpm_region@.len()
-                &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as int,
+                &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as nat,
                     LogMetadata::spec_size_of() + u64::spec_size_of(), is_writable_absolute_addr_fn)
             } implies condition(s2) by {
                 lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
@@ -841,12 +841,12 @@ verus! {
                 assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
                     let mem3 = wrpm_region@.flush().committed();
                     lemma_establish_subrange_equivalence(mem1, mem3);
-                    assert(extract_bytes(mem3, unused_metadata_pos as int, LogMetadata::spec_size_of())
+                    assert(extract_bytes(mem3, unused_metadata_pos as nat, LogMetadata::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
-                                            LogMetadata::spec_size_of() as int));
-                    assert(extract_bytes(mem3, unused_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of())
+                                            LogMetadata::spec_size_of()));
+                    assert(extract_bytes(mem3, unused_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
-                                            LogMetadata::spec_size_of(),  u64::spec_size_of()));
+                                            LogMetadata::spec_size_of(), u64::spec_size_of()));
                 }
 
                 assert(inactive_metadata_types_set(wrpm_region@.flush().committed())) by {
@@ -864,8 +864,8 @@ verus! {
                     let new_crc = new_metadata.spec_crc();
 
                     let inactive_metadata_pos = get_log_metadata_pos(!self.cdb);
-                    assert(extract_bytes(mem, inactive_metadata_pos as int, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
-                    assert(extract_bytes(mem, inactive_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
+                    assert(extract_bytes(mem, inactive_metadata_pos as nat, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
+                    assert(extract_bytes(mem, inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
                 }
             }
 
