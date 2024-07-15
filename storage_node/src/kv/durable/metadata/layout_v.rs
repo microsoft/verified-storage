@@ -9,6 +9,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::pmem::traits_t::*;
+use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
 verus! {

@@ -133,7 +133,7 @@ verus! {
                             None 
                         } else {
                             let read_entry = InsertListElementEntry::spec_from_bytes(log_contents.subrange(0 as int, InsertListElementEntry::spec_size_of() as int));
-                            let list_element = L::spec_from_bytes(log_contents.subrange(InsertListElementEntry::spec_size_of() as int, InsertListElementEntry::spec_size_of() + L::spec_size_of()));
+                            let list_element = L::spec_from_bytes(log_contents.subrange(InsertListElementEntry::spec_size_of() as int, (InsertListElementEntry::spec_size_of() + L::spec_size_of()) as int));
                             let entry = OpLogEntryType::InsertListElement {
                                 node_offset: read_entry.node_offset,
                                 index_in_node: read_entry.index_in_node,
@@ -172,7 +172,7 @@ verus! {
                             None 
                         } else {
                             let read_entry = UpdateMetadataEntry::spec_from_bytes(log_contents.subrange(0 as int, UpdateMetadataEntry::spec_size_of() as int));
-                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, UpdateMetadataEntry::spec_size_of() + ListEntryMetadata::spec_size_of()));
+                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, (UpdateMetadataEntry::spec_size_of() + ListEntryMetadata::spec_size_of()) as int));
                             let entry = OpLogEntryType::UpdateMetadataEntry { metadata_index: read_entry.metadata_index, new_crc: read_entry.new_crc, new_metadata };
                             let log_contents = log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, log_contents.len() as int);
                             Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))

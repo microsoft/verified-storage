@@ -20,6 +20,7 @@ use vstd::prelude::*;
 use vstd::ptr::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::pmem::traits_t::*;
+use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
 
@@ -99,7 +100,7 @@ verus! {
                 None
             } else {
                 let node_size = (mem.len() - ABSOLUTE_POS_OF_LIST_REGION_NODE_START) / node_region_header.num_nodes as int;
-                let elements_per_node = (node_size - (u64::spec_size_of() + u64::spec_size_of())) / list_entry_size;
+                let elements_per_node = (node_size - (u64::spec_size_of() + u64::spec_size_of())) / list_entry_size as int;
                 if {
                     ||| mem.len() < node_region_header.length 
                     ||| node_region_header.version_number != 1

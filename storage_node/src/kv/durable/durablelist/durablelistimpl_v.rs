@@ -817,8 +817,8 @@ verus! {
             // 3. Read the CRC and list element
             let ghost mem = pm_region@.committed();
             
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
-            let ghost true_elem_bytes = extract_bytes(mem, elem_addr as int, L::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+            let ghost true_elem_bytes = extract_bytes(mem, elem_addr as nat, L::spec_size_of());
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
             let ghost true_elem = L::spec_from_bytes(true_elem_bytes);
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
@@ -984,8 +984,8 @@ verus! {
 
             let ghost mem = pm_region@.committed();
 
-            let ghost true_next_ptr_bytes = extract_bytes(mem, next_ptr_addr as int, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
+            let ghost true_next_ptr_bytes = extract_bytes(mem, next_ptr_addr as nat, u64::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
             let ghost true_next_ptr = u64::spec_from_bytes(true_next_ptr_bytes);
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
             let ghost next_ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| next_ptr_addr + i);

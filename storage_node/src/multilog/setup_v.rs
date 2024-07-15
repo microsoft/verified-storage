@@ -185,6 +185,7 @@ verus! {
             metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
         broadcast use pmcopy_axioms;
+        reveal(spec_padding_needed);
 
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
@@ -237,20 +238,20 @@ verus! {
             // prove this by reasoning about per-byte equivalence.
 
             let mem = pm_regions@[which_log as int].flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat,
                                  LogMetadata::spec_size_of())
                    =~= log_metadata.spec_to_bytes());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as nat, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
         }
     }
@@ -283,6 +284,7 @@ verus! {
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
         broadcast use pmcopy_axioms;
+        reveal(spec_padding_needed);
 
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
@@ -335,20 +337,20 @@ verus! {
             // prove this by reasoning about per-byte equivalence.
 
             let mem = pm_regions@[0].flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat,
                                  LogMetadata::spec_size_of())
                    =~= log_metadata.spec_to_bytes());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as nat, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
             assert(metadata_types_set_in_first_region(pm_regions@[0].flush().committed()));

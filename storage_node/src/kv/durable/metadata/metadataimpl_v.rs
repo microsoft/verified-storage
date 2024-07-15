@@ -343,10 +343,10 @@ verus! {
                         let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
                         let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
-                        let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as int, u64::spec_size_of());
-                        let ghost true_entry_bytes = extract_bytes(mem, entry_addr as int, ListEntryMetadata::spec_size_of());
-                        let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
-                        let ghost true_key_bytes = extract_bytes(mem, key_addr as int, K::spec_size_of());
+                        let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
+                        let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
+                        let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+                        let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
 
                         let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                         let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
@@ -626,10 +626,10 @@ verus! {
             // 1. Read the CDB, metadata entry, key, and CRC at the index
             let ghost mem = pm_region@.committed();
 
-            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as int, u64::spec_size_of());
-            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as int, ListEntryMetadata::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
-            let ghost true_key_bytes = extract_bytes(mem, key_addr as int, K::spec_size_of());
+            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
+            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+            let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
 
             let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
             let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);

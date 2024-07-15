@@ -57,6 +57,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
@@ -149,7 +150,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_global_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_global_metadata(mem: Seq<u8>) -> GlobalMetadata
@@ -162,7 +163,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_global_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_global_crc(mem: Seq<u8>) -> u64
@@ -175,7 +176,7 @@ verus! {
     // from the contents `mem` of a persistent memory region.
     pub open spec fn extract_region_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_region_metadata(mem: Seq<u8>) -> RegionMetadata
@@ -188,7 +189,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_region_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_region_crc(mem: Seq<u8>) -> u64
@@ -202,7 +203,7 @@ verus! {
     // `mem` of a persistent memory region.
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of() as nat)
     }
 
     // This function extracts the log metadata's corruption-detecting boolean
@@ -272,7 +273,7 @@ verus! {
     pub open spec fn extract_log_metadata(mem: Seq<u8>, cdb: bool) -> Seq<u8>
     {
         let pos = get_log_metadata_pos(cdb);
-        extract_bytes(mem, pos as int, LogMetadata::spec_size_of() as int)
+        extract_bytes(mem, pos as nat, LogMetadata::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_log_metadata(mem: Seq<u8>, cdb: bool) -> LogMetadata
@@ -289,7 +290,7 @@ verus! {
     {
         let pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                   else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
-        extract_bytes(mem, pos as int, u64::spec_size_of() as int)
+        extract_bytes(mem, pos as nat, u64::spec_size_of() as nat)
     }
 
     pub open spec fn deserialize_log_crc(mem: Seq<u8>, cdb: bool) -> u64
@@ -302,21 +303,21 @@ verus! {
     // encoded at position `pos` in byte sequence `bytes`.
     pub open spec fn parse_u32(bytes: Seq<u8>, pos: int) -> u32
     {
-        spec_u32_from_le_bytes(extract_bytes(bytes, pos, 4))
+        spec_u32_from_le_bytes(extract_bytes(bytes, pos as nat, 4))
     }
 
     // This function returns the 8-byte unsigned integer (i.e., u64)
     // encoded at position `pos` in byte sequence `bytes`.
     pub open spec fn parse_u64(bytes: Seq<u8>, pos: int) -> u64
     {
-        spec_u64_from_le_bytes(extract_bytes(bytes, pos, 8))
+        spec_u64_from_le_bytes(extract_bytes(bytes, pos as nat, 8))
     }
 
     // This function returns the 16-byte unsigned integer (i.e., u128)
     // encoded at position `pos` in byte sequence `bytes`.
     pub open spec fn parse_u128(bytes: Seq<u8>, pos: int) -> u128
     {
-        spec_u128_from_le_bytes(extract_bytes(bytes, pos, 16))
+        spec_u128_from_le_bytes(extract_bytes(bytes, pos as nat, 16))
     }
 
     // This function returns the global metadata encoded as the given
@@ -484,7 +485,7 @@ verus! {
     ) -> Option<AbstractLogState>
     {
         recover_log_from_log_area_given_metadata(
-            extract_bytes(mem, ABSOLUTE_POS_OF_LOG_AREA as int, log_area_len), head, log_length
+            extract_bytes(mem, ABSOLUTE_POS_OF_LOG_AREA as nat, log_area_len as nat), head, log_length
         )
     }
 
@@ -786,6 +787,7 @@ verus! {
             recover_state(mem1, log_id) == recover_state(mem2, log_id),
             metadata_types_set(mem2),
     {
+        reveal(spec_padding_needed);
         lemma_establish_subrange_equivalence(mem1, mem2);
         assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
 

@@ -152,6 +152,8 @@ verus! {
                 }
             })
     {
+        reveal(spec_padding_needed);
+
         let ghost mem = pm_regions@.committed()[which_log as int];
         let ghost w = which_log as int;
         let ghost state = recover_abstract_log_from_region_given_cdb(pm_regions@[w].committed(), multilog_id,
@@ -171,8 +173,8 @@ verus! {
 
         assert(metadata_types_set_in_region(mem, cdb));
 
-        let ghost true_global_metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of()));
+        let ghost true_global_metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of()));
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of()));
 
         let ghost metadata_addrs = Seq::new(GlobalMetadata::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_METADATA + i);
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_GLOBAL_CRC + i);
@@ -243,10 +245,10 @@ verus! {
         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_REGION_CRC + i);
 
         let ghost true_region_metadata = RegionMetadata::spec_from_bytes(
-            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of())
         );
         let ghost true_crc = u64::spec_from_bytes(
-            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+            extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of())
         );
 
         let region_metadata = match pm_regions.read_aligned::<RegionMetadata>(which_log as usize,
@@ -339,9 +341,9 @@ verus! {
                              else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
 
-        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as int,
+        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat,
                                                                                  LogMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_metadata_pos + LogMetadata::spec_size_of(),
+        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat + LogMetadata::spec_size_of(),
                                                                 u64::spec_size_of()));
 
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
@@ -350,7 +352,7 @@ verus! {
         let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
         let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
 
-        assert(extract_bytes(mem, log_metadata_pos as int, LogMetadata::spec_size_of()) == true_bytes);
+        assert(extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of()) == true_bytes);
         let log_metadata = match pm_regions.read_aligned::<LogMetadata>(which_log as usize, log_metadata_pos) {
             Ok(log_metadata) => log_metadata,
             Err(e) => {

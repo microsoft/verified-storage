@@ -866,6 +866,9 @@ verus! {
                 
         {
             broadcast use pmcopy_axioms;
+            proof {
+                lemma_metadata_sizes();
+            }
 
             let unused_metadata_pos = if self.cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE }
                                             else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE };
@@ -946,6 +949,10 @@ verus! {
                     prev_state == old_prev_state,
             {
                 broadcast use pmcopy_axioms; // Remove this workaround once https://github.com/verus-lang/verus/issues/1166 is fixed
+                reveal(spec_padding_needed);
+                // proof {
+                //     lemma_metadata_sizes();
+                // }
 
                 assert(log_index_trigger(current_log as int));
                 let ghost cur = current_log as int;
