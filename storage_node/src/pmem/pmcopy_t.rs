@@ -434,6 +434,7 @@ verus! {
     // padding needed before the next field in a repr(C) structure to ensure it is aligned.
     // This is the same algorithm described here:
     // https://doc.rust-lang.org/reference/type-layout.html#the-c-representation
+    #[verifier::opaque]
     pub open spec fn spec_padding_needed(offset: nat, align: nat) -> nat
     {
         let misalignment = offset % align;
@@ -456,6 +457,7 @@ verus! {
             out <= align,
             out as nat == spec_padding_needed(offset as nat, align as nat)
     {
+        reveal(spec_padding_needed);
         let misalignment = offset % align;
         if misalignment > 0 {
             align - misalignment

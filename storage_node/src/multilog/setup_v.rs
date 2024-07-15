@@ -185,6 +185,7 @@ verus! {
             metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
         broadcast use pmcopy_axioms;
+        reveal(spec_padding_needed);
 
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally
@@ -283,6 +284,7 @@ verus! {
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
         broadcast use pmcopy_axioms;
+        reveal(spec_padding_needed);
 
         // Initialize global metadata and compute its CRC
         // We write this out for each log so that if, upon restore, our caller accidentally

@@ -787,6 +787,7 @@ verus! {
             recover_state(mem1, log_id) == recover_state(mem2, log_id),
             metadata_types_set(mem2),
     {
+        reveal(spec_padding_needed);
         lemma_establish_subrange_equivalence(mem1, mem2);
         assert(recover_state(mem1, log_id) =~= recover_state(mem2, log_id));
 

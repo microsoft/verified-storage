@@ -53,6 +53,7 @@ verus! {
         ensures 
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb)
     {
+        lemma_metadata_sizes();
     }
 
     pub open spec fn active_metadata_is_equal(
@@ -122,6 +123,20 @@ verus! {
             pm_region_view.no_outstanding_writes_in_range(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int,
                 ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of())
         }
+    }
+
+    // This lemma establishes some facts about the size of some metadata structures using spec_padding_needed. spec_padding_needed
+    // is expensive to reveal in a proof, and in some cases this is all we need to know, so we can invoke the lemma rather than 
+    // revealing spec_padding_needed and save a little bit of time.
+    pub proof fn lemma_metadata_sizes()
+        ensures 
+            ABSOLUTE_POS_OF_GLOBAL_METADATA + GlobalMetadata::spec_size_of() + u64::spec_size_of() < ABSOLUTE_POS_OF_LOG_AREA,
+            ABSOLUTE_POS_OF_REGION_METADATA + RegionMetadata::spec_size_of() + u64::spec_size_of() < ABSOLUTE_POS_OF_LOG_AREA,
+            ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of() < ABSOLUTE_POS_OF_LOG_AREA,
+            ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE + LogMetadata::spec_size_of() + u64::spec_size_of() < ABSOLUTE_POS_OF_LOG_AREA,
+            
+    {
+        reveal(spec_padding_needed);
     }
 
     // This invariant says that there are no outstanding writes to the
@@ -226,6 +241,8 @@ verus! {
         ensures
             each_metadata_consistent_with_info(new_pm_region_view, multilog_id, num_logs, new_cdb, infos),
     {
+        reveal(spec_padding_needed);
+
         // The bytes in non-updated regions are unchanged and remain consistent after updating the CDB.
         assert(forall |w: int| #[trigger] log_index_trigger(w) && 1 <= w < num_logs ==>
             old_pm_region_view[w as int].committed() =~= new_pm_region_view[w as int].committed()
@@ -432,6 +449,8 @@ verus! {
         ensures 
             forall |s| pm_region_view.can_crash_as(s) ==> metadata_types_set_in_region(s, cdb),
     {
+        reveal(spec_padding_needed);
+
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
 
         assert forall |s| pm_region_view.can_crash_as(s) implies metadata_types_set_in_region(s, cdb) by {
@@ -574,6 +593,8 @@ verus! {
             recover_abstract_log_from_region_given_cdb(mem, multilog_id, num_logs as int, which_log as int, cdb) ==
                Some(state.drop_pending_appends())
     {
+        reveal(spec_padding_needed);
+
         // For the metadata, we observe that:
         //
         // (1) there are no outstanding writes, so the crashed-into
@@ -627,6 +648,8 @@ verus! {
         ensures
             recover_all(mems, multilog_id) == Some(state.drop_pending_appends())
     {
+        reveal(spec_padding_needed);
+
         // For the CDB, we observe that:
         //
         // (1) there are no outstanding writes, so the crashed-into
@@ -742,6 +765,8 @@ verus! {
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
+        reveal(spec_padding_needed);
+
         let pm_regions_view2 = pm_regions_view.write(which_log as int, get_log_metadata_pos(!cdb) as int,
                                                      bytes_to_write);
         let w = which_log as int;
@@ -804,6 +829,8 @@ verus! {
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
+        reveal(spec_padding_needed);
+
         let pm_regions_view2 = pm_regions_view.write(
             which_log as int,
             get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
@@ -855,6 +882,8 @@ verus! {
                 &&& each_info_consistent_with_log_area(pm_regions_view2, num_logs, infos, state)
             })
     {
+        reveal(spec_padding_needed);
+
         let pm_regions_view2 = pm_regions_view.flush();
 
         assert(memory_matches_deserialized_cdb(pm_regions_view2, cdb)) by {
@@ -900,6 +929,8 @@ verus! {
         ensures 
             metadata_types_set(pm2.committed())
     {
+        reveal(spec_padding_needed);
+
         let log_metadata_pos = get_log_metadata_pos(cdb);
 
         assert(metadata_types_set_in_first_region(pm2.committed()[0])) by {
@@ -951,6 +982,7 @@ verus! {
         ensures 
             metadata_types_set(new_pm_regions_view.committed())
     {
+        reveal(spec_padding_needed);
         assert(log_index_trigger(0));
         lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[0], new_pm_regions_view.committed()[0]);
 
@@ -989,6 +1021,8 @@ verus! {
         ensures 
             metadata_types_set(pm_regions_view.flush().committed()),
     {
+        reveal(spec_padding_needed);
+
         assert(pm_regions_view.len() == pm_regions_view.committed().len());
         
         assert(metadata_types_set_in_first_region(pm_regions_view.committed()[0]));
@@ -1048,6 +1082,7 @@ verus! {
             metadata_types_set(wrpm_regions_new.committed()),
             active_metadata_is_equal(wrpm_regions_new, wrpm_regions_old)
     {
+        reveal(spec_padding_needed);
         assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() && i != which_log ==> 
                wrpm_regions_old[i] == wrpm_regions_new[i]); 
         assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions_new.len() && i != which_log ==> 

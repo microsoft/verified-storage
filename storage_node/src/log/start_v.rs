@@ -154,6 +154,7 @@ verus! {
     {
         let ghost mem = pm_region@.committed();
         let ghost state = recover_given_cdb(pm_region@.committed(), log_id, cdb);
+        reveal(spec_padding_needed);
 
         // Check that the region is at least the minimum required size. If
         // not, indicate invalid memory contents.

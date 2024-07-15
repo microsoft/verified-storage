@@ -144,6 +144,7 @@ verus! {
             let a = any_log as int;
             metadata_consistent_with_info(pm_regions_view2[a], multilog_id, num_logs, any_log, cdb, new_infos[a])
         } by {
+            lemma_metadata_sizes();
             let a = any_log as int;
             lemma_establish_subrange_equivalence(pm_regions_view[a].committed(), pm_regions_view2[a].committed());
         }
@@ -188,6 +189,7 @@ verus! {
         };
 
         assert(active_metadata_is_equal(pm_regions_view, pm_regions_view2)) by {
+            lemma_metadata_sizes();
             assert(pm_regions_view[w].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                                            ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) =~= 
                    pm_regions_view2[w].committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
