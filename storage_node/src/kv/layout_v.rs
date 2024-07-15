@@ -20,7 +20,7 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use crate::pmem::traits_t::{PmSized, ConstPmSized, UnsafeSpecPmSized};
 use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
