@@ -36,6 +36,7 @@ cd storage_node
 verus --crate-type=lib --compile -L dependency=../deps_hack/target/debug/deps --extern=deps_hack=../deps_hack/target/debug/libdeps_hack.rlib src/lib.rs
 ```
 Alternatively, set the `VERUS_PATH` variable in `verify.sh` to point to your local Verus installation, and run `./verify.sh`. 
+This script also builds `pmsafe` and `deps_hack`.
 The `--compile` flag is necessary to perform some non-Verus compile time checks that are part of the verification process. 
 Specifically, compile-time assertions, which help check that we use the correct size for structures in proofs, are run by the Rust compiler, not by Verus.
 
