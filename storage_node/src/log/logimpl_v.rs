@@ -315,7 +315,7 @@ verus! {
                 // invariants, we can only crash as `state`. The second says that,
                 // because this is a recovered state, it's unaffected by dropping
                 // all pending appends.
-
+                reveal(spec_padding_needed);
                 lemma_invariants_imply_crash_recover_forall(pm_region@, log_id, cdb, info, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_region@.committed(), log_id);
 
@@ -547,6 +547,7 @@ verus! {
                     _ => false
                 },
         {
+            reveal(spec_padding_needed);
             // One useful invariant implies that
             // `info.log_plus_pending_length <= info.log_area_len`, so
             // we know we can safely do the following subtraction
@@ -593,6 +594,7 @@ verus! {
                                                            info.log_area_len as nat,
                                                            is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
+                reveal(spec_padding_needed);
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
                     is_writable_absolute_addr_fn
@@ -627,6 +629,7 @@ verus! {
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
 
             proof {
+                reveal(spec_padding_needed);
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
                 lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
                                                      wrpm_region@.committed());
@@ -773,6 +776,7 @@ verus! {
                 self.state == old(self).state,
         {
             broadcast use pmcopy_axioms;
+            reveal(spec_padding_needed);
 
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.

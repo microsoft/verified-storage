@@ -152,6 +152,8 @@ verus! {
                 }
             })
     {
+        reveal(spec_padding_needed);
+
         let ghost mem = pm_regions@.committed()[which_log as int];
         let ghost w = which_log as int;
         let ghost state = recover_abstract_log_from_region_given_cdb(pm_regions@[w].committed(), multilog_id,

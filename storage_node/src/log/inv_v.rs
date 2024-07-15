@@ -193,6 +193,7 @@ verus! {
         ensures
             metadata_consistent_with_info(new_pm_region_view, log_id, new_cdb, info),
     {
+        reveal(spec_padding_needed);
         assert(metadata_consistent_with_info(new_pm_region_view, log_id, new_cdb, info)) by {
             let old_mem = old_pm_region_view.committed();
             let new_mem = new_pm_region_view.committed();
@@ -403,6 +404,8 @@ verus! {
         ensures
             recover_given_cdb(mem, log_id, cdb) == Some(state.drop_pending_appends())
     {
+        reveal(spec_padding_needed);
+
         // For the metadata, we observe that:
         //
         // (1) there are no outstanding writes, so the crashed-into
@@ -461,6 +464,8 @@ verus! {
             recover_state(mem, log_id) == Some(state.drop_pending_appends()),
             metadata_types_set(mem),
     {
+        reveal(spec_padding_needed);
+
         // For the CDB, we observe that:
         //
         // (1) there are no outstanding writes, so the crashed-into
@@ -575,6 +580,8 @@ verus! {
                 &&& metadata_types_set(pm_region_view2.committed())
             })
     {
+        reveal(spec_padding_needed);
+
         let pm_region_view2 = pm_region_view.write(get_log_metadata_pos(!cdb) as int, bytes_to_write);
 
         assert(memory_matches_deserialized_cdb(pm_region_view2, cdb)) by {
@@ -662,6 +669,7 @@ verus! {
                 &&& metadata_types_set(pm_region_view2.flush().committed())
             })
     {
+        reveal(spec_padding_needed);
         let pm_region_view2 = pm_region_view.write(
             get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
             bytes_to_write
@@ -728,6 +736,7 @@ verus! {
                 &&& metadata_types_set(pm_region_view2.committed())
             })
     {
+        reveal(spec_padding_needed);
         let pm_region_view2 = pm_region_view.flush();
 
         assert(memory_matches_deserialized_cdb(pm_region_view2, cdb)) by {
@@ -834,6 +843,7 @@ verus! {
             v1.can_crash_as(v1.committed()),
             recover_state(crash_state, log_id) == recover_state(v1.committed(), log_id),
     {
+        reveal(spec_padding_needed);
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
         lemma_establish_subrange_equivalence(crash_state, v1.committed());
         assert(recover_state(crash_state, log_id) =~= recover_state(v1.committed(), log_id));
@@ -856,6 +866,8 @@ verus! {
                 &&& 0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < s.len()
             } ==> metadata_types_set(s),
     {
+        reveal(spec_padding_needed);
+
         let pm_bytes = pm_region_view.committed();
         assert(cdb == deserialize_and_check_log_cdb(pm_bytes).unwrap());
 
@@ -938,6 +950,8 @@ verus! {
         ensures 
             metadata_types_set(mem2),
     {
+        reveal(spec_padding_needed);
+
         lemma_establish_subrange_equivalence(mem1, mem2);
 
         // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
@@ -996,6 +1010,7 @@ verus! {
         ensures 
             active_metadata_bytes_are_equal(mem1, mem2)
     {
+        reveal(spec_padding_needed);
         lemma_establish_subrange_equivalence(mem1, mem2);
 
         lemma_auto_smaller_range_of_seq_is_subrange(mem1);
@@ -1031,6 +1046,7 @@ verus! {
             metadata_types_set(new_pm_region_view.committed())
     {
         broadcast use pmcopy_axioms;
+        reveal(spec_padding_needed);
 
         let old_mem = old_pm_region_view.committed();
         let new_mem = new_pm_region_view.committed();

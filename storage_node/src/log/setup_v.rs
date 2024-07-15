@@ -128,6 +128,7 @@ verus! {
         let log_crc = calculate_crc(&log_metadata);
 
         assert(pm_region@.no_outstanding_writes());
+        reveal(spec_padding_needed);
         // Write all metadata structures and their CRCs to memory
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);
