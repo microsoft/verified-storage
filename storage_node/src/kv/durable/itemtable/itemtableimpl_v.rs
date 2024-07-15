@@ -503,9 +503,9 @@ verus! {
             // Read the item and CRC at this slot
             let ghost mem = pm_region@.committed();
 
-            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as int, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as int, u64::spec_size_of());
-            let ghost true_item_bytes = extract_bytes(mem, item_addr as int, I::spec_size_of());
+            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+            let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
 
             let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);

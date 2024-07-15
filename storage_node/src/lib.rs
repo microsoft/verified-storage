@@ -23,11 +23,13 @@ pub mod kv;
 pub mod log;
 pub mod multilog;
 pub mod pmem;
+pub mod util_v;
 
 use kv::durable::durableimpl_v::*;
 use kv::kvspec_t::*;
 use kv::kvimpl_v::*;
 use kv::volatile::volatileimpl_v::*;
+use crate::util_v::*;
 use crate::log::logimpl_t::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;

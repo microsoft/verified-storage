@@ -360,8 +360,8 @@ verus! {
                 let true_data = true_data1_bytes + true_data2_bytes;
                 axiom_bytes_uncorrupted2(data_c, true_data, data1_addrs + data2_addrs, 
                     crc_c@, true_crc_bytes, crc_addrs);
-                assert(extract_bytes(data_c, 0, data1_c@.len() as int) == data1_c@);
-                assert(extract_bytes(data_c, data1_c@.len() as int, data2_c@.len() as int) == data2_c@);
+                assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
+                assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
                 assert(data1_c@ == true_data1_bytes);
                 assert(data2_c@ == true_data2_bytes);
             }
@@ -671,7 +671,7 @@ verus! {
         mem2: Seq<u8>,
     )
         ensures
-            forall |i: int, n: int| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
+            forall |i: nat, n: nat| extract_bytes(mem1, i, n) =~= extract_bytes(mem2, i, n) ==>
                 #[trigger] extract_bytes(mem1, i, n) == #[trigger] extract_bytes(mem2, i, n)
     {
     }

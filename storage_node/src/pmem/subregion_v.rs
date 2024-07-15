@@ -15,22 +15,22 @@ broadcast use pmcopy_axioms;
 
 pub open spec fn get_subregion_view(
     region: PersistentMemoryRegionView,
-    start: int,
-    len: int,
+    start: nat,
+    len: nat,
 ) -> PersistentMemoryRegionView
     recommends
         0 <= start,
         0 <= len,
         start + len <= region.len(),
 {
-    PersistentMemoryRegionView{ state: region.state.subrange(start as int, start + len) }
+    PersistentMemoryRegionView{ state: region.state.subrange(start as int, (start + len) as int) }
 }
 
 pub open spec fn memories_differ_only_where_subregion_allows(
     mem1: Seq<u8>,
     mem2: Seq<u8>,                                                         
-    start: int,
-    len: int,
+    start: nat,
+    len: nat,
     is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
     recommends
@@ -49,8 +49,8 @@ pub open spec fn memories_differ_only_where_subregion_allows(
 pub open spec fn views_differ_only_where_subregion_allows(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
-    start: int,
-    len: int,
+    start: nat,
+    len: nat,
     is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
     recommends
@@ -70,7 +70,7 @@ pub open spec fn condition_sufficient_to_create_wrpm_subregion<Perm>(
     region_view: PersistentMemoryRegionView,
     perm: &Perm,
     start: u64,
-    len: int,
+    len: nat,
     is_writable_absolute_addr_fn: spec_fn(int) -> bool,
     condition: spec_fn(Seq<u8>) -> bool,
 ) -> bool
@@ -84,7 +84,7 @@ pub open spec fn condition_sufficient_to_create_wrpm_subregion<Perm>(
     &&& forall |s1: Seq<u8>, s2: Seq<u8>| {
            &&& condition(s1)
            &&& s1.len() == s2.len() == region_view.len()
-           &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, start as int, len,
+           &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, start as nat, len,
                                                                     is_writable_absolute_addr_fn)
        } ==> condition(s2)
 }
@@ -93,7 +93,7 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
     region_view: PersistentMemoryRegionView,
     perm: &Perm,
     start: u64,
-    len: int,
+    len: nat,
     is_writable_absolute_addr_fn: spec_fn(int) -> bool,
     condition: spec_fn(Seq<u8>) -> bool,
 )
@@ -106,14 +106,14 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
         forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
             &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
             &&& region_view.len() == alt_region_view.len()
-            &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as int, len,
+            &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as nat, len,
                                                        is_writable_absolute_addr_fn)
         } ==> perm.check_permission(alt_crash_state),
 {
     assert forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
         &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
         &&& region_view.len() == alt_region_view.len()
-        &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as int, len,
+        &&& views_differ_only_where_subregion_allows(region_view, alt_region_view, start as nat, len,
                                                    is_writable_absolute_addr_fn)
     } implies perm.check_permission(alt_crash_state) by {
         let crash_state = Seq::<u8>::new(
@@ -133,7 +133,7 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
                 }
             }
         );
-        assert(memories_differ_only_where_subregion_allows(crash_state, alt_crash_state, start as int, len,
+        assert(memories_differ_only_where_subregion_allows(crash_state, alt_crash_state, start as nat, len,
                                                            is_writable_absolute_addr_fn));
         assert(region_view.can_crash_as(crash_state));
         assert(region_view.can_crash_as(crash_state)) by {
@@ -156,7 +156,7 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
 pub struct WriteRestrictedPersistentMemorySubregion
 {
     start_: u64,
-    len_: Ghost<int>,
+    len_: Ghost<nat>,
     constants_: Ghost<PersistentMemoryConstants>,
     initial_region_view_: Ghost<PersistentMemoryRegionView>,
     is_writable_absolute_addr_fn_: Ghost<spec_fn(int) -> bool>,
@@ -168,7 +168,7 @@ impl WriteRestrictedPersistentMemorySubregion
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         Tracked(perm): Tracked<&Perm>,
         start: u64,
-        Ghost(len): Ghost<int>,
+        Ghost(len): Ghost<nat>,
         Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
     ) -> (result: Self)
         where
@@ -181,7 +181,7 @@ impl WriteRestrictedPersistentMemorySubregion
             forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
                 &&& wrpm@.len() == alt_region_view.len()
-                &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start as int, len,
+                &&& views_differ_only_where_subregion_allows(wrpm@, alt_region_view, start as nat, len,
                                                            is_writable_absolute_addr_fn)
             } ==> perm.check_permission(alt_crash_state),
         ensures
@@ -192,7 +192,7 @@ impl WriteRestrictedPersistentMemorySubregion
             result.initial_region_view() == wrpm@,
             result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
             result.view(wrpm) == result.initial_subregion_view(),
-            result.view(wrpm) == get_subregion_view(wrpm@, start as int, len),
+            result.view(wrpm) == get_subregion_view(wrpm@, start as nat, len),
     {
         let result = Self{
             start_: start,
@@ -208,7 +208,7 @@ impl WriteRestrictedPersistentMemorySubregion
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
         Tracked(perm): Tracked<&Perm>,
         start: u64,
-        Ghost(len): Ghost<int>,
+        Ghost(len): Ghost<nat>,
         Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
         Ghost(condition): Ghost<spec_fn(Seq<u8>) -> bool>,
     ) -> (result: Self)
@@ -227,7 +227,7 @@ impl WriteRestrictedPersistentMemorySubregion
             result.initial_region_view() == wrpm@,
             result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
             result.view(wrpm) == result.initial_subregion_view(),
-            result.view(wrpm) == get_subregion_view(wrpm@, start as int, len),
+            result.view(wrpm) == get_subregion_view(wrpm@, start as nat, len),
     {
         proof {
             lemma_condition_sufficient_to_create_wrpm_subregion(wrpm@, perm, start, len, is_writable_absolute_addr_fn,
@@ -248,17 +248,17 @@ impl WriteRestrictedPersistentMemorySubregion
         self.constants_@
     }
 
-    pub closed spec fn start(self) -> int
+    pub closed spec fn start(self) -> nat
     {
-        self.start_ as int
+        self.start_ as nat
     }
 
-    pub closed spec fn len(self) -> int
+    pub closed spec fn len(self) -> nat
     {
         self.len_@
     }
 
-    pub open spec fn end(self) -> int
+    pub open spec fn end(self) -> nat
     {
         self.start() + self.len()
     }
@@ -722,7 +722,7 @@ impl WriteRestrictedPersistentMemorySubregion
 pub struct PersistentMemorySubregion
 {
     start_: u64,
-    len_: Ghost<int>,
+    len_: Ghost<nat>,
 }
 
 impl PersistentMemorySubregion
@@ -730,7 +730,7 @@ impl PersistentMemorySubregion
     pub exec fn new<PMRegion: PersistentMemoryRegion>(
         pm: &PMRegion,
         start: u64,
-        Ghost(len): Ghost<int>,
+        Ghost(len): Ghost<nat>,
     ) -> (result: Self)
         requires
             pm.inv(),
@@ -738,7 +738,7 @@ impl PersistentMemorySubregion
         ensures
             result.start() == start,
             result.len() == len,
-            result.view(pm) == get_subregion_view(pm@, start as int, len),
+            result.view(pm) == get_subregion_view(pm@, start as nat, len),
     {
         let result = Self{
             start_: start,
@@ -747,17 +747,17 @@ impl PersistentMemorySubregion
         result
     }
 
-    pub closed spec fn start(self) -> int
+    pub closed spec fn start(self) -> nat
     {
-        self.start_ as int
+        self.start_ as nat
     }
 
-    pub closed spec fn len(self) -> int
+    pub closed spec fn len(self) -> nat
     {
         self.len_@
     }
 
-    pub open spec fn end(self) -> int
+    pub open spec fn end(self) -> nat
     {
         self.start() + self.len()
     }
@@ -977,7 +977,7 @@ impl PersistentMemorySubregion
 pub struct WritablePersistentMemorySubregion
 {
     start_: u64,
-    len_: Ghost<int>,
+    len_: Ghost<nat>,
     constants_: Ghost<PersistentMemoryConstants>,
     initial_region_view_: Ghost<PersistentMemoryRegionView>,
     is_writable_absolute_addr_fn_: Ghost<spec_fn(int) -> bool>,
@@ -988,7 +988,7 @@ impl WritablePersistentMemorySubregion
     pub exec fn new<PMRegion: PersistentMemoryRegion>(
         pm: &PMRegion,
         start: u64,
-        Ghost(len): Ghost<int>,
+        Ghost(len): Ghost<nat>,
         Ghost(is_writable_absolute_addr_fn): Ghost<spec_fn(int) -> bool>,
     ) -> (result: Self)
         requires
@@ -1003,7 +1003,7 @@ impl WritablePersistentMemorySubregion
             result.initial_region_view() == pm@,
             result.is_writable_absolute_addr_fn() == is_writable_absolute_addr_fn,
             result.view(pm) == result.initial_subregion_view(),
-            result.view(pm) == get_subregion_view(pm@, start as int, len),
+            result.view(pm) == get_subregion_view(pm@, start as nat, len),
     {
         let result = Self{
             start_: start,
@@ -1020,17 +1020,17 @@ impl WritablePersistentMemorySubregion
         self.constants_@
     }
 
-    pub closed spec fn start(self) -> int
+    pub closed spec fn start(self) -> nat
     {
-        self.start_ as int
+        self.start_ as nat
     }
 
-    pub closed spec fn len(self) -> int
+    pub closed spec fn len(self) -> nat
     {
         self.len_@
     }
 
-    pub open spec fn end(self) -> int
+    pub open spec fn end(self) -> nat
     {
         self.start() + self.len()
     }
