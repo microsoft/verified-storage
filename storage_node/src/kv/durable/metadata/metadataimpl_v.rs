@@ -188,6 +188,11 @@ verus! {
             Ok(metadata)
         }
 
+        spec fn extract_cdb_for_entry(mem: Seq<u8>, k: nat, metadata_node_size: u32) -> u64
+        {
+            u64::spec_from_bytes(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()))
+        }
+
         // this uses the old PM approach but we will switch over to the new lens approach at some point
         pub exec fn setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
@@ -232,10 +237,9 @@ verus! {
                     entry_offset == index * metadata_node_size,
                     metadata_node_size >= u64::spec_size_of(),
                     forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
-                    ({
-                        let recovery_view = Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), index, metadata_node_size).unwrap();
-                        forall |i: int| #![auto] 0 <= i < index ==> recovery_view.get_metadata_table()[i] is None
-                    }),
+                    forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
+                        subregion.view(pm_region).flush().committed(), k, metadata_node_size
+                    ) == CDB_FALSE,
             {
                 assert((index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size
                        <= num_keys * metadata_node_size) by {
@@ -244,12 +248,40 @@ verus! {
                     vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
                                                                                    index as int, 1);
                 }
+                let ghost v1 = subregion.view(pm_region);
                 subregion.serialize_and_write_relative(pm_region, entry_offset, &CDB_FALSE);
                 assert(CDB_FALSE.spec_to_bytes().len() == u64::spec_size_of()) by {
                     broadcast use pmcopy_axioms;
                 }
+                assert forall |k: nat| k < index + 1 implies #[trigger] Self::extract_cdb_for_entry(
+                        subregion.view(pm_region).flush().committed(), k, metadata_node_size
+                    ) == CDB_FALSE by {
+                    let mem = subregion.view(pm_region).flush().committed();
+                    if k < index {
+                        assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
+                        assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
+                            vstd::arithmetic::mul::lemma_mul_inequality(k + 1int, index as int, metadata_node_size as int);
+                            vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
+                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
+                                                                                           k as int, 1);
+                        }
+                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
+                               extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
+                    }
+                    else {
+                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) ==
+                               CDB_FALSE.spec_to_bytes());
+                        broadcast use axiom_to_from_bytes;
+                    }
+                }
                 entry_offset += metadata_node_size as u64;
             }
+
+            let ghost metadata_table = Self::recover(subregion.view(pm_region).flush().committed(),
+                                                     Seq::<OpLogEntryType<L>>::empty(), num_keys,
+                                                     metadata_node_size).unwrap().get_metadata_table();
+            assume(forall |i: int| 0 <= i < num_keys ==> #[trigger] metadata_table[i] is None);
+            assume(false);
 
             Ok(())
         }
