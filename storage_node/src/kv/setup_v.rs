@@ -136,7 +136,9 @@ pub fn initialize_overall_metadata<K, I, L> (
         return Err(KvError::KeySizeTooBig);
     }
     let key_size = size_of::<K>() as u32;
-    let list_entry_metadata_size: u32 = size_of::<ListEntryMetadata>() as u32;
+    assert(u64::spec_size_of() == 8) by { reveal(spec_padding_needed); }
+    assert(ListEntryMetadata::spec_size_of() < 10000) by { reveal(spec_padding_needed); }
+    let list_entry_metadata_size = size_of::<ListEntryMetadata>() as u32;
     if key_size > u32::MAX - 2 * size_of::<u64>() as u32 - list_entry_metadata_size {
         return Err(KvError::KeySizeTooBig)
     }
@@ -195,6 +197,9 @@ pub fn initialize_overall_metadata<K, I, L> (
         assert(num_keys <= u64::MAX as int / item_size as int ==>
                num_keys * item_size <= u64::MAX as int) by (nonlinear_arith);
     }
+    else {
+        assert(num_keys * item_size == 0) by { vstd::arithmetic::mul::lemma_mul_basics(num_keys as int); }
+    }
     let item_table_size: u64 = num_keys * item_size as u64;
 
     if item_table_size > u64::MAX - item_table_addr {
@@ -215,6 +220,11 @@ pub fn initialize_overall_metadata<K, I, L> (
         }
         assert(num_list_nodes <= u64::MAX as int / (list_node_size as int) ==>
                num_list_nodes * list_node_size <= u64::MAX as int) by (nonlinear_arith);
+    }
+    else {
+        assert(num_list_nodes * list_node_size == 0) by {
+            vstd::arithmetic::mul::lemma_mul_basics(num_list_nodes as int);
+        }
     }
     let list_area_size: u64 = num_list_nodes * list_node_size;
 
@@ -291,7 +301,21 @@ pub fn setup<PM, K, I, L> (
         },
 {
     let region_size = pm.get_region_size();
-    let overall_metadata_addr = 40;
+
+    assert(VersionMetadata::spec_size_of() <= ABSOLUTE_POS_OF_VERSION_CRC) by { reveal(spec_padding_needed); }
+
+    let overall_metadata_addr = ABSOLUTE_POS_OF_VERSION_CRC + size_of::<u64>() as u64;
+
+    assert(overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of() <= 1000) by {
+        reveal(spec_padding_needed);
+    }
+    if region_size < overall_metadata_addr + size_of::<OverallMetadata>() as u64 + size_of::<u64>() as u64 {
+        return Err(KvError::RegionTooSmall{
+            required: overall_metadata_addr as usize + size_of::<OverallMetadata>() + size_of::<u64>(),
+            actual: region_size as usize,
+        });
+    }
+
     let version_metadata = VersionMetadata{
         program_guid: KVSTORE_PROGRAM_GUID,
         version_number: KVSTORE_PROGRAM_VERSION_NUMBER,
