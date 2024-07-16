@@ -20,7 +20,8 @@
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::{PmSized, ConstPmSized, UnsafeSpecPmSized};
+use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
+use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 use builtin::*;
 use builtin_macros::*;
@@ -91,7 +92,7 @@ verus! {
     // the contents `mem` of a persistent memory region.
     pub open spec fn extract_version_metadata(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as int, VersionMetadata::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of())
     }
 
     pub open spec fn deserialize_version_metadata(mem: Seq<u8>) -> VersionMetadata
@@ -103,7 +104,7 @@ verus! {
     // contents `mem` of a persistent memory region.
     pub open spec fn extract_version_crc(mem: Seq<u8>) -> Seq<u8>
     {
-        extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_CRC as int, u64::spec_size_of() as int)
+        extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_CRC as nat, u64::spec_size_of())
     }
 
     pub open spec fn deserialize_version_crc(mem: Seq<u8>) -> u64
@@ -115,7 +116,7 @@ verus! {
     // from the contents `mem` of a persistent memory overall.
     pub open spec fn extract_overall_metadata(mem: Seq<u8>, overall_metadata_addr: u64) -> Seq<u8>
     {
-        extract_bytes(mem, overall_metadata_addr as int, OverallMetadata::spec_size_of() as int)
+        extract_bytes(mem, overall_metadata_addr as nat, OverallMetadata::spec_size_of())
     }
 
     pub open spec fn deserialize_overall_metadata(mem: Seq<u8>, overall_metadata_addr: u64) -> OverallMetadata
@@ -128,7 +129,7 @@ verus! {
     pub open spec fn extract_overall_crc(mem: Seq<u8>, overall_metadata_addr: u64) -> Seq<u8>
     {
         let crc_addr = overall_metadata_addr + OverallMetadata::spec_size_of();
-        extract_bytes(mem, crc_addr, u64::spec_size_of() as int)
+        extract_bytes(mem, crc_addr as nat, u64::spec_size_of())
     }
 
     pub open spec fn deserialize_overall_crc(mem: Seq<u8>, overall_metadata_addr: u64) -> u64

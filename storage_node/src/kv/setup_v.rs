@@ -303,9 +303,6 @@ pub fn setup<PM, K, I, L> (
     )?;
     let overall_crc = calculate_crc(&overall_metadata);
 
-    assume(VersionMetadata::spec_size_of() >= 0); // TODO - Remove this assumption
-    assume(OverallMetadata::spec_size_of() >= 0); // TODO - Remove this assumption
-
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_METADATA, &version_metadata);
     pm.serialize_and_write(ABSOLUTE_POS_OF_VERSION_CRC, &version_crc);
     pm.serialize_and_write(version_metadata.overall_metadata_addr, &overall_metadata);
