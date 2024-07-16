@@ -62,7 +62,7 @@ verus! {
         // Proving crash consistency here will come down to proving that each update
         // to an individual component results in a valid AbstractKvStoreState either with 0
         // log entries replayed or all of the log entries replayed, I think
-        pub closed spec fn recover_to_kv_state(bytes: Seq<Seq<u8>>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+        pub closed spec fn recover_to_kv_state(bytes: Seq<u8>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
         {
             // TODO
             None

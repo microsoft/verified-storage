@@ -48,15 +48,16 @@ verus! {
 
         pub closed spec fn recover(
             mem: Seq<u8>,
-            node_size: u64,
+            list_node_size: u64,
+            num_list_entries_per_node: u64,
             op_log: Seq<OpLogEntryType<L>>,
             metadata_table_view: MetadataTableView<K>,
             kvstore_id: u128,
         ) -> Option<DurableListView<K, L>>
         {
             // TODO: check list node region header for validity? or do we do that later?
-            let list_nodes_mem = Self::replay_log_list_nodes(mem, node_size, op_log);
-            Self::parse_all_lists(metadata_table_view, mem)
+            let list_nodes_mem = Self::replay_log_list_nodes(mem, list_node_size, op_log);
+            Self::parse_all_lists(metadata_table_view, mem, list_node_size, num_list_entries_per_node)
         }
 
         closed spec fn replay_log_list_nodes(
@@ -136,10 +137,12 @@ verus! {
         closed spec fn parse_all_lists(
             metadata_table: MetadataTableView<K>,
             mem: Seq<u8>,
+            list_node_size: u64,
+            num_list_entries_per_node: u64,
         ) -> Option<DurableListView<K, L>> 
         {
             let lists_map = Map::empty();
-            let result = Self::parse_each_list(metadata_table.get_metadata_table(), mem, lists_map);
+            let result = Self::parse_each_list(metadata_table.get_metadata_table(), mem, lists_map, list_node_size, num_list_entries_per_node);
             match result {
                 Some(result) => Some(DurableListView::new(result)),
                 None => None
@@ -152,6 +155,8 @@ verus! {
             metadata_entries: Seq<MetadataTableViewEntry<K>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
+            list_node_size: u64,
+            num_list_entries_per_node: u64,
         ) -> Option<Map<K, Seq<DurableListElementView<L>>>>
             decreases
                 metadata_entries.len()
@@ -163,14 +168,14 @@ verus! {
                 let metadata_entries = metadata_entries.drop_first();
                 // // Unlike in the item table, we will apply log entries later; we need to build the lists 
                 // // first so that log entries can be applied to the table and the list in the correct order
-                let recovered_list = Self::parse_list(current_entry, mem);
+                let recovered_list = Self::parse_list(current_entry, mem, list_node_size, num_list_entries_per_node);
                 match recovered_list {
                     Some(recovered_list) => {
                         let lists_map = lists_map.insert(
                             current_entry.key(),
                             recovered_list
                         );
-                        Self::parse_each_list(metadata_entries, mem, lists_map)
+                        Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node)
                     }
                     None => None
                 }
@@ -180,25 +185,28 @@ verus! {
         closed spec fn parse_list(
             entry: MetadataTableViewEntry<K>, 
             mem: Seq<u8>,
+            list_node_size: u64,
+            num_list_entries_per_node: u64,
         ) -> Option<Seq<DurableListElementView<L>>>
         {
             let head_node_index = entry.list_head_index();
             let list_len = entry.len();
             let new_list = Seq::empty();
-            Self::parse_list_helper(head_node_index, list_len as int, new_list, mem)
+            Self::parse_list_helper(head_node_index, list_len as int, new_list, mem, list_node_size, num_list_entries_per_node)
         }
 
         closed spec fn parse_list_helper(
             cur_node_index: u64,
             list_len_remaining: int,
             current_list: Seq<DurableListElementView<L>>,
-            mem: Seq<u8>
+            mem: Seq<u8>,
+            list_node_size: u64,
+            num_list_entries_per_node: u64,
         ) -> Option<Seq<DurableListElementView<L>>>
             decreases
                 list_len_remaining
         {
-            let elements_per_node = (metadata_header.node_size - RELATIVE_POS_OF_LIST_ELEMENT) / metadata_header.element_size as int;
-            if elements_per_node <= 0 {
+            if num_list_entries_per_node <= 0 {
                 None 
             } else {
                 // first base case: if there are no more list elements remaining, return the current list]
@@ -208,12 +216,12 @@ verus! {
                     Some(current_list)
                 } else {
                     // 1. parse the current node
-                    let result = parse_list_node::<L>(cur_node_index as int, metadata_header, mem);
+                    let result = parse_list_node::<L>(cur_node_index as int, mem, list_node_size, num_list_entries_per_node);
                     match result {
                         Some((next_node_index, current_node_element_bytes)) => {
                             // 2. add list elements to current list 
-                            let elements_to_keep = if elements_per_node < list_len_remaining {
-                                elements_per_node as nat
+                            let elements_to_keep = if num_list_entries_per_node < list_len_remaining {
+                                num_list_entries_per_node as nat
                             } else {
                                 list_len_remaining as nat
                             };
@@ -247,7 +255,7 @@ verus! {
                                     Some(current_list)
                                 }
                             } else {
-                                Self::parse_list_helper(metadata_header, next_node_index, new_remaining, current_list, mem)
+                                Self::parse_list_helper(next_node_index, new_remaining, current_list, mem, list_node_size, num_list_entries_per_node)
                             }
                         }
                         None => None

@@ -74,21 +74,16 @@ verus! {
     // `mem` is the full list node region, not just the bytes associated with this node
     pub open spec fn parse_list_node<L>(
         idx: int, 
-        metadata_header: MetadataTableHeader, 
-        mem: Seq<u8>
+        mem: Seq<u8>,
+        list_node_size: u64,
+        num_list_entries_per_node: u64,
     ) -> Option<(u64, Seq<Seq<u8>>)>
         where 
             L: PmCopy 
     {
         let list_entry_size = L::spec_size_of() + u64::spec_size_of();
-        // check that the metadata in the header makes sense/is valid
         // We should have already checked this when parsing the metadata table, but do it again here to be safe
-        if {
-            ||| metadata_header.program_guid != DURABLE_LIST_REGION_PROGRAM_GUID 
-            ||| metadata_header.version_number != 1
-            ||| list_entry_size != metadata_header.element_size
-            ||| mem.len() < ListRegionHeader::spec_size_of()
-        } {
+        if mem.len() < ListRegionHeader::spec_size_of() {
             None
         } else {
             let node_region_header_bytes = mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + u64::spec_size_of() + u64::spec_size_of());

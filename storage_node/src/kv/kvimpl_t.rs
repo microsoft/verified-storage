@@ -112,6 +112,8 @@ where
         self.untrusted_kv_impl.valid()
     }
 
+    /* 
+
     /// The `KvStore` constructor calls the constructors for the durable and
     /// volatile components of the key-value store.
     /// `list_node_size` is the number of list entries in each node (not the number
@@ -332,6 +334,7 @@ where
         }
 
     }
+    */
 
 //     fn delete(&mut self, key: &K, kvstore_id: u128,) -> (result: Result<(), KvError<K>>)
 //         requires

@@ -108,6 +108,7 @@ where
         &&& self.volatile_index.valid()
     }
 
+/*
     // This only sets up new durable components for a new KV. We will handle
     // the volatile index in `untrusted_start`
     pub fn untrusted_setup(
@@ -647,6 +648,8 @@ where
     //     assume(false);
     //     self.volatile_index.get_keys()
     // }
+
+    */
 
     pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
         requires
