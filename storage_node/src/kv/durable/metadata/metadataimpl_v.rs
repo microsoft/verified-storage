@@ -8,6 +8,7 @@ use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
+use crate::pmem::subregion_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -262,6 +263,60 @@ verus! {
             }
 
             pm_region.flush();
+
+            Ok(())
+        }
+
+        // this uses the old PM approach but we will switch over to the new lens approach at some point
+        pub exec fn setup_subregion<PM>(
+            subregion: &WritablePersistentMemorySubregion,
+            pm_region: &mut PM,
+            num_keys: u64,
+            metadata_node_size: u32,
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                subregion.inv(&*old(pm_region)),
+                forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                subregion.view(&*(old(pm_region))).no_outstanding_writes(),
+                num_keys * metadata_node_size <= subregion.view(&*(old(pm_region))).len() <= u64::MAX,
+                metadata_node_size >= ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() +
+                                     K::spec_size_of(),
+            ensures
+                subregion.inv(pm_region),
+                // TODO
+        {
+            assert(metadata_node_size >= u64::spec_size_of());
+
+            // invalidate all of the entries
+            let mut entry_offset: u64 = 0;
+            assert(entry_offset == 0 * metadata_node_size) by {
+                vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
+            }
+            for index in 0..num_keys 
+                invariant
+                    subregion.inv(pm_region),
+                    subregion.view(pm_region).no_outstanding_writes_in_range(entry_offset as int,
+                                                                             subregion.view(pm_region).len() as int),
+                    num_keys * metadata_node_size <= subregion.view(pm_region).len() <= u64::MAX,
+                    entry_offset == index * metadata_node_size,
+                    metadata_node_size >= u64::spec_size_of(),
+                    forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+            {
+                assert((index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size
+                       <= num_keys * metadata_node_size) by {
+                    vstd::arithmetic::mul::lemma_mul_inequality(index + 1, num_keys as int, metadata_node_size as int);
+                    vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
+                    vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
+                                                                                   index as int, 1);
+                }
+                subregion.serialize_and_write_relative(pm_region, entry_offset, &CDB_FALSE);
+                assert(CDB_FALSE.spec_to_bytes().len() == u64::spec_size_of()) by {
+                    broadcast use pmcopy_axioms;
+                }
+                entry_offset += metadata_node_size as u64;
+            }
 
             Ok(())
         }
