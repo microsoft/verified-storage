@@ -31,55 +31,6 @@ verus! {
             self.state@
         }
 
-        pub closed spec fn recover<L>(
-            mem: Seq<u8>,
-            node_size: u64,
-            op_log: Seq<OpLogEntryType<L>>,
-            kvstore_id: u128,
-        ) -> Option<MetadataTableView<K>>
-        where 
-            L: PmCopy,
-        {
-            if mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE {
-                // Invalid if the metadata table sequence is not large enough
-                // to store the metadata header. It actually needs to be big
-                // enough to store an entry for every key, but we don't know
-                // the number of keys yet.
-                None
-            } else {
-                // the metadata header is immutable, so we can check that is valid before doing 
-                // any log replay
-                let metadata_header_bytes = mem.subrange(
-                    ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                    ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of()
-                );
-                let crc_bytes = mem.subrange(
-                    ABSOLUTE_POS_OF_HEADER_CRC as int,
-                    ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of()
-                );
-                let metadata_header = MetadataTableHeader::spec_from_bytes(metadata_header_bytes);
-                let crc = u64::spec_from_bytes(crc_bytes);
-                if crc != metadata_header.spec_crc() {
-                    // The list is invalid if the stored CRC does not match the contents
-                    // of the metadata header
-                    None
-                } else {
-                    // replay the log on the metadata table and the list region, then parse them into a list view
-                    let mem = Self::spec_replay_log_metadata_table(mem, op_log);
-                    // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
-
-                    // parse the item table into a mapping index->entry so that we can use it to 
-                    // construct each list.
-                    // TODO: IGNORE INVALID ENTRIES
-                    let metadata_table = parse_metadata_table(metadata_header, mem);
-                    match metadata_table {
-                        Some(metadata_table) => Some(MetadataTableView::new(metadata_header, metadata_table)),
-                        None => None
-                    }
-                }
-            }
-        }
-
         closed spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
             where 
                 L: PmCopy,
@@ -92,6 +43,29 @@ verus! {
                 let op_log = op_log.drop_first();
                 let mem = Self::apply_log_op_to_metadata_table_mem(mem, current_op);
                 Self::spec_replay_log_metadata_table(mem, op_log)
+            }
+        }
+
+        pub closed spec fn recover<L>(
+            mem: Seq<u8>,
+            op_log: Seq<OpLogEntryType<L>>,
+            num_keys: u64,
+            metadata_node_size: u32,
+        ) -> Option<MetadataTableView<K>>
+        where 
+            L: PmCopy,
+        {
+            // replay the log on the metadata table and the list region, then parse them into a list view
+            let mem = Self::spec_replay_log_metadata_table(mem, op_log);
+            // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
+
+            // parse the item table into a mapping index->entry so that we can use it to 
+            // construct each list.
+            // TODO: IGNORE INVALID ENTRIES
+            let metadata_table = parse_metadata_table(mem, num_keys);
+            match metadata_table {
+                Some(metadata_table) => Some(MetadataTableView::new(metadata_table)),
+                None => None
             }
         }
 
@@ -108,7 +82,7 @@ verus! {
                 OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail} => {
                     // updates the tail field and the entry's CRC. We don't use the old tail value here -- that is only used
                     // when updating list nodes
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
+                    let entry_offset = metadata_index * table_entry_slot_size;
                     let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
                     let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
                     let new_tail_bytes = spec_u64_to_le_bytes(new_tail);
@@ -122,7 +96,7 @@ verus! {
                     mem
                 }
                 OpLogEntryType::CommitMetadataEntry{metadata_index} => {
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
+                    let entry_offset = metadata_index * table_entry_slot_size;
                     let cdb_bytes = spec_u64_to_le_bytes(CDB_TRUE);
                     let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let mem = mem.map(|pos: int, pre_byte: u8| {
@@ -136,7 +110,7 @@ verus! {
                 }
                 OpLogEntryType::InvalidateMetadataEntry{metadata_index} => {
                     // In this case, we just have to flip the entry's CDB. We don't clear any other fields
-                    let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * table_entry_slot_size;
+                    let entry_offset = metadata_index * table_entry_slot_size;
                     let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                     let cdb_bytes = spec_u64_to_le_bytes(CDB_FALSE);
                     let mem = mem.map(|pos: int, pre_byte: u8| {
@@ -165,7 +139,7 @@ verus! {
                         let key_size = K::spec_size_of();
                         let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
                         &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
-                        &&& ABSOLUTE_POS_OF_METADATA_TABLE + metadata_slot_size * output_metadata.num_keys  <= u64::MAX
+                        &&& metadata_slot_size * output_metadata.num_keys  <= u64::MAX
                     }
                     Err(_) => true // TODO
                 }
@@ -216,59 +190,6 @@ verus! {
 
         // this uses the old PM approach but we will switch over to the new lens approach at some point
         pub exec fn setup<PM>(
-            pm_region: &mut PM,
-            table_id: u128,
-            num_keys: u64,
-            list_element_size: u32,
-            node_size: u32,
-        ) -> (result: Result<(), KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-            requires
-                old(pm_region).inv(),
-                ({
-                    let entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-                    &&& entry_slot_size <= u64::MAX
-                    &&& ABSOLUTE_POS_OF_METADATA_TABLE + num_keys * entry_slot_size <= usize::MAX
-                }),
-                list_element_size + u64::spec_size_of() <= u32::MAX,
-                // TODO 
-            ensures 
-                pm_region.inv(),
-                // TODO
-        {
-            // ensure that there are no outstanding writes
-            pm_region.flush();
-
-            // check that the regions the caller passed in are sufficiently large
-            let region_size = pm_region.get_region_size();
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + num_keys * entry_slot_size;
-            if required_region_size > region_size {
-                return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
-            }
-
-            let full_list_element_size = list_element_size + traits_t::size_of::<u64>() as u32; 
-
-            Self::write_setup_metadata(pm_region, num_keys, full_list_element_size, node_size);
-
-            // invalidate all of the entries
-            for index in 0..num_keys 
-                invariant
-                    pm_region.inv(),
-            {
-                assume(false);
-                let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
-                pm_region.serialize_and_write(entry_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
-            }
-
-            pm_region.flush();
-
-            Ok(())
-        }
-
-        // this uses the old PM approach but we will switch over to the new lens approach at some point
-        pub exec fn setup_subregion<PM>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &mut PM,
             num_keys: u64,
@@ -321,6 +242,8 @@ verus! {
             Ok(())
         }
 
+/* Temporarily commented out for subregion work
+
         pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
             table_id: u128,
@@ -360,7 +283,7 @@ verus! {
             // we can't do this until after reading the header since it depends on the number of keys we expect
             // to be able to store
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let required_region_size = ABSOLUTE_POS_OF_METADATA_TABLE + header.num_keys * entry_slot_size;
+            let required_region_size = header.num_keys * entry_slot_size;
             if required_region_size > region_size {
                 return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
             }
@@ -381,7 +304,7 @@ verus! {
                 // TODO: invariant
             {
                 assume(false);
-                let entry_offset = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
+                let entry_offset = index * entry_slot_size;
                 let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
                 let ghost true_cdb = u64::spec_from_bytes(mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of()));
                 let cdb = pm_region.read_aligned::<u64>(cdb_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
@@ -502,18 +425,18 @@ verus! {
                     OpLogEntryType::CommitMetadataEntry { metadata_index } => {
                         // commit metadata just sets the CDB -- the metadata fields have already been filled in.
                         // We also have to commit the item, but we'll do that in item table recovery
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * entry_slot_size;
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
                     }
                     OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
                         // invalidate metadata just writes CDB_FALSE to the entry's CDB
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * entry_slot_size;
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
                     }
                     OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc } => {
-                        let cdb_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * entry_slot_size;
                         let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
                         let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
@@ -567,7 +490,7 @@ verus! {
 
             // 4. write CRC and entry 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + free_index * entry_slot_size;
+            let slot_addr = free_index * entry_slot_size;
             // CDB is at slot addr -- we aren't setting that one yet
             let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
@@ -612,7 +535,7 @@ verus! {
 
             // 2. Write the CRC and entry (but not the key)
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let slot_addr = metadata_index * entry_slot_size;
             let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
@@ -643,7 +566,7 @@ verus! {
             assume(false);
 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
+            let slot_addr = index * entry_slot_size;
             let cdb_addr = slot_addr;
 
             wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
@@ -672,7 +595,7 @@ verus! {
 
             // TODO: store this so we don't have to recalculate it every time
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + metadata_index * entry_slot_size;
+            let slot_addr = metadata_index * entry_slot_size;
             let cdb_addr = slot_addr;
             let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
@@ -758,7 +681,7 @@ verus! {
             assume(false);
 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
+            let slot_addr = index * entry_slot_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
             wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
@@ -789,7 +712,7 @@ verus! {
             assume(false);
 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
+            let slot_addr = index * entry_slot_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
 
@@ -822,7 +745,7 @@ verus! {
             assume(false);
 
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = ABSOLUTE_POS_OF_METADATA_TABLE + index * entry_slot_size;
+            let slot_addr = index * entry_slot_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let head_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
@@ -921,5 +844,7 @@ verus! {
                 Ok(header)
             }
         }
+
+        */
     }
 }

@@ -150,24 +150,19 @@ verus! {
         }
     }
 
-    pub open spec fn parse_metadata_table<K>(header: MetadataTableHeader, mem: Seq<u8>) -> Option<Seq<MetadataTableViewEntry<K>>>
+    pub open spec fn parse_metadata_table<K>(mem: Seq<u8>, num_keys: u64) -> Option<Seq<MetadataTableViewEntry<K>>>
         where 
             K: PmCopy
     {
         let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
         // check that the metadata in the header makes sense/is valid
-        if {
-            ||| header.program_guid != METADATA_TABLE_PROGRAM_GUID 
-            ||| header.version_number != 1
-            ||| mem.len() < ABSOLUTE_POS_OF_METADATA_TABLE + table_entry_slot_size * header.num_keys
-        } {
+        if mem.len() < table_entry_slot_size * num_keys {
             None
         } else {
-            let table_area = mem.subrange(ABSOLUTE_POS_OF_METADATA_TABLE as int, mem.len() as int);
             let table_view = Seq::new(
-                header.num_keys as nat,
+                num_keys as nat,
                 |i: int| {
-                    let bytes = table_area.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
+                    let bytes = mem.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
                     let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of());
                     let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of());
@@ -186,7 +181,6 @@ verus! {
                 }
             );
             // Finally, return None if any of the CRCs are invalid
-            // TODO: don't check CRC of invalid entries
             if !(forall |i: int| 0 <= i < table_view.len() ==> {
                 let (cdb, crc, entry, key) = #[trigger] table_view[i];
                 cdb == CDB_TRUE ==> crc == spec_crc_u64(entry.spec_to_bytes() + key.spec_to_bytes())

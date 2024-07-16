@@ -20,37 +20,28 @@ use std::hash::Hash;
 verus! {
 
     // Since the durable part of the PagedKV is a list of PM regions,
-    // we use Seq<Seq<u8>> to determine whether states are crash-consistent.
-    pub struct TrustedKvPermission<PM, K, I, L>
+    // we use Seq<u8> to determine whether states are crash-consistent.
+    pub struct TrustedKvPermission<PM>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + std::fmt::Debug + Copy,
     {
-        ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool,
-        _phantom:  Ghost<core::marker::PhantomData<(PM, K, I, L)>>
+        ghost is_state_allowable: spec_fn(Seq<u8>) -> bool,
+        _phantom:  Ghost<core::marker::PhantomData<PM>>
     }
 
-    impl<PM, K, I, L> CheckPermission<Seq<Seq<u8>>> for TrustedKvPermission<PM, K, I, L>
+    impl<PM> CheckPermission<Seq<u8>> for TrustedKvPermission<PM>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + std::fmt::Debug + Copy,
     {
-        closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool
+        closed spec fn check_permission(&self, state: Seq<u8>) -> bool
         {
             (self.is_state_allowable)(state)
         }
     }
 
-    impl<PM, K, I, L> TrustedKvPermission<PM, K, I, L>
+    impl<PM> TrustedKvPermission<PM>
         where
             PM: PersistentMemoryRegion,
-            K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-            I: PmCopy + std::fmt::Debug,
-            L: PmCopy + std::fmt::Debug + Copy,
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures
 
@@ -58,7 +49,12 @@ verus! {
         // It conveys permission to do any update as long as a
         // subsequent crash and recovery can only lead to given
         // abstract state `state`.
-        pub proof fn new_one_possibility(kv_id: u128, state: AbstractKvStoreState<K, I, L>) -> (tracked perm: Self)
+        pub proof fn new_one_possibility<K, I, L>(kv_id: u128, state: AbstractKvStoreState<K, I, L>)
+                                                  -> (tracked perm: Self)
+            where
+                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+                I: PmCopy + std::fmt::Debug,
+                L: PmCopy + std::fmt::Debug + Copy,
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==>
                     DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state)
@@ -74,11 +70,15 @@ verus! {
         // update as long as a subsequent crash and recovery can only
         // lead to one of two given abstract states `state1` and
         // `state2`.
-        pub proof fn new_two_possibilities(
+        pub proof fn new_two_possibilities<K, I, L>(
             kv_id: u128,
             state1: AbstractKvStoreState<K, I, L>,
             state2: AbstractKvStoreState<K, I, L>
         ) -> (tracked perm: Self)
+            where
+                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+                I: PmCopy + std::fmt::Debug,
+                L: PmCopy + std::fmt::Debug + Copy,
             ensures
                 forall |s| #[trigger] perm.check_permission(s) <==> {
                     ||| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state1)

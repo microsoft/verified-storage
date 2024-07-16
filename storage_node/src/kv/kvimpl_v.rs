@@ -204,7 +204,7 @@ where
         key: &K,
         item: &I,
         kvstore_id: u128,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+        perm: Tracked<&TrustedKvPermission<PM>>
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
@@ -356,7 +356,7 @@ where
         key: &K,
         new_item: &I,
         kvstore_id: u128,
-        perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+        perm: Tracked<&TrustedKvPermission<PM>>
     ) -> (result: Result<(), KvError<K>>)
         requires
             old(self).valid(),
@@ -388,7 +388,7 @@ where
     //     &mut self,
     //     key: &K,
     //     kvstore_id: u128,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -415,7 +415,7 @@ where
     //     &mut self,
     //     key: &K,
     //     new_list_entry: L,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -450,7 +450,7 @@ where
     //     key: &K,
     //     new_list_entry: L,
     //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -485,7 +485,7 @@ where
     //     key: &K,
     //     idx: usize,
     //     new_list_entry: L,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -516,7 +516,7 @@ where
     //     idx: usize,
     //     new_list_entry: L,
     //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -547,7 +547,7 @@ where
     //     &mut self,
     //     key: &K,
     //     trim_length: usize,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()
@@ -597,7 +597,7 @@ where
     //     key: &K,
     //     trim_length: usize,
     //     new_item: I,
-    //     perm: Tracked<&TrustedKvPermission<PM, K, I, L>>
+    //     perm: Tracked<&TrustedKvPermission<PM>>
     // ) -> (result: Result<(), KvError<K>>)
     //     requires
     //         old(self).valid()

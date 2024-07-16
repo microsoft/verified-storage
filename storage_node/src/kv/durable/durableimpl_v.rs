@@ -45,10 +45,7 @@ verus! {
         durable_list: DurableList<K, L>,
         log: UntrustedOpLog<K, L>,
         metadata_table: MetadataTable<K>,
-        item_table_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
-        list_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
-        log_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
+        wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
         pending_updates: Vec<OpLogEntryType<L>>,
     }
 
@@ -80,6 +77,8 @@ verus! {
         pub exec fn get_elements_per_node(&self) -> u64 {
             self.durable_list.get_elements_per_node()
         }
+
+/*
 
         // This function doesn't take a perm because it performs initial setup
         // for each structure, which we don't guarantee will be crash consistent
@@ -716,5 +715,7 @@ verus! {
 
             Ok(())
         }
+        */
     }
+        
 }

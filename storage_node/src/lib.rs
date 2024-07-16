@@ -341,7 +341,7 @@ fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);
 }
 
-
+/* Temporarily commented out for subregion development
 fn test_durable_on_memory_mapped_file() {
     assume(false);
 
@@ -530,6 +530,8 @@ fn test_kv_on_memory_mapped_file() {
 
 }
 
+*/
+
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 {
     assume(false);
@@ -555,6 +557,6 @@ fn main()
     test_multilog_in_volatile_memory();
     test_multilog_on_memory_mapped_file();
     test_log_on_memory_mapped_file();
-    test_durable_on_memory_mapped_file();
+//    test_durable_on_memory_mapped_file();
 }
 }

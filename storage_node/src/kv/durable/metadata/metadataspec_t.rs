@@ -9,27 +9,6 @@ use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 
 verus! {
-    pub struct TrustedMetadataPermission {
-        ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
-    }
-
-    impl CheckPermission<Seq<u8>> for TrustedMetadataPermission {
-        closed spec fn check_permission(&self, state: Seq<u8>) -> bool {
-            (self.is_state_allowable)(state)
-        }
-    }
-
-    impl TrustedMetadataPermission {
-         // TODO: REMOVE THIS
-         #[verifier::external_body]
-         pub proof fn fake_metadata_perm() -> (tracked perm: Self)
-         {
-             Self {
-                 is_state_allowable: |s| true
-             }
-         }
-    }
-
     pub struct MetadataTableViewEntry<K> {
         valid: bool,
         crc: u64,
@@ -78,7 +57,6 @@ verus! {
     }
 
     pub struct MetadataTableView<K> {
-        metadata_header: MetadataTableHeader,
         metadata_table: Seq<MetadataTableViewEntry<K>>,
     }
 
@@ -99,30 +77,15 @@ verus! {
                         key: arbitrary(),
                     }
                 ),
-                metadata_header: MetadataTableHeader {
-                    element_size,
-                    node_size,
-                    num_keys,
-                    version_number: METADATA_TABLE_VERSION_NUMBER,
-                    _padding: 0,
-                    program_guid: METADATA_TABLE_PROGRAM_GUID,
-                },
             }
         }
 
         pub closed spec fn new(
-            metadata_header: MetadataTableHeader, 
             metadata_table: Seq<MetadataTableViewEntry<K>>
         ) -> Self {
             Self {
-                metadata_header,
                 metadata_table,
             }
-        }
-
-        pub closed spec fn get_metadata_header(self) -> MetadataTableHeader
-        {
-            self.metadata_header
         }
 
         pub closed spec fn get_metadata_table(self) -> Seq<MetadataTableViewEntry<K>>

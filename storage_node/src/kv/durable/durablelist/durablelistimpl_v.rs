@@ -139,7 +139,7 @@ verus! {
         ) -> Option<DurableListView<K, L>> 
         {
             let lists_map = Map::empty();
-            let result = Self::parse_each_list(metadata_table.get_metadata_header(), metadata_table.get_metadata_table(), mem, lists_map);
+            let result = Self::parse_each_list(metadata_table.get_metadata_table(), mem, lists_map);
             match result {
                 Some(result) => Some(DurableListView::new(result)),
                 None => None
@@ -149,7 +149,6 @@ verus! {
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
         closed spec fn parse_each_list(
-            metadata_header: MetadataTableHeader,
             metadata_entries: Seq<MetadataTableViewEntry<K>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
@@ -164,14 +163,14 @@ verus! {
                 let metadata_entries = metadata_entries.drop_first();
                 // // Unlike in the item table, we will apply log entries later; we need to build the lists 
                 // // first so that log entries can be applied to the table and the list in the correct order
-                let recovered_list = Self::parse_list(metadata_header, current_entry, mem);
+                let recovered_list = Self::parse_list(current_entry, mem);
                 match recovered_list {
                     Some(recovered_list) => {
                         let lists_map = lists_map.insert(
                             current_entry.key(),
                             recovered_list
                         );
-                        Self::parse_each_list(metadata_header, metadata_entries, mem, lists_map)
+                        Self::parse_each_list(metadata_entries, mem, lists_map)
                     }
                     None => None
                 }
@@ -179,20 +178,17 @@ verus! {
         }
 
         closed spec fn parse_list(
-            metadata_header: MetadataTableHeader, 
             entry: MetadataTableViewEntry<K>, 
-            mem: Seq<u8>
+            mem: Seq<u8>,
         ) -> Option<Seq<DurableListElementView<L>>>
         {
             let head_node_index = entry.list_head_index();
             let list_len = entry.len();
             let new_list = Seq::empty();
-            Self::parse_list_helper(metadata_header, head_node_index, 
-                list_len as int, new_list, mem)
+            Self::parse_list_helper(head_node_index, list_len as int, new_list, mem)
         }
 
         closed spec fn parse_list_helper(
-            metadata_header: MetadataTableHeader,
             cur_node_index: u64,
             list_len_remaining: int,
             current_list: Seq<DurableListElementView<L>>,
