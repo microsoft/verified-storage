@@ -150,7 +150,7 @@ verus! {
         }
     }
 
-    pub open spec fn parse_metadata_table<K>(mem: Seq<u8>, num_keys: u64) -> Option<Seq<MetadataTableViewEntry<K>>>
+    pub open spec fn parse_metadata_table<K>(mem: Seq<u8>, num_keys: u64) -> Option<Seq<Option<MetadataTableViewEntry<K>>>>
         where 
             K: PmCopy
     {
@@ -191,7 +191,12 @@ verus! {
                     table_view.len(),
                     |i: int| {
                         let (cdb, crc, entry, key) = table_view[i];
-                        MetadataTableViewEntry::new(cdb, crc, entry, key)
+                        if cdb == CDB_FALSE {
+                            None 
+                        } else {
+                            Some(MetadataTableViewEntry::new(cdb, crc, entry, key))
+                        }
+                        
                     }
                 ))
             }

@@ -56,46 +56,38 @@ verus! {
         }
     }
 
+    // TODO: would it be easier if this were a Map rather than a Seq of Options?
     pub struct MetadataTableView<K> {
-        metadata_table: Seq<MetadataTableViewEntry<K>>,
+        metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
     {
-        pub closed spec fn init(element_size: u32, node_size: u32, num_keys: u64) -> Self {
+        pub closed spec fn init(num_keys: u64) -> Self {
             Self {
                 metadata_table: Seq::new(
                     num_keys as nat,
-                    |i: int| MetadataTableViewEntry {
-                        valid: false,
-                        // it doesn't matter what these values are because the entry is invalid,
-                        // so we just fill them in with arbitrary values
-                        crc: arbitrary(),
-                        list_head_index: arbitrary(),
-                        item_index: arbitrary(),
-                        list_len: arbitrary(),
-                        key: arbitrary(),
-                    }
+                    |i: int| None
                 ),
             }
         }
 
         pub closed spec fn new(
-            metadata_table: Seq<MetadataTableViewEntry<K>>
+            metadata_table: Seq<Option<MetadataTableViewEntry<K>>>
         ) -> Self {
             Self {
                 metadata_table,
             }
         }
 
-        pub closed spec fn get_metadata_table(self) -> Seq<MetadataTableViewEntry<K>>
+        pub closed spec fn get_metadata_table(self) -> Seq<Option<MetadataTableViewEntry<K>>>
         {
             self.metadata_table
         }
 
         pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
             if 0 <= index < self.metadata_table.len() {
-                Some(self.metadata_table[index])
+                self.metadata_table[index]
             } else {
                 None
             }

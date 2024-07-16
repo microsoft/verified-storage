@@ -152,7 +152,7 @@ verus! {
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
         closed spec fn parse_each_list(
-            metadata_entries: Seq<MetadataTableViewEntry<K>>,
+            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
             list_node_size: u64,
@@ -166,19 +166,25 @@ verus! {
             } else {
                 let current_entry = metadata_entries[0];
                 let metadata_entries = metadata_entries.drop_first();
-                // // Unlike in the item table, we will apply log entries later; we need to build the lists 
-                // // first so that log entries can be applied to the table and the list in the correct order
-                let recovered_list = Self::parse_list(current_entry, mem, list_node_size, num_list_entries_per_node);
-                match recovered_list {
-                    Some(recovered_list) => {
-                        let lists_map = lists_map.insert(
-                            current_entry.key(),
-                            recovered_list
-                        );
-                        Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node)
+                // Unlike in the item table, where we build the view and replay the log simultaneously we will apply log entries later; we need to build the lists 
+                // before replaying log entries so that log entries can be applied to the table and the list in the correct order
+                if let Some(current_entry) = current_entry {
+                    let recovered_list = Self::parse_list(current_entry, mem, list_node_size, num_list_entries_per_node);
+                    match recovered_list {
+                        Some(recovered_list) => {
+                            let lists_map = lists_map.insert(
+                                current_entry.key(),
+                                recovered_list
+                            );
+                            Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node)
+                        }
+                        None => None
                     }
-                    None => None
+                } else {
+                    // if this entry is invalid, just continue recursing through the list
+                    Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node)
                 }
+                
             }
         }
 

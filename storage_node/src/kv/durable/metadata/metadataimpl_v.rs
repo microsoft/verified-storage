@@ -189,7 +189,7 @@ verus! {
         }
 
         // this uses the old PM approach but we will switch over to the new lens approach at some point
-        pub exec fn setup<PM>(
+        pub exec fn setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &mut PM,
             num_keys: u64,
@@ -197,6 +197,7 @@ verus! {
         ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
+                L: PmCopy
             requires
                 subregion.inv(&*old(pm_region)),
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
@@ -206,7 +207,14 @@ verus! {
                                      K::spec_size_of(),
             ensures
                 subregion.inv(pm_region),
-                // TODO
+                match result {
+                    Ok(()) => {
+                        // TODO: whats the syntax that we can use instead of unwrap?
+                        &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size).unwrap() ==  
+                                MetadataTableView::<K>::init(num_keys)
+                    }
+                    Err(_) => true // TODO
+                }
         {
             assert(metadata_node_size >= u64::spec_size_of());
 
@@ -224,6 +232,10 @@ verus! {
                     entry_offset == index * metadata_node_size,
                     metadata_node_size >= u64::spec_size_of(),
                     forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                    ({
+                        let recovery_view = Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), index, metadata_node_size).unwrap();
+                        forall |i: int| #![auto] 0 <= i < index ==> recovery_view.get_metadata_table()[i] is None
+                    }),
             {
                 assert((index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size
                        <= num_keys * metadata_node_size) by {
