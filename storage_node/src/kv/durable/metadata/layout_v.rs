@@ -122,7 +122,7 @@ verus! {
         }
     }
 
-    pub open spec(checked) fn parse_metadata_entry<K>(bytes: Seq<u8>) -> Option<(K, ListEntryMetadata)>
+    pub open spec fn validate_metadata_entry<K>(bytes: Seq<u8>) -> bool
         where 
             K: PmCopy,
         recommends
@@ -131,74 +131,79 @@ verus! {
             RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
             RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
     {
-        let cdb = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of()));
-        let crc = spec_u64_from_le_bytes(bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of()));
-        let metadata_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of());
-        let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
+        let cdb_bytes = extract_bytes(bytes, RELATIVE_POS_OF_VALID_CDB as nat, u64::spec_size_of());
+        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA_CRC as nat, u64::spec_size_of());
+        let metadata_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_KEY as nat, K::spec_size_of());
+
+        let cdb = u64::spec_from_bytes(cdb_bytes);
+        let crc = u64::spec_from_bytes(crc_bytes);
+        ||| cdb == CDB_FALSE
+        ||| {
+              &&& cdb == CDB_TRUE
+              &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+           }
+    }
+
+    pub open spec fn validate_metadata_entries<K>(mem: Seq<u8>, num_keys: nat, metadata_node_size: nat) -> bool
+        where 
+            K: PmCopy,
+        recommends
+            mem.len() >= num_keys * metadata_node_size,
+    {
+        forall |i: nat| i < num_keys ==> validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, i * metadata_node_size,
+                                                                                        metadata_node_size))
+    }
+
+    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>) -> (Option<MetadataTableViewEntry<K>>)
+        where 
+            K: PmCopy,
+        recommends
+            bytes.len() == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
+            RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
+            validate_metadata_entry::<K>(bytes)
+    {
+        let cdb_bytes = extract_bytes(bytes, RELATIVE_POS_OF_VALID_CDB as nat, u64::spec_size_of());
+        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA_CRC as nat, u64::spec_size_of());
+        let metadata_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_KEY as nat, K::spec_size_of());
+
+        let cdb = u64::spec_from_bytes(cdb_bytes);
+        let crc = u64::spec_from_bytes(crc_bytes);
         let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
         let key = K::spec_from_bytes(key_bytes);
-    
+        
         if cdb == CDB_FALSE {
-            None 
+            None
         } else {
-            // If the CRC does not match the contents, it's not a valid entry
-            if crc != spec_crc_u64(metadata_bytes + key_bytes) {
-                None 
-            } else {
-                Some((key, metadata))
-            }
+            Some(MetadataTableViewEntry::<K>::new(crc, metadata, key))
         }
     }
 
-    pub open spec fn parse_metadata_table<K>(mem: Seq<u8>, num_keys: u64) -> Option<Seq<Option<MetadataTableViewEntry<K>>>>
+    pub open spec fn parse_metadata_table<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
+                                             -> Option<MetadataTableView<K>>
         where 
             K: PmCopy
     {
-        let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+        let table_entry_slot_size =
+              ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
         // check that the metadata in the header makes sense/is valid
-        if mem.len() < table_entry_slot_size * num_keys {
+        if mem.len() < num_keys * table_entry_slot_size {
             None
         } else {
-            let table_view = Seq::new(
-                num_keys as nat,
-                |i: int| {
-                    let bytes = mem.subrange(i * table_entry_slot_size, i * table_entry_slot_size + table_entry_slot_size);
-                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
-                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA_CRC as int, RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of());
-                    let entry_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_METADATA as int, RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of());
-                    let key_bytes = bytes.subrange(RELATIVE_POS_OF_ENTRY_KEY as int, RELATIVE_POS_OF_ENTRY_KEY + K::spec_size_of());
-
-                    let cdb = u64::spec_from_bytes(cdb_bytes);
-                    let crc = u64::spec_from_bytes(crc_bytes);
-                    let entry = ListEntryMetadata::spec_from_bytes(entry_bytes);
-                    let key = K::spec_from_bytes(key_bytes);
-
-                    // we can't check CRCs in this closure, since its return value is only used to construct the Seq
-                    // we can't construct the view here because we need to check the CRCs, so just return a tuple with all 
-                    // of the information we need and organize it into a nicer structure later
-                    (cdb, crc, entry, key)
-
-                }
-            );
-            // Finally, return None if any of the CRCs are invalid
-            if !(forall |i: int| 0 <= i < table_view.len() ==> {
-                let (cdb, crc, entry, key) = #[trigger] table_view[i];
-                cdb == CDB_TRUE ==> crc == spec_crc_u64(entry.spec_to_bytes() + key.spec_to_bytes())
-            }) {
+            if !validate_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat) {
                 None
-            } else {
-                Some(Seq::new(
-                    table_view.len(),
-                    |i: int| {
-                        let (cdb, crc, entry, key) = table_view[i];
-                        if cdb == CDB_FALSE {
-                            None 
-                        } else {
-                            Some(MetadataTableViewEntry::new(cdb, crc, entry, key))
-                        }
-                        
-                    }
-                ))
+            }
+            else {
+                Some(MetadataTableView::<K>::new(Seq::new(
+                    num_keys as nat,
+                    |i: int| parse_metadata_entry(extract_bytes(mem, (i * metadata_node_size as int) as nat,
+                                                              metadata_node_size as nat))
+                )))
             }
         }
     }

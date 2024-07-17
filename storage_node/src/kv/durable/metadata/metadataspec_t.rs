@@ -10,7 +10,6 @@ use crate::kv::durable::metadata::metadataimpl_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
-        valid: bool,
         crc: u64,
         list_head_index: u64,
         item_index: u64,
@@ -19,9 +18,8 @@ verus! {
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub closed spec fn new(valid: u64, crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+        pub closed spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
-                valid: valid == CDB_TRUE,
                 crc,
                 list_head_index: entry.spec_head(),
                 item_index: entry.spec_item_index(),
@@ -50,13 +48,8 @@ verus! {
         pub closed spec fn key(self) -> K {
             self.key
         }
-
-        pub closed spec fn valid(self) -> bool {
-            self.valid
-        }
     }
 
-    // TODO: would it be easier if this were a Map rather than a Seq of Options?
     pub struct MetadataTableView<K> {
         metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
     }

@@ -61,12 +61,7 @@ verus! {
 
             // parse the item table into a mapping index->entry so that we can use it to 
             // construct each list.
-            // TODO: IGNORE INVALID ENTRIES
-            let metadata_table = parse_metadata_table(mem, num_keys);
-            match metadata_table {
-                Some(metadata_table) => Some(MetadataTableView::new(metadata_table)),
-                None => None
-            }
+            parse_metadata_table(mem, num_keys, metadata_node_size)
         }
 
         // metadata table-related log entries store the CRC that the entry *will* have when all updates are written to it.
@@ -193,7 +188,7 @@ verus! {
             u64::spec_from_bytes(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()))
         }
 
-        // this uses the old PM approach but we will switch over to the new lens approach at some point
+        // this uses the old PM approach but we will switch over to the new lens approach at some ppoint
         pub exec fn setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &mut PM,
@@ -208,8 +203,8 @@ verus! {
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                 subregion.view(&*(old(pm_region))).no_outstanding_writes(),
                 num_keys * metadata_node_size <= subregion.view(&*(old(pm_region))).len() <= u64::MAX,
-                metadata_node_size >= ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() +
-                                     K::spec_size_of(),
+                metadata_node_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() +
+                                      K::spec_size_of(),
             ensures
                 subregion.inv(pm_region),
                 match result {
@@ -277,11 +272,22 @@ verus! {
                 entry_offset += metadata_node_size as u64;
             }
 
-            let ghost metadata_table = Self::recover(subregion.view(pm_region).flush().committed(),
-                                                     Seq::<OpLogEntryType<L>>::empty(), num_keys,
-                                                     metadata_node_size).unwrap().get_metadata_table();
-            assume(forall |i: int| 0 <= i < num_keys ==> #[trigger] metadata_table[i] is None);
+            let ghost mem = subregion.view(pm_region).flush().committed();
+            let ghost op_log = Seq::<OpLogEntryType<L>>::empty();
+            let ghost recovered_view = Self::recover(mem, op_log, num_keys, metadata_node_size);
+            assert(Self::spec_replay_log_metadata_table(mem, op_log) == mem);
+            let ghost table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+            assert(mem.len() >= num_keys * table_entry_slot_size);
+            assert forall |k: nat| k < num_keys implies
+                validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
+                                                                      metadata_node_size as nat)) by {
+                assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
+            }
+            assert(validate_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat));
+            assert(recovered_view.is_some());
             assume(false);
+            let ghost metadata_table = recovered_view.unwrap().get_metadata_table();
+            assert(forall |i: int| 0 <= i < num_keys ==> #[trigger] metadata_table[i] is None);
 
             Ok(())
         }
