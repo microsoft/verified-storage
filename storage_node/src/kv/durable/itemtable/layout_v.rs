@@ -59,7 +59,7 @@ verus! {
 
     // TODO: it may be more performant to skip some space and
     // start this at 256
-    pub const ABSOLUTE_POS_OF_TABLE_AREA: u64 = 56;
+    pub const ABSOLUTE_POS_OF_TABLE_AREA: u64 = 0;
 
     // This GUID was generated randomly and is meant to describe the
     // item table program, even if it has future versions.
@@ -85,13 +85,59 @@ verus! {
     // TODO: should this be trusted?
     impl PmCopy for ItemTableMetadata {}
 
-    pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
-    pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 8;
-    pub const RELATIVE_POS_OF_ITEM: u64 = 16;
+    // pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
+    pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 0;
+    pub const RELATIVE_POS_OF_ITEM: u64 = 8;
 
-    // TODO: This should be a closed method of the item table view type?
-    // TODO: maybe apply log to bytes BEFORE doing this?
-    pub open spec fn parse_item_table<I, K>(metadata_header: ItemTableMetadata, mem: Seq<u8>) -> Option<DurableItemTableView<I, K>>
+    // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.
+    // We do not require that any other entries have valid CRCs
+    pub open spec fn validate_item_table_entry<I, K>(bytes: Seq<u8>) -> bool 
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+        recommends
+            bytes.len() == I::spec_size_of() + u64::spec_size_of()
+    {
+        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
+        let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
+        let crc = u64::spec_from_bytes(crc_bytes);
+        crc == spec_crc_u64(item_bytes)
+    }
+
+    pub open spec fn validate_item_table_entries<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<int>) -> bool 
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+        recommends
+            mem.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of())
+    {
+        let entry_size = I::spec_size_of() + u64::spec_size_of();
+        forall |i: nat| i < num_keys && valid_indices.contains(i as int) ==> 
+            validate_item_table_entry::<I, K>(#[trigger] extract_bytes(mem, i * entry_size, entry_size))
+    }
+
+    // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.
+    // We do not require that any other entries have valid CRCs
+    pub open spec fn parse_metadata_entry<I, K>(bytes: Seq<u8>) -> DurableItemTableViewEntry<I>
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+        recommends
+            bytes.len() == I::spec_size_of() + u64::spec_size_of(),
+            // TODO: should we pass in the valid indices and check in recommends that this entry is valid?
+    {
+        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
+        let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
+        
+        let crc = u64::spec_from_bytes(crc_bytes);
+        let item = I::spec_from_bytes(item_bytes);
+        
+        DurableItemTableViewEntry::new(crc, item)
+    }
+
+
+    // The set of valid indices comes from the main table; an item is valid if a valid main table entry points to it
+    pub open spec fn parse_item_table<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<int>) -> Option<DurableItemTableView<I>>
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -99,40 +145,33 @@ verus! {
         // Check that the header is valid and the memory is the correct size.
         // We probably already did these checks when we parsed the metadata header, but
         // do them again here just in case
-        if {
-            ||| metadata_header.version_number != 1
-            ||| metadata_header.program_guid != ITEM_TABLE_PROGRAM_GUID
-            ||| metadata_header.item_size != I::spec_size_of()
-            ||| mem.len() < ABSOLUTE_POS_OF_TABLE_AREA + (metadata_header.item_size + u64::spec_size_of() + u64::spec_size_of()) * metadata_header.num_keys 
-        } { 
+        if mem.len() < num_keys * (I::spec_size_of() + u64::spec_size_of()) { 
             None
         } else {
-            let table_area = mem.subrange(ABSOLUTE_POS_OF_TABLE_AREA as int, mem.len() as int);
-            let item_entry_size = metadata_header.item_size + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-            let item_table_view = Seq::new(
-                metadata_header.num_keys as nat,
-                |i: int| {
-                    // the offset of the key depends on the offset of the item, so we don't have a constant for it
-                    let relative_key_offset = RELATIVE_POS_OF_ITEM + I::spec_size_of();
-                    let bytes = table_area.subrange(i * item_entry_size, i * item_entry_size + item_entry_size);
-                    let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
-                    let crc_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM_CRC as int, RELATIVE_POS_OF_ITEM_CRC + u64::spec_size_of());
-                    let item_bytes = bytes.subrange(RELATIVE_POS_OF_ITEM as int, RELATIVE_POS_OF_ITEM + I::spec_size_of());
-                    
-                    let cdb = u64::spec_from_bytes(cdb_bytes);
-                    let crc = u64::spec_from_bytes(crc_bytes);
-                    let item = I::spec_from_bytes(item_bytes);
-                    
-                    DurableItemTableViewEntry::new(cdb, crc, item)
-                }
-            );
-            // Finally, return None if any of the CRCs are invalid
-            // TODO: skip invalid entries
-            if !(forall |i: int| #![auto] 0 <= i < item_table_view.len() ==> 
-                item_table_view[i].get_crc() != spec_crc_u64(item_table_view[i].get_item().spec_to_bytes())) 
-            {
+            if !validate_item_table_entries::<I, K>(mem, num_keys, valid_indices) {
                 None 
             } else {
+                let item_entry_size = I::spec_size_of() + u64::spec_size_of();
+                let item_table_view = Seq::new(
+                    num_keys as nat,
+                    |i: int| {
+                        // TODO: probably can't have if {} in here
+                        if valid_indices.contains(i) {
+                            let bytes = extract_bytes(mem, (i * item_entry_size) as nat, item_entry_size as nat);
+                            // let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
+                            let crc_bytes = extract_bytes(mem, (i * item_entry_size + RELATIVE_POS_OF_ITEM_CRC) as nat, u64::spec_size_of());
+                            let item_bytes = extract_bytes(mem, (i * item_entry_size + RELATIVE_POS_OF_ITEM) as nat, I::spec_size_of());
+                            
+                            // let cdb = u64::spec_from_bytes(cdb_bytes);
+                            let crc = u64::spec_from_bytes(crc_bytes);
+                            let item = I::spec_from_bytes(item_bytes);
+                            
+                            Some(DurableItemTableViewEntry::new(crc, item))
+                        } else {
+                            None
+                        }
+                    }
+                );
                 Some(DurableItemTableView::new(item_table_view))
             }
         }

@@ -8,7 +8,7 @@ use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
-use crate::kv::durable::metadata::inv_v::*;
+use crate::kv::durable::inv_v::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -189,7 +189,6 @@ verus! {
             u64::spec_from_bytes(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()))
         }
 
-        // this uses the old PM approach but we will switch over to the new lens approach at some ppoint
         pub exec fn setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &mut PM,
@@ -208,6 +207,8 @@ verus! {
                                       K::spec_size_of(),
             ensures
                 subregion.inv(pm_region),
+                pm_region.inv(),
+                pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
                         // TODO: whats the syntax that we can use instead of unwrap?
@@ -218,6 +219,7 @@ verus! {
                 }
         {
             assert(metadata_node_size >= u64::spec_size_of());
+            let ghost original_pm_len = pm_region@.len();
 
             // invalidate all of the entries
             let mut entry_offset: u64 = 0;
@@ -236,6 +238,7 @@ verus! {
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
                         subregion.view(pm_region).flush().committed(), k, metadata_node_size
                     ) == CDB_FALSE,
+                    pm_region@.len() == original_pm_len,
             {
                 assert((index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size
                        <= num_keys * metadata_node_size) by {
@@ -303,6 +306,9 @@ verus! {
                 // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
                 lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
             }
+            // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
+            // it's cleaner to do that here than in the caller
+            proof { subregion.lemma_reveal_opaque_inv(pm_region); }
             
             Ok(())
         }

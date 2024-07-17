@@ -1347,6 +1347,7 @@ impl WritablePersistentMemorySubregion
             forall |i: int| relative_addr <= i < relative_addr + S::spec_size_of() ==>
                 self.is_writable_relative_addr(i),
         ensures
+            pm@.len() == old(pm)@.len(),
             self.inv(pm),
             self.view(pm) == self.view(old::<&mut _>(pm)).write(relative_addr as int, to_write.spec_to_bytes()),
     {

@@ -20,6 +20,8 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
 use crate::kv::volatile::volatilespec_t::*;
 use crate::log::logimpl_v::*;
 use crate::log::logimpl_t::*;
@@ -76,6 +78,71 @@ verus! {
 
         pub exec fn get_elements_per_node(&self) -> u64 {
             self.durable_list.get_elements_per_node()
+        }
+
+        pub fn setup(
+            pm_region: &mut PM,
+            overall_metadata: OverallMetadata,
+            overall_metadata_addr: u64,
+            kvstore_id: u128,
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                old(pm_region).inv(),
+                old(pm_region)@.no_outstanding_writes(),
+                // TODO: these should probably be covered by overall_metadata_valid or memory_correctly_set_up_on_region
+                overall_metadata.main_table_addr <= overall_metadata.main_table_addr + overall_metadata.main_table_size <= old(pm_region)@.len(),
+                overall_metadata.item_table_addr <= overall_metadata.item_table_addr + overall_metadata.item_table_size <= old(pm_region)@.len(),
+                overall_metadata.item_size == I::spec_size_of(),
+                overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of()) <= overall_metadata.item_table_size,
+                overall_metadata.list_area_addr <= overall_metadata.list_area_addr + overall_metadata.list_area_size <= old(pm_region)@.len(),
+                overall_metadata.log_area_addr <= overall_metadata.log_area_addr + overall_metadata.log_area_size <= old(pm_region)@.len(),
+                // TODO: should we initialize this metadata here or at the KV level?
+                memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.committed(), kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr, kvstore_id),
+                // TODO: check that the metadata we passed in matches what is actually on PM?
+            ensures 
+                pm_region.inv(),
+                // TODO: overall view of the system is empty
+        {
+            let num_keys = overall_metadata.num_keys;
+
+            // Define subregions for each durable component and call setup on each one
+            let ghost writable_addr_fn = |addr: int| true;
+            let main_table_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.main_table_addr, 
+                Ghost(overall_metadata.main_table_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
+
+            let item_table_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.item_table_addr, 
+                Ghost(overall_metadata.item_table_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            
+            proof { DurableItemTable::<K, I>::lemma_table_is_empty_at_setup(&item_table_subregion, pm_region, Set::empty(), Seq::<OpLogEntryType<L>>::empty(), num_keys); }
+
+            let list_area_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.list_area_addr, 
+                Ghost(overall_metadata.list_area_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            let log_area_subregion = WritablePersistentMemorySubregion::new(
+                pm_region,
+                overall_metadata.log_area_addr,
+                Ghost(overall_metadata.log_area_size as nat),
+                Ghost(writable_addr_fn)
+            );
+
+            // TODO: list and log setup
+
+            return Err(KvError::NotImplemented);
         }
 
 /*

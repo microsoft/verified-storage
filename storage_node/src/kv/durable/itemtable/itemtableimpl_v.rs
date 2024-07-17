@@ -1,6 +1,7 @@
 use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
+use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
@@ -8,6 +9,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -24,7 +26,8 @@ verus! {
         item_slot_size: u64,
         num_keys: u64,
         free_list: Vec<u64>,
-        state: Ghost<DurableItemTableView<I, K>>,
+        state: Ghost<DurableItemTableView<I>>,
+        _phantom: Ghost<Option<K>>,
     }
 
     // // TODO: make a PR to Verus
@@ -50,7 +53,7 @@ verus! {
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             I: PmCopy + Sized + std::fmt::Debug,
     {
-        pub closed spec fn view(self) -> DurableItemTableView<I, K>
+        pub closed spec fn view(self) -> DurableItemTableView<I>
         {
             self.state@
         }
@@ -73,8 +76,9 @@ verus! {
         pub closed spec fn recover<L>(
             mem: Seq<u8>,
             op_log: Seq<OpLogEntryType<L>>,
-            kvstore_id: u128
-        ) -> Option<DurableItemTableView<I, K>>
+            valid_indices: Set<int>,
+            num_keys: u64,
+        ) -> Option<DurableItemTableView<I>>
             where 
                 L: PmCopy,
         {
@@ -84,27 +88,10 @@ verus! {
                 None
             }
             else {
-                // the metadata header is immutable, so we can check that it is valid before 
-                // doing any log replay
-                let metadata_header_bytes = mem.subrange(
-                    ABSOLUTE_POS_OF_METADATA_HEADER as int,
-                    ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of()
-                );
-                let crc_bytes = mem.subrange(
-                    ABSOLUTE_POS_OF_HEADER_CRC as int,
-                    ABSOLUTE_POS_OF_HEADER_CRC + 8
-                );
-                let metadata_header = ItemTableMetadata::spec_from_bytes(metadata_header_bytes);
-                let crc = u64::spec_from_bytes(crc_bytes);
-                if crc != metadata_header.spec_crc() {
-                    // The header is invalid if the stored CRC does not match the contents
-                    // of the metadata header
-                    None
-                } else {
-                    // replay the log on `mem`, then parse it into (hopefully) a valid item table view
-                    let mem = Self::spec_replay_log_item_table(mem, op_log);
-                    parse_item_table(metadata_header, mem)
-                }
+                // replay the log on `mem`, then parse it into (hopefully) a valid item table view
+                // TODO: may not need to do any replay here?
+                let mem = Self::spec_replay_log_item_table(mem, op_log);
+                parse_item_table::<I, K>(mem, num_keys as nat, valid_indices)
             }
 
         }
@@ -132,30 +119,31 @@ verus! {
             where 
                 L: PmCopy,
         {
-            let item_entry_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-            match op {
-                OpLogEntryType::ItemTableEntryCommit { item_index } => {
-                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
-                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
-                    let mem = mem.map(|pos: int, pre_byte: u8| 
-                                                        if addr <= pos < addr + valid_cdb.len() { valid_cdb[pos - addr]}
-                                                        else { pre_byte }
-                                                    );
-                    mem
-                }
-                OpLogEntryType::ItemTableEntryInvalidate { item_index } => {
-                    let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
-                    let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                    let invalid_cdb = spec_u64_to_le_bytes(CDB_FALSE);
-                    let mem = mem.map(|pos: int, pre_byte: u8| 
-                                                        if addr <= pos < addr + invalid_cdb.len() { invalid_cdb[pos - addr]}
-                                                        else { pre_byte }
-                                                    );
-                    mem
-                }
-                _ => mem
-            }
+            mem
+            // let item_entry_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+            // match op {
+            //     OpLogEntryType::ItemTableEntryCommit { item_index } => {
+            //         let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
+            //         let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
+            //         let valid_cdb = spec_u64_to_le_bytes(CDB_TRUE);
+            //         let mem = mem.map(|pos: int, pre_byte: u8| 
+            //                                             if addr <= pos < addr + valid_cdb.len() { valid_cdb[pos - addr]}
+            //                                             else { pre_byte }
+            //                                         );
+            //         mem
+            //     }
+            //     OpLogEntryType::ItemTableEntryInvalidate { item_index } => {
+            //         let entry_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_index * item_entry_size;
+            //         let addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
+            //         let invalid_cdb = spec_u64_to_le_bytes(CDB_FALSE);
+            //         let mem = mem.map(|pos: int, pre_byte: u8| 
+            //                                             if addr <= pos < addr + invalid_cdb.len() { invalid_cdb[pos - addr]}
+            //                                             else { pre_byte }
+            //                                         );
+            //         mem
+            //     }
+            //     _ => mem
+            // }
         }
 
         // TODO: write invariants
@@ -165,71 +153,54 @@ verus! {
             self.item_slot_size
         }
 
-        pub exec fn setup<PM>(
-            pm_region: &mut PM,
-            item_table_id: u128,
+        pub proof fn lemma_table_is_empty_at_setup<PM, L>(
+            subregion: &WritablePersistentMemorySubregion,
+            pm_region: &PM,
+            valid_indices: Set<int>,
+            op_log: Seq<OpLogEntryType<L>>,
             num_keys: u64,
-        ) -> (result: Result<(), KvError<K>>)
-            where
+        )
+            where 
                 PM: PersistentMemoryRegion,
-            requires
-                old(pm_region).inv(),
-                0 <= ItemTableMetadata::spec_size_of() + u64::spec_size_of() < usize::MAX,
-                ({
-                    let item_slot_size = I::spec_size_of() + u64::spec_size_of() + u64::spec_size_of();
-                    &&& 0 <= item_slot_size < usize::MAX
-                    &&& 0 <= item_slot_size * num_keys < usize::MAX
-                    &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < u64::MAX
-                })
+                L: PmCopy,
+            requires 
+                valid_indices == Set::<int>::empty(),
+                op_log == Seq::<OpLogEntryType<L>>::empty(),
+                ({ 
+                    let mem = subregion.view(pm_region).committed();
+                    let item_entry_size = I::spec_size_of() + u64::spec_size_of();
+                    &&& num_keys * item_entry_size <= mem.len()
+                    &&& mem.len() >= ABSOLUTE_POS_OF_TABLE_AREA
+                }),
             ensures
-                pm_region.inv(),
-                pm_region@.no_outstanding_writes(),
-                // TODO: write the rest of the postconditions
+                ({
+                    let mem = subregion.view(pm_region).committed();
+                    Self::recover(mem, op_log, valid_indices, num_keys).unwrap() =~= DurableItemTableView::<I>::init(num_keys as int)
+                })
         {
-            assume(false);
-            let item_size = I::size_of();
+            let mem = subregion.view(pm_region).committed();
+            let item_entry_size = I::spec_size_of() + u64::spec_size_of();
 
-            // ensure that there are no outstanding writes
-            pm_region.flush();
+            assert(mem.len() >= ABSOLUTE_POS_OF_TABLE_AREA);
+            assert(mem.len() >= num_keys * item_entry_size);
+            assert(validate_item_table_entries::<I, K>(mem, num_keys as nat, valid_indices));
+            assert(Self::recover(mem, op_log, valid_indices, num_keys) is Some);
 
-            let table_region_size = pm_region.get_region_size();
-            // determine if the provided region is large enough for the
-            // specified number of items
-            // TODO: still some overflow/underflow errors to work out here
-            let item_slot_size = item_size + traits_t::size_of::<u64>() + traits_t::size_of::<u64>();
-            if ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size as u64 * num_keys) > table_region_size {
-                let required: usize = (ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size as u64 * num_keys)) as usize;
-                return Err(KvError::RegionTooSmall {required, actual: table_region_size as usize});
+            let recovered_table = Self::recover(mem, op_log, valid_indices, num_keys).unwrap().item_table;
+            assert forall |k: nat| k < num_keys implies #[trigger] recovered_table[k as int] is None by {
+                lemma_valid_entry_index(k, num_keys as nat, item_entry_size);
+                assert(!valid_indices.contains(k as int));
             }
-
-            assume(false);
-            Self::write_setup_metadata(pm_region, num_keys);
-
-            // we also have to set all of the valid bits of the item table slots
-            // to 0 so they are not accidentally interpreted as being in use
-            // TODO: move this into setup...
-            // TODO: these invariants are tricky, probably because they involve nonlinear arithmetic?
-            for index in 0..num_keys
-                // invariant
-                //     index <= num_keys,
-                //     0 <= index * item_slot_size < ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size <= table_region_size,
-            {
-                assume(false);
-                let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + index * item_slot_size as u64;
-                pm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE);
-            }
-            pm_region.flush();
-
-            Ok(())
         }
 
+        /* temporarily commented out for subregion development 
         // TODO: this function doesn't do anything with state right now
         pub exec fn start<PM, L>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
             item_table_id: u128,
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-            Ghost(state): Ghost<DurableItemTableView<I, K>>
+            Ghost(state): Ghost<DurableItemTableView<I>>
         ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
@@ -324,7 +295,7 @@ verus! {
             table_id: u128,
             log_entries: &Vec<OpLogEntryType<L>>,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-            Ghost(state): Ghost<DurableItemTableView<I, K>>
+            Ghost(state): Ghost<DurableItemTableView<I>>
         ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
@@ -358,7 +329,7 @@ verus! {
             log_entries: &Vec<OpLogEntryType<L>>,
             item_slot_size: u64,
             Tracked(perm): Tracked<&TrustedItemTablePermission>,
-            Ghost(state): Ghost<DurableItemTableView<I, K>>
+            Ghost(state): Ghost<DurableItemTableView<I>>
         ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
@@ -674,6 +645,6 @@ verus! {
 
             return Ok(table_metadata);
         }
-
+        */
     }
 }

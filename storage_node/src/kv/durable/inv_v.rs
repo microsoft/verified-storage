@@ -1,20 +1,20 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::pmem::{pmemspec_t::*, pmemutil_v::lemma_establish_extract_bytes_equivalence};
+use crate::pmem::pmemspec_t::*;
 
 verus! {
     // This lemma proves that an index that is less than num_keys (i.e., within bounds of the table) 
     // represents a valid table entry that we can read and parse.
-    pub proof fn lemma_valid_entry_index(index: nat, num_keys: nat, metadata_node_size: nat)
+    pub proof fn lemma_valid_entry_index(index: nat, num_keys: nat, size: nat)
         requires
             index + 1 <= num_keys
         ensures 
-            (index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size <= num_keys * metadata_node_size
+            (index + 1) * size == index * size + size <= num_keys * size
     {
-        vstd::arithmetic::mul::lemma_mul_inequality(index + 1 as int, num_keys as int, metadata_node_size as int);
-        vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
-        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
+        vstd::arithmetic::mul::lemma_mul_inequality(index + 1 as int, num_keys as int, size as int);
+        vstd::arithmetic::mul::lemma_mul_basics(size as int);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int,
                                                                         index as int, 1);
     }
 

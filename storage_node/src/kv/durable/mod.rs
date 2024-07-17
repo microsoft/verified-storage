@@ -4,3 +4,4 @@ pub mod durablespec_t;
 pub mod itemtable;
 pub mod oplog;
 pub mod metadata;
+pub mod inv_v;
