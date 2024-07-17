@@ -50,13 +50,14 @@ verus! {
         }
     }
 
+    #[verifier::ext_equal]
     pub struct MetadataTableView<K> {
-        metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
+        pub metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
     {
-        pub closed spec fn init(num_keys: u64) -> Self {
+        pub open spec fn init(num_keys: u64) -> Self {
             Self {
                 metadata_table: Seq::new(
                     num_keys as nat,
@@ -65,7 +66,7 @@ verus! {
             }
         }
 
-        pub closed spec fn new(
+        pub open spec fn new(
             metadata_table: Seq<Option<MetadataTableViewEntry<K>>>
         ) -> Self {
             Self {
@@ -73,7 +74,7 @@ verus! {
             }
         }
 
-        pub closed spec fn get_metadata_table(self) -> Seq<Option<MetadataTableViewEntry<K>>>
+        pub open spec fn get_metadata_table(self) -> Seq<Option<MetadataTableViewEntry<K>>>
         {
             self.metadata_table
         }
