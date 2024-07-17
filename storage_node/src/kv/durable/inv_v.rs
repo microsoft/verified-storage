@@ -8,7 +8,7 @@ verus! {
     // represents a valid table entry that we can read and parse.
     pub proof fn lemma_valid_entry_index(index: nat, num_keys: nat, size: nat)
         requires
-            index + 1 <= num_keys
+            index < num_keys
         ensures 
             (index + 1) * size == index * size + size <= num_keys * size
     {
