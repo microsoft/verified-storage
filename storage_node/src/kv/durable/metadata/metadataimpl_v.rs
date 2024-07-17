@@ -240,13 +240,7 @@ verus! {
                     ) == CDB_FALSE,
                     pm_region@.len() == original_pm_len,
             {
-                assert((index + 1) * metadata_node_size == index * metadata_node_size + metadata_node_size
-                       <= num_keys * metadata_node_size) by {
-                    vstd::arithmetic::mul::lemma_mul_inequality(index + 1, num_keys as int, metadata_node_size as int);
-                    vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
-                    vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
-                                                                                   index as int, 1);
-                }
+                proof {lemma_valid_entry_index(index as nat, num_keys as nat, metadata_node_size as nat);}
                 let ghost v1 = subregion.view(pm_region);
                 subregion.serialize_and_write_relative(pm_region, entry_offset, &CDB_FALSE);
                 assert(CDB_FALSE.spec_to_bytes().len() == u64::spec_size_of()) by {
@@ -284,7 +278,7 @@ verus! {
             // Prove that all of the metadata entries are valid. We need to establish this to prove that the recovery view
             // of the table is Some so that we can then reason about its contents.
             assert forall |k: nat| k < num_keys implies {
-                &&& validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
+                validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
                         metadata_node_size as nat))
             } by {
                 assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
@@ -298,13 +292,13 @@ verus! {
             // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
             // since all entries in both are None
             let ghost metadata_table = recovered_view.unwrap().get_metadata_table();
-            assert forall |k: nat| k < num_keys implies {
-                Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE ==> #[trigger] metadata_table[k as int] is None
-            } by {
+            assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] is None by {
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
                 // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
                 lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
+            
+                assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
             }
             // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
             // it's cleaner to do that here than in the caller

@@ -91,13 +91,7 @@ verus! {
             requires 
                 old(pm_region).inv(),
                 old(pm_region)@.no_outstanding_writes(),
-                // TODO: these should probably be covered by overall_metadata_valid or memory_correctly_set_up_on_region
-                overall_metadata.main_table_addr <= overall_metadata.main_table_addr + overall_metadata.main_table_size <= old(pm_region)@.len(),
-                overall_metadata.item_table_addr <= overall_metadata.item_table_addr + overall_metadata.item_table_size <= old(pm_region)@.len(),
-                overall_metadata.item_size == I::spec_size_of(),
-                overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of()) <= overall_metadata.item_table_size,
-                overall_metadata.list_area_addr <= overall_metadata.list_area_addr + overall_metadata.list_area_size <= old(pm_region)@.len(),
-                overall_metadata.log_area_addr <= overall_metadata.log_area_addr + overall_metadata.log_area_size <= old(pm_region)@.len(),
+                overall_metadata.region_size == old(pm_region)@.len(),
                 // TODO: should we initialize this metadata here or at the KV level?
                 memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.committed(), kvstore_id),
                 overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr, kvstore_id),
@@ -117,6 +111,7 @@ verus! {
                 Ghost(writable_addr_fn)
             );
             MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
+            proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
 
             let item_table_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 

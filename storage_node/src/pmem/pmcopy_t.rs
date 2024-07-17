@@ -454,7 +454,7 @@ verus! {
         requires 
             align > 0,
         ensures 
-            out <= align,
+            out < align,
             out as nat == spec_padding_needed(offset as nat, align as nat)
     {
         reveal(spec_padding_needed);

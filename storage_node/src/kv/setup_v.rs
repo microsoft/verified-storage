@@ -44,7 +44,7 @@ where
     &&& overall_metadata.main_table_addr >= overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
     &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
     &&& overall_metadata.item_table_addr >= overall_metadata.main_table_addr + overall_metadata.main_table_size
-    &&& overall_metadata.item_table_size >= overall_metadata.num_keys * overall_metadata.item_size
+    &&& overall_metadata.item_table_size >= overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of())
     &&& overall_metadata.list_area_addr >= overall_metadata.item_table_addr + overall_metadata.item_table_size
     &&& overall_metadata.list_area_size >= overall_metadata.num_list_nodes * overall_metadata.list_node_size
     &&& overall_metadata.log_area_addr >= overall_metadata.list_area_addr + overall_metadata.list_area_size
@@ -190,17 +190,19 @@ pub fn initialize_overall_metadata<K, I, L> (
         return Err(KvError::TooManyKeys);
     }
     let item_table_addr: u64 = round_up_to_multiple_of_256(main_table_addr + main_table_size);
-    if item_size > 0 {
-        if num_keys > u64::MAX / (item_size as u64) {
-            return Err(KvError::TooManyKeys);
-        }
-        assert(num_keys <= u64::MAX as int / item_size as int ==>
-               num_keys * item_size <= u64::MAX as int) by (nonlinear_arith);
+    let item_slot_size : u64 = item_size + size_of::<u64>() as u64;
+    if num_keys > u64::MAX / item_slot_size {
+        return Err(KvError::TooManyKeys);
     }
-    else {
-        assert(num_keys * item_size == 0) by { vstd::arithmetic::mul::lemma_mul_basics(num_keys as int); }
+    assert(num_keys <= u64::MAX as int / item_slot_size as int ==>
+            num_keys * item_slot_size <= u64::MAX as int) 
+    by {
+        // First, establish (u64::MAX / item_slot_size) * item_slot_size == u64::MAX - u64::MAX % item_slot_size
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(u64::MAX as int, item_slot_size as int);
+        // Second, establish num_keys * item_slot_size <= (u64::MAX / item_slot_size) * item_slot_size
+        vstd::arithmetic::mul::lemma_mul_inequality(num_keys as int, (u64::MAX / item_slot_size) as int, item_slot_size as int);
     }
-    let item_table_size: u64 = num_keys * item_size as u64;
+    let item_table_size: u64 = num_keys * item_slot_size;
 
     if item_table_size > u64::MAX - item_table_addr {
         return Err(KvError::TooManyKeys);
