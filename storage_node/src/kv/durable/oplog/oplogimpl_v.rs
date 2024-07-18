@@ -2,10 +2,10 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
-use crate::log::logimpl_v::*;
-use crate::log::logimpl_t::*;
-use crate::log::logspec_t::*;
-use crate::log::layout_v::*;
+use crate::log2::logimpl_v::*;
+// use crate::log::logimpl_t::*;
+use crate::log2::logspec_t::*;
+use crate::log2::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::kvimpl_t::*;
@@ -34,10 +34,11 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
-        pub closed spec fn recover(mem: Seq<u8>, kvstore_id: u128) -> Option<AbstractOpLogState<L>>
+        pub closed spec fn recover(mem: Seq<u8>) -> Option<AbstractOpLogState<L>>
         {
             // use log's recover method to recover the log state, then parse it into operations
-            match UntrustedLogImpl::recover(mem, kvstore_id) {
+            // TODO: refactor?
+            match UntrustedLogImpl::recover(mem) {
                 Some(log) => {
                     if log.log.len() == 0 {
                         Some(AbstractOpLogState {
@@ -54,7 +55,6 @@ verus! {
                             Self::parse_log_ops(log_entries_bytes)
                         }
                     }
-                    
                 }
                 None => None
             }

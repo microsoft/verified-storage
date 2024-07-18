@@ -62,13 +62,52 @@ verus! {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
-        // Proving crash consistency here will come down to proving that each update
-        // to an individual component results in a valid AbstractKvStoreState either with 0
-        // log entries replayed or all of the log entries replayed, I think
-        pub closed spec fn recover_to_kv_state(bytes: Seq<u8>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
-        {
-            // TODO
-            None
+        // // Proving crash consistency here will come down to proving that each update
+        // // to an individual component results in a valid AbstractKvStoreState either with 0
+        // // log entries replayed or all of the log entries replayed, I think
+        // pub closed spec fn recover_to_kv_state(bytes: Seq<u8>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+        // {
+        //     // TODO
+        //     None
+        // }
+
+        pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
+            let recovered_log = UntrustedOpLog::recover(
+                extract_bytes(bytes, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+            if let Some(recovered_log) = recovered_log {
+                let op_log = recovered_log.op_list;
+                let recovered_main_table = MetadataTable::recover(
+                    extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat),
+                    op_log, 
+                    overall_metadata.num_keys,
+                    overall_metadata.metadata_node_size
+                );
+                if let Some(recovered_main_table) = recovered_main_table {
+                    let valid_item_indices = recovered_main_table.valid_item_indices();
+                    let recovered_item_table = DurableItemTable::recover(
+                        extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat),
+                        op_log,
+                        valid_item_indices,
+                        overall_metadata.num_keys
+                    );
+                    if let Some(recovered_item_table) = recovered_item_table {
+                        let recovered_list = DurableList::recover(
+                            extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat),
+                            overall_metadata.list_node_size,
+                            overall_metadata.num_list_entries_per_node,
+                            op_log,
+                            recovered_main_table
+                        );
+                        // TODO: finish this
+                    } else {
+                        None
+                    }
+                } else { 
+                    None
+                }
+            } else {
+                None
+            }
         }
 
         pub closed spec fn valid(self) -> bool
@@ -99,6 +138,12 @@ verus! {
                 // TODO: check that the metadata we passed in matches what is actually on PM?
             ensures 
                 pm_region.inv(),
+                match result {
+                    Ok(()) => {
+                        let recovered = Self::recover()
+                    }
+                    Err(_) => true
+                }
                 // TODO: overall view of the system is empty
         {
             let num_keys = overall_metadata.num_keys;
@@ -129,11 +174,12 @@ verus! {
                 Ghost(overall_metadata.list_area_size as nat),
                 Ghost(writable_addr_fn)
             );
-
             proof { DurableList::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, Seq::<OpLogEntryType<L>>::empty(), num_keys, 
                 overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
 
             UntrustedLogImpl::setup2::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, kvstore_id)?;
+
+            pm_region.flush();
 
             Ok(())
         }

@@ -83,11 +83,15 @@ where
     &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
     &&& version_crc == version_metadata.spec_crc()
     &&& overall_crc == overall_metadata.spec_crc()
+    &&& version_metadata_valid(version_metadata)
+    &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
+}
+
+pub open spec fn version_metadata_valid(version_metadata: VersionMetadata) -> bool 
+{
     &&& version_metadata.program_guid == KVSTORE_PROGRAM_GUID
     &&& version_metadata.version_number == KVSTORE_PROGRAM_VERSION_NUMBER
     &&& version_metadata.overall_metadata_addr >= ABSOLUTE_POS_OF_VERSION_METADATA + u64::spec_size_of()
-    &&& overall_metadata.region_size == mem.len()
-    &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
 }
 
 #[inline]

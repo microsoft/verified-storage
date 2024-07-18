@@ -137,10 +137,10 @@ verus! {
     }
 
     // `mem` should be the subrange of bytes that comprise the log
-    pub open spec fn recover_state(mem: Seq<u8>, log_id: u128) -> Option<AbstractLogState>
+    pub open spec fn recover_state(mem: Seq<u8>) -> Option<AbstractLogState>
     {
         match recover_cdb(mem) {
-            Some(cdb) => recover_given_cdb(mem, log_id, cdb),
+            Some(cdb) => recover_given_cdb(mem, cdb),
             None => None
         }
     }
@@ -161,7 +161,7 @@ verus! {
         }
     }
 
-    pub open spec fn recover_given_cdb(mem: Seq<u8>, log_id: u128, cdb: bool) -> Option<AbstractLogState>
+    pub open spec fn recover_given_cdb(mem: Seq<u8>, cdb: bool) -> Option<AbstractLogState>
     {
         if mem.len() < spec_log_header_area_size() {
             None 

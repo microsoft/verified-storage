@@ -52,10 +52,10 @@ verus! {
     }
 
     impl UntrustedLogImpl {
-        pub open spec fn recover(mem: Seq<u8>, log_id: u128) -> Option<AbstractLogState> 
-    {
-        recover_state(mem, log_id)
-    }
+        pub open spec fn recover(mem: Seq<u8>) -> Option<AbstractLogState> 
+        {
+            recover_state(mem)
+        }
 
     pub exec fn setup2<PM, K>(
         pm_region: &mut PM,
@@ -86,6 +86,7 @@ verus! {
                     let pm = pm_region@.flush().committed();
                     let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
                     let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat), log_id).unwrap();
+                    // TODO: don't use ext equality here
                     state =~= recovered_state
                 }
                 Err(_) => false

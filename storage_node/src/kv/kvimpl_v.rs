@@ -60,9 +60,25 @@ where
     // This function specifies how all durable contents of the KV
     // should be viewed upon recovery as an abstract paged KV state.
     // TODO: write this
-    pub closed spec fn recover(mems: Seq<Seq<u8>>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    pub closed spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
-        None
+        let version_metadata = deserialize_version_metadata(mem);
+        let version_crc = deserialize_version_crc(mem);
+        let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
+        let overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
+        if !{
+            &&& version_crc == version_metadata.spec_crc()
+            &&& overall_crc == overall_metadata.spec_crc()
+            &&& version_metadata_valid(version_metadata)
+            &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
+            &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
+        } {
+            None
+        } else {
+            // TODO
+            let _recovered_durable = DurableKvStore::recover(mem, overall_metadata);
+            None
+        } 
     }
 
     pub closed spec fn construct_view_contents(

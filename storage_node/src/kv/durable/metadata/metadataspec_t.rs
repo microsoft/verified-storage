@@ -86,5 +86,14 @@ verus! {
                 None
             }
         }
+
+        pub open spec fn valid_item_indices(self) -> Set<int> {
+            Set::new(|i: int| exists |j: int| {
+                    &&& 0 <= j < self.metadata_table.len() 
+                    &&& self.metadata_table[j] is Some 
+                    &&& self.metadata_table[j].unwrap().item_index() == i
+                }
+            )
+        }
     }
 }
