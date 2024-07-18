@@ -23,9 +23,10 @@ use crate::kv::kvspec_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;
 use crate::kv::volatile::volatilespec_t::*;
-use crate::log::logimpl_v::*;
-use crate::log::logimpl_t::*;
-use crate::log::logspec_t::*;
+use crate::log2::layout_v::*;
+use crate::log2::logimpl_v::*;
+// use crate::log::logimpl_t::*;
+use crate::log2::logspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
@@ -134,8 +135,9 @@ verus! {
                 Ghost(overall_metadata.log_area_size as nat),
                 Ghost(writable_addr_fn)
             );
+            UntrustedLogImpl::setup2::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, kvstore_id)?;
 
-            // TODO: list and log setup
+            // TODO: list setup
 
             return Err(KvError::NotImplemented);
         }

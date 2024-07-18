@@ -22,9 +22,20 @@ verus! {
 
     impl PmCopy for LogMetadata {}
 
-    pub open spec fn log_header_area_size() -> nat {
+    pub open spec fn spec_log_header_area_size() -> nat {
         // CDB + two LogMetadata + two CRC
         u64::spec_size_of() + LogMetadata::spec_size_of() * 2 + u64::spec_size_of() * 2
+    }
+
+    pub exec fn log_header_area_size() -> (out: u64) 
+        requires 
+            LogMetadata::spec_size_of() * 2 <= u64::MAX,
+            u64::spec_size_of() + LogMetadata::spec_size_of() * 2 <= u64::MAX,
+            u64::spec_size_of() + LogMetadata::spec_size_of() * 2 + u64::spec_size_of() * 2 <= u64::MAX
+        ensures 
+            out == spec_log_header_area_size()
+    {
+        (size_of::<u64>() + size_of::<LogMetadata>() * 2 + size_of::<u64>() * 2) as u64
     }
 
     pub open spec fn spec_log_header_pos_cdb_false() -> nat {
@@ -152,7 +163,7 @@ verus! {
 
     pub open spec fn recover_given_cdb(mem: Seq<u8>, log_id: u128, cdb: bool) -> Option<AbstractLogState>
     {
-        if mem.len() < log_header_area_size() {
+        if mem.len() < spec_log_header_area_size() {
             None 
         } else {
             let metadata = get_active_log_metadata(mem, cdb);
@@ -167,15 +178,15 @@ verus! {
 
     pub open spec fn recover_log(mem: Seq<u8>, head: int, len: int) -> Option<AbstractLogState>
     {
-        if mem.len() - log_header_area_size() < len || head + len > u128::MAX {
+        if mem.len() - spec_log_header_area_size() < len || head + len > u128::MAX {
             None 
         } else {
-            let log_area = extract_bytes(mem, log_header_area_size(), (mem.len() - log_header_area_size()) as nat);
+            let log_area = extract_bytes(mem, spec_log_header_area_size(), (mem.len() - spec_log_header_area_size()) as nat);
             Some(AbstractLogState {
                 head,
                 log: extract_log_from_log_area(log_area, head, len),
                 pending: Seq::<u8>::empty(),
-                capacity: mem.len() - log_header_area_size()
+                capacity: mem.len() - spec_log_header_area_size()
             })
         }
     }

@@ -6,10 +6,12 @@
 //! of the system's correctness.
 
 use core::hash::Hash;
+use std::f64::MIN;
 use std::num;
 use crate::kv::durable::durableimpl_v::DurableKvStore;
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::kv::layout_v::*;
+use crate::log2::layout_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -49,6 +51,7 @@ where
     &&& overall_metadata.list_area_size >= overall_metadata.num_list_nodes * overall_metadata.list_node_size
     &&& overall_metadata.log_area_addr >= overall_metadata.list_area_addr + overall_metadata.list_area_size
     &&& overall_metadata.log_area_size >= overall_metadata.log_entry_size
+    &&& overall_metadata.log_area_size >= spec_log_header_area_size() + MIN_LOG_AREA_SIZE
     &&& overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size
 }
 
@@ -245,6 +248,9 @@ pub fn initialize_overall_metadata<K, I, L> (
 
     if log_area_size > u64::MAX - log_area_addr {
         return Err(KvError::TooManyKeys);
+    }
+    if log_area_size < log_header_area_size() + MIN_LOG_AREA_SIZE {
+        return Err(KvError::LogAreaTooSmall { required: (log_header_area_size() + MIN_LOG_AREA_SIZE) as usize, actual: log_area_size as usize });
     }
     let required_size = log_area_addr as usize + log_area_size as usize;
     if required_size > region_size as usize {

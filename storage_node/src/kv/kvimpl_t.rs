@@ -59,7 +59,8 @@ where
     TooManyListNodes,
     RegionTooSmall { required: usize, actual: usize },
     TooFewRegions { required: usize, actual: usize },
-    TooManyRegions { required: usize, actual: usize},
+    TooManyRegions { required: usize, actual: usize },
+    LogAreaTooSmall { required: usize, actual: usize },
     OutOfSpace,
     InvalidPersistentMemoryRegionProvided, // TODO: reason
     CRCMismatch,
