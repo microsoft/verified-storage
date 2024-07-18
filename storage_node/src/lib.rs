@@ -24,6 +24,7 @@ pub mod log;
 pub mod multilog;
 pub mod pmem;
 pub mod util_v;
+pub mod log2;
 
 use kv::durable::durableimpl_v::*;
 use kv::kvspec_t::*;
