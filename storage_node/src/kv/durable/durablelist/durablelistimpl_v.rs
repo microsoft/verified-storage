@@ -11,6 +11,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -49,10 +50,9 @@ verus! {
         pub closed spec fn recover(
             mem: Seq<u8>,
             list_node_size: u64,
-            num_list_entries_per_node: u64,
+            num_list_entries_per_node: u32,
             op_log: Seq<OpLogEntryType<L>>,
             metadata_table_view: MetadataTableView<K>,
-            kvstore_id: u128,
         ) -> Option<DurableListView<K, L>>
         {
             // TODO: check list node region header for validity? or do we do that later?
@@ -138,7 +138,7 @@ verus! {
             metadata_table: MetadataTableView<K>,
             mem: Seq<u8>,
             list_node_size: u64,
-            num_list_entries_per_node: u64,
+            num_list_entries_per_node: u32,
         ) -> Option<DurableListView<K, L>> 
         {
             let lists_map = Map::empty();
@@ -156,7 +156,7 @@ verus! {
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
             list_node_size: u64,
-            num_list_entries_per_node: u64,
+            num_list_entries_per_node: u32,
         ) -> Option<Map<K, Seq<DurableListElementView<L>>>>
             decreases
                 metadata_entries.len()
@@ -192,7 +192,7 @@ verus! {
             entry: MetadataTableViewEntry<K>, 
             mem: Seq<u8>,
             list_node_size: u64,
-            num_list_entries_per_node: u64,
+            num_list_entries_per_node: u32,
         ) -> Option<Seq<DurableListElementView<L>>>
         {
             let head_node_index = entry.list_head_index();
@@ -207,7 +207,7 @@ verus! {
             current_list: Seq<DurableListElementView<L>>,
             mem: Seq<u8>,
             list_node_size: u64,
-            num_list_entries_per_node: u64,
+            num_list_entries_per_node: u32,
         ) -> Option<Seq<DurableListElementView<L>>>
             decreases
                 list_len_remaining
@@ -272,6 +272,31 @@ verus! {
 
         pub exec fn get_elements_per_node(&self) -> u64 {
             self.elements_per_node
+        }
+
+        pub proof fn lemma_list_is_empty_at_setup<PM>(
+            subregion: &WritablePersistentMemorySubregion,
+            pm_region: &PM,
+            op_log: Seq<OpLogEntryType<L>>,
+            num_keys: u64,
+            node_size: u64,
+            list_entries_per_node: u32,
+            num_list_nodes: u64,
+            metadata_table_view: MetadataTableView<K>
+        ) 
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                subregion.inv(pm_region),
+                forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                subregion.view(pm_region).no_outstanding_writes(),
+                op_log == Seq::<OpLogEntryType<L>>::empty(),
+            ensures 
+                Self::recover(subregion.view(pm_region).flush().committed(), node_size, list_entries_per_node,
+                    Seq::<OpLogEntryType<L>>::empty(), metadata_table_view).unwrap() == DurableListView::<K, L>::init(),
+        {
+            // TODO
+            assume(false);
         }
 
         pub exec fn setup<PM>(

@@ -114,32 +114,28 @@ verus! {
             MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
             proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
 
+            // Both the item table and list region do not require any writes in setup; we just need to prove that regardless of the contents of 
+            // the PM in those areas, if we set up the item table correctly then 
             let item_table_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 
                 overall_metadata.item_table_addr, 
                 Ghost(overall_metadata.item_table_size as nat),
                 Ghost(writable_addr_fn)
             );
-            
             proof { DurableItemTable::<K, I>::lemma_table_is_empty_at_setup(&item_table_subregion, pm_region, Set::empty(), Seq::<OpLogEntryType<L>>::empty(), num_keys); }
-
             let list_area_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 
                 overall_metadata.list_area_addr, 
                 Ghost(overall_metadata.list_area_size as nat),
                 Ghost(writable_addr_fn)
             );
-            let log_area_subregion = WritablePersistentMemorySubregion::new(
-                pm_region,
-                overall_metadata.log_area_addr,
-                Ghost(overall_metadata.log_area_size as nat),
-                Ghost(writable_addr_fn)
-            );
+
+            proof { DurableList::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, Seq::<OpLogEntryType<L>>::empty(), num_keys, 
+                overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
+
             UntrustedLogImpl::setup2::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, kvstore_id)?;
 
-            // TODO: list setup
-
-            return Err(KvError::NotImplemented);
+            Ok(())
         }
 
 /*

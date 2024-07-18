@@ -76,7 +76,7 @@ verus! {
         idx: int, 
         mem: Seq<u8>,
         list_node_size: u64,
-        num_list_entries_per_node: u64,
+        num_list_entries_per_node: u32,
     ) -> Option<(u64, Seq<Seq<u8>>)>
         where 
             L: PmCopy 
