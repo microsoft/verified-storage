@@ -85,9 +85,8 @@ verus! {
                 Ok(()) => {
                     let pm = pm_region@.flush().committed();
                     let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
-                    let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat), log_id).unwrap();
-                    // TODO: don't use ext equality here
-                    state =~= recovered_state
+                    let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat)).unwrap();
+                    state == recovered_state
                 }
                 Err(_) => false
             } 
@@ -115,7 +114,7 @@ verus! {
                 // Prove that the resulting log, when recovered, is initialized
                 let pm = pm_region@.flush().committed();
                 let log_region = extract_bytes(pm, log_start_addr as nat, log_size as nat);
-                let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat), log_id);
+                let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat));
                 
                 // Prove that we can recover a valid log
                 // First, prove that the return value of recover is not None
@@ -142,6 +141,7 @@ verus! {
                 assert(crc == metadata.spec_crc());
 
                 // Once we have proven that the log recovers to a valid abstract state, extensional equality takes care of the rest of the proof
+                assert(recovered_state.unwrap() =~= AbstractLogState::initialize(log_size - spec_log_header_area_size()));
             }
         
             Ok(())

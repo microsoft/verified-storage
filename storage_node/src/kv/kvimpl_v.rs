@@ -25,6 +25,8 @@ use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
 use super::volatile::volatilespec_t::*;
 use crate::kv::kvimpl_t::*;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
@@ -70,13 +72,13 @@ where
             &&& version_crc == version_metadata.spec_crc()
             &&& overall_crc == overall_metadata.spec_crc()
             &&& version_metadata_valid(version_metadata)
-            &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
+            &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kv_id)
             &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
         } {
             None
         } else {
             // TODO
-            let _recovered_durable = DurableKvStore::recover(mem, overall_metadata);
+            let _recovered_durable = DurableKvStore::<PM, K, I, L>::recover(mem, overall_metadata);
             None
         } 
     }

@@ -35,6 +35,8 @@ use crate::pmem::traits_t;
 use crate::pmem::crc_t::*;
 use std::hash::Hash;
 
+use super::oplog::oplogspec_t::AbstractOpLogState;
+
 verus! {
     #[verifier::reject_recursive_types(K)]
     pub struct DurableKvStore<PM, K, I, L>
@@ -72,7 +74,7 @@ verus! {
         // }
 
         pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
-            let recovered_log = UntrustedOpLog::recover(
+            let recovered_log = UntrustedOpLog::<K, L>::recover(
                 extract_bytes(bytes, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
             if let Some(recovered_log) = recovered_log {
                 let op_log = recovered_log.op_list;
@@ -84,21 +86,25 @@ verus! {
                 );
                 if let Some(recovered_main_table) = recovered_main_table {
                     let valid_item_indices = recovered_main_table.valid_item_indices();
-                    let recovered_item_table = DurableItemTable::recover(
+                    let recovered_item_table = DurableItemTable::<K, I>::recover(
                         extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat),
                         op_log,
                         valid_item_indices,
                         overall_metadata.num_keys
                     );
                     if let Some(recovered_item_table) = recovered_item_table {
-                        let recovered_list = DurableList::recover(
+                        let recovered_lists = DurableList::recover(
                             extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat),
                             overall_metadata.list_node_size,
                             overall_metadata.num_list_entries_per_node,
                             op_log,
                             recovered_main_table
                         );
-                        // TODO: finish this
+                        if let Some(recovered_lists) = recovered_lists {
+                            Some(Self::recover_from_component_views(recovered_log, recovered_main_table, recovered_item_table, recovered_lists))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
@@ -108,6 +114,37 @@ verus! {
             } else {
                 None
             }
+        }
+
+        // Note: this fn assumes that the item and list head in the main table entry point 
+        // to valid entries in the corresponding structures.
+        pub open spec fn recover_from_component_views(
+            recovered_log: AbstractOpLogState<L>, 
+            recovered_main_table: MetadataTableView<K>, 
+            recovered_item_table: DurableItemTableView<I>,
+            recovered_lists: DurableListView<K, L>
+        ) -> DurableKvStoreView<K, I, L>
+        {
+            let contents = Map::new(
+                |i: int| recovered_main_table.metadata_table[i] is Some,
+                |i: int| {
+                    let main_table_entry = recovered_main_table.metadata_table[i].unwrap();
+                    let item_index = main_table_entry.item_index();
+                    let list_head_index = main_table_entry.list_head_index();
+                    let key = main_table_entry.key();
+                    
+                    let item = recovered_item_table[item_index as int].unwrap().get_item();
+                    let list_view = recovered_lists[key].unwrap();
+                    let list = DurableKvStoreList {
+                            list: Seq::new(
+                                    list_view.len(),
+                                    |i: int| list_view[i].list_element()
+                                )
+                    };
+                    DurableKvStoreViewEntry { key, item, list }
+                }
+            );
+            DurableKvStoreView { contents }
         }
 
         pub closed spec fn valid(self) -> bool
@@ -140,7 +177,8 @@ verus! {
                 pm_region.inv(),
                 match result {
                     Ok(()) => {
-                        let recovered = Self::recover()
+                        // let recovered = Self::recover()
+                        true
                     }
                     Err(_) => true
                 }

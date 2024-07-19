@@ -52,9 +52,9 @@ verus! {
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct VersionMetadata {
-        pub program_guid: u128,
         pub version_number: u64,
         pub overall_metadata_addr: u64,
+        pub program_guid: u128,
     }
 
     impl PmCopy for VersionMetadata {}
@@ -62,15 +62,14 @@ verus! {
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone, Default)]
     pub struct OverallMetadata {
-        pub region_size: u64,
-        pub kvstore_id: u128,
         pub key_size: u32, // K::size_of()
-        pub item_size: u64, // I::size_of()
         pub list_element_size: u32, // L::size_of()
         pub metadata_node_size: u32,
         pub log_entry_size: u32,
-        pub num_keys: u64,
         pub num_list_entries_per_node: u32,
+        pub item_size: u64, // I::size_of()
+        pub region_size: u64,
+        pub num_keys: u64,
         pub list_node_size: u64,
         pub num_list_nodes: u64,
         pub main_table_addr: u64,
@@ -81,6 +80,7 @@ verus! {
         pub list_area_size: u64,
         pub log_area_addr: u64,
         pub log_area_size: u64,
+        pub kvstore_id: u128,
     }
 
     impl PmCopy for OverallMetadata {}

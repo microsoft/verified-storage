@@ -445,6 +445,89 @@ verus! {
         } else {
             0
         }
+
+        // alignments must be 1, 2, 4, 8, or 16, so padding needed must be between [0, 15]
+
+        // // a value with an alignment of 1 can be placed anywhere 
+        // if align == 1 {
+        //     0nat
+        // } else if align == 2 {
+        //     // if the offset is even, misalignment is 0
+        //     // otherwise, misalignment is 1
+        //     if offset % 2 ==  0 {
+        //         0nat
+        //     } else {
+        //         1nat
+        //     }
+        // } else if align == 4 {
+        //     if offset % 4 == 0 {
+        //         0nat
+        //     } else if offset % 2 == 0 {
+        //         2nat
+        //     } else {
+        //         // misalignment may be 1 or 3
+        //         // maybe we don't have to hardcode these cases
+        //         offset % 4
+        //     }
+        // } else if align == 8 {
+        //     if offset % 8 == 0 {
+        //         0nat
+        //     } else if offset % 4 == 0 {
+        //         4nat
+        //     } else {
+        //         offset % 8
+        //     }
+        // } else { // align == 16
+        //     if offset % 16 == 0 {
+        //         0nat
+        //     } else if offset % 8 == 0 {
+        //         8nat
+        //     } else {
+        //         offset % 16
+        //     }
+        // }
+
+        // // a value with an alignment of 1 can be placed anywhere 
+        // if align == 1 {
+        //     0nat
+        // } else if align == 2 {
+        //     // if the offset is even, misalignment is 0
+        //     // otherwise, misalignment is 1
+        //     if (offset / 2) * 2 == offset {
+        //         0nat
+        //     } else {
+        //         1nat
+        //     }
+        // } else if align == 4 {
+        //     if (offset / 4) * 4 == offset {
+        //         0nat
+        //     } else if (offset / 2) * 2 == offset {
+        //         2nat
+        //     } else {
+        //         (offset - (offset / 4) * 4) as nat
+        //         // misalignment may be 1 or 3
+        //         // maybe we don't have to hardcode these cases
+        //         // offset % 4
+        //     }
+        // } else if align == 8 {
+        //     if (offset / 8) * 8 == offset {
+        //         0nat
+        //     } else if (offset / 4) * 4 == offset {
+        //         4nat
+        //     } else {
+        //         // offset % 8
+        //         (offset - (offset / 8) * 8) as nat
+        //     }
+        // } else { // align == 16
+        //     if (offset / 16) * 16 == offset {
+        //         0nat
+        //     } else if (offset / 8) * 8 == offset {
+        //         8nat
+        //     } else {
+        //         // offset % 16
+        //         (offset - (offset / 16) * 16) as nat
+        //     }
+        // }
     }
 
     // This function calculates the amount of padding needed to align the next field in a struct.
@@ -453,11 +536,20 @@ verus! {
     pub const fn padding_needed(offset: usize, align: usize) -> (out: usize) 
         requires 
             align > 0,
+            ({
+                ||| align == 1 
+                ||| align == 2
+                ||| align == 4
+                ||| align == 8
+                ||| align == 16
+            })
         ensures 
             out < align,
             out as nat == spec_padding_needed(offset as nat, align as nat)
     {
+        // proof { lemma_align_mod(offset as nat, align as nat); }
         reveal(spec_padding_needed);
+        // assume(false);
         let misalignment = offset % align;
         if misalignment > 0 {
             align - misalignment
@@ -465,5 +557,31 @@ verus! {
             0
         }
     }
+
+    // proof fn lemma_align_mod(offset: nat, align: nat) 
+    //     by (nonlinear_arith)
+    //     requires 
+    //         align > 0,
+    //         ({
+    //             ||| align == 1 
+    //             ||| align == 2
+    //             ||| align == 4
+    //             ||| align == 8
+    //             ||| align == 16
+    //         })
+    //     ensures 
+    //         ({
+    //             let misalignment = offset % align;
+    //             let result = if misalignment > 0 {
+    //                 align - misalignment
+    //             } else {
+    //                 0
+    //             };
+    //             result == spec_padding_needed(offset, align)
+    //         })
+    // {
+    //     assume(false);
+    //     // reveal(spec_padding_needed);
+    // }
 
 }

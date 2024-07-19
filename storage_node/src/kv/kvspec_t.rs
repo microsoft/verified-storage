@@ -45,54 +45,54 @@ verus! {
     {
         // methods copied from multilogimpl_t and updated for PagedKV structures
 
-        // This is one of two constructors for `TrustedKvPermission`.
-        // It conveys permission to do any update as long as a
-        // subsequent crash and recovery can only lead to given
-        // abstract state `state`.
-        pub proof fn new_one_possibility<K, I, L>(kv_id: u128, state: AbstractKvStoreState<K, I, L>)
-                                                  -> (tracked perm: Self)
-            where
-                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-                I: PmCopy + std::fmt::Debug,
-                L: PmCopy + std::fmt::Debug + Copy,
-            ensures
-                forall |s| #[trigger] perm.check_permission(s) <==>
-                    DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state)
-        {
-            Self {
-                is_state_allowable: |s| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state),
-                _phantom: Ghost(spec_phantom_data())
-            }
-        }
+        // // This is one of two constructors for `TrustedKvPermission`.
+        // // It conveys permission to do any update as long as a
+        // // subsequent crash and recovery can only lead to given
+        // // abstract state `state`.
+        // pub proof fn new_one_possibility<K, I, L>(kv_id: u128, state: AbstractKvStoreState<K, I, L>)
+        //                                           -> (tracked perm: Self)
+        //     where
+        //         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        //         I: PmCopy + std::fmt::Debug,
+        //         L: PmCopy + std::fmt::Debug + Copy,
+        //     ensures
+        //         forall |s| #[trigger] perm.check_permission(s) <==>
+        //             DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state)
+        // {
+        //     Self {
+        //         is_state_allowable: |s| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state),
+        //         _phantom: Ghost(spec_phantom_data())
+        //     }
+        // }
 
-        // This is the second of two constructors for
-        // `TrustedKvPermission`.  It conveys permission to do any
-        // update as long as a subsequent crash and recovery can only
-        // lead to one of two given abstract states `state1` and
-        // `state2`.
-        pub proof fn new_two_possibilities<K, I, L>(
-            kv_id: u128,
-            state1: AbstractKvStoreState<K, I, L>,
-            state2: AbstractKvStoreState<K, I, L>
-        ) -> (tracked perm: Self)
-            where
-                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-                I: PmCopy + std::fmt::Debug,
-                L: PmCopy + std::fmt::Debug + Copy,
-            ensures
-                forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state1)
-                    ||| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state2)
-                }
-        {
-            Self {
-                is_state_allowable: |s| {
-                    ||| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state1)
-                    ||| DurableKvStore::<PM, K, I, L>::recover_to_kv_state(s, kv_id) == Some(state2)
-                },
-                _phantom: Ghost(spec_phantom_data())
-            }
-        }
+        // // This is the second of two constructors for
+        // // `TrustedKvPermission`.  It conveys permission to do any
+        // // update as long as a subsequent crash and recovery can only
+        // // lead to one of two given abstract states `state1` and
+        // // `state2`.
+        // pub proof fn new_two_possibilities<K, I, L>(
+        //     kv_id: u128,
+        //     state1: AbstractKvStoreState<K, I, L>,
+        //     state2: AbstractKvStoreState<K, I, L>
+        // ) -> (tracked perm: Self)
+        //     where
+        //         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+        //         I: PmCopy + std::fmt::Debug,
+        //         L: PmCopy + std::fmt::Debug + Copy,
+        //     ensures
+        //         forall |s| #[trigger] perm.check_permission(s) <==> {
+        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state1)
+        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state2)
+        //         }
+        // {
+        //     Self {
+        //         is_state_allowable: |s| {
+        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state1)
+        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state2)
+        //         },
+        //         _phantom: Ghost(spec_phantom_data())
+        //     }
+        // }
 
         // TODO: REMOVE THIS
         #[verifier::external_body]

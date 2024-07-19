@@ -22,7 +22,7 @@ verus! {
     pub struct DurableKvStoreList<L>
     {
         pub list: Seq<L>,
-        pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
+        // pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
     }
 
     impl<L> DurableKvStoreList<L>
@@ -36,14 +36,14 @@ verus! {
             }
         }
 
-        pub open spec fn offset_index(self, offset: int) -> Option<int>
-        {
-            if self.node_offset_map.contains_key(offset) {
-                Some(self.node_offset_map[offset])
-            } else {
-                None
-            }
-        }
+        // pub open spec fn offset_index(self, offset: int) -> Option<int>
+        // {
+        //     if self.node_offset_map.contains_key(offset) {
+        //         Some(self.node_offset_map[offset])
+        //     } else {
+        //         None
+        //     }
+        // }
 
         pub open spec fn len(self) -> int
         {
@@ -54,7 +54,7 @@ verus! {
         {
             DurableKvStoreList {
                 list: Seq::empty(),
-                node_offset_map: Map::empty(),
+                // node_offset_map: Map::empty(),
             }
         }
     }
