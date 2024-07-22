@@ -29,13 +29,14 @@ verus! {
 pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_start_addr: u64, log_size: u64) -> (result: Result<bool, LogErr>)
     requires
         pm_region.inv(),
-        recover_cdb(pm_region@.committed()).is_Some(),
+        recover_cdb(pm_region@.committed(), log_start_addr as nat).is_Some(),
         pm_region@.no_outstanding_writes(),
         pm_region@.len() >= log_start_addr + log_size,
-        metadata_types_set(pm_region@.committed()),
+        log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+        metadata_types_set(pm_region@.committed(), log_start_addr),
     ensures
         match result {
-            Ok(b) => Some(b) == recover_cdb(pm_region@.committed()),
+            Ok(b) => Some(b) == recover_cdb(pm_region@.committed(), log_start_addr as nat),
             // To make sure this code doesn't spuriously generate CRC-mismatch errors,
             // it's obligated to prove that it won't generate such an error when
             // the persistent memory is impervious to corruption.
@@ -46,7 +47,7 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
     let ghost mem = pm_region@.committed();
     let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_start_addr + i);
 
-    let ghost true_cdb_bytes = extract_bytes(mem, log_start_addr, u64::spec_size_of());
+    let ghost true_cdb_bytes = extract_bytes(mem, log_start_addr as nat, u64::spec_size_of());
     // check_cdb does not require that the true bytes be contiguous, so we need to make Z3 confirm that the 
     // contiguous region we are using as the true value matches the address sequence we pass in.
     assert(true_cdb_bytes == Seq::new(u64::spec_size_of() as nat, |i: int| mem[log_cdb_addrs[i]]));
@@ -74,32 +75,28 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
     requires
         pm_region.inv(),
         pm_region@.no_outstanding_writes(),
-        metadata_types_set(pm_region@.committed()),
-        pm_region@.len() >= log_start_addr + log_size,
-        cdb == spec_check_log_cdb(pm_region@.committed()).unwrap(),
-        log_size > log_area_pos(),
+        metadata_types_set(pm_region@.committed(), log_start_addr),
+        log_start_addr + log_size <= pm_region@.len() <= u64::MAX,
+        cdb == spec_check_log_cdb(pm_region@.committed(), log_start_addr as nat).unwrap(),
+        log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
     ensures
         ({
-            let state = recover_given_cdb(pm_region@.committed(), cdb);
+            let state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, cdb);
             match result {
                 Ok(info) => state.is_Some() ==> {
                     &&& metadata_consistent_with_info(pm_region@, log_start_addr, log_size, cdb, info)
-                    &&& info_consistent_with_log_area_in_region(pm_region@, info, state.unwrap())
+                    &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr, log_size, info, state.unwrap())
                 },
                 Err(_) => false
             }
         })
     {
         let ghost mem = pm_region@.committed();
-        let ghost state = recover_given_cdb(pm_region@.committed(), cdb);
+        let ghost state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, cdb);
         reveal(spec_padding_needed);
 
-        let log_metadata_pos = if cdb { log_header_pos_cdb_true() }
-                                    else { log_header_pos_cdb_false() } + log_start_addr;
+        let log_metadata_pos = get_active_log_metadata_pos(cdb) + log_start_addr;
         let log_crc_pos = get_active_log_crc_pos(cdb) + log_start_addr;
-        assert(log_metadata_pos == spec_get_active_log_metadata_pos(cdb) + log_start_addr);
-        let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
-                                                       Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()));
         let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of()));
         let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_crc_pos as nat, u64::spec_size_of()));
         let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);

@@ -73,9 +73,9 @@ pub struct UntrustedLogImpl {
 }
 
 impl UntrustedLogImpl {
-    pub open spec fn recover(mem: Seq<u8>) -> Option<AbstractLogState> 
+    pub open spec fn recover(mem: Seq<u8>, log_start_addr: nat) -> Option<AbstractLogState> 
     {
-        recover_state(mem)
+        recover_state(mem, log_start_addr)
     }
 
     // This function specifies how to view the in-memory state of
@@ -125,7 +125,7 @@ impl UntrustedLogImpl {
                 Ok(()) => {
                     let pm = pm_region@.flush().committed();
                     let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
-                    &&& Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat)) matches Some(recovered_state)
+                    &&& Self::recover(pm, log_start_addr as nat) matches Some(recovered_state)
                     &&& state == recovered_state
                     &&& pm_region@.len() == old(pm_region)@.len()
                 }
@@ -155,7 +155,7 @@ impl UntrustedLogImpl {
             // Prove that the resulting log, when recovered, is initialized
             let pm = pm_region@.flush().committed();
             let log_region = extract_bytes(pm, log_start_addr as nat, log_size as nat);
-            let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat));
+            let recovered_state = Self::recover(pm, log_start_addr as nat);
             
             // Prove that we can recover a valid log
             // First, prove that the return value of recover is not None
@@ -168,9 +168,9 @@ impl UntrustedLogImpl {
             let cdb = if log_cdb == CDB_FALSE { false } else { true };
 
             // Prove that the CRC we wrote matches the metadata that we wrote
-            let metadata = spec_get_active_log_metadata(log_region, log_start_addr, cdb);
+            let metadata = spec_get_active_log_metadata(log_region, log_start_addr as nat, cdb);
             let metadata_bytes = extract_bytes(pm, (log_start_addr + spec_log_header_pos_cdb_false()) as nat, LogMetadata::spec_size_of());
-            let crc = spec_get_active_log_crc(log_region, log_start_addr, cdb);
+            let crc = spec_get_active_log_crc(log_region, log_start_addr as nat, cdb);
             let crc_bytes = extract_bytes(pm, (log_start_addr + spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of()) as nat, u64::spec_size_of());
             assert(metadata_bytes == log_metadata.spec_to_bytes());
             lemma_subrange_of_extract_bytes_equal(pm, log_start_addr as nat, (log_start_addr + spec_log_header_pos_cdb_false()) as nat, log_size as nat, LogMetadata::spec_size_of());
@@ -199,7 +199,7 @@ impl UntrustedLogImpl {
         where 
             PM: PersistentMemoryRegion,
         requires
-            Self::recover(extract_bytes(pm_region@.flush().committed(), log_start_addr as nat, log_size as nat)) == Some(state),
+            Self::recover(pm_region@.flush().committed(), log_start_addr as nat) == Some(state),
             pm_region.inv(),
             pm_region@.no_outstanding_writes(),
             pm_region@.len() >= log_start_addr + log_size,
@@ -215,9 +215,9 @@ impl UntrustedLogImpl {
         // First, we read the corruption-detecting boolean and
         // return an error if that fails.
 
-        let cdb = read_cdb(pm_region)?;
+        let cdb = read_cdb(pm_region, log_start_addr, log_size)?;
 
-        let info = read_log_variables(pm_region, cdb)?;
+        let info = read_log_variables(pm_region, log_start_addr, log_size, cdb)?;
 
         Ok(Self { cdb, info, state: Ghost(state) })
     }  

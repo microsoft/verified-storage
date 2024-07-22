@@ -9,6 +9,7 @@ use crate::log2::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::kvimpl_t::*;
+use crate::kv::layout_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -34,10 +35,10 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
-        pub open spec fn recover(mem: Seq<u8>) -> Option<AbstractOpLogState<L>>
+        pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState<L>>
         {
             // use log's recover method to recover the log state, then parse it into operations
-            match UntrustedLogImpl::recover(mem) {
+            match UntrustedLogImpl::recover(mem, overall_metadata.log_area_addr as nat) {
                 Some(log) => {
                     if log.log.len() == 0 {
                         Some(AbstractOpLogState {

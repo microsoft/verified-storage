@@ -60,20 +60,20 @@ verus! {
         size_of::<u64>() as u64
     }
 
-    pub open spec fn spec_log_header_pos_cdb_true() -> nat {
+    pub open spec fn spec_log_header_pos_cdb_true() -> nat
+    {
         u64::spec_size_of() + LogMetadata::spec_size_of() + u64::spec_size_of()
     }
 
     pub exec fn log_header_pos_cdb_true() -> (out: u64) 
-        requires 
-            spec_log_header_pos_cdb_true() <= u64::MAX
         ensures 
             out == spec_log_header_pos_cdb_true()
     {
+        proof { reveal(spec_padding_needed); }
         (size_of::<u64>() + size_of::<LogMetadata>() + size_of::<u64>()) as u64
     }
 
-    pub open spec fn spec_get_log_cdb(mem: Seq<u8>, log_start_addr: nat) -> u64 
+    pub open spec fn spec_get_log_cdb(mem: Seq<u8>, log_start_addr: nat) -> u64
     {
         let bytes = extract_bytes(mem, log_start_addr, u64::spec_size_of());
         u64::spec_from_bytes(bytes)
@@ -91,8 +91,20 @@ verus! {
         }
     }
 
-    pub open spec fn spec_get_active_log_metadata_pos(cdb: bool) -> u64 {
+    pub open spec fn spec_get_active_log_metadata_pos(cdb: bool) -> nat {
         if cdb { spec_log_header_pos_cdb_true() } else { spec_log_header_pos_cdb_false() }
+    }
+
+    pub exec fn get_active_log_metadata_pos(cdb: bool) -> (out: u64)
+        ensures
+            out == spec_get_active_log_metadata_pos(cdb),
+    {
+        if cdb {
+            log_header_pos_cdb_true()
+        }
+        else {
+            log_header_pos_cdb_false()
+        }
     }
 
     pub open spec fn spec_get_active_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata 
@@ -102,7 +114,7 @@ verus! {
         LogMetadata::spec_from_bytes(bytes)
     }
 
-    pub open spec fn spec_get_active_log_crc_pos(cdb: bool) -> u64
+    pub open spec fn spec_get_active_log_crc_pos(cdb: bool) -> nat
     {
         if cdb { 
             spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of()
@@ -111,44 +123,28 @@ verus! {
         }
     }
 
-    pub open spec fn spec_get_active_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64 
+    pub open spec fn spec_get_active_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64
     {
         let pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
         let bytes = extract_bytes(mem, pos, u64::spec_size_of());
         u64::spec_from_bytes(bytes)
     }
 
-    pub open spec fn spec_get_active_log_crc_end(cdb: bool) -> u64 
+    pub open spec fn spec_get_active_log_crc_end(cdb: bool) -> nat
     {
         spec_get_active_log_crc_pos(cdb) + u64::spec_size_of()
     }
 
-    pub exec fn get_active_log_crc_pos(cdb: bool) -> (out: u64) 
+    pub exec fn get_active_log_crc_pos(cdb: bool) -> (out: u64)
         ensures
             out == spec_get_active_log_crc_pos(cdb)
     {
+        proof { reveal(spec_padding_needed); }
         if cdb { 
-            log_header_pos_cdb_true() + size_of::<LogMetadata>()
+            log_header_pos_cdb_true() + size_of::<LogMetadata>() as u64
         } else { 
-            log_header_pos_cdb_false() + size_of::<LogMetadata>()
+            log_header_pos_cdb_false() + size_of::<LogMetadata>() as u64
         }
-    }
-
-    // This function extracts the bytes encoding log metadata from
-    // the contents `mem` of a persistent memory region. It needs to
-    // know the current boolean value `cdb` of the
-    // corruption-detecting boolean because there are two possible
-    // places for such metadata.
-    pub open spec fn extract_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> Seq<u8>
-    {
-        let pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
-        extract_bytes(mem, pos as nat, LogMetadata::spec_size_of() as nat)
-    }
-
-    pub open spec fn deserialize_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata
-    {
-        let bytes = extract_log_metadata(mem, log_start_addr, cdb);
-        LogMetadata::spec_from_bytes(bytes)
     }
 
     // This function converts a virtual log position (given relative
@@ -205,7 +201,7 @@ verus! {
     pub open spec fn recover_state(mem: Seq<u8>, log_start_addr: nat) -> Option<AbstractLogState>
     {
         match recover_cdb(mem, log_start_addr) {
-            Some(cdb) => recover_given_cdb(mem, cdb),
+            Some(cdb) => recover_given_cdb(mem, log_start_addr, cdb),
             None => None
         }
     }
@@ -226,32 +222,33 @@ verus! {
         }
     }
 
-    pub open spec fn recover_given_cdb(mem: Seq<u8>, cdb: bool) -> Option<AbstractLogState>
+    pub open spec fn recover_given_cdb(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> Option<AbstractLogState>
     {
-        if mem.len() < spec_log_header_area_size() {
+        if mem.len() < log_start_addr + spec_log_header_area_size() {
             None 
         } else {
-            let metadata = spec_get_active_log_metadata(mem, cdb);
-            let crc = spec_get_active_log_crc(mem, cdb);
+            let metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
+            let crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
             if crc != metadata.spec_crc() {
                 None
             } else {
-                recover_log(mem, metadata.head as int, metadata.log_length as int)
+                recover_log(mem, log_start_addr, metadata.head as int, metadata.log_length as int)
             }
         }
     }
 
-    pub open spec fn recover_log(mem: Seq<u8>, head: int, len: int) -> Option<AbstractLogState>
+    pub open spec fn recover_log(mem: Seq<u8>, log_start_addr: nat, head: int, len: int) -> Option<AbstractLogState>
     {
-        if mem.len() - spec_log_header_area_size() < len || head + len > u128::MAX {
+        if mem.len() - log_start_addr - spec_log_area_pos() < len || head + len > u128::MAX {
             None 
         } else {
-            let log_area = extract_bytes(mem, spec_log_header_area_size(), (mem.len() - spec_log_header_area_size()) as nat);
+            let log_area = extract_bytes(mem, log_start_addr + spec_log_area_pos(),
+                                         (mem.len() - log_start_addr - spec_log_area_pos()) as nat);
             Some(AbstractLogState {
                 head,
                 log: extract_log_from_log_area(log_area, head, len),
                 pending: Seq::<u8>::empty(),
-                capacity: mem.len() - spec_log_header_area_size()
+                capacity: mem.len() - log_start_addr - spec_log_area_pos(),
             })
         }
     }

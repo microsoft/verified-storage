@@ -7,6 +7,7 @@ use crate::pmem::subregion_v::*;
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::logspec_t::*;
+use crate::pmem::pmcopy_t::*;
 
 verus! {
 pub open spec fn metadata_types_set(mem: Seq<u8>, log_start_addr: u64) -> bool 
@@ -50,8 +51,8 @@ pub open spec fn metadata_consistent_with_info(
 ) -> bool
 {
     let mem = pm_region_view.committed();
-    let log_metadata = deserialize_log_metadata(mem, log_start_addr, cdb);
-    let log_crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
+    let log_metadata = spec_get_active_log_metadata(mem, log_start_addr as nat, cdb);
+    let log_crc = spec_get_active_log_crc(mem, log_start_addr as nat, cdb);
 
     // No outstanding writes to global metadata, region metadata, or the log metadata CDB
     &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, log_start_addr + u64::spec_size_of())
@@ -80,7 +81,8 @@ pub open spec fn info_consistent_with_log_area_in_region(
 {
     &&& pm_region_view.len() >= log_start_addr + spec_log_header_area_size() + info.log_area_len
     &&& info_consistent_with_log_area(
-           get_subregion_view(pm_region_view, log_start_addr + spec_log_header_area_size(), info.log_area_len as nat),
+           get_subregion_view(pm_region_view, (log_start_addr + spec_log_header_area_size()) as nat,
+                              info.log_area_len as nat),
            info,
            state
        )

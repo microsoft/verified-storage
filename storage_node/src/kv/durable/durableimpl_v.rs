@@ -69,8 +69,7 @@ verus! {
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
         pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
-            let recovered_log = UntrustedOpLog::<K, L>::recover(
-                extract_bytes(bytes, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+            let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
             if let Some(recovered_log) = recovered_log {
                 let op_log = recovered_log.op_list;
                 let recovered_main_table = MetadataTable::recover(
@@ -231,8 +230,7 @@ verus! {
                 // to make Verus do the required reasoning about subranges.
 
                 // Op log recovery succeeds
-                let recovered_log = UntrustedOpLog::<K, L>::recover(
-                    extract_bytes(bytes, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
                 let recovered_log = recovered_log.unwrap();
 
                 // Main table recovery succeeds
