@@ -38,7 +38,8 @@ verus! {
         pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState<L>>
         {
             // use log's recover method to recover the log state, then parse it into operations
-            match UntrustedLogImpl::recover(mem, overall_metadata.log_area_addr as nat) {
+            match UntrustedLogImpl::recover(mem, overall_metadata.log_area_addr as nat,
+                                            overall_metadata.log_area_size as nat) {
                 Some(log) => {
                     if log.log.len() == 0 {
                         Some(AbstractOpLogState {

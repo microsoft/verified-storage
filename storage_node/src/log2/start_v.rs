@@ -81,18 +81,22 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
         log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
     ensures
         ({
-            let state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, cdb);
+            let state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, log_size as nat, cdb);
             match result {
                 Ok(info) => state.is_Some() ==> {
                     &&& metadata_consistent_with_info(pm_region@, log_start_addr, log_size, cdb, info)
                     &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr, log_size, info, state.unwrap())
                 },
-                Err(_) => false
+                Err(LogErr::CRCMismatch) =>
+                    state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
+                Err(LogErr::StartFailedDueToInvalidMemoryContents) =>
+                    state is None,
+                _ => false,
             }
         })
     {
         let ghost mem = pm_region@.committed();
-        let ghost state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, cdb);
+        let ghost state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, log_size as nat, cdb);
         reveal(spec_padding_needed);
 
         let log_metadata_pos = get_active_log_metadata_pos(cdb) + log_start_addr;

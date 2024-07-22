@@ -198,10 +198,10 @@ verus! {
     }
 
     // `mem` should be the subrange of bytes that comprise the log
-    pub open spec fn recover_state(mem: Seq<u8>, log_start_addr: nat) -> Option<AbstractLogState>
+    pub open spec fn recover_state(mem: Seq<u8>, log_start_addr: nat, log_size: nat) -> Option<AbstractLogState>
     {
         match recover_cdb(mem, log_start_addr) {
-            Some(cdb) => recover_given_cdb(mem, log_start_addr, cdb),
+            Some(cdb) => recover_given_cdb(mem, log_start_addr, log_size, cdb),
             None => None
         }
     }
@@ -222,9 +222,10 @@ verus! {
         }
     }
 
-    pub open spec fn recover_given_cdb(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> Option<AbstractLogState>
+    pub open spec fn recover_given_cdb(mem: Seq<u8>, log_start_addr: nat, log_size: nat, cdb: bool)
+                                       -> Option<AbstractLogState>
     {
-        if mem.len() < log_start_addr + spec_log_header_area_size() {
+        if mem.len() < log_start_addr + spec_log_area_pos() + MIN_LOG_AREA_SIZE {
             None 
         } else {
             let metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
@@ -232,14 +233,18 @@ verus! {
             if crc != metadata.spec_crc() {
                 None
             } else {
-                recover_log(mem, log_start_addr, metadata.head as int, metadata.log_length as int)
+                recover_log(mem, log_start_addr, log_size, metadata.head as int, metadata.log_length as int)
             }
         }
     }
 
-    pub open spec fn recover_log(mem: Seq<u8>, log_start_addr: nat, head: int, len: int) -> Option<AbstractLogState>
+    pub open spec fn recover_log(mem: Seq<u8>, log_start_addr: nat, log_size: nat, head: int, len: int)
+                                 -> Option<AbstractLogState>
     {
-        if mem.len() - log_start_addr - spec_log_area_pos() < len || head + len > u128::MAX {
+        if mem.len() < log_start_addr + log_size {
+            None
+        }
+        else if log_size - spec_log_area_pos() < len || head + len > u128::MAX {
             None 
         } else {
             let log_area = extract_bytes(mem, log_start_addr + spec_log_area_pos(),

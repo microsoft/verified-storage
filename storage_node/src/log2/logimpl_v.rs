@@ -73,9 +73,9 @@ pub struct UntrustedLogImpl {
 }
 
 impl UntrustedLogImpl {
-    pub open spec fn recover(mem: Seq<u8>, log_start_addr: nat) -> Option<AbstractLogState> 
+    pub open spec fn recover(mem: Seq<u8>, log_start_addr: nat, log_size: nat) -> Option<AbstractLogState> 
     {
-        recover_state(mem, log_start_addr)
+        recover_state(mem, log_start_addr, log_size)
     }
 
     // This function specifies how to view the in-memory state of
@@ -125,7 +125,7 @@ impl UntrustedLogImpl {
                 Ok(()) => {
                     let pm = pm_region@.flush().committed();
                     let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
-                    &&& Self::recover(pm, log_start_addr as nat) matches Some(recovered_state)
+                    &&& Self::recover(pm, log_start_addr as nat, log_size as nat) matches Some(recovered_state)
                     &&& state == recovered_state
                     &&& pm_region@.len() == old(pm_region)@.len()
                 }
@@ -155,7 +155,7 @@ impl UntrustedLogImpl {
             // Prove that the resulting log, when recovered, is initialized
             let pm = pm_region@.flush().committed();
             let log_region = extract_bytes(pm, log_start_addr as nat, log_size as nat);
-            let recovered_state = Self::recover(pm, log_start_addr as nat);
+            let recovered_state = Self::recover(pm, log_start_addr as nat, log_size as nat);
             
             // Prove that we can recover a valid log
             // First, prove that the return value of recover is not None
@@ -199,7 +199,7 @@ impl UntrustedLogImpl {
         where 
             PM: PersistentMemoryRegion,
         requires
-            Self::recover(pm_region@.flush().committed(), log_start_addr as nat) == Some(state),
+            Self::recover(pm_region@.flush().committed(), log_start_addr as nat, log_size as nat) == Some(state),
             pm_region.inv(),
             pm_region@.no_outstanding_writes(),
             pm_region@.len() >= log_start_addr + log_size,
