@@ -32,7 +32,7 @@ verus! {
             self.state@
         }
 
-        closed spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+        pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
             where 
                 L: PmCopy,
             decreases op_log.len()
@@ -69,7 +69,7 @@ verus! {
         // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
         // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
         // update relevant fields.
-        closed spec fn apply_log_op_to_metadata_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
+        pub open spec fn apply_log_op_to_metadata_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
             where 
                 L: PmCopy,
         {
@@ -211,9 +211,8 @@ verus! {
                 pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
-                        // TODO: whats the syntax that we can use instead of unwrap?
-                        &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size).unwrap() =~=  
-                                MetadataTableView::<K>::init(num_keys)
+                        &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size) matches Some(recovered_view)
+                        &&& recovered_view == MetadataTableView::<K>::init(num_keys)
                     }
                     Err(_) => true // TODO
                 }
@@ -303,6 +302,11 @@ verus! {
             // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
             // it's cleaner to do that here than in the caller
             proof { subregion.lemma_reveal_opaque_inv(pm_region); }
+
+            assert({
+                &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size) matches Some(recovered_view)
+                &&& recovered_view =~= MetadataTableView::<K>::init(num_keys)
+            });
             
             Ok(())
         }

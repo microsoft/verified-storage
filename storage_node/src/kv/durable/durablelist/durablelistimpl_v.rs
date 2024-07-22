@@ -47,7 +47,7 @@ verus! {
         // TODO
         closed spec fn inv(self) -> bool;
 
-        pub closed spec fn recover(
+        pub open spec fn recover(
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
@@ -60,7 +60,7 @@ verus! {
             Self::parse_all_lists(metadata_table_view, mem, list_node_size, num_list_entries_per_node)
         }
 
-        closed spec fn replay_log_list_nodes(
+        pub open spec fn replay_log_list_nodes(
             mem: Seq<u8>, 
             node_size: u64, 
             op_log: Seq<OpLogEntryType<L>>, 
@@ -77,7 +77,7 @@ verus! {
             }
         }
 
-        closed spec fn apply_log_op_to_list_node_mem(
+        pub open spec fn apply_log_op_to_list_node_mem(
             mem: Seq<u8>, 
             node_size: u64, 
             op: OpLogEntryType<L>, 
@@ -134,7 +134,7 @@ verus! {
             }
         }
 
-        closed spec fn parse_all_lists(
+        pub open spec fn parse_all_lists(
             metadata_table: MetadataTableView<K>,
             mem: Seq<u8>,
             list_node_size: u64,
@@ -149,9 +149,31 @@ verus! {
             }
         }
 
+        pub proof fn lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
+            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
+            mem: Seq<u8>,
+            lists_map: Map<K, Seq<DurableListElementView<L>>>,
+            list_node_size: u64,
+            num_list_entries_per_node: u32,
+        )
+            requires
+                forall |i: int| 0 <= i < metadata_entries.len() ==> metadata_entries[i] is None,
+            ensures 
+                Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node) is Some 
+            decreases
+                metadata_entries.len()
+        {
+            // base case
+            if metadata_entries.len() == 0 {
+                // trivial
+            } else {
+                Self::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(metadata_entries.drop_first(), mem, lists_map, list_node_size, num_list_entries_per_node);
+            }
+        }
+
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
-        closed spec fn parse_each_list(
+        pub open spec fn parse_each_list(
             metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableListElementView<L>>>,
@@ -184,11 +206,10 @@ verus! {
                     // if this entry is invalid, just continue recursing through the list
                     Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node)
                 }
-                
             }
         }
 
-        closed spec fn parse_list(
+        pub open spec fn parse_list(
             entry: MetadataTableViewEntry<K>, 
             mem: Seq<u8>,
             list_node_size: u64,
@@ -201,7 +222,7 @@ verus! {
             Self::parse_list_helper(head_node_index, list_len as int, new_list, mem, list_node_size, num_list_entries_per_node)
         }
 
-        closed spec fn parse_list_helper(
+        pub open spec fn parse_list_helper(
             cur_node_index: u64,
             list_len_remaining: int,
             current_list: Seq<DurableListElementView<L>>,

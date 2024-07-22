@@ -73,7 +73,7 @@ verus! {
             self.free_list@
         }
 
-        pub closed spec fn recover<L>(
+        pub open spec fn recover<L>(
             mem: Seq<u8>,
             op_log: Seq<OpLogEntryType<L>>,
             valid_indices: Set<int>,
@@ -99,7 +99,7 @@ verus! {
         // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // do not modify the item table.
         // TODO: check length of `mem`?
-        closed spec fn spec_replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+        pub open spec fn spec_replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
             where 
                 L: PmCopy,
             decreases op_log.len(),
@@ -115,7 +115,7 @@ verus! {
         }
 
         // TODO: refactor -- logic in both cases is the same
-        closed spec fn apply_log_op_to_item_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
+        pub open spec fn apply_log_op_to_item_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
             where 
                 L: PmCopy,
         {

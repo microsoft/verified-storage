@@ -34,10 +34,9 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
-        pub closed spec fn recover(mem: Seq<u8>) -> Option<AbstractOpLogState<L>>
+        pub open spec fn recover(mem: Seq<u8>) -> Option<AbstractOpLogState<L>>
         {
             // use log's recover method to recover the log state, then parse it into operations
-            // TODO: refactor?
             match UntrustedLogImpl::recover(mem) {
                 Some(log) => {
                     if log.log.len() == 0 {
@@ -61,7 +60,7 @@ verus! {
         }
 
 
-        closed spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<AbstractOpLogState<L>>
+        pub open spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<AbstractOpLogState<L>>
         {
             // parse the log contents into operations
             let op_log_seq = Seq::empty();
@@ -77,7 +76,7 @@ verus! {
             }
         }
 
-        closed spec fn parse_log_ops_helper(
+        pub open spec fn parse_log_ops_helper(
             log_contents: Seq<u8>, 
             op_log_seq: Seq<OpLogEntryType<L>>, 
         ) -> Option<Seq<OpLogEntryType<L>>>

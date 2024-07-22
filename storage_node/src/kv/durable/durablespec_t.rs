@@ -110,6 +110,12 @@ verus! {
             }
         }
 
+        pub open spec fn init() -> Self {
+            Self {
+                contents: Map::empty()
+            }
+        }
+
         pub open spec fn contains_key(self, idx: int) -> bool
         {
             self[idx] is Some

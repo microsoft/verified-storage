@@ -85,6 +85,7 @@ where
     &&& overall_crc == overall_metadata.spec_crc()
     &&& version_metadata_valid(version_metadata)
     &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id)
+    &&& overall_metadata.region_size <= mem.len()
 }
 
 pub open spec fn version_metadata_valid(version_metadata: VersionMetadata) -> bool 
@@ -260,6 +261,8 @@ pub fn initialize_overall_metadata<K, I, L> (
     if required_size > region_size as usize {
         return Err(KvError::RegionTooSmall { required: required_size, actual: region_size as usize });
     }
+
+    assert(region_size >= main_table_addr + main_table_size);
 
     let overall_metadata = OverallMetadata{
         region_size,

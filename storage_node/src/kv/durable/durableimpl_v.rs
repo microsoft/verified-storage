@@ -17,6 +17,7 @@ use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
+use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
@@ -28,13 +29,16 @@ use crate::log2::logimpl_v::*;
 // use crate::log::logimpl_t::*;
 use crate::log2::logspec_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::crc_t::*;
+use std::borrow::Borrow;
 use std::hash::Hash;
 
+use super::inv_v::lemma_subrange_of_extract_bytes_equal;
 use super::oplog::oplogspec_t::AbstractOpLogState;
 
 verus! {
@@ -63,15 +67,6 @@ verus! {
     {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
-
-        // // Proving crash consistency here will come down to proving that each update
-        // // to an individual component results in a valid AbstractKvStoreState either with 0
-        // // log entries replayed or all of the log entries replayed, I think
-        // pub closed spec fn recover_to_kv_state(bytes: Seq<u8>, id: u128) -> Option<AbstractKvStoreState<K, I, L>>
-        // {
-        //     // TODO
-        //     None
-        // }
 
         pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
             let recovered_log = UntrustedOpLog::<K, L>::recover(
@@ -126,7 +121,7 @@ verus! {
         ) -> DurableKvStoreView<K, I, L>
         {
             let contents = Map::new(
-                |i: int| recovered_main_table.metadata_table[i] is Some,
+                |i: int| 0 <= i < recovered_main_table.metadata_table.len() && recovered_main_table.metadata_table[i] is Some,
                 |i: int| {
                     let main_table_entry = recovered_main_table.metadata_table[i].unwrap();
                     let item_index = main_table_entry.item_index();
@@ -164,25 +159,22 @@ verus! {
             kvstore_id: u128,
         ) -> (result: Result<(), KvError<K>>)
             where 
-                PM: PersistentMemoryRegion
+                PM: PersistentMemoryRegion,
             requires 
                 old(pm_region).inv(),
                 old(pm_region)@.no_outstanding_writes(),
                 overall_metadata.region_size == old(pm_region)@.len(),
-                // TODO: should we initialize this metadata here or at the KV level?
                 memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.committed(), kvstore_id),
                 overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr, kvstore_id),
-                // TODO: check that the metadata we passed in matches what is actually on PM?
             ensures 
                 pm_region.inv(),
                 match result {
                     Ok(()) => {
-                        // let recovered = Self::recover()
-                        true
+                        &&& Self::recover(pm_region@.committed(), overall_metadata) matches Some(recovered_view)
+                        &&& recovered_view == DurableKvStoreView::<K, I, L>::init()
                     }
                     Err(_) => true
                 }
-                // TODO: overall view of the system is empty
         {
             let num_keys = overall_metadata.num_keys;
 
@@ -196,6 +188,12 @@ verus! {
             );
             MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
             proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
+
+            proof {
+                let bytes = pm_region@.flush().committed();
+                let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                assert(main_table_bytes == main_table_subregion.view(pm_region).flush().committed());
+            }
 
             // Both the item table and list region do not require any writes in setup; we just need to prove that regardless of the contents of 
             // the PM in those areas, if we set up the item table correctly then 
@@ -215,9 +213,56 @@ verus! {
             proof { DurableList::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, Seq::<OpLogEntryType<L>>::empty(), num_keys, 
                 overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
 
+            let ghost pre_log_setup_bytes = pm_region@.flush().committed();
+
             UntrustedLogImpl::setup2::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, kvstore_id)?;
 
             pm_region.flush();
+
+            proof {
+                // TODO: refactor this into a lemma
+                let bytes = pm_region@.committed();
+                let recovered_view = Self::recover(bytes, overall_metadata);
+                lemma_establish_extract_bytes_equivalence(pre_log_setup_bytes, bytes);
+
+                // First, prove that the recovered view is Some if recovery of all of the other components succeeds.
+                // For most of these, we just need to prove that the log setup function didn't modify the corresponding bytes,
+                // which is already part of log setup's postcondition, but we need to invoke lemma_subrange_of_extract_bytes_equal
+                // to make Verus do the required reasoning about subranges.
+
+                // Op log recovery succeeds
+                let recovered_log = UntrustedOpLog::<K, L>::recover(
+                    extract_bytes(bytes, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                let recovered_log = recovered_log.unwrap();
+
+                // Main table recovery succeeds
+                let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let recovered_main_table = MetadataTable::<K>::recover(main_table_bytes, recovered_log.op_list, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
+
+                // Item table recover succeeds
+                let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let valid_indices = recovered_main_table.unwrap().valid_item_indices();
+                let recovered_item_table = DurableItemTable::<K, I>::recover(item_table_bytes, recovered_log.op_list, valid_indices, overall_metadata.num_keys);
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
+
+                // List recover succeeds
+                let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                let recovered_list = DurableList::recover(list_area_bytes, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, 
+                    recovered_log.op_list, recovered_main_table.unwrap());
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
+                
+                DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
+                    recovered_main_table.unwrap().get_metadata_table(),
+                    list_area_bytes,
+                    Map::empty(),
+                    overall_metadata.list_node_size,
+                    overall_metadata.num_list_entries_per_node,
+                );
+
+                // Now need to prove that the recovered view matches init, i.e. that it results in an empty map.
+                assert(recovered_view.unwrap().contents == Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
+            }
 
             Ok(())
         }

@@ -85,8 +85,9 @@ verus! {
                 Ok(()) => {
                     let pm = pm_region@.flush().committed();
                     let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
-                    let recovered_state = Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat)).unwrap();
-                    state == recovered_state
+                    &&& Self::recover(extract_bytes(pm, log_start_addr as nat, log_size as nat)) matches Some(recovered_state)
+                    &&& state == recovered_state
+                    &&& pm_region@.len() == old(pm_region)@.len()
                 }
                 Err(_) => false
             } 
