@@ -125,7 +125,6 @@ where
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
     }
-
 /*
     // This only sets up new durable components for a new KV. We will handle
     // the volatile index in `untrusted_start`

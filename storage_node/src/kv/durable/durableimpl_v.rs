@@ -215,7 +215,7 @@ verus! {
 
             let ghost pre_log_setup_bytes = pm_region@.flush().committed();
 
-            UntrustedLogImpl::setup2::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, kvstore_id)?;
+            UntrustedLogImpl::setup::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size)?;
 
             pm_region.flush();
 
@@ -243,13 +243,10 @@ verus! {
                 // Item table recover succeeds
                 let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let valid_indices = recovered_main_table.unwrap().valid_item_indices();
-                let recovered_item_table = DurableItemTable::<K, I>::recover(item_table_bytes, recovered_log.op_list, valid_indices, overall_metadata.num_keys);
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
 
                 // List recover succeeds
                 let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                let recovered_list = DurableList::recover(list_area_bytes, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, 
-                    recovered_log.op_list, recovered_main_table.unwrap());
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
                 
                 DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
@@ -261,52 +258,39 @@ verus! {
                 );
 
                 // Now need to prove that the recovered view matches init, i.e. that it results in an empty map.
-                assert(recovered_view.unwrap().contents == Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
+                assert(recovered_view.unwrap().contents =~= Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
             }
 
             Ok(())
         }
 
-/*
 
-        // This function doesn't take a perm because it performs initial setup
-        // for each structure, which we don't guarantee will be crash consistent
-        // TODO: the handling of the PM regions is gross right now, but will get better 
-        // with the cleaner subregion approach
-        pub fn setup(
-            metadata_pmem: &mut PM,
-            item_table_pmem: &mut PM,
-            list_pmem: &mut PM,
-            log_pmem: &mut PM,
-            kvstore_id: u128,
-            num_keys: u64,
-            node_size: u32,
-        ) -> (result: Result<(), KvError<K>>)
+        fn start(
+            mut wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
+            overall_metadata: OverallMetadata,
+            version_metadata: VersionMetadata,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+            Ghost(state): Ghost<DurableKvStoreView<K, I, L>>,
+        ) -> (result: Result<Self, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
-            requires 
-                old(metadata_pmem).inv(),
-                old(item_table_pmem).inv(),
-                old(list_pmem).inv(),
-                old(log_pmem).inv(),
-                // TODO
-            ensures 
-               // TODO
+            requires
+                wrpm_region.inv(),
+                Self::recover(wrpm_region@.committed(), overall_metadata) == Some(state),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, overall_metadata) == Some(state),
+            ensures
+                result matches Ok(kvstore) && kvstore@ == state,
         {
-            // TODO: where do component IDs come from -- same as kv store? or generate new?
+
+            
+
 
             assume(false);
-
-            // 1. Set up each component in its specified pm region
-            MetadataTable::setup(metadata_pmem, kvstore_id, num_keys, L::size_of() as u32, node_size)?;
-            DurableItemTable::<K, I>::setup(item_table_pmem, kvstore_id, num_keys as u64)?;
-            DurableList::<K, L>::setup(list_pmem, kvstore_id, num_keys, node_size)?;
-            if let Err(e) =  UntrustedLogImpl::setup(log_pmem, kvstore_id) {
-                return Err(KvError::LogErr { log_err: e });
-            };
-
-            Ok(())
+            Err(KvError::NotImplemented)
         }
+
+/*
 
         pub fn start(
             mut metadata_wrpm: WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,

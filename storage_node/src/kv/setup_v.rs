@@ -354,6 +354,8 @@ pub fn setup<PM, K, I, L> (
     pm.flush();
     
     Err(KvError::NotImplemented)
+
+    // Ok(())
 }
 
 }
