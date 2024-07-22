@@ -110,7 +110,7 @@ impl UntrustedLogImpl {
             old(pm_region).inv(),
             log_start_addr + log_size <= old(pm_region)@.len() <= u64::MAX,
             old(pm_region)@.no_outstanding_writes_in_range(log_start_addr as int, log_start_addr + log_size),
-            log_size >= spec_log_header_area_size() + MIN_LOG_AREA_SIZE
+            log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE
         ensures 
             pm_region.inv(),
             ({
@@ -124,7 +124,7 @@ impl UntrustedLogImpl {
             match result {
                 Ok(()) => {
                     let pm = pm_region@.flush().committed();
-                    let state = AbstractLogState::initialize(log_size - spec_log_header_area_size());
+                    let state = AbstractLogState::initialize(log_size - spec_log_area_pos());
                     &&& Self::recover(pm, log_start_addr as nat, log_size as nat) matches Some(recovered_state)
                     &&& state == recovered_state
                     &&& pm_region@.len() == old(pm_region)@.len()
@@ -139,6 +139,10 @@ impl UntrustedLogImpl {
         };
         let log_crc = calculate_crc(&log_metadata);
         let log_cdb = CDB_FALSE;
+
+        assert(spec_log_area_pos() >= spec_log_header_area_size()) by {
+            reveal(spec_padding_needed);
+        }
 
         // Write the CDB, metadata, and CRC to PM. Since PM isn't write restricted right now,
         // we don't have to prove that these updates are crash safe.
@@ -168,9 +172,9 @@ impl UntrustedLogImpl {
             let cdb = if log_cdb == CDB_FALSE { false } else { true };
 
             // Prove that the CRC we wrote matches the metadata that we wrote
-            let metadata = spec_get_active_log_metadata(log_region, log_start_addr as nat, cdb);
+            let metadata = spec_get_active_log_metadata(pm, log_start_addr as nat, cdb);
             let metadata_bytes = extract_bytes(pm, (log_start_addr + spec_log_header_pos_cdb_false()) as nat, LogMetadata::spec_size_of());
-            let crc = spec_get_active_log_crc(log_region, log_start_addr as nat, cdb);
+            let crc = spec_get_active_log_crc(pm, log_start_addr as nat, cdb);
             let crc_bytes = extract_bytes(pm, (log_start_addr + spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of()) as nat, u64::spec_size_of());
             assert(metadata_bytes == log_metadata.spec_to_bytes());
             lemma_subrange_of_extract_bytes_equal(pm, log_start_addr as nat, (log_start_addr + spec_log_header_pos_cdb_false()) as nat, log_size as nat, LogMetadata::spec_size_of());
@@ -182,7 +186,8 @@ impl UntrustedLogImpl {
             assert(crc == metadata.spec_crc());
 
             // Once we have proven that the log recovers to a valid abstract state, extensional equality takes care of the rest of the proof
-            assert(recovered_state.unwrap() =~= AbstractLogState::initialize(log_size - spec_log_header_area_size()));
+            assert(recovered_state is Some);
+            assert(recovered_state.unwrap() =~= AbstractLogState::initialize(log_size - spec_log_area_pos()));
         }
     
         Ok(())
