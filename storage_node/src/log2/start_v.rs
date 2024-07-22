@@ -170,12 +170,13 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
         // upon recovery, there are no pending appends beyond the tail
         // of the log.
 
-        Ok(LogInfo{
+        let info = LogInfo{
             log_area_len: log_area_length,
             head,
             head_log_area_offset,
             log_length,
             log_plus_pending_length: log_length
-        })
+        };
+        Ok(info)
     }
 }

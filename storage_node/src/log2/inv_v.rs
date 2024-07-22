@@ -79,10 +79,10 @@ pub open spec fn info_consistent_with_log_area_in_region(
     state: AbstractLogState,
 ) -> bool
 {
-    &&& pm_region_view.len() >= log_start_addr + spec_log_header_area_size() + info.log_area_len
+    &&& pm_region_view.len() >= log_start_addr + log_size
     &&& info_consistent_with_log_area(
-           get_subregion_view(pm_region_view, (log_start_addr + spec_log_header_area_size()) as nat,
-                              info.log_area_len as nat),
+           get_subregion_view(pm_region_view, (log_start_addr + spec_log_area_pos()) as nat,
+                              (log_size - spec_log_area_pos()) as nat),
            info,
            state
        )

@@ -248,12 +248,12 @@ verus! {
             None 
         } else {
             let log_area = extract_bytes(mem, log_start_addr + spec_log_area_pos(),
-                                         (mem.len() - log_start_addr - spec_log_area_pos()) as nat);
+                                         (log_size - spec_log_area_pos()) as nat);
             Some(AbstractLogState {
                 head,
                 log: extract_log_from_log_area(log_area, head, len),
                 pending: Seq::<u8>::empty(),
-                capacity: mem.len() - log_start_addr - spec_log_area_pos(),
+                capacity: log_size - spec_log_area_pos(),
             })
         }
     }
