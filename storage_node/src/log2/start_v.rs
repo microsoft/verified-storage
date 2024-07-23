@@ -33,7 +33,7 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
         pm_region@.no_outstanding_writes(),
         pm_region@.len() >= log_start_addr + log_size,
         log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-        metadata_types_set(pm_region@.committed(), log_start_addr),
+        metadata_types_set(pm_region@.committed(), log_start_addr as nat),
     ensures
         match result {
             Ok(b) => Some(b) == recover_cdb(pm_region@.committed(), log_start_addr as nat),
@@ -75,7 +75,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
     requires
         pm_region.inv(),
         pm_region@.no_outstanding_writes(),
-        metadata_types_set(pm_region@.committed(), log_start_addr),
+        metadata_types_set(pm_region@.committed(), log_start_addr as nat),
         log_start_addr + log_size <= pm_region@.len() <= u64::MAX,
         cdb == spec_check_log_cdb(pm_region@.committed(), log_start_addr as nat).unwrap(),
         log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,

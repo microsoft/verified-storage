@@ -10,15 +10,15 @@ use crate::log2::logspec_t::*;
 use crate::pmem::pmcopy_t::*;
 
 verus! {
-pub open spec fn metadata_types_set(mem: Seq<u8>, log_start_addr: u64) -> bool 
+pub open spec fn metadata_types_set(mem: Seq<u8>, log_start_addr: nat) -> bool 
 {
-    let cdb = u64::spec_from_bytes(extract_bytes(mem, log_start_addr as nat, u64::spec_size_of()));
+    let cdb = u64::spec_from_bytes(extract_bytes(mem, log_start_addr, u64::spec_size_of()));
     let metadata_pos = if cdb == CDB_TRUE { log_start_addr + spec_log_header_pos_cdb_true() }
                         else { log_start_addr + spec_log_header_pos_cdb_false() };
     let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()));
     let crc_pos =  metadata_pos + LogMetadata::spec_size_of();
     let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()));
-    &&& u64::bytes_parseable(extract_bytes(mem, log_start_addr as nat, u64::spec_size_of()))
+    &&& u64::bytes_parseable(extract_bytes(mem, log_start_addr, u64::spec_size_of()))
     &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
     &&& LogMetadata::bytes_parseable(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()))
     &&& u64::bytes_parseable(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()))

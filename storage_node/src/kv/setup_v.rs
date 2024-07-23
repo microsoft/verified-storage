@@ -290,7 +290,7 @@ pub fn initialize_overall_metadata<K, I, L> (
 }
 
 // 75 succeeds but gives a warning
-// #[verifier::rlimit(90)]
+#[verifier::rlimit(75)]
 pub fn setup<PM, K, I, L> (
     pm: &mut PM,
     kvstore_id: u128,

@@ -1,3 +1,5 @@
+use std::f64::MIN;
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -11,6 +13,7 @@ use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, P
 use crate::log2::layout_v::*;
 use crate::log2::logspec_t::*;
 use crate::log2::start_v::*;
+use crate::log2::inv_v::*;
 use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegion;
 
 verus! {
@@ -75,7 +78,12 @@ pub struct UntrustedLogImpl {
 impl UntrustedLogImpl {
     pub open spec fn recover(mem: Seq<u8>, log_start_addr: nat, log_size: nat) -> Option<AbstractLogState> 
     {
-        recover_state(mem, log_start_addr, log_size)
+        if !metadata_types_set(mem, log_start_addr) {
+            None
+        } else {
+            recover_state(mem, log_start_addr, log_size)
+        }
+        
     }
 
     // This function specifies how to view the in-memory state of
@@ -204,18 +212,22 @@ impl UntrustedLogImpl {
         where 
             PM: PersistentMemoryRegion,
         requires
-            Self::recover(pm_region@.flush().committed(), log_start_addr as nat, log_size as nat) == Some(state),
+            Self::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(state),
             pm_region.inv(),
             pm_region@.no_outstanding_writes(),
-            pm_region@.len() >= log_start_addr + log_size,
+            log_start_addr + log_size <= pm_region@.len() <= u64::MAX,
+            log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
         ensures
-            match result {
-                Ok(log_impl) => {
-                    &&& log_impl@ == state
-                    &&& log_impl.inv(*pm_region)
+            ({
+                match result {
+                    Ok(log_impl) => {
+                        &&& log_impl@ == state
+                        &&& log_impl.inv(*pm_region)
+                    }
+                    Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
-                Err(_) => false
-            }
+            })   
     {
         // First, we read the corruption-detecting boolean and
         // return an error if that fails.
