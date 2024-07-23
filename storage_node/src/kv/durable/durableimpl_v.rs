@@ -274,16 +274,34 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 wrpm_region.inv(),
+                wrpm_region@.no_outstanding_writes(),
                 Self::recover(wrpm_region@.committed(), overall_metadata) == Some(state),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata.log_area_addr + overall_metadata.log_area_size <= wrpm_region@.len() <= u64::MAX,
+                overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, overall_metadata) == Some(state),
             ensures
-                result matches Ok(kvstore) && kvstore@ == state,
+                match result {
+                    Ok(kvstore) => {
+                        kvstore@ == state
+                    }
+                    Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
+                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
+                    Err(KvError::PmemErr { pmem_err }) => true,
+                    Err(_) => false
+                }
         {
+            // 1. Start the log and obtain logged operations (if any)
+            // TODO: we only need to actually read the log if a crash occurred, but we don't have a way to 
+            // cleanly shut down right now
+            let op_log = UntrustedOpLog::<K, L>::start(wrpm_region.get_pm_region_ref(), overall_metadata)?;
 
+            // 2. Start/recover the main table using the log
+
+            // 3. Start/recover the item table using the log
+
+            // 4. Start/recover the list area using the log
             
-
-
             assume(false);
             Err(KvError::NotImplemented)
         }

@@ -289,8 +289,6 @@ pub fn initialize_overall_metadata<K, I, L> (
     Ok(overall_metadata)
 }
 
-// 75 succeeds but gives a warning
-#[verifier::rlimit(75)]
 pub fn setup<PM, K, I, L> (
     pm: &mut PM,
     kvstore_id: u128,
@@ -323,12 +321,8 @@ pub fn setup<PM, K, I, L> (
 
     let overall_metadata_addr = ABSOLUTE_POS_OF_VERSION_CRC + size_of::<u64>() as u64;
 
-    // proving this separately helps Verus prove the following assertion faster. can do rlimit of 25 with this assertion
-    // assert(OverallMetadata::spec_size_of() == 144) by { reveal(spec_padding_needed); }
-    assert(overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of() == 192) by {
-        // reveal(spec_padding_needed);
-        lemma_size_of_overall_metadata()
-    }
+    // TODO: use `overall_metadata_addr` directly in this assertion if/when assert by compute_only gets local variables in its context
+    assert(ABSOLUTE_POS_OF_VERSION_CRC + u64::spec_size_of()  + OverallMetadata::spec_size_of() + u64::spec_size_of() <= u64::MAX) by (compute_only);
     if region_size < overall_metadata_addr + size_of::<OverallMetadata>() as u64 + size_of::<u64>() as u64 {
         return Err(KvError::RegionTooSmall{
             required: overall_metadata_addr as usize + size_of::<OverallMetadata>() + size_of::<u64>(),

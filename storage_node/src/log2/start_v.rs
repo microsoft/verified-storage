@@ -84,8 +84,8 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             let state = recover_given_cdb(pm_region@.committed(), log_start_addr as nat, log_size as nat, cdb);
             match result {
                 Ok(info) => state.is_Some() ==> {
-                    &&& metadata_consistent_with_info(pm_region@, log_start_addr, log_size, cdb, info)
-                    &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr, log_size, info, state.unwrap())
+                    &&& metadata_consistent_with_info(pm_region@, log_start_addr as nat, log_size as nat, cdb, info)
+                    &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
                 },
                 Err(LogErr::CRCMismatch) =>
                     state.is_Some() ==> !pm_region.constants().impervious_to_corruption,

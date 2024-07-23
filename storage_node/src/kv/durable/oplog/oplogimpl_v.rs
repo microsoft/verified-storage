@@ -35,11 +35,11 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
-        pub closed spec fn inv<PM>(self, pm_region: &PM) -> bool
+        pub closed spec fn inv<PM>(self, pm_region: &PM, log_start_addr: nat, log_size: nat) -> bool
             where 
                 PM: PersistentMemoryRegion,
         {
-            self.log.inv(pm_region)
+            self.log.inv(pm_region, log_start_addr, log_size)
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState<L>
@@ -213,7 +213,7 @@ verus! {
             ensures 
                 match result {
                     Ok(op_log_impl) => {
-                        &&& op_log_impl.inv(pm_region)
+                        &&& op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                         &&& Some(op_log_impl@) == Self::recover(pm_region@.committed(), overall_metadata)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
@@ -230,7 +230,6 @@ verus! {
             };
 
             let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
-            assert(op_log_state is Some);
             
             Ok(Self {
                 log: base_log,
@@ -238,6 +237,22 @@ verus! {
                 current_transaction_crc: CrcDigest::new(),
                 _phantom: None
             })
+        }
+
+        pub exec fn read_op_log<PM>(
+            &self,
+            pm_region: &PM,
+            log_start_addr: u64,
+            log_size: u64, 
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                self.inv(pm_region, log_start_addr as nat, log_size as nat),
+            ensures
+                true 
+        {
+            Err(KvError::NotImplemented)
         }
 
         // pub exec fn read_op_log<PM>(

@@ -9,6 +9,7 @@ use crate::kv::kvimpl_t::KvError;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
+use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
 use crate::log2::layout_v::*;
 use crate::log2::logspec_t::*;
@@ -93,17 +94,18 @@ impl UntrustedLogImpl {
         self.state@
     }
 
-    pub closed spec fn inv<PM>(self, pm: &PM) -> bool
+    pub closed spec fn inv<PM>(self, pm: &PM, log_start_addr: nat, log_size: nat) -> bool
         where 
             PM: PersistentMemoryRegion
     {
-        true
+        &&& pm.inv()
         // &&& no_outstanding_writes_to_metadata(pm@)
         // &&& memory_matches_deserialized_cdb(pm@, self.cdb)
-        // &&& metadata_consistent_with_info(pm@, self.cdb, self.info)
-        // &&& info_consistent_with_log_area_in_region(pm@, self.info, self.state@)
+        &&& self.info.log_area_len + spec_log_area_pos() == log_size
+        &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
+        &&& info_consistent_with_log_area_in_region(pm@, log_start_addr, log_size, self.info, self.state@)
         // &&& can_only_crash_as_state(pm@, self.state@.drop_pending_appends())
-        // &&& metadata_types_set(pm@.committed())
+        &&& metadata_types_set(pm@.committed(), log_start_addr)
     }
 
     pub exec fn setup<PM, K>(
@@ -222,7 +224,7 @@ impl UntrustedLogImpl {
                 match result {
                     Ok(log_impl) => {
                         &&& log_impl@ == state
-                        &&& log_impl.inv(pm_region)
+                        &&& log_impl.inv(pm_region, log_start_addr as nat, log_size as nat)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
@@ -238,6 +240,269 @@ impl UntrustedLogImpl {
 
         Ok(Self { cdb, info, state: Ghost(state) })
     }  
+
+    // This local helper method proves that we can read a portion of
+    // the abstract log by reading a continuous range of the log area.
+    // It requires that the position being read from is correct, and
+    // that the read is short enough to not require wrapping around the
+    // end of the log area.
+    proof fn lemma_read_of_continuous_range(
+        &self,
+        pm_region_view: PersistentMemoryRegionView,
+        log_start_addr: nat,
+        log_size: nat,
+        pos: nat,
+        len: nat,
+        addr: nat,
+    )
+        requires
+            len > 0,
+            metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, self.cdb, self.info),
+            info_consistent_with_log_area_in_region(pm_region_view, log_start_addr, log_size, self.info, self.state@),
+            log_start_addr + spec_log_area_pos() + self.info.log_area_len <= pm_region_view.len(),
+            log_start_addr + spec_log_area_pos() <= addr < addr + len <= pm_region_view.len(),
+            addr + len <= log_start_addr + log_size,
+            ({
+                let info = self.info;
+                let max_len_without_wrapping = info.log_area_len -
+                    relative_log_pos_to_log_area_offset(pos - info.head,
+                                                        info.head_log_area_offset as int,
+                                                        info.log_area_len as int);
+                &&& pos >= info.head
+                &&& pos + len <= info.head + info.log_length
+                &&& len <= max_len_without_wrapping
+                &&& addr == log_start_addr + spec_log_area_pos() +
+                        relative_log_pos_to_log_area_offset(pos - info.head as int,
+                                                            info.head_log_area_offset as int,
+                                                            info.log_area_len as int)
+                &&& info.log_length < log_size
+            })
+        ensures
+            ({
+                let log = self@;
+                &&& pm_region_view.no_outstanding_writes_in_range(addr as int, (addr + len) as int)
+                &&& extract_bytes(pm_region_view.committed(), addr, len) == 
+                        extract_bytes(log.log, (pos - log.head) as nat, len)
+            })
+    {
+        let info = self.info;
+        let s = self.state@;
+
+        // The key to the proof is that we need to reason about how
+        // addresses in the log area correspond to relative log
+        // positions. This is because the invariant talks about
+        // relative log positions but this lemma is proving things
+        // about addresses in the log area.
+
+        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, info);
+        assert(extract_bytes(pm_region_view.committed(), addr, len) =~= 
+                extract_bytes(s.log, (pos - s.head) as nat, len));
+    }
+
+    // The `read` method reads part of the log, returning a vector
+    // containing the read bytes. It doesn't guarantee that those
+    // bytes aren't corrupted by persistent memory corruption. See
+    // `README.md` for more documentation and examples of its use.
+    pub exec fn read<Perm, PM>(
+        &self,
+        pm_region: &PM,
+        log_start_addr: u64,
+        log_size: u64, 
+        pos: u128,
+        len: u64,
+    ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires
+            self.inv(pm_region, log_start_addr as nat, log_size as nat),
+            pos + len <= u128::MAX,
+            log_start_addr + spec_log_area_pos() <= pm_region@.len() <= u64::MAX,
+        ensures
+            ({
+                let log = self@;
+                match result {
+                    Ok((bytes, addrs)) => {
+                        let true_bytes = self@.read(pos as int, len as int);
+                        &&& pos >= log.head
+                        &&& pos + len <= log.head + log.log.len()
+                        &&& read_correct_modulo_corruption(bytes@, true_bytes, pm_region.constants().impervious_to_corruption)
+                    },
+                    Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
+                        &&& pos < log.head
+                        &&& head_pos == log.head
+                    },
+                    Err(LogErr::CantReadPastTail{ tail }) => {
+                        &&& pos + len > log.head + log.log.len()
+                        &&& tail == log.head + log.log.len()
+                    },
+                    _ => false,
+                }
+            })
+    {        
+        // Handle error cases due to improper parameters passed to the
+        // function.
+
+        let info = &self.info;
+        if pos < info.head {
+            return Err(LogErr::CantReadBeforeHead{ head: info.head })
+        }
+        if len > info.log_length { // We have to do this check first to avoid underflow in the next comparison
+            return Err(LogErr::CantReadPastTail{ tail: info.head + info.log_length as u128 })
+        }
+        if pos - info.head > (info.log_length - len) as u128 { // we know `info.log_length - len` can't underflow
+            return Err(LogErr::CantReadPastTail{ tail: info.head + info.log_length as u128 })
+        }
+
+        let ghost s = self.state@;
+        // let ghost true_bytes = s.log.subrange(pos - s.head, pos + len - s.head);
+        let ghost true_bytes = extract_bytes(s.log, (pos - s.head) as nat, len as nat);
+
+        if len == 0 {
+            // Case 0: The trivial case where we're being asked to read zero bytes.
+
+            assert (true_bytes =~= Seq::<u8>::empty());
+            assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
+            return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
+        }
+
+        let log_area_len: u64 = info.log_area_len;
+        let relative_pos: u64 = (pos - info.head) as u64;
+        if relative_pos >= log_area_len - info.head_log_area_offset {
+
+            // Case 1: The position we're being asked to read appears
+            // in the log area before the log head. So the read doesn't
+            // need to wrap.
+            //
+            // We could compute the address to write to with:
+            //
+            // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + pos % info.log_area_len;`
+            //
+            // But we can replace the expensive modulo operation above with two subtraction
+            // operations as follows. This is somewhat subtle, but we have verification backing
+            // us up and proving this optimization correct.
+
+            let addr: u64 = log_start_addr + log_area_pos() + relative_pos - (info.log_area_len - info.head_log_area_offset);
+            proof { self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat, log_size as nat, pos as nat,
+                                                        len as nat, addr as nat); }
+            let bytes = match pm_region.read_unaligned(addr, len) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    assert(e == PmemError::AccessOutOfRange);
+                    return Err(LogErr::PmemErr{ err: e });
+                }
+            };
+            return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
+        }
+
+        // The log area wraps past the point we're reading from, so we
+        // need to compute the maximum length we can read without
+        // wrapping to be able to figure out whether we need to wrap.
+
+        let max_len_without_wrapping: u64 = log_area_len - info.head_log_area_offset - relative_pos;
+        assert(max_len_without_wrapping == info.log_area_len -
+                relative_log_pos_to_log_area_offset(pos - info.head,
+                                                    info.head_log_area_offset as int, info.log_area_len as int));
+
+        // Whether we need to wrap or not, we know the address where
+        // our read should start, so we can compute that and put it in
+        // `addr`.
+        //
+        // We could compute the address to write to with:
+        //
+        // `write_addr = ABSOLUTE_POS_OF_LOG_AREA + pos % info.log_area_len;`
+        //
+        // But we can replace the expensive modulo operation above with
+        // one addition operation as follows. This is somewhat subtle,
+        // but we have verification backing us up and proving this
+        // optimization correct.
+
+        let addr: u64 = log_start_addr + log_area_pos() + relative_pos + info.head_log_area_offset;
+        assert(addr == log_start_addr + spec_log_area_pos() +
+                relative_log_pos_to_log_area_offset(pos - info.head,
+                                                    info.head_log_area_offset as int,
+                                                    info.log_area_len as int));
+
+        if len <= max_len_without_wrapping {
+
+            // Case 2: We're reading few enough bytes that we don't have to wrap.
+
+            proof { self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat, log_size as nat, pos as nat,
+                                                        len as nat, addr as nat); }
+            let bytes = match pm_region.read_unaligned(addr, len) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    assert(e == PmemError::AccessOutOfRange);
+                    return Err(LogErr::PmemErr{ err: e });
+                }
+            };
+            return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
+        }
+
+        // Case 3: We're reading enough bytes that we have to wrap.
+        // That necessitates doing two contiguous reads, one from the
+        // end of the log area and one from the beginning, and
+        // concatenating the results.
+
+        proof {
+            self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat, log_size as nat, pos as nat,
+                                                max_len_without_wrapping as nat, addr as nat);
+        }
+
+        let mut part1 = match pm_region.read_unaligned(addr, max_len_without_wrapping) {
+            Ok(part1) => part1,
+            Err(e) => {
+                assert(e == PmemError::AccessOutOfRange);
+                return Err(LogErr::PmemErr{ err: e });
+            }
+        };
+
+        proof {
+            self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat,
+                                                log_size as nat,
+                                                (pos + max_len_without_wrapping) as nat,
+                                                (len - max_len_without_wrapping) as nat,
+                                                (log_start_addr + spec_log_area_pos()) as nat);
+        }
+
+        let mut part2 = match pm_region.read_unaligned(log_start_addr + log_area_pos(), len - max_len_without_wrapping) {
+            Ok(part2) => part2,
+            Err(e) => {
+                assert(e == PmemError::AccessOutOfRange);
+                return Err(LogErr::PmemErr{ err: e });
+            }
+        };
+
+        // Now, prove that concatenating them produces the correct
+        // bytes to return. The subtle thing in this argument is that
+        // the bytes are only correct modulo corruption. And the
+        // "correct modulo corruption" specification function talks
+        // about the concrete addresses the bytes were read from and
+        // demands that those addresses all be distinct.
+
+        proof {
+            // let true_part1 = s.log.subrange(pos - s.head, pos + max_len_without_wrapping - s.head);
+            let true_part1 = extract_bytes(s.log, (pos - s.head) as nat, max_len_without_wrapping as nat);
+            // let true_part2 = s.log.subrange(pos + max_len_without_wrapping - s.head, pos + len - s.head);
+            let true_part2 = extract_bytes(s.log, (pos + max_len_without_wrapping - s.head) as nat, (len - max_len_without_wrapping) as nat);
+            let addrs1 = Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr);
+            let addrs2 = Seq::<int>::new((len - max_len_without_wrapping) as nat,
+                                        |i: int| i + log_start_addr + spec_log_area_pos());
+            assert(true_part1 + true_part2 =~= s.log.subrange(pos - s.head, pos + len - s.head));
+
+            if !pm_region.constants().impervious_to_corruption {
+                assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs1 + addrs2));
+                assert(all_elements_unique(addrs1 + addrs2));
+            }
+        }
+
+        // Append the two byte vectors together and return the result.
+
+        part1.append(&mut part2);
+        let addrs = Ghost(Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr) + 
+            Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + log_start_addr + spec_log_area_pos()));
+        Ok((part1, addrs))
+    }
 }
     
 }

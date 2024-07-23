@@ -44,21 +44,21 @@ pub open spec fn metadata_types_set(mem: Seq<u8>, log_start_addr: nat) -> bool
 // log
 pub open spec fn metadata_consistent_with_info(
     pm_region_view: PersistentMemoryRegionView,
-    log_start_addr: u64,
-    log_size: u64,
+    log_start_addr: nat,
+    log_size: nat,
     cdb: bool,
     info: LogInfo,
 ) -> bool
 {
     let mem = pm_region_view.committed();
-    let log_metadata = spec_get_active_log_metadata(mem, log_start_addr as nat, cdb);
-    let log_crc = spec_get_active_log_crc(mem, log_start_addr as nat, cdb);
+    let log_metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
+    let log_crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
 
     // No outstanding writes to global metadata, region metadata, or the log metadata CDB
-    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, log_start_addr + u64::spec_size_of())
+    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
     // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
-    &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr + spec_get_active_log_metadata_pos(cdb),
-            log_start_addr + spec_get_active_log_crc_end(cdb))
+    &&& pm_region_view.no_outstanding_writes_in_range((log_start_addr + spec_get_active_log_metadata_pos(cdb)) as int,
+            (log_start_addr + spec_get_active_log_crc_end(cdb)) as int)
 
     // All the CRCs match
     &&& log_crc == log_metadata.spec_crc()
@@ -73,15 +73,15 @@ pub open spec fn metadata_consistent_with_info(
 
 pub open spec fn info_consistent_with_log_area_in_region(
     pm_region_view: PersistentMemoryRegionView,
-    log_start_addr: u64,
-    log_size: u64,
+    log_start_addr: nat,
+    log_size: nat,
     info: LogInfo,
     state: AbstractLogState,
 ) -> bool
 {
     &&& pm_region_view.len() >= log_start_addr + log_size
     &&& info_consistent_with_log_area(
-           get_subregion_view(pm_region_view, (log_start_addr + spec_log_area_pos()) as nat,
+           get_subregion_view(pm_region_view, log_start_addr + spec_log_area_pos(),
                               (log_size - spec_log_area_pos()) as nat),
            info,
            state
@@ -148,5 +148,43 @@ pub open spec fn info_consistent_with_log_area(
                     pmb.outstanding_write.is_none()
         }
 }
+
+// This lemma proves that, for any address in the log area of the
+// given persistent memory view, it corresponds to a specific
+// logical position in the abstract log relative to the head. That
+// logical position `pos` satisfies `0 <= pos < log_area_len`.
+//
+// It's useful to call this lemma because it takes facts that
+// trigger `pm_region_view.state[addr]` and turns them into facts
+// that trigger `relative_log_pos_to_log_area_offset`. That's the
+// trigger used in `info_consistent_with_log_area_in_region`.
+pub proof fn lemma_addresses_in_log_area_correspond_to_relative_log_positions(
+    pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
+    info: LogInfo
+)
+    requires
+        pm_region_view.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len,
+        info.head_log_area_offset < info.log_area_len,
+        info.log_area_len > 0,
+    ensures
+        forall |addr: int| #![trigger pm_region_view.state[addr]]
+            log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + info.log_area_len ==> {
+                let log_area_offset = addr - (log_start_addr + spec_log_area_pos());
+                let pos_relative_to_head =
+                    if log_area_offset >= info.head_log_area_offset {
+                        log_area_offset - info.head_log_area_offset
+                    }
+                    else {
+                        log_area_offset - info.head_log_area_offset + info.log_area_len
+                    };
+                &&& 0 <= pos_relative_to_head < info.log_area_len
+                &&& addr == log_start_addr + spec_log_area_pos() +
+                            relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                info.head_log_area_offset as int,
+                                                                info.log_area_len as int)
+            }
+{}
 
 }

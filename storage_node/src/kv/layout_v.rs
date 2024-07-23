@@ -85,14 +85,6 @@ verus! {
 
     impl PmCopy for OverallMetadata {}
 
-    #[verifier::rlimit(25)]
-    pub proof fn lemma_size_of_overall_metadata()
-        ensures 
-            OverallMetadata::spec_size_of() == 144
-    {
-        reveal(spec_padding_needed);
-    }
-
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.
 
