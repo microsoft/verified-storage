@@ -99,14 +99,27 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion
     {
         &&& pm.inv()
+        &&& self@.capacity >= self@.log.len()
         // &&& no_outstanding_writes_to_metadata(pm@)
         // &&& memory_matches_deserialized_cdb(pm@, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
+        &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
         &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
         &&& info_consistent_with_log_area_in_region(pm@, log_start_addr, log_size, self.info, self.state@)
         // &&& can_only_crash_as_state(pm@, self.state@.drop_pending_appends())
         &&& metadata_types_set(pm@.committed(), log_start_addr)
     }
+
+    // This lemma makes some facts about non-private fields of self visible
+    pub proof fn lemma_reveal_log_inv<PM>(self, pm: &PM, log_start_addr: nat, log_size: nat) 
+        where 
+            PM: PersistentMemoryRegion,
+        requires
+            self.inv(pm, log_start_addr, log_size),
+        ensures
+            log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX,
+            metadata_types_set(pm@.committed(), log_start_addr)
+    {}
 
     pub exec fn setup<PM, K>(
         pm_region: &mut PM,
@@ -303,7 +316,7 @@ impl UntrustedLogImpl {
     // containing the read bytes. It doesn't guarantee that those
     // bytes aren't corrupted by persistent memory corruption. See
     // `README.md` for more documentation and examples of its use.
-    pub exec fn read<Perm, PM>(
+    pub exec fn read<PM>(
         &self,
         pm_region: &PM,
         log_start_addr: u64,
@@ -312,7 +325,6 @@ impl UntrustedLogImpl {
         len: u64,
     ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
         where
-            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
             self.inv(pm_region, log_start_addr as nat, log_size as nat),
@@ -324,9 +336,11 @@ impl UntrustedLogImpl {
                 match result {
                     Ok((bytes, addrs)) => {
                         let true_bytes = self@.read(pos as int, len as int);
+                        &&& true_bytes == Seq::new(addrs@.len(), |i: int| pm_region@.committed()[addrs@[i] as int])
                         &&& pos >= log.head
                         &&& pos + len <= log.head + log.log.len()
-                        &&& read_correct_modulo_corruption(bytes@, true_bytes, pm_region.constants().impervious_to_corruption)
+                        &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@, pm_region.constants().impervious_to_corruption)
+                        &&& addrs@.len() == len
                     },
                     Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
                         &&& pos < log.head
@@ -360,10 +374,11 @@ impl UntrustedLogImpl {
 
         if len == 0 {
             // Case 0: The trivial case where we're being asked to read zero bytes.
-
-            assert (true_bytes =~= Seq::<u8>::empty());
-            assert (maybe_corrupted(Seq::<u8>::empty(), true_bytes, Seq::<int>::empty()));
-            return Ok((Vec::<u8>::new(), Ghost(Seq::empty())));
+            let ghost addrs = Seq::empty();
+            assert(true_bytes =~= Seq::<u8>::empty());
+            assert(true_bytes == Seq::new(addrs.len(), |i: int| pm_region@.committed()[addrs[i] as int]));
+            assert(maybe_corrupted(Seq::<u8>::empty(), true_bytes, addrs));
+            return Ok((Vec::<u8>::new(), Ghost(addrs)));
         }
 
         let log_area_len: u64 = info.log_area_len;
@@ -392,7 +407,13 @@ impl UntrustedLogImpl {
                     return Err(LogErr::PmemErr{ err: e });
                 }
             };
-            return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
+            let ghost addrs = Seq::new(len as nat, |i: int| i + addr);
+            proof {
+                let true_bytes = Seq::new(addrs.len(), |i: int| pm_region@.committed()[addrs[i] as int]);
+                let read_bytes = self@.read(pos as int, len as int);
+                assert(true_bytes =~= read_bytes);
+            }
+            return Ok((bytes, Ghost(addrs)));
         }
 
         // The log area wraps past the point we're reading from, so we
@@ -436,7 +457,13 @@ impl UntrustedLogImpl {
                     return Err(LogErr::PmemErr{ err: e });
                 }
             };
-            return Ok((bytes, Ghost(Seq::new(len as nat, |i: int| i + addr))));
+            let ghost addrs = Seq::new(len as nat, |i: int| i + addr);
+            proof {
+                let true_bytes = Seq::new(addrs.len(), |i: int| pm_region@.committed()[addrs[i] as int]);
+                let read_bytes = self@.read(pos as int, len as int);
+                assert(true_bytes =~= read_bytes);
+            }
+            return Ok((bytes, Ghost(addrs)));
         }
 
         // Case 3: We're reading enough bytes that we have to wrap.
@@ -456,6 +483,12 @@ impl UntrustedLogImpl {
                 return Err(LogErr::PmemErr{ err: e });
             }
         };
+        let ghost addrs_part1 = Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr);
+        proof {
+            let true_bytes = Seq::new(addrs_part1.len(), |i: int| pm_region@.committed()[addrs_part1[i] as int]);
+            let read_bytes = self@.read(pos as int, max_len_without_wrapping as int);
+            assert(true_bytes =~= read_bytes);
+        }
 
         proof {
             self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat,
@@ -472,6 +505,7 @@ impl UntrustedLogImpl {
                 return Err(LogErr::PmemErr{ err: e });
             }
         };
+        let ghost addrs_part2 = Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + log_start_addr + spec_log_area_pos());
 
         // Now, prove that concatenating them produces the correct
         // bytes to return. The subtle thing in this argument is that
@@ -481,27 +515,60 @@ impl UntrustedLogImpl {
         // demands that those addresses all be distinct.
 
         proof {
-            // let true_part1 = s.log.subrange(pos - s.head, pos + max_len_without_wrapping - s.head);
             let true_part1 = extract_bytes(s.log, (pos - s.head) as nat, max_len_without_wrapping as nat);
-            // let true_part2 = s.log.subrange(pos + max_len_without_wrapping - s.head, pos + len - s.head);
             let true_part2 = extract_bytes(s.log, (pos + max_len_without_wrapping - s.head) as nat, (len - max_len_without_wrapping) as nat);
-            let addrs1 = Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr);
-            let addrs2 = Seq::<int>::new((len - max_len_without_wrapping) as nat,
-                                        |i: int| i + log_start_addr + spec_log_area_pos());
+            
             assert(true_part1 + true_part2 =~= s.log.subrange(pos - s.head, pos + len - s.head));
 
+            let addrs = addrs_part1 + addrs_part2;
+            assert(true_part1 + true_part2 == Seq::new(len as nat, |i: int| pm_region@.committed()[addrs[i]]));
+
             if !pm_region.constants().impervious_to_corruption {
-                assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs1 + addrs2));
-                assert(all_elements_unique(addrs1 + addrs2));
+                assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
+                assert(all_elements_unique(addrs_part1 + addrs_part2));
             }
         }
 
         // Append the two byte vectors together and return the result.
-
         part1.append(&mut part2);
-        let addrs = Ghost(Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr) + 
-            Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + log_start_addr + spec_log_area_pos()));
+        let addrs = Ghost(addrs_part1 + addrs_part2);
         Ok((part1, addrs))
+    }
+
+    // The `get_head_tail_and_capacity` method returns the head,
+    // tail, and capacity of the log. See `README.md` for more
+    // documentation and examples of its use.
+    #[allow(unused_variables)]
+    pub exec fn get_head_tail_and_capacity<PM>(
+        &self,
+        pm_region: &PM,
+        log_start_addr: u64,
+        log_size: u64, 
+    ) -> (result: Result<(u128, u128, u64), LogErr>)
+        where
+            PM: PersistentMemoryRegion,
+        requires
+            self.inv(pm_region, log_start_addr as nat, log_size as nat)
+        ensures
+            ({
+                let log = self@;
+                match result {
+                    Ok((result_head, result_tail, result_capacity)) => {
+                        &&& result_head == log.head
+                        &&& result_tail == log.head + log.log.len()
+                        &&& result_capacity == log.capacity
+                        &&& result_capacity >= result_tail - result_head
+                        &&& result_capacity <= pm_region@.len()
+                    },
+                    _ => false
+                }
+            })
+    {
+        // We cache information in `self.info` that lets us easily
+        // compute the return values.
+
+        let info = &self.info;
+        Ok((info.head, info.head + info.log_length as u128, info.log_area_len))
     }
 }
     

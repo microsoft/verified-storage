@@ -119,28 +119,24 @@ verus! {
     // there was corruption on the persistent memory between the last
     // write and this read.
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
-        impervious_to_corruption: bool) -> bool
+        addrs: Seq<int>, impervious_to_corruption: bool) -> bool
     {
-        if impervious_to_corruption {
-            // If the region is impervious to corruption, the bytes read
-            // must match the true bytes, i.e., the bytes last written.
-
-            bytes == true_bytes
-        }
-        else {
-            // Otherwise, there must exist a sequence of distinct
-            // addresses `addrs` such that the nth byte of `bytes` is
-            // a possibly corrupted version of the nth byte of
-            // `true_bytes` read from the nth address in `addrs`.  We
-            // don't require the sequence of addresses to be
-            // contiguous because the data might not be contiguous on
-            // disk (e.g., if it wrapped around the log area).
-
-            exists |addrs: Seq<int>| {
-            &&& all_elements_unique(addrs)
-            &&& #[trigger] maybe_corrupted(bytes, true_bytes, addrs)
-        }
+        &&& all_elements_unique(addrs)
+        &&& if impervious_to_corruption {
+                // If the region is impervious to corruption, the bytes read
+                // must match the true bytes, i.e., the bytes last written.
+                bytes == true_bytes
+            }
+            else {
+                // Otherwise, there must exist a sequence of distinct
+                // addresses `addrs` such that the nth byte of `bytes` is
+                // a possibly corrupted version of the nth byte of
+                // `true_bytes` read from the nth address in `addrs`.  We
+                // don't require the sequence of addresses to be
+                // contiguous because the data might not be contiguous on
+                // disk (e.g., if it wrapped around the log area).
+                maybe_corrupted(bytes, true_bytes, addrs)
+            }
     }
-}
 
 }

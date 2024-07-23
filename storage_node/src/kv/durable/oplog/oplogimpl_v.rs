@@ -252,84 +252,70 @@ verus! {
             ensures
                 true 
         {
-            Err(KvError::NotImplemented)
+            let log = &self.log;
+
+            // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
+            // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
+            let (head, tail, capacity) = match log.get_head_tail_and_capacity(pm_region, log_start_addr, log_size) {
+                Ok((head, tail, capacity)) => (head, tail, capacity),
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+
+            if tail == head {
+                return Ok(Vec::new());
+            } else if tail < traits_t::size_of::<u64>() as u128 {
+                // TODO: more detailed error (although this should not ever happen)
+                return Err(KvError::InternalError); 
+            }
+
+            let len = (tail - head) as u64;
+
+            proof { log.lemma_reveal_log_inv(pm_region, log_start_addr as nat, log_size as nat); }
+            
+            let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+            let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+
+            if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
+                Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
+            {
+                return Err(KvError::CRCMismatch);
+            }
+
+            assume(false);
+
+            // We now know that the bytes are not corrupted, but we still need to determine what 
+            // log entry types make up the vector of bytes.
+
+            self.parse_op_log(log_bytes, Ghost(pm_region@.committed()), log_addrs, Ghost(pm_region.constants().impervious_to_corruption))
         }
 
-        // pub exec fn read_op_log<PM>(
-        //     &self,
-        //     wrpm_region: &WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        // ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         // self.log.inv(wrpm_region, log_id),
-        //         // TODO
-        //     ensures 
-        //         // TODO
-        // {
-        //     assume(false);
-
-        //     let log = &self.log;
-
-        //     // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
-        //     // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
-        //     let (head, tail, capacity) = match log.get_head_tail_and_capacity(wrpm_region, Ghost(log_id)) {
-        //         Ok((head, tail, capacity)) => (head, tail, capacity),
-        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //     };
-
-        //     if tail == head {
-        //         return Ok(Vec::new());
-        //     } else if tail < traits_t::size_of::<u64>() as u128 {
-        //         // TODO: more detailed error (although this should not ever happen)
-        //         return Err(KvError::InternalError); 
-        //     }
-
-        //     // TODO: check for errors on the cast (or take a u128 as len?)
-        //     // Read the log contents and the CRC. Note that the log only supports unaligned reads.
-        //     let len = (tail - head) as u64;
-            
-        //     let (log_bytes, log_addrs) = match log.read(wrpm_region, head, len, Ghost(log_id)) {
-        //         Ok(bytes) => bytes,
-        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //     };
-        //     let (crc_bytes, crc_addrs) = match log.read(wrpm_region, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64, Ghost(log_id)) {
-        //         Ok(bytes) => bytes,
-        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //     };
-
-        //     if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(wrpm_region@.committed()),
-        //         Ghost(wrpm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
-        //     {
-        //         return Err(KvError::CRCMismatch);
-        //     }
-
-        //     // We now know that the bytes are not corrupted, but we still need to determine what 
-        //     // log entry types make up the vector of bytes.
-
-        //     self.parse_op_log(log_bytes, log_id, Ghost(wrpm_region@.committed()), log_addrs, Ghost(wrpm_region.constants().impervious_to_corruption))
-        // }
-
-        // pub exec fn parse_op_log(
-        //     &self,
-        //     log_contents: Vec<u8>,
-        //     log_id: u128,
-        //     Ghost(mem): Ghost<Seq<u8>>,
-        //     Ghost(log_contents_addrs): Ghost<Seq<int>>,
-        //     Ghost(impervious_to_corruption): Ghost<bool>,
-        // ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
-        //     requires 
-        //         ({
-        //             // We must have already proven that the bytes are not corrupted. This is already known
-        //             // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
-        //             let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
-        //             true_bytes == log_contents@
-        //         })
-        //     ensures
-        //         // TODO
-        //         // result vector is equal to the seq returned by spec parse log fn
-        // {
+        pub exec fn parse_op_log(
+            &self,
+            log_contents: Vec<u8>,
+            Ghost(mem): Ghost<Seq<u8>>,
+            Ghost(log_contents_addrs): Ghost<Seq<int>>,
+            Ghost(impervious_to_corruption): Ghost<bool>,
+        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
+            requires 
+                ({
+                    // We must have already proven that the bytes are not corrupted. This is already known
+                    // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
+                    let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
+                    true_bytes == log_contents@
+                })
+            ensures
+                // TODO
+                // result vector is equal to the seq returned by spec parse log fn
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
+        }
         //     assume(false);
 
         //     let mut op_list = Vec::new();
