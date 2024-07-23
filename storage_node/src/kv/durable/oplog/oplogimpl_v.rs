@@ -35,6 +35,18 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
+        pub closed spec fn inv<PM>(self, pm_region: &PM) -> bool
+            where 
+                PM: PersistentMemoryRegion,
+        {
+            self.log.inv(pm_region)
+        }
+
+        pub closed spec fn view(self) -> AbstractOpLogState<L>
+        {
+            self.state@
+        }
+
         pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState<L>>
         {
             // use log's recover method to recover the log state, then parse it into operations
@@ -60,7 +72,6 @@ verus! {
                 None => None
             }
         }
-
 
         pub open spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<AbstractOpLogState<L>>
         {
@@ -184,32 +195,50 @@ verus! {
             }
         }
         
-        // pub exec fn start<PM>(
-        //     log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        //     Tracked(perm): Tracked<&TrustedPermission>,
-        // ) -> (result: Result<Self, KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         // TODO
-        //         // log_wrpm should have already been set up with the regular log setup method
-        //     ensures 
-        //         // TODO
-        // {
-        //     assume(false);
-        //     let log = match UntrustedLogImpl::start(log_wrpm, log_id, Tracked(&perm), Ghost(UntrustedLogImpl::recover(log_wrpm@.flush().committed(), log_id).unwrap())) {
-        //         Ok(log) => log,
-        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
-        //     };
-        //     let state = Ghost(Self::recover(log_wrpm@.flush().committed(), log_id).unwrap());
-        //     Ok(Self {
-        //         log,
-        //         state,
-        //         current_transaction_crc: CrcDigest::new(),
-        //         _phantom: None
-        //     })
-        // }
+        // TODO: should we do checks on log entries/CRC here? Or do that as part of reading the log?
+        // If we know we didn't crash, we don't have to replay the log, so we should probably keep the
+        // replay step separate
+        pub exec fn start<PM>(
+            pm_region: &PM,
+            overall_metadata: OverallMetadata,
+        ) -> (result: Result<Self, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
+                overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
+                overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+                Self::recover(pm_region@.committed(), overall_metadata) is Some, 
+            ensures 
+                match result {
+                    Ok(op_log_impl) => {
+                        &&& op_log_impl.inv(pm_region)
+                        &&& Some(op_log_impl@) == Self::recover(pm_region@.committed(), overall_metadata)
+                    }
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
+                    Err(KvError::PmemErr { pmem_err }) => true,
+                    Err(_) => false
+                }
+        {
+            let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+            let base_log = match UntrustedLogImpl::start(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, Ghost(base_log_state)) {
+                Ok(log) => log,
+                Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            };
+
+            let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+            assert(op_log_state is Some);
+            
+            Ok(Self {
+                log: base_log,
+                state: Ghost(op_log_state.unwrap()),
+                current_transaction_crc: CrcDigest::new(),
+                _phantom: None
+            })
+        }
 
         // pub exec fn read_op_log<PM>(
         //     &self,

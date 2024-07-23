@@ -93,7 +93,7 @@ impl UntrustedLogImpl {
         self.state@
     }
 
-    pub closed spec fn inv<PM>(self, pm: PM) -> bool
+    pub closed spec fn inv<PM>(self, pm: &PM) -> bool
         where 
             PM: PersistentMemoryRegion
     {
@@ -222,7 +222,7 @@ impl UntrustedLogImpl {
                 match result {
                     Ok(log_impl) => {
                         &&& log_impl@ == state
-                        &&& log_impl.inv(*pm_region)
+                        &&& log_impl.inv(pm_region)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
