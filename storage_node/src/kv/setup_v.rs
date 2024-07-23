@@ -51,7 +51,7 @@ where
     &&& overall_metadata.list_area_size >= overall_metadata.num_list_nodes * overall_metadata.list_node_size
     &&& overall_metadata.log_area_addr >= overall_metadata.list_area_addr + overall_metadata.list_area_size
     &&& overall_metadata.log_area_size >= overall_metadata.log_entry_size
-    &&& overall_metadata.log_area_size >= spec_log_header_area_size() + MIN_LOG_AREA_SIZE
+    &&& overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE
     &&& overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size
 }
 
@@ -297,7 +297,7 @@ pub fn setup<PM, K, I, L> (
     num_keys: u64,
     num_list_entries_per_node: u32,
     num_list_nodes: u64,
-) -> (result: Result<DurableKvStore<PM, K, I, L>, KvError<K>>)
+) -> (result: Result<(), KvError<K>>)
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -353,9 +353,17 @@ pub fn setup<PM, K, I, L> (
     pm.serialize_and_write(version_metadata.overall_metadata_addr + size_of::<OverallMetadata>() as u64, &overall_crc);
     pm.flush();
     
-    Err(KvError::NotImplemented)
+    proof {
+        broadcast use pmcopy_axioms;
 
-    // Ok(())
+        let mem = pm@.committed();
+        assert(version_metadata.spec_to_bytes() == extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of()));
+        assert(version_crc.spec_to_bytes() == extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_CRC as nat, u64::spec_size_of()));
+        assert(overall_metadata.spec_to_bytes() == extract_bytes(mem, version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
+        assert(overall_crc.spec_to_bytes() == extract_bytes(mem, (version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()) as nat, u64::spec_size_of()));
+    }
+
+    Ok(())
 }
 
 }
