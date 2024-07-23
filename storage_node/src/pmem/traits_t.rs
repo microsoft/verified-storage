@@ -132,3 +132,24 @@ pub unsafe trait ConstPmSized {
 // This is a workaround for the fact that Verus does not support unsafe traits;
 // only externally-defined traits can be unsafe.
 pub unsafe trait UnsafeSpecPmSized {}
+
+// Arrays are PmSized and PmSafe, but since the implementation is generic
+// we provide a manual implementation here rather than using the pmsized_primitive!
+// macro. These traits are unsafe and must be implemented outside of verus!.
+unsafe impl<T: PmSafe + PmSized, const N: usize> PmSized for [T; N] {
+    fn size_of() -> usize 
+    {
+        N * T::size_of()
+    }
+    
+    fn align_of() -> usize {
+        T::align_of()
+    }
+}
+
+unsafe impl<T: PmSafe + PmSized, const N: usize> UnsafeSpecPmSized for [T; N] {}
+
+unsafe impl<T: PmSafe + PmSized + ConstPmSized, const N: usize> ConstPmSized for [T; N] {
+    const SIZE: usize = N * T::SIZE;
+    const ALIGN: usize = T::ALIGN;
+}

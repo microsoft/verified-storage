@@ -360,28 +360,20 @@ verus! {
     // pmsized_primitive!(f32);
     // pmsized_primitive!(f64);
 
-    // TODO: Manually implement the array case
+    // Arrays are PmSized and PmSafe, but since the implementation is generic
+    // we provide a manual implementation here rather than using the macro.
+    // Unsafe implementations of PmSized and UnsafeSpecPmSized live in traits_t.rs
+    impl<T: PmSafe + PmSized, const N: usize> SpecPmSized for [T; N] {
+        open spec fn spec_size_of() -> nat
+        {
+            (N * T::spec_size_of()) as nat
+        }   
 
-    // impl<T: PmSafe + PmSized + PmCheckSize, const N: usize> PmSized for [T; N] {
-    //     open spec fn spec_size_of() -> int
-    //     {
-    //         N * T::spec_size_of()
-    //     }     
-
-    //     fn size_of() -> usize 
-    //     {
-    //         N * T::size_of()
-    //     }
-        
-    //     open spec fn spec_align_of() -> int
-    //     {
-    //         T::spec_align_of()
-    //     }
-
-    //     fn align_of() -> usize {
-    //         T::align_of()
-    //     }
-    // }
+        open spec fn spec_align_of() -> nat
+        {
+            T::spec_align_of()
+        }
+    }
 
     // This spec function implements an algorithm for determining the amount of 
     // padding needed before the next field in a repr(C) structure to ensure it is aligned.
