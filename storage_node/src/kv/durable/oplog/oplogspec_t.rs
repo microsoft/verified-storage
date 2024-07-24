@@ -10,6 +10,12 @@ use crate::pmem::pmcopy_t::*;
 
 verus! {
 
+    pub struct AbstractPhysicalOpLogEntry {
+        pub absolute_addr: nat,
+        pub len: nat,
+        pub bytes: Seq<u8>,
+    }
+
     // Abstract state of the log as it is used in the KV store.
     // There is a small set of legal log entry types, and the only
     // way to free up space is to completely clear the log by moving
@@ -20,7 +26,8 @@ verus! {
         where
             L: PmCopy
     {
-        pub op_list: Seq<OpLogEntryType<L>>,
+        pub logical_op_list: Seq<LogicalOpLogEntry<L>>,
+        pub physical_op_list: Seq<AbstractPhysicalOpLogEntry>,
         pub op_list_committed: bool,
     }
 
@@ -28,105 +35,22 @@ verus! {
         where
             L: PmCopy
     {
-        pub open spec fn initialize(capacity: int) -> Self {
+        pub open spec fn initialize() -> Self {
             Self {
-                op_list: Seq::empty(),
+                logical_op_list: Seq::empty(),
+                physical_op_list: Seq::empty(),
                 op_list_committed: false,
             }
         }
 
-        pub open spec fn tentatively_append_commit_item_entry(
+        pub open spec fn tentatively_append_log_entry(
             self,
-            entry: &CommitItemEntry
-        ) -> Self
-        {
+            logical_log_entry: LogicalOpLogEntry<L>,
+            physical_log_entry: AbstractPhysicalOpLogEntry,
+        ) -> Self {
             Self {
-                op_list: self.op_list.push(OpLogEntryType::ItemTableEntryCommit { 
-                    item_index: entry.item_index,
-                }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_append_invalidate_item_entry(
-            self,
-            entry: &InvalidateItemEntry,
-        ) -> Self 
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::ItemTableEntryInvalidate { item_index: entry.item_index }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_append_append_list_node_entry(
-            self,
-            entry: &AppendListNodeEntry
-        ) -> Self
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::AppendListNode {
-                    metadata_index: entry.metadata_index,
-                    old_tail: entry.old_tail,
-                    new_tail: entry.new_tail,
-                }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_append_insert_list_element_entry(
-            self,
-            entry: &InsertListElementEntry,
-            list_element: &L
-        ) -> Self
-        {
-            let op_log_entry = OpLogEntryType::InsertListElement {
-                node_offset: entry.node_offset,
-                index_in_node: entry.index_in_node,
-                list_element: *list_element,
-            };
-            Self {
-                op_list: self.op_list.push(op_log_entry),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_append_create_list_entry(
-            self,
-            entry: &MetadataLogEntry,
-        ) -> Self 
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::CommitMetadataEntry { 
-                    metadata_index: entry.metadata_index, 
-                }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_delete_list_entry(
-            self,
-            entry: &MetadataLogEntry
-        ) -> Self 
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::InvalidateMetadataEntry { metadata_index: entry.metadata_index }),
-                op_list_committed: false,
-            }
-        }
-
-        pub open spec fn tentatively_update_metadata_entry(
-            self, 
-            entry: &UpdateMetadataEntry,
-            new_metadata: ListEntryMetadata,
-        ) -> Self 
-        {
-            Self {
-                op_list: self.op_list.push(OpLogEntryType::UpdateMetadataEntry { 
-                    metadata_index: entry.metadata_index, 
-                    new_crc: entry.new_crc,
-                    new_metadata, 
-                }),
+                logical_op_list: self.logical_op_list.push(logical_log_entry),
+                physical_op_list: self.physical_op_list.push(physical_log_entry),
                 op_list_committed: false
             }
         }
@@ -134,7 +58,8 @@ verus! {
         pub open spec fn commit_op_log(self) -> Self
         {
             Self {
-                op_list: self.op_list,
+                logical_op_list: self.logical_op_list,
+                physical_op_list: self.physical_op_list,
                 op_list_committed: true,
             }
         }
@@ -146,7 +71,8 @@ verus! {
                 Err(())
             } else {
                 Ok(Self {
-                    op_list: Seq::empty(),
+                    logical_op_list: Seq::empty(),
+                    physical_op_list: Seq::empty(),
                     op_list_committed: false,
                 })
             }

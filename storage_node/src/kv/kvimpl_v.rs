@@ -78,7 +78,7 @@ where
             None
         } else {
             // TODO
-            let _recovered_durable = DurableKvStore::<PM, K, I, L>::recover(mem, overall_metadata);
+            // let _recovered_durable = DurableKvStore::<PM, K, I, L>::recover(mem, overall_metadata);
             None
         } 
     }

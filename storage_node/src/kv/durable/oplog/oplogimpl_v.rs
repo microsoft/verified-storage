@@ -3,7 +3,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::log2::logimpl_v::*;
-// use crate::log::logimpl_t::*;
 use crate::log2::logspec_t::*;
 use crate::log2::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
@@ -18,6 +17,8 @@ use crate::pmem::traits_t;
 use crate::pmem::traits_t::PmSafe;
 use crate::pmem::crc_t::*;
 use vstd::bytes::*;
+
+use super::inv_v::*;
 
 verus! {
     pub struct UntrustedOpLog<K, L>
@@ -42,6 +43,8 @@ verus! {
                 PM: PersistentMemoryRegion,
         {
             &&& self.log.inv(pm_region, log_start_addr, log_size)
+            // TODO: some kind of correspondence between physical and logical abstract states
+
             // // if the log is not empty, then its last 8 bytes are a CRC of the rest of the log
             // &&& self.log@.log.len() > 0 ==> {
             //         let log = self.log@.log;
@@ -66,17 +69,30 @@ verus! {
                 Some(log) => {
                     if log.log.len() == 0 {
                         Some(AbstractOpLogState {
-                            op_list: Seq::empty(),
+                            logical_op_list: Seq::empty(),
+                            physical_op_list: Seq::empty(),
                             op_list_committed: true
                         })
                     } else {
-                        let log_entries_bytes = log.log.subrange(0, log.log.len() - u64::spec_size_of() as int);
-                        let crc = spec_u64_from_le_bytes(log.log.subrange(log.log.len() - u64::spec_size_of() as int, log.log.len() as int));
+                        let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
+                        let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+                        let crc = u64::spec_from_bytes(crc_bytes);
                         // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
-                        if crc != spec_crc_u64(log_entries_bytes) {
+                        if crc != spec_crc_u64(log_contents) {
                             None
                         } else {
-                            Self::parse_log_ops(log_entries_bytes)
+                            // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
+                            // if we don't know exactly what it is)
+                            if let Some(physical_log_entries) =  Self::parse_log_ops(log_contents) {
+                                let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
+                                Some(AbstractOpLogState {
+                                    logical_op_list: logical_log_entries,
+                                    physical_op_list: physical_log_entries,
+                                    op_list_committed: true
+                                })
+                            } else {
+                                None
+                            } 
                         }
                     }
                 }
@@ -84,261 +100,186 @@ verus! {
             }
         }
 
-        pub open spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<AbstractOpLogState<L>>
+        pub open spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<Seq<AbstractPhysicalOpLogEntry>>
         {
-            // parse the log contents into operations
-            let op_log_seq = Seq::empty();
-
-            match Self::parse_log_ops_helper(log_contents, op_log_seq) {
-                Some(op_log_seq) => {
-                    Some(AbstractOpLogState {
-                        op_list: op_log_seq,
-                        op_list_committed: true, 
-                    })
-                }
-                None => None
-            }
+            let ops = Seq::empty();
+            Self::parse_log_ops_helper(log_contents, ops)
         }
 
         pub open spec fn parse_log_ops_helper(
             log_contents: Seq<u8>, 
-            op_log_seq: Seq<OpLogEntryType<L>>, 
-        ) -> Option<Seq<OpLogEntryType<L>>>
-            decreases log_contents.len()
+            op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+        ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
+            decreases log_contents.len() 
         {
-            if log_contents.len() <= 0 {
+            if log_contents.len() == 0 {
                 Some(op_log_seq)
             } else {
-                // 1. read the entry type to determine how to serialize it
-                let entry_type = u64::spec_from_bytes(log_contents.subrange(0, 8));
-                // 2. serialize the entry based on the read type and loop over the remaining log contents
-                match entry_type {
-                    COMMIT_ITEM_TABLE_ENTRY => {
-                        if log_contents.len() < CommitItemEntry::spec_size_of() {
-                            None
-                        } else {
-                            let read_entry = CommitItemEntry::spec_from_bytes(log_contents.subrange(0 as int, CommitItemEntry::spec_size_of() as int));
-                            let entry = OpLogEntryType::ItemTableEntryCommit {
-                                item_index: read_entry.item_index,
-                            };
-                            let log_contents = log_contents.subrange(CommitItemEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
+                // If the log is not empty but doesn't have enough space for a log entry,
+                // recovery cannot succeed
+                if log_contents.len() < u64::spec_size_of() * 2 {
+                    None
+                } else {
+                    // 1. Read the absolute addr and log entry size
+                    let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, 0, u64::spec_size_of()));
+                    let len = u64::spec_from_bytes(extract_bytes(log_contents, u64::spec_size_of(), u64::spec_size_of()));
+                    // If the log doesn't have enough space for the rest of the entry, recovery fails
+                    if log_contents.len() - u64::spec_size_of() * 2 < len {
+                        None
+                    } else {
+                        // 2. Read the log entry contents
+                        let log_entry_contents = extract_bytes(log_contents, u64::spec_size_of() * 2, len as nat);
+                        
+                        // 3. Construct the physical log entry and add it to the list
+                        let op_log_seq = op_log_seq.push(
+                            AbstractPhysicalOpLogEntry { absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents }
+                        );
+
+                        // 4. Go to the next log entry
+                        let total_entry_len = u64::spec_size_of() * 2 + len;
+                        Self::parse_log_ops_helper(
+                            extract_bytes(log_contents, total_entry_len as nat, (log_contents.len() - total_entry_len) as nat),
+                            op_log_seq
+                        )
                     }
-                    INVALIDATE_ITEM_TABLE_ENTRY => {
-                        if log_contents.len() < InvalidateItemEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = InvalidateItemEntry::spec_from_bytes(log_contents.subrange(0 as int, InvalidateItemEntry::spec_size_of() as int));
-                            let entry = OpLogEntryType::ItemTableEntryInvalidate {
-                                item_index: read_entry.item_index
-                            };
-                            let log_contents = log_contents.subrange(InvalidateItemEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    APPEND_LIST_NODE_ENTRY => {
-                        if log_contents.len() < AppendListNodeEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = AppendListNodeEntry::spec_from_bytes(log_contents.subrange(0 as int, AppendListNodeEntry::spec_size_of() as int));
-                            let entry = OpLogEntryType::AppendListNode {
-                                metadata_index: read_entry.metadata_index,
-                                old_tail: read_entry.old_tail,
-                                new_tail: read_entry.new_tail,
-                            };
-                            let log_contents = log_contents.subrange(AppendListNodeEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    INSERT_LIST_ELEMENT_ENTRY => {
-                        if log_contents.len() < InsertListElementEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = InsertListElementEntry::spec_from_bytes(log_contents.subrange(0 as int, InsertListElementEntry::spec_size_of() as int));
-                            let list_element = L::spec_from_bytes(log_contents.subrange(InsertListElementEntry::spec_size_of() as int, (InsertListElementEntry::spec_size_of() + L::spec_size_of()) as int));
-                            let entry = OpLogEntryType::InsertListElement {
-                                node_offset: read_entry.node_offset,
-                                index_in_node: read_entry.index_in_node,
-                                list_element
-                            };
-                            let log_contents = log_contents.subrange(InsertListElementEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    COMMIT_METADATA_ENTRY => {
-                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
-                            let entry = OpLogEntryType::CommitMetadataEntry {
-                                metadata_index: read_entry.metadata_index,
-                            };
-                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    INVALIDATE_METADATA_ENTRY => {
-                        if log_contents.len() < MetadataLogEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = MetadataLogEntry::spec_from_bytes(log_contents.subrange(0 as int, MetadataLogEntry::spec_size_of() as int));
-                            let entry = OpLogEntryType::InvalidateMetadataEntry {
-                                metadata_index: read_entry.metadata_index
-                            };
-                            let log_contents = log_contents.subrange(MetadataLogEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                    UPDATE_METADATA_ENTRY => {
-                        if log_contents.len() < UpdateMetadataEntry::spec_size_of() {
-                            None 
-                        } else {
-                            let read_entry = UpdateMetadataEntry::spec_from_bytes(log_contents.subrange(0 as int, UpdateMetadataEntry::spec_size_of() as int));
-                            let new_metadata = ListEntryMetadata::spec_from_bytes(log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, (UpdateMetadataEntry::spec_size_of() + ListEntryMetadata::spec_size_of()) as int));
-                            let entry = OpLogEntryType::UpdateMetadataEntry { metadata_index: read_entry.metadata_index, new_crc: read_entry.new_crc, new_metadata };
-                            let log_contents = log_contents.subrange(UpdateMetadataEntry::spec_size_of() as int, log_contents.len() as int);
-                            Self::parse_log_ops_helper(log_contents, op_log_seq.push(entry))
-                        }
-                    }
-                   _ => None
                 }
-            }
-        }
-        
-        // TODO: should we do checks on log entries/CRC here? Or do that as part of reading the log?
-        // If we know we didn't crash, we don't have to replay the log, so we should probably keep the
-        // replay step separate
-        pub exec fn start<PM>(
-            pm_region: &PM,
-            overall_metadata: OverallMetadata,
-        ) -> (result: Result<(Self, Vec<OpLogEntryType<L>>), KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-            requires 
-                pm_region.inv(),
-                pm_region@.no_outstanding_writes(),
-                overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
-                overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-                Self::recover(pm_region@.committed(), overall_metadata) is Some, 
-            ensures 
-                match result {
-                    Ok((op_log_impl, op_log)) => {
-                        &&& op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                        &&& Some(op_log_impl@) == Self::recover(pm_region@.committed(), overall_metadata)
-                    }
-                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
-                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
-                    Err(KvError::PmemErr { pmem_err }) => true,
-                    Err(_) => false
-                }
-        {
-            let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-            let base_log = match UntrustedLogImpl::start(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, Ghost(base_log_state)) {
-                Ok(log) => log,
-                Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
-                Err(e) => return Err(KvError::LogErr { log_err: e })
-            };
-
-            let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
-            
-            Ok((
-                    Self {
-                    log: base_log,
-                    state: Ghost(op_log_state.unwrap()),
-                    current_transaction_crc: CrcDigest::new(),
-                    _phantom: None
-                },
-                Vec::new(),
-            ))
-        }
-
-        pub exec fn read_op_log<PM>(
-            &self,
-            pm_region: &PM,
-            log_start_addr: u64,
-            log_size: u64, 
-        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-            requires
-                self.inv(pm_region, log_start_addr as nat, log_size as nat),
-            ensures
-                true 
-        {
-            let log = &self.log;
-
-            // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
-            // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
-            let (head, tail, capacity) = match log.get_head_tail_and_capacity(pm_region, log_start_addr, log_size) {
-                Ok((head, tail, capacity)) => (head, tail, capacity),
-                Err(e) => return Err(KvError::LogErr { log_err: e }),
-            };
-
-            if tail == head {
-                return Ok(Vec::new());
-            } else if tail < traits_t::size_of::<u64>() as u128 {
-                // TODO: more detailed error (although this should not ever happen)
-                return Err(KvError::InternalError); 
-            }
-
-            let len = (tail - head) as u64;
-
-            proof { log.lemma_reveal_log_inv(pm_region, log_start_addr as nat, log_size as nat); }
-            
-            let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
-                Ok(bytes) => bytes,
-                Err(e) => return Err(KvError::LogErr { log_err: e }),
-            };
-            let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64) {
-                Ok(bytes) => bytes,
-                Err(e) => return Err(KvError::LogErr { log_err: e }),
-            };
-
-            if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
-                Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
-            {
-                return Err(KvError::CRCMismatch);
-            }
-            // precondition needs to say that we expect the CRC to be correct? once it does we should not 
-            // need any proof here hopefully
-            proof {
-                let true_crc_bytes = Seq::new(crc_addrs@.len(), |i: int| pm_region@.committed()[crc_addrs@[i]]);
-                let true_bytes = Seq::new(log_addrs@.len(), |i: int| pm_region@.committed()[log_addrs@[i]]);
                 
-                // TODO NEXT
-                // this needs to be part of the invariant? or precondition
-                assume(false);
-                assert(true_crc_bytes == spec_crc_bytes(true_bytes));
             }
-
-            // We now know that the bytes are not corrupted, but we still need to determine what 
-            // log entry types make up the vector of bytes.
-
-            self.parse_op_log(log_bytes, Ghost(pm_region@.committed()), log_addrs, Ghost(pm_region.constants().impervious_to_corruption))
         }
 
-        pub exec fn parse_op_log(
-            &self,
-            log_contents: Vec<u8>,
-            Ghost(mem): Ghost<Seq<u8>>,
-            Ghost(log_contents_addrs): Ghost<Seq<int>>,
-            Ghost(impervious_to_corruption): Ghost<bool>,
-        ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
-            requires 
-                ({
-                    // We must have already proven that the bytes are not corrupted. This is already known
-                    // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
-                    let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
-                    true_bytes == log_contents@
-                })
-            ensures
-                // TODO
-                // result vector is equal to the seq returned by spec parse log fn
-        {
-            assume(false);
-            Err(KvError::NotImplemented)
-        }
+        // // TODO: should we do checks on log entries/CRC here? Or do that as part of reading the log?
+        // // If we know we didn't crash, we don't have to replay the log, so we should probably keep the
+        // // replay step separate
+        // pub exec fn start<PM>(
+        //     pm_region: &PM,
+        //     overall_metadata: OverallMetadata,
+        // ) -> (result: Result<(Self, Vec<OpLogEntryType<L>>), KvError<K>>)
+        //     where 
+        //         PM: PersistentMemoryRegion,
+        //     requires 
+        //         pm_region.inv(),
+        //         pm_region@.no_outstanding_writes(),
+        //         overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
+        //         overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+        //         Self::recover(pm_region@.committed(), overall_metadata) is Some, 
+        //     ensures 
+        //         match result {
+        //             Ok((op_log_impl, op_log)) => {
+        //                 &&& op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+        //                 &&& Some(op_log_impl@) == Self::recover(pm_region@.committed(), overall_metadata)
+        //             }
+        //             Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+        //             Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
+        //             Err(KvError::PmemErr { pmem_err }) => true,
+        //             Err(_) => false
+        //         }
+        // {
+        //     let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+        //     let base_log = match UntrustedLogImpl::start(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size, Ghost(base_log_state)) {
+        //         Ok(log) => log,
+        //         Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
+        //         Err(e) => return Err(KvError::LogErr { log_err: e })
+        //     };
+
+        //     let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+            
+        //     Ok((
+        //             Self {
+        //             log: base_log,
+        //             state: Ghost(op_log_state.unwrap()),
+        //             current_transaction_crc: CrcDigest::new(),
+        //             _phantom: None
+        //         },
+        //         Vec::new(),
+        //     ))
+        // }
+
+        // pub exec fn read_op_log<PM>(
+        //     &self,
+        //     pm_region: &PM,
+        //     log_start_addr: u64,
+        //     log_size: u64, 
+        // ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
+        //     where 
+        //         PM: PersistentMemoryRegion,
+        //     requires
+        //         self.inv(pm_region, log_start_addr as nat, log_size as nat),
+        //     ensures
+        //         true 
+        // {
+        //     let log = &self.log;
+
+        //     // first, read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes
+        //     // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
+        //     let (head, tail, capacity) = match log.get_head_tail_and_capacity(pm_region, log_start_addr, log_size) {
+        //         Ok((head, tail, capacity)) => (head, tail, capacity),
+        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
+        //     };
+
+        //     if tail == head {
+        //         return Ok(Vec::new());
+        //     } else if tail < traits_t::size_of::<u64>() as u128 {
+        //         // TODO: more detailed error (although this should not ever happen)
+        //         return Err(KvError::InternalError); 
+        //     }
+
+        //     let len = (tail - head) as u64;
+
+        //     proof { log.lemma_reveal_log_inv(pm_region, log_start_addr as nat, log_size as nat); }
+            
+        //     let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
+        //         Ok(bytes) => bytes,
+        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
+        //     };
+        //     let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64) {
+        //         Ok(bytes) => bytes,
+        //         Err(e) => return Err(KvError::LogErr { log_err: e }),
+        //     };
+
+        //     if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
+        //         Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
+        //     {
+        //         return Err(KvError::CRCMismatch);
+        //     }
+        //     // precondition needs to say that we expect the CRC to be correct? once it does we should not 
+        //     // need any proof here hopefully
+        //     proof {
+        //         let true_crc_bytes = Seq::new(crc_addrs@.len(), |i: int| pm_region@.committed()[crc_addrs@[i]]);
+        //         let true_bytes = Seq::new(log_addrs@.len(), |i: int| pm_region@.committed()[log_addrs@[i]]);
+                
+        //         // TODO NEXT
+        //         // this needs to be part of the invariant? or precondition
+        //         assume(false);
+        //         assert(true_crc_bytes == spec_crc_bytes(true_bytes));
+        //     }
+
+        //     // We now know that the bytes are not corrupted, but we still need to determine what 
+        //     // log entry types make up the vector of bytes.
+
+        //     self.parse_op_log(log_bytes, Ghost(pm_region@.committed()), log_addrs, Ghost(pm_region.constants().impervious_to_corruption))
+        // }
+
+        // pub exec fn parse_op_log(
+        //     &self,
+        //     log_contents: Vec<u8>,
+        //     Ghost(mem): Ghost<Seq<u8>>,
+        //     Ghost(log_contents_addrs): Ghost<Seq<int>>,
+        //     Ghost(impervious_to_corruption): Ghost<bool>,
+        // ) -> (result: Result<Vec<OpLogEntryType<L>>, KvError<K>>)
+        //     requires 
+        //         ({
+        //             // We must have already proven that the bytes are not corrupted. This is already known
+        //             // if we are impervious to corruption, but we must have done the CRC check in case we aren't.
+        //             let true_bytes = Seq::new(log_contents_addrs.len(), |i: int| mem[log_contents_addrs[i]]);
+        //             true_bytes == log_contents@
+        //         })
+        //     ensures
+        //         // TODO
+        //         // result vector is equal to the seq returned by spec parse log fn
+        // {
+        //     assume(false);
+        //     Err(KvError::NotImplemented)
+        // }
         //     assume(false);
 
         //     let mut op_list = Vec::new();
