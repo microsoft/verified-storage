@@ -9,6 +9,7 @@ use crate::kv::kvimpl_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::util_v::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -193,9 +194,9 @@ verus! {
                 pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
-                        true
-                        // &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size) matches Some(recovered_view)
-                        // &&& recovered_view == MetadataTableView::<K>::init(num_keys)
+                        let replayed_bytes = Self::spec_replay_log_metadata_table(subregion.view(pm_region).flush().committed(), Seq::<LogicalOpLogEntry<L>>::empty());
+                        &&& parse_metadata_table::<K>(subregion.view(pm_region).flush().committed(), num_keys, metadata_node_size) matches Some(recovered_view)
+                        &&& recovered_view == MetadataTableView::<K>::init(num_keys)
                     }
                     Err(_) => true // TODO
                 }
@@ -252,46 +253,45 @@ verus! {
                 entry_offset += metadata_node_size as u64;
             }
 
-            assume(false);
+            let ghost mem = subregion.view(pm_region).flush().committed();
+            let ghost op_log = Seq::<LogicalOpLogEntry<L>>::empty();
+            let ghost replayed_mem = Self::spec_replay_log_metadata_table(mem, op_log);
+            let ghost recovered_view = parse_metadata_table::<K>(mem, num_keys, metadata_node_size);
+            let ghost table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
 
-            // let ghost mem = subregion.view(pm_region).flush().committed();
-            // let ghost op_log = Seq::<OpLogEntryType<L>>::empty();
-            // let ghost recovered_view = Self::recover(mem, op_log, num_keys, metadata_node_size);
-            // let ghost table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+            // Prove that all of the metadata entries are valid. We need to establish this to prove that the recovery view
+            // of the table is Some so that we can then reason about its contents.
+            assert forall |k: nat| k < num_keys implies {
+                validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
+                        metadata_node_size as nat))
+            } by {
+                assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
+                // Prove that k is a valid index in the table
+                lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
+                // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
+                lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
+            }
 
-            // // Prove that all of the metadata entries are valid. We need to establish this to prove that the recovery view
-            // // of the table is Some so that we can then reason about its contents.
-            // assert forall |k: nat| k < num_keys implies {
-            //     validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
-            //             metadata_node_size as nat))
-            // } by {
-            //     assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
-            //     // Prove that k is a valid index in the table
-            //     lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
-            //     // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
-            //     lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
-            // }
-
-            // // Prove that entries with CBD of false are None in the recovery view of the table. We already know that all of the entries
-            // // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
-            // // since all entries in both are None
-            // let ghost metadata_table = recovered_view.unwrap().get_metadata_table();
-            // assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] is None by {
-            //     // Prove that k is a valid index in the table
-            //     lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
-            //     // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
-            //     lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
+            // Prove that entries with CBD of false are None in the recovery view of the table. We already know that all of the entries
+            // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
+            // since all entries in both are None
+            let ghost metadata_table = recovered_view.unwrap().get_durable_metadata_table();
+            assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] matches DurableEntry::Invalid by {
+                // Prove that k is a valid index in the table
+                lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
+                // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
+                lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
             
-            //     assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
-            // }
-            // // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
-            // // it's cleaner to do that here than in the caller
-            // proof { subregion.lemma_reveal_opaque_inv(pm_region); }
+                assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
+            }
+            // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
+            // it's cleaner to do that here than in the caller
+            proof { subregion.lemma_reveal_opaque_inv(pm_region); }
 
-            // assert({
-            //     &&& Self::recover(subregion.view(pm_region).flush().committed(), Seq::<OpLogEntryType<L>>::empty(), num_keys, metadata_node_size) matches Some(recovered_view)
-            //     &&& recovered_view =~= MetadataTableView::<K>::init(num_keys)
-            // });
+            assert({
+                &&& recovered_view matches Some(recovered_view)
+                &&& recovered_view =~= MetadataTableView::<K>::init(num_keys)
+            });
             
             Ok(())
         }

@@ -70,6 +70,20 @@ verus! {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
 
+        pub closed spec fn inv(self, mem: Seq<u8>) -> bool 
+        {
+            let version_metadata = deserialize_version_metadata(mem);
+            let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
+
+            let physical_recovery_state = Self::physical_recover(mem, overall_metadata);
+            let logical_recovery_state = Self::logical_recover(mem, overall_metadata);
+
+            &&& physical_recovery_state matches Some(physical_recovery_state)
+            &&& logical_recovery_state matches Some(logical_recovery_state)
+            &&& physical_recovery_state == logical_recovery_state
+            // TODO: metadata invariants?
+        }
+
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
@@ -199,47 +213,6 @@ verus! {
             }
         }
 
-        // pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
-        //     let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
-        //     if let Some(recovered_log) = recovered_log {
-        //         // let op_log = recovered_log.op_list;
-        //         let recovered_main_table = MetadataTable::recover(
-        //             extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat),
-        //             recovered_log, 
-        //             overall_metadata.num_keys,
-        //             overall_metadata.metadata_node_size
-        //         );
-        //         if let Some(recovered_main_table) = recovered_main_table {
-        //             let valid_item_indices = recovered_main_table.valid_item_indices();
-        //             let recovered_item_table = DurableItemTable::<K, I>::recover(
-        //                 extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat),
-        //                 valid_item_indices,
-        //                 overall_metadata.num_keys
-        //             );
-        //             if let Some(recovered_item_table) = recovered_item_table {
-        //                 let recovered_lists = DurableList::recover(
-        //                     extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat),
-        //                     overall_metadata.list_node_size,
-        //                     overall_metadata.num_list_entries_per_node,
-        //                     recovered_log,
-        //                     recovered_main_table
-        //                 );
-        //                 if let Some(recovered_lists) = recovered_lists {
-        //                     Some(Self::recover_from_component_views(recovered_log, recovered_main_table, recovered_item_table, recovered_lists))
-        //                 } else {
-        //                     None
-        //                 }
-        //             } else {
-        //                 None
-        //             }
-        //         } else { 
-        //             None
-        //         }
-        //     } else {
-        //         None
-        //     }
-        // }
-
         // Note: this fn assumes that the item and list head in the main table entry point 
         // to valid entries in the corresponding structures.
         pub open spec fn recover_from_component_views(
@@ -299,98 +272,97 @@ verus! {
                 pm_region.inv(),
                 match result {
                     Ok(()) => {
-                        true
-                        // &&& Self::recover(pm_region@.committed(), overall_metadata) matches Some(recovered_view)
-                        // &&& recovered_view == DurableKvStoreView::<K, I, L>::init()
+                        &&& Self::physical_recover(pm_region@.committed(), overall_metadata) matches Some(recovered_view)
+                        &&& Self::physical_recover(pm_region@.committed(), overall_metadata) == Self::logical_recover(pm_region@.committed(), overall_metadata)
+                        &&& recovered_view == DurableKvStoreView::<K, I, L>::init()
                     }
                     Err(_) => true
                 }
         {
             let num_keys = overall_metadata.num_keys;
 
-            assume(false);
-
-            // // Define subregions for each durable component and call setup on each one
-            // let ghost writable_addr_fn = |addr: int| true;
-            // let main_table_subregion = WritablePersistentMemorySubregion::new(
-            //     pm_region, 
-            //     overall_metadata.main_table_addr, 
-            //     Ghost(overall_metadata.main_table_size as nat),
-            //     Ghost(writable_addr_fn)
-            // );
-            // MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
-            // proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
-
-            // proof {
-            //     let bytes = pm_region@.flush().committed();
-            //     let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-            //     assert(main_table_bytes == main_table_subregion.view(pm_region).flush().committed());
-            // }
-
-            // // Both the item table and list region do not require any writes in setup; we just need to prove that regardless of the contents of 
-            // // the PM in those areas, if we set up the item table correctly then 
-            // let item_table_subregion = WritablePersistentMemorySubregion::new(
-            //     pm_region, 
-            //     overall_metadata.item_table_addr, 
-            //     Ghost(overall_metadata.item_table_size as nat),
-            //     Ghost(writable_addr_fn)
-            // );
-            // proof { DurableItemTable::<K, I>::lemma_table_is_empty_at_setup(&item_table_subregion, pm_region, Set::empty(), num_keys); }
-            // let list_area_subregion = WritablePersistentMemorySubregion::new(
-            //     pm_region, 
-            //     overall_metadata.list_area_addr, 
-            //     Ghost(overall_metadata.list_area_size as nat),
-            //     Ghost(writable_addr_fn)
-            // );
-            // proof { DurableList::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, AbstractOpLogState::initialize(), num_keys, 
-            //     overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
-
-            // let ghost pre_log_setup_bytes = pm_region@.flush().committed();
-
-            // UntrustedLogImpl::setup::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size)?;
-
-            // pm_region.flush();
+            // Define subregions for each durable component and call setup on each one
+            let ghost writable_addr_fn = |addr: int| true;
+            let main_table_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.main_table_addr, 
+                Ghost(overall_metadata.main_table_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
+            proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
 
             proof {
-                assume(false);
-                // // TODO: refactor this into a lemma
-                // let bytes = pm_region@.committed();
-                // let recovered_view = Self::recover(bytes, overall_metadata);
-                // lemma_establish_extract_bytes_equivalence(pre_log_setup_bytes, bytes);
+                let bytes = pm_region@.flush().committed();
+                let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                assert(main_table_bytes == main_table_subregion.view(pm_region).flush().committed());
+            }
 
-                // // First, prove that the recovered view is Some if recovery of all of the other components succeeds.
-                // // For most of these, we just need to prove that the log setup function didn't modify the corresponding bytes,
-                // // which is already part of log setup's postcondition, but we need to invoke lemma_subrange_of_extract_bytes_equal
-                // // to make Verus do the required reasoning about subranges.
+            // Both the item table and list region do not require any writes in setup; we just need to prove that regardless of the contents of 
+            // the PM in those areas, if we set up the item table correctly then 
+            let item_table_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.item_table_addr, 
+                Ghost(overall_metadata.item_table_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            proof { DurableItemTable::<K, I>::lemma_table_is_empty_at_setup::<PM, L>(&item_table_subregion, pm_region, Set::empty(), num_keys); }
+            let list_area_subregion = WritablePersistentMemorySubregion::new(
+                pm_region, 
+                overall_metadata.list_area_addr, 
+                Ghost(overall_metadata.list_area_size as nat),
+                Ghost(writable_addr_fn)
+            );
+            proof { DurableList::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, AbstractOpLogState::<L>::initialize(), num_keys, 
+                overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
 
-                // // Op log recovery succeeds
-                // let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
-                // let recovered_log = recovered_log.unwrap();
+            let ghost pre_log_setup_bytes = pm_region@.flush().committed();
 
-                // // Main table recovery succeeds
-                // let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                // let recovered_main_table = MetadataTable::<K>::recover(main_table_bytes, recovered_log.op_list, overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                // lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
+            UntrustedLogImpl::setup::<PM, K>(pm_region, overall_metadata.log_area_addr, overall_metadata.log_area_size)?;
 
-                // // Item table recover succeeds
-                // let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                // let valid_indices = recovered_main_table.unwrap().valid_item_indices();
-                // lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
+            pm_region.flush();
 
-                // // List recover succeeds
-                // let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                // lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
+            proof {
+                // TODO: refactor this into a lemma
+                let bytes = pm_region@.committed();
+                let recovered_view = Self::physical_recover(bytes, overall_metadata);
+                lemma_establish_extract_bytes_equivalence(pre_log_setup_bytes, bytes);
+
+                // First, prove that the recovered view is Some if recovery of all of the other components succeeds.
+                // For most of these, we just need to prove that the log setup function didn't modify the corresponding bytes,
+                // which is already part of log setup's postcondition, but we need to invoke lemma_subrange_of_extract_bytes_equal
+                // to make Verus do the required reasoning about subranges.
+
+                // Op log recovery succeeds
+                let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
+                let recovered_log = recovered_log.unwrap();
+
+                // Main table recovery succeeds
+                let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let post_install_main_table_bytes = MetadataTable::<K>::spec_replay_log_metadata_table(main_table_bytes, recovered_log.logical_op_list);
+                let recovered_main_table = parse_metadata_table::<K>(post_install_main_table_bytes, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
+
+                // Item table recover succeeds
+                let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let valid_indices = recovered_main_table.unwrap().valid_item_indices();
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
+
+                // List recover succeeds
+                let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
                 
-                // DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
-                //     recovered_main_table.unwrap().get_metadata_table(),
-                //     list_area_bytes,
-                //     Map::empty(),
-                //     overall_metadata.list_node_size,
-                //     overall_metadata.num_list_entries_per_node,
-                // );
 
-                // // Now need to prove that the recovered view matches init, i.e. that it results in an empty map.
-                // assert(recovered_view.unwrap().contents =~= Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
+                DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
+                    recovered_main_table.unwrap().get_durable_metadata_table(),
+                    list_area_bytes,
+                    Map::empty(),
+                    overall_metadata.list_node_size,
+                    overall_metadata.num_list_entries_per_node,
+                );
+
+                // Now need to prove that the recovered view matches init, i.e. that it results in an empty map.
+                assert(recovered_view.unwrap().contents =~= Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
             }
 
             Ok(())

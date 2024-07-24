@@ -158,7 +158,6 @@ verus! {
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &PM,
             valid_indices: Set<int>,
-            // op_log: AbstractOpLogState<L>,
             num_keys: u64,
         )
             where 
@@ -166,7 +165,6 @@ verus! {
                 L: PmCopy,
             requires 
                 valid_indices == Set::<int>::empty(),
-                // op_log == AbstractOpLogState<L>::initialize(),
                 ({ 
                     let mem = subregion.view(pm_region).committed();
                     let item_entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -175,25 +173,20 @@ verus! {
                 }),
             ensures
                 ({
-                    true
-                    // let mem = subregion.view(pm_region).committed();
-                    // Self::recover(mem, valid_indices, num_keys).unwrap() =~= DurableItemTableView::<I>::init(num_keys as int)
+                    let mem = subregion.view(pm_region).committed();
+                    &&& parse_item_table::<I, K>(mem, num_keys as nat, valid_indices) matches Some(item_table_view)
+                    &&& item_table_view == DurableItemTableView::<I>::init(num_keys as int)
                 })
         {
-            assume(false);
-            // let mem = subregion.view(pm_region).committed();
-            // let item_entry_size = I::spec_size_of() + u64::spec_size_of();
+            let mem = subregion.view(pm_region).committed();
+            let item_entry_size = I::spec_size_of() + u64::spec_size_of();
+            let item_table_view = parse_item_table::<I, K>(mem, num_keys as nat, valid_indices);
+            assert(item_table_view is Some);
 
-            // assert(mem.len() >= ABSOLUTE_POS_OF_TABLE_AREA);
-            // assert(mem.len() >= num_keys * item_entry_size);
-            // assert(validate_item_table_entries::<I, K>(mem, num_keys as nat, valid_indices));
-            // assert(Self::recover(mem, valid_indices, num_keys) is Some);
-
-            // let recovered_table = Self::recover(mem, valid_indices, num_keys).unwrap().item_table;
-            // assert forall |k: nat| k < num_keys implies #[trigger] recovered_table[k as int] is None by {
-            //     lemma_valid_entry_index(k, num_keys as nat, item_entry_size);
-            //     assert(!valid_indices.contains(k as int));
-            // }
+            let item_table_view = item_table_view.unwrap();
+            assert(item_table_view.durable_item_table == item_table_view.tentative_item_table);
+            
+            assert(item_table_view == DurableItemTableView::<I>::init(num_keys as int));
         }
 
         /* temporarily commented out for subregion development 
