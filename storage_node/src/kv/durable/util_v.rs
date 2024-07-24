@@ -22,6 +22,7 @@ verus! {
         }
 
         #[verifier::inline]
+        #[allow(non_snake_case)]
         pub open spec fn get_Valid_0(self) -> T {
             get_variant_field(self, "Valid", "0")
         }

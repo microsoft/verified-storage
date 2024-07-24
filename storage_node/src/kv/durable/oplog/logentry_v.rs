@@ -68,11 +68,12 @@ verus! {
         },
 
         // List area operations
-
-        SetListNodeNext {
-            node_index: u64,
-            new_next: u64,
-        },
+        // // don't actually need this one! just need to use the list len to determine what 
+        // // nodes have a valid next ptr and which don't
+        // SetListNodeNext {
+        //     node_index: u64,
+        //     new_next: u64,
+        // },
         UpdateListElement {
             node_index: u64,
             index_in_node: u64,

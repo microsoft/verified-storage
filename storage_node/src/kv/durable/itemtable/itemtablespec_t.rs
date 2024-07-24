@@ -6,6 +6,7 @@ use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::durable::util_v::*;
 
 verus! {
     pub struct TrustedItemTablePermission
@@ -64,7 +65,8 @@ verus! {
     #[verifier::ext_equal]
     pub struct DurableItemTableView<I>
     {
-        pub item_table: Seq<Option<DurableItemTableViewEntry<I>>>,
+        pub durable_item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>,
+        pub tentative_item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>,
     }
 
     impl<I> DurableItemTableView<I>
@@ -72,100 +74,105 @@ verus! {
         pub open spec fn init(num_keys: int) -> Self
         {
             Self {
-                item_table: Seq::new(
+                durable_item_table: Seq::new(
                     num_keys as nat,
-                    |i: int| None
+                    |i: int| DurableEntry::Invalid
+                ),
+                tentative_item_table: Seq::new(
+                    num_keys as nat,
+                    |i: int| DurableEntry::Invalid
                 ),
             }
         }
 
-        pub open spec fn new(item_table: Seq<Option<DurableItemTableViewEntry<I>>>) -> Self
+        pub open spec fn new(item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>) -> Self
         {
             Self {
-                item_table,
+                durable_item_table: item_table,
+                tentative_item_table: item_table
             }
         }
 
-        pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
-        {
-            if index < 0 || index >= self.len() 
-            {
-                self.item_table[index]
-            } else {
-                None
-            }
-        }
+        // pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
+        // {
+        //     if index < 0 || index >= self.len() 
+        //     {
+        //         self.item_table[index]
+        //     } else {
+        //         None
+        //     }
+        // }
 
         pub open spec fn len(self) -> nat 
         {
-            self.item_table.len()
+            self.durable_item_table.len()
         }
 
-        // Inserting an entry and committing it are two separate operations. Inserted entries
-        // are invalid until they are explicitly committed. Attempting to insert at an index
-        // that already has a valid entry results in an error.
-        // TODO: update these operations for version without valid CDBs in the items
-        pub closed spec fn insert<K>(self, index: int, crc: u64, item: I) -> Result<Self, KvError<K>> 
-            where 
-                K: std::fmt::Debug
-        {
-            if index < 0 || index >= self.len() {
-                Err(KvError::IndexOutOfRange)
-            } else if self[index] is Some {
-                Err(KvError::EntryIsValid)
-            } else {
-                Ok(Self {
-                    item_table: self.item_table.update(
-                            index,
-                            Some(DurableItemTableViewEntry {
-                                crc,
-                                item,
-                            })
-                        ),
-
-                    }
-                )
-            } 
-        }
-
-        // pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K>> 
+        // // Inserting an entry and committing it are two separate operations. Inserted entries
+        // // are invalid until they are explicitly committed. Attempting to insert at an index
+        // // that already has a valid entry results in an error.
+        // // TODO: update these operations for version without valid CDBs in the items
+        // pub closed spec fn insert<K>(self, index: int, crc: u64, item: I) -> Result<Self, KvError<K>> 
+        //     where 
+        //         K: std::fmt::Debug
         // {
         //     if index < 0 || index >= self.len() {
         //         Err(KvError::IndexOutOfRange)
         //     } else if self[index] is Some {
         //         Err(KvError::EntryIsValid)
         //     } else {
+        //         Ok(Self {
+        //             item_table: self.item_table.update(
+        //                     index,
+        //                     Some(DurableItemTableViewEntry {
+        //                         crc,
+        //                         item,
+        //                     })
+        //                 ),
+
+        //             }
+        //         )
+        //     } 
+        // }
+
+        // // pub closed spec fn commit_entry(self, index: int) -> Result<Self, KvError<K>> 
+        // // {
+        // //     if index < 0 || index >= self.len() {
+        // //         Err(KvError::IndexOutOfRange)
+        // //     } else if self[index] is Some {
+        // //         Err(KvError::EntryIsValid)
+        // //     } else {
+        // //         let old_entry = self.item_table[index];
+        // //         Ok(Self {
+        // //             item_table: self.item_table.update(
+        // //                 index,
+        // //                 Some(DurableItemTableViewEntry {
+        // //                     crc: old_entry.crc,
+        // //                     item: old_entry.item
+        // //                 })
+        // //             ),
+        // //             _phantom: None
+        // //         })
+        // //     }
+        // // }
+
+        // pub closed spec fn invalidate_entry<K>(self, index: int) -> Result<Self, KvError<K>>
+        //     where 
+        //         K: std::fmt::Debug
+        // {
+        //     if index < 0 || index >= self.len() {
+        //         Err(KvError::IndexOutOfRange)
+        //     } else if self[index] is None {
+        //         Err(KvError::EntryIsNotValid)
+        //     } else {
         //         let old_entry = self.item_table[index];
         //         Ok(Self {
         //             item_table: self.item_table.update(
         //                 index,
-        //                 Some(DurableItemTableViewEntry {
-        //                     crc: old_entry.crc,
-        //                     item: old_entry.item
-        //                 })
+        //                 None
         //             ),
-        //             _phantom: None
         //         })
         //     }
         // }
-
-        pub closed spec fn invalidate_entry<K>(self, index: int) -> Result<Self, KvError<K>>
-            where 
-                K: std::fmt::Debug
-        {
-            if index < 0 || index >= self.len() {
-                Err(KvError::IndexOutOfRange)
-            } else if self[index] is None {
-                Err(KvError::EntryIsNotValid)
-            } else {
-                let old_entry = self.item_table[index];
-                Ok(Self {
-                    item_table: self.item_table.update(
-                        index,
-                        None
-                    ),
-                })
-            }
-        }
     }
 }

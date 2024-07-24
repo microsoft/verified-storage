@@ -208,12 +208,12 @@ verus! {
                     let list_head_index = main_table_entry.list_head_index();
                     let key = main_table_entry.key();
                     
-                    let item = recovered_item_table[item_index as int].unwrap().get_item();
-                    let list_view = recovered_lists[key].unwrap();
+                    let item = recovered_item_table.durable_item_table[item_index as int].unwrap_valid().get_item();
+                    let list_view = recovered_lists.durable_lists[key];
                     let list = DurableKvStoreList {
                             list: Seq::new(
                                     list_view.len(),
-                                    |i: int| list_view[i].list_element()
+                                    |i: int| list_view[i].unwrap_valid().list_element()
                                 )
                     };
                     DurableKvStoreViewEntry { key, item, list }

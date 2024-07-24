@@ -156,7 +156,7 @@ verus! {
         pub proof fn lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
             metadata_entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
-            lists_map: Map<K, Seq<DurableListElementView<L>>>,
+            lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
         )
@@ -180,10 +180,10 @@ verus! {
         pub open spec fn parse_each_list(
             metadata_entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
-            lists_map: Map<K, Seq<DurableListElementView<L>>>,
+            lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
-        ) -> Option<Map<K, Seq<DurableListElementView<L>>>>
+        ) -> Option<Map<K, Seq<DurableEntry<DurableListElementView<L>>>>>
             decreases
                 metadata_entries.len()
         {
@@ -219,7 +219,7 @@ verus! {
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
-        ) -> Option<Seq<DurableListElementView<L>>>
+        ) -> Option<Seq<DurableEntry<DurableListElementView<L>>>>
         {
             let head_node_index = entry.list_head_index();
             let list_len = entry.len();
@@ -230,11 +230,11 @@ verus! {
         pub open spec fn parse_list_helper(
             cur_node_index: u64,
             list_len_remaining: int,
-            current_list: Seq<DurableListElementView<L>>,
+            current_list: Seq<DurableEntry<DurableListElementView<L>>>,
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
-        ) -> Option<Seq<DurableListElementView<L>>>
+        ) -> Option<Seq<DurableEntry<DurableListElementView<L>>>>
             decreases
                 list_len_remaining
         {
@@ -267,9 +267,11 @@ verus! {
                                     let bytes = current_node_element_bytes[i];
                                     let crc_bytes = bytes.subrange(RELATIVE_POS_OF_LIST_ELEMENT_CRC as int, RELATIVE_POS_OF_LIST_ELEMENT_CRC + 8);
                                     let list_element_bytes = bytes.subrange(RELATIVE_POS_OF_LIST_ELEMENT as int, RELATIVE_POS_OF_LIST_ELEMENT + L::spec_size_of());
-                                    DurableListElementView::new(
-                                        u64::spec_from_bytes(crc_bytes),
-                                        L::spec_from_bytes(list_element_bytes)
+                                    DurableEntry::Valid(
+                                        DurableListElementView::new(
+                                            u64::spec_from_bytes(crc_bytes),
+                                            L::spec_from_bytes(list_element_bytes)
+                                        )
                                     )
                                 }
                             );

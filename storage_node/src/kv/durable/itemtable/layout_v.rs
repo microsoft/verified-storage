@@ -42,6 +42,7 @@ use super::itemtablespec_t::DurableItemTableViewEntry;
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
 use crate::log::layout_v::GlobalMetadata;
+use crate::kv::durable::util_v::*;
 
 verus! {
     // Constants
@@ -166,9 +167,9 @@ verus! {
                             let crc = u64::spec_from_bytes(crc_bytes);
                             let item = I::spec_from_bytes(item_bytes);
                             
-                            Some(DurableItemTableViewEntry::new(crc, item))
+                            DurableEntry::Valid(DurableItemTableViewEntry::new(crc, item))
                         } else {
-                            None
+                            DurableEntry::Invalid
                         }
                     }
                 );
