@@ -58,7 +58,6 @@ verus! {
         {
             // replay the log on the metadata table and the list region, then parse them into a list view
             let mem = Self::spec_replay_log_metadata_table(mem, op_log);
-            // let list_nodes_mem = Self::replay_log_list_nodes(list_node_region_mem, node_size, op_log, list_entry_map);
 
             // parse the item table into a mapping index->entry so that we can use it to 
             // construct each list.

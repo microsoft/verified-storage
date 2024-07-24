@@ -289,6 +289,8 @@ pub fn initialize_overall_metadata<K, I, L> (
     Ok(overall_metadata)
 }
 
+// TODO ??????? why do we need an rlimit here again
+#[verifier::rlimit(20)]
 pub fn setup<PM, K, I, L> (
     pm: &mut PM,
     kvstore_id: u128,

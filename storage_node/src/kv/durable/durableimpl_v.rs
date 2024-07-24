@@ -297,6 +297,7 @@ verus! {
             let op_log = UntrustedOpLog::<K, L>::start(wrpm_region.get_pm_region_ref(), overall_metadata)?;
 
             // 2. Start/recover the main table using the log
+           
 
             // 3. Start/recover the item table using the log
 
@@ -305,6 +306,7 @@ verus! {
             assume(false);
             Err(KvError::NotImplemented)
         }
+
 
 /*
 

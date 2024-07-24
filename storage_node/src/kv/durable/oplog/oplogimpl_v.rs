@@ -35,11 +35,22 @@ verus! {
             L: PmCopy + Copy,
             K: std::fmt::Debug,
     {
+
+
         pub closed spec fn inv<PM>(self, pm_region: &PM, log_start_addr: nat, log_size: nat) -> bool
             where 
                 PM: PersistentMemoryRegion,
         {
-            self.log.inv(pm_region, log_start_addr, log_size)
+            &&& self.log.inv(pm_region, log_start_addr, log_size)
+            // // if the log is not empty, then its last 8 bytes are a CRC of the rest of the log
+            // &&& self.log@.log.len() > 0 ==> {
+            //         let log = self.log@.log;
+            //         // TODO: maybe also need to specify that the log is larger than 8 bytes?
+            //         // TODO NEXT
+            //         let log_bytes = extract_bytes(log, 0, (self.log@.log.len() - u64::spec_size_of()) as nat);
+            //         let crc_bytes = extract_bytes(log, (self.log@.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+            //         crc_bytes == spec_crc_bytes(log_bytes)
+            //     }
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState<L>
@@ -201,7 +212,7 @@ verus! {
         pub exec fn start<PM>(
             pm_region: &PM,
             overall_metadata: OverallMetadata,
-        ) -> (result: Result<Self, KvError<K>>)
+        ) -> (result: Result<(Self, Vec<OpLogEntryType<L>>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -212,7 +223,7 @@ verus! {
                 Self::recover(pm_region@.committed(), overall_metadata) is Some, 
             ensures 
                 match result {
-                    Ok(op_log_impl) => {
+                    Ok((op_log_impl, op_log)) => {
                         &&& op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                         &&& Some(op_log_impl@) == Self::recover(pm_region@.committed(), overall_metadata)
                     }
@@ -231,12 +242,15 @@ verus! {
 
             let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
             
-            Ok(Self {
-                log: base_log,
-                state: Ghost(op_log_state.unwrap()),
-                current_transaction_crc: CrcDigest::new(),
-                _phantom: None
-            })
+            Ok((
+                    Self {
+                    log: base_log,
+                    state: Ghost(op_log_state.unwrap()),
+                    current_transaction_crc: CrcDigest::new(),
+                    _phantom: None
+                },
+                Vec::new(),
+            ))
         }
 
         pub exec fn read_op_log<PM>(
@@ -286,8 +300,17 @@ verus! {
             {
                 return Err(KvError::CRCMismatch);
             }
-
-            assume(false);
+            // precondition needs to say that we expect the CRC to be correct? once it does we should not 
+            // need any proof here hopefully
+            proof {
+                let true_crc_bytes = Seq::new(crc_addrs@.len(), |i: int| pm_region@.committed()[crc_addrs@[i]]);
+                let true_bytes = Seq::new(log_addrs@.len(), |i: int| pm_region@.committed()[log_addrs@[i]]);
+                
+                // TODO NEXT
+                // this needs to be part of the invariant? or precondition
+                assume(false);
+                assert(true_crc_bytes == spec_crc_bytes(true_bytes));
+            }
 
             // We now know that the bytes are not corrupted, but we still need to determine what 
             // log entry types make up the vector of bytes.
