@@ -389,7 +389,8 @@ verus! {
             ensures
                 match result {
                     Ok(kvstore) => {
-                        kvstore@ == state
+                        &&& kvstore@ == state
+                        &&& kvstore.inv(wrpm_region@.committed())
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr

@@ -337,6 +337,7 @@ impl UntrustedLogImpl {
                     Ok((bytes, addrs)) => {
                         let true_bytes = self@.read(pos as int, len as int);
                         &&& true_bytes == Seq::new(addrs@.len(), |i: int| pm_region@.committed()[addrs@[i] as int])
+                        &&& true_bytes == extract_bytes(self@.log, (pos - self@.head) as nat, len as nat)
                         &&& pos >= log.head
                         &&& pos + len <= log.head + log.log.len()
                         &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@, pm_region.constants().impervious_to_corruption)

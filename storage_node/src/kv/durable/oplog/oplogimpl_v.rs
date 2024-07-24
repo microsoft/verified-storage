@@ -45,7 +45,7 @@ verus! {
             &&& self.log.inv(pm_region, log_start_addr, log_size)
             // TODO: some kind of correspondence between physical and logical abstract states
 
-            // // if the log is not empty, then its last 8 bytes are a CRC of the rest of the log
+            // // // if the log is not empty, then its last 8 bytes are a CRC of the rest of the log
             // &&& self.log@.log.len() > 0 ==> {
             //         let log = self.log@.log;
             //         // TODO: maybe also need to specify that the log is larger than 8 bytes?
@@ -78,7 +78,9 @@ verus! {
                         let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
                         let crc = u64::spec_from_bytes(crc_bytes);
                         // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
-                        if crc != spec_crc_u64(log_contents) {
+                        if !u64::bytes_parseable(crc_bytes) {
+                            None
+                        } else if crc != spec_crc_u64(log_contents) {
                             None
                         } else {
                             // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
@@ -145,6 +147,106 @@ verus! {
                 }
                 
             }
+        }
+
+        // Note that the op log is given the entire PM device but only deals with the log region
+        pub exec fn start<PM>(
+            pm_region: &PM,
+            overall_metadata: OverallMetadata
+        ) -> (result: Result<(Self, Vec<u8>), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
+                overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
+                overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+                Self::recover(pm_region@.committed(), overall_metadata) is Some,
+            ensures
+                match result {
+                    Ok((op_log_impl, phys_op_log_buffer)) => {
+                        true 
+                    }
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
+                    Err(KvError::PmemErr { pmem_err }) => true,
+                    Err(KvError::InternalError) => true,
+                    Err(_) => false
+                }
+        {
+            let log_start_addr = overall_metadata.log_area_addr;
+            let log_size = overall_metadata.log_area_size;
+
+            // Start the base log
+            let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat).unwrap();
+            let log = match UntrustedLogImpl::start(pm_region, log_start_addr, log_size, Ghost(base_log_state)) {
+                Ok(log) => log,
+                Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            };
+            let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+
+            // Read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes.
+            // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
+            let (head, tail, capacity) = match log.get_head_tail_and_capacity(pm_region, log_start_addr, log_size) {
+                Ok((head, tail, capacity)) => (head, tail, capacity),
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+
+            if tail == head {
+                // if the log is empty, we don't have to do anything else -- just return the started op log and
+                // an empty buffer to indicate that there are no log entries to replay
+                return Ok((
+                    Self {
+                        log,
+                        state: Ghost(op_log_state.unwrap()),
+                        current_transaction_crc: CrcDigest::new(),
+                        _phantom: None
+                    },
+                    Vec::new(),
+                ));
+            } else if tail < traits_t::size_of::<u64>() as u128 || tail - head < traits_t::size_of::<u64>() as u128 {
+                // TODO: more detailed error (although this should not ever happen)
+                return Err(KvError::InternalError); 
+            }
+
+
+            let len = (tail - head) as u64 - traits_t::size_of::<u64>() as u64;
+
+            proof { log.lemma_reveal_log_inv(pm_region, log_start_addr as nat, log_size as nat); }
+            
+            let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+            let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64) {
+                Ok(bytes) => bytes,
+                Err(e) => return Err(KvError::LogErr { log_err: e }),
+            };
+
+            if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
+                Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
+            {
+                // assert(!pm_region.constants().impervious_to_corruption);
+                return Err(KvError::CRCMismatch);
+            }
+
+            // assume(false);
+
+            // // precondition needs to say that we expect the CRC to be correct? once it does we should not 
+            // // need any proof here hopefully
+            // proof {
+            //     let true_crc_bytes = Seq::new(crc_addrs@.len(), |i: int| pm_region@.committed()[crc_addrs@[i]]);
+            //     let true_bytes = Seq::new(log_addrs@.len(), |i: int| pm_region@.committed()[log_addrs@[i]]);
+                
+            //     // TODO NEXT
+            //     // this needs to be part of the invariant? or precondition
+            //     // assume(false);
+            //     assert(true_crc_bytes == spec_crc_bytes(true_bytes));
+            // }
+        
+
+            Err(KvError::NotImplemented)
         }
 
         // // TODO: should we do checks on log entries/CRC here? Or do that as part of reading the log?
