@@ -7,6 +7,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
+use crate::kv::durable::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
@@ -52,46 +53,52 @@ verus! {
 
     #[verifier::ext_equal]
     pub struct MetadataTableView<K> {
-        pub metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
+        pub durable_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+        pub tentative_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
     {
         pub open spec fn init(num_keys: u64) -> Self {
             Self {
-                metadata_table: Seq::new(
+                durable_metadata_table: Seq::new(
                     num_keys as nat,
-                    |i: int| None
+                    |i: int| DurableEntry::Invalid
+                ),
+                tentative_metadata_table: Seq::new(
+                    num_keys as nat,
+                    |i: int| DurableEntry::Invalid
                 ),
             }
         }
 
         pub open spec fn new(
-            metadata_table: Seq<Option<MetadataTableViewEntry<K>>>
+            metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
         ) -> Self {
             Self {
-                metadata_table,
+                durable_metadata_table: metadata_table,
+                tentative_metadata_table: metadata_table
             }
         }
 
-        pub open spec fn get_metadata_table(self) -> Seq<Option<MetadataTableViewEntry<K>>>
+        pub open spec fn get_durable_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
         {
-            self.metadata_table
+            self.durable_metadata_table
         }
 
-        pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
-            if 0 <= index < self.metadata_table.len() {
-                self.metadata_table[index]
-            } else {
-                None
-            }
-        }
+        // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
+        //     if 0 <= index < self.metadata_table.len() {
+        //         self.metadata_table[index]
+        //     } else {
+        //         None
+        //     }
+        // }
 
         pub open spec fn valid_item_indices(self) -> Set<int> {
             Set::new(|i: int| exists |j: int| {
-                    &&& 0 <= j < self.metadata_table.len() 
-                    &&& #[trigger] self.metadata_table[j] is Some 
-                    &&& self.metadata_table[j].unwrap().item_index() == i
+                    &&& 0 <= j < self.durable_metadata_table.len() 
+                    &&& #[trigger] self.durable_metadata_table[j] matches DurableEntry::Valid(entry)
+                    &&& entry.item_index() == i
                 }
             )
         }

@@ -19,6 +19,7 @@ use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
+use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::layout_v::*;
@@ -200,9 +201,9 @@ verus! {
         ) -> DurableKvStoreView<K, I, L>
         {
             let contents = Map::new(
-                |i: int| 0 <= i < recovered_main_table.metadata_table.len() && recovered_main_table.metadata_table[i] is Some,
+                |i: int| 0 <= i < recovered_main_table.durable_metadata_table.len() && recovered_main_table.durable_metadata_table[i] matches DurableEntry::Valid(_),
                 |i: int| {
-                    let main_table_entry = recovered_main_table.metadata_table[i].unwrap();
+                    let main_table_entry = recovered_main_table.durable_metadata_table[i].unwrap_valid();
                     let item_index = main_table_entry.item_index();
                     let list_head_index = main_table_entry.list_head_index();
                     let key = main_table_entry.key();

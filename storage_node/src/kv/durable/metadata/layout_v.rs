@@ -8,6 +8,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
+use crate::kv::durable::util_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
@@ -156,7 +157,7 @@ verus! {
                                                                                         metadata_node_size))
     }
 
-    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>) -> (Option<MetadataTableViewEntry<K>>)
+    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>) -> DurableEntry<MetadataTableViewEntry<K>>
         where 
             K: PmCopy,
         recommends
@@ -178,9 +179,9 @@ verus! {
         let key = K::spec_from_bytes(key_bytes);
         
         if cdb == CDB_FALSE {
-            None
+            DurableEntry::Invalid
         } else {
-            Some(MetadataTableViewEntry::<K>::new(crc, metadata, key))
+            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(crc, metadata, key))
         }
     }
 
