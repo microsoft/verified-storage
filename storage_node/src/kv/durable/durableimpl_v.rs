@@ -40,6 +40,7 @@ use std::hash::Hash;
 
 use super::inv_v::lemma_subrange_of_extract_bytes_equal;
 use super::oplog::oplogspec_t::AbstractOpLogState;
+use super::oplog::oplogspec_t::AbstractPhysicalOpLogEntry;
 
 verus! {
     #[verifier::reject_recursive_types(K)]
@@ -67,6 +68,86 @@ verus! {
     {
         // TODO: write this based on specs of the other structures
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
+
+        // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
+        // persistent memory region.
+        pub open spec fn physical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
+            let recovered_log = UntrustedOpLog::<K, L>::recover(mem, overall_metadata);
+            if let Some(recovered_log) = recovered_log {
+                // First, replay the physical log
+                let physical_log_entries = recovered_log.physical_op_list;
+                let mem_with_log_installed = Self::apply_physical_log_entries(mem, physical_log_entries);
+                if let Some(mem_with_log_installed) = mem_with_log_installed {
+                    // Then, parse the individual components from the updated mem
+                    let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                    let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+
+                    let main_table_view = parse_metadata_table::<K>(
+                        main_table_region, 
+                        overall_metadata.num_keys,
+                        overall_metadata.metadata_node_size
+                    );
+                    if let Some(main_table_view) = main_table_view {
+                        let item_table_view = parse_item_table::<I, K>(
+                            item_table_region,
+                            overall_metadata.num_keys as nat,
+                            main_table_view.valid_item_indices()
+                        );
+                        if let Some(item_table_view) = item_table_view {
+                            let list_view = DurableList::<K, L>::parse_all_lists(
+                                main_table_view,
+                                list_area_region,
+                                overall_metadata.list_node_size,
+                                overall_metadata.num_list_entries_per_node
+                            );
+                            if let Some(list_view) = list_view {
+                                Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                            } else {
+                                None
+                            }
+                        } else { 
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+
+        pub open spec fn apply_physical_log_entries(mem: Seq<u8>, physical_log_entries: Seq<AbstractPhysicalOpLogEntry>) -> Option<Seq<u8>>
+            decreases physical_log_entries.len()
+        {
+            if physical_log_entries.len() == 0 {
+                Some(mem)
+            } else {
+                let entry = physical_log_entries[0];
+                if {
+                    ||| entry.absolute_addr > mem.len() 
+                    ||| entry.absolute_addr + entry.len > mem.len() 
+                    ||| entry.bytes.len() != entry.len
+                } {
+                    // Return None if the entry is ill-formed
+                    None
+                } else {
+                    // Update the bytes indicated in the log entry
+                    let mem = mem.map(|pos: int, pre_byte: u8| 
+                        if entry.absolute_addr <= pos < entry.absolute_addr + entry.len {
+                            entry.bytes[pos - entry.absolute_addr]
+                        } else {
+                            pre_byte
+                        }
+                    );
+                    let physical_log_entries = physical_log_entries.subrange(1, physical_log_entries.len() as int);
+                    Self::apply_physical_log_entries(mem, physical_log_entries)
+                }
+            }
+        }
 
         // pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
         //     let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
@@ -109,36 +190,36 @@ verus! {
         //     }
         // }
 
-        // // Note: this fn assumes that the item and list head in the main table entry point 
-        // // to valid entries in the corresponding structures.
-        // pub open spec fn recover_from_component_views(
-        //     recovered_log: AbstractOpLogState<L>, 
-        //     recovered_main_table: MetadataTableView<K>, 
-        //     recovered_item_table: DurableItemTableView<I>,
-        //     recovered_lists: DurableListView<K, L>
-        // ) -> DurableKvStoreView<K, I, L>
-        // {
-        //     let contents = Map::new(
-        //         |i: int| 0 <= i < recovered_main_table.metadata_table.len() && recovered_main_table.metadata_table[i] is Some,
-        //         |i: int| {
-        //             let main_table_entry = recovered_main_table.metadata_table[i].unwrap();
-        //             let item_index = main_table_entry.item_index();
-        //             let list_head_index = main_table_entry.list_head_index();
-        //             let key = main_table_entry.key();
+        // Note: this fn assumes that the item and list head in the main table entry point 
+        // to valid entries in the corresponding structures.
+        pub open spec fn recover_from_component_views(
+            recovered_log: AbstractOpLogState<L>, 
+            recovered_main_table: MetadataTableView<K>, 
+            recovered_item_table: DurableItemTableView<I>,
+            recovered_lists: DurableListView<K, L>
+        ) -> DurableKvStoreView<K, I, L>
+        {
+            let contents = Map::new(
+                |i: int| 0 <= i < recovered_main_table.metadata_table.len() && recovered_main_table.metadata_table[i] is Some,
+                |i: int| {
+                    let main_table_entry = recovered_main_table.metadata_table[i].unwrap();
+                    let item_index = main_table_entry.item_index();
+                    let list_head_index = main_table_entry.list_head_index();
+                    let key = main_table_entry.key();
                     
-        //             let item = recovered_item_table[item_index as int].unwrap().get_item();
-        //             let list_view = recovered_lists[key].unwrap();
-        //             let list = DurableKvStoreList {
-        //                     list: Seq::new(
-        //                             list_view.len(),
-        //                             |i: int| list_view[i].list_element()
-        //                         )
-        //             };
-        //             DurableKvStoreViewEntry { key, item, list }
-        //         }
-        //     );
-        //     DurableKvStoreView { contents }
-        // }
+                    let item = recovered_item_table[item_index as int].unwrap().get_item();
+                    let list_view = recovered_lists[key].unwrap();
+                    let list = DurableKvStoreList {
+                            list: Seq::new(
+                                    list_view.len(),
+                                    |i: int| list_view[i].list_element()
+                                )
+                    };
+                    DurableKvStoreViewEntry { key, item, list }
+                }
+            );
+            DurableKvStoreView { contents }
+        }
 
         pub closed spec fn valid(self) -> bool
         {
