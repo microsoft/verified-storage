@@ -32,94 +32,77 @@ verus! {
             self.state@
         }
 
-        // pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
-        //     where 
-        //         L: PmCopy,
-        //     decreases op_log.len()
-        // {
-        //     if op_log.len() == 0 {
-        //         mem 
-        //     } else {
-        //         let current_op = op_log[0];
-        //         let op_log = op_log.drop_first();
-        //         let mem = Self::apply_log_op_to_metadata_table_mem(mem, current_op);
-        //         Self::spec_replay_log_metadata_table(mem, op_log)
-        //     }
-        // }
+        pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
+            where 
+                L: PmCopy,
+            decreases op_log.len()
+        {
+            if op_log.len() == 0 {
+                mem 
+            } else {
+                let current_op = op_log[0];
+                let op_log = op_log.drop_first();
+                let mem = Self::apply_log_op_to_metadata_table_mem(mem, current_op);
+                Self::spec_replay_log_metadata_table(mem, op_log)
+            }
+        }
 
-        // pub closed spec fn recover<L>(
-        //     mem: Seq<u8>,
-        //     op_log: Seq<OpLogEntryType<L>>,
-        //     num_keys: u64,
-        //     metadata_node_size: u32,
-        // ) -> Option<MetadataTableView<K>>
-        // where 
-        //     L: PmCopy,
-        // {
-        //     // replay the log on the metadata table and the list region, then parse them into a list view
-        //     let mem = Self::spec_replay_log_metadata_table(mem, op_log);
-
-        //     // parse the item table into a mapping index->entry so that we can use it to 
-        //     // construct each list.
-        //     parse_metadata_table(mem, num_keys, metadata_node_size)
-        // }
-
-        // // metadata table-related log entries store the CRC that the entry *will* have when all updates are written to it.
-        // // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
-        // // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
-        // // update relevant fields.
-        // pub open spec fn apply_log_op_to_metadata_table_mem<L>(mem: Seq<u8>, op: OpLogEntryType<L>) -> Seq<u8>
-        //     where 
-        //         L: PmCopy,
-        // {
-        //     let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-        //     match op {
-        //         OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail} => {
-        //             // updates the tail field and the entry's CRC. We don't use the old tail value here -- that is only used
-        //             // when updating list nodes
-        //             let entry_offset = metadata_index * table_entry_slot_size;
-        //             let crc_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
-        //             let tail_addr = entry_offset + RELATIVE_POS_OF_ENTRY_METADATA_TAIL;
-        //             let new_tail_bytes = spec_u64_to_le_bytes(new_tail);
-        //             let mem = mem.map(|pos: int, pre_byte: u8| {
-        //                 if tail_addr <= pos < tail_addr + 8 {
-        //                     new_tail_bytes[pos - tail_addr]
-        //                 } else {
-        //                     pre_byte
-        //                 }
-        //             });
-        //             mem
-        //         }
-        //         OpLogEntryType::CommitMetadataEntry{metadata_index} => {
-        //             let entry_offset = metadata_index * table_entry_slot_size;
-        //             let cdb_bytes = spec_u64_to_le_bytes(CDB_TRUE);
-        //             let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-        //             let mem = mem.map(|pos: int, pre_byte: u8| {
-        //                 if cdb_addr <= pos < cdb_addr + 8 {
-        //                     cdb_bytes[pos - cdb_addr]
-        //                 } else {
-        //                     pre_byte
-        //                 }
-        //             });
-        //             mem
-        //         }
-        //         OpLogEntryType::InvalidateMetadataEntry{metadata_index} => {
-        //             // In this case, we just have to flip the entry's CDB. We don't clear any other fields
-        //             let entry_offset = metadata_index * table_entry_slot_size;
-        //             let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-        //             let cdb_bytes = spec_u64_to_le_bytes(CDB_FALSE);
-        //             let mem = mem.map(|pos: int, pre_byte: u8| {
-        //                 if cdb_addr <= pos < cdb_addr + 8 {
-        //                     cdb_bytes[pos - cdb_addr]
-        //                 } else {
-        //                     pre_byte
-        //                 }
-        //             });
-        //             mem
-        //         }
-        //         _ => mem // all other ops do not modify the metadata table
-        //     }
-        // }
+        // metadata table-related log entries store the CRC that the entry *will* have when all updates are written to it.
+        // this ensures that we end up with the correct CRC even if updates to this entry were interrupted by a crash or 
+        // if corruption has occurred. So, we don't check CRCs here, we just overwrite the current CRC with the new one and 
+        // update relevant fields.
+        pub open spec fn apply_log_op_to_metadata_table_mem<L>(mem: Seq<u8>, op: LogicalOpLogEntry<L>) -> Seq<u8>
+            where 
+                L: PmCopy,
+        {
+            let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+            match op {
+                LogicalOpLogEntry::CommitMainTableEntry { index } => {
+                    let entry_offset = index * table_entry_slot_size;
+                    let cdb_bytes = CDB_TRUE.spec_to_bytes();
+                    // Note: the cdb is written at offset 0 in the entry
+                    let mem = mem.map(|pos: int, pre_byte: u8| {
+                        if entry_offset <= pos < entry_offset + u64::spec_size_of() {
+                            cdb_bytes[pos - entry_offset]
+                        } else {
+                            pre_byte
+                        }
+                    });
+                    mem
+                }
+                LogicalOpLogEntry::InvalidateMainTableEntry { index } => {
+                    let entry_offset = index * table_entry_slot_size;
+                    let cdb_bytes = CDB_FALSE.spec_to_bytes();
+                    // Note: the cdb is written at offset 0 in the entry
+                    let mem = mem.map(|pos: int, pre_byte: u8| {
+                        if entry_offset <= pos < entry_offset + u64::spec_size_of() {
+                            cdb_bytes[pos - entry_offset]
+                        } else {
+                            pre_byte
+                        }
+                    });
+                    mem
+                }
+                LogicalOpLogEntry::UpdateMainTableEntry { index, new_crc, new_metadata } => {
+                    let entry_offset = index * table_entry_slot_size;
+                    let crc_addr = entry_offset + u64::spec_size_of();
+                    let metadata_addr = crc_addr + u64::spec_size_of();
+                    let new_crc_bytes = new_crc.spec_to_bytes();
+                    let new_metadata_bytes = new_metadata.spec_to_bytes();
+                    let mem = mem.map(|pos: int, pre_byte: u8| {
+                        if crc_addr <= pos < crc_addr + u64::spec_size_of() {
+                            new_crc_bytes[pos - crc_addr]
+                        } else if metadata_addr <= pos < metadata_addr + ListEntryMetadata::spec_size_of() {
+                            new_metadata_bytes[pos - metadata_addr]
+                        } else {
+                            pre_byte
+                        }
+                    });
+                    mem
+                }
+                _ => mem // all other log ops do not modify the main table
+            }
+        }
 
         pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<Box<MetadataTableHeader>, KvError<K>>)
             where

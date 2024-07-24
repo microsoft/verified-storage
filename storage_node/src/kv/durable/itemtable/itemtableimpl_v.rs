@@ -74,33 +74,33 @@ verus! {
             self.free_list@
         }
 
-        pub open spec fn recover<L>(
-            mem: Seq<u8>,
-            // op_log: Seq<OpLogEntryType<L>>,
-            valid_indices: Set<int>,
-            num_keys: u64,
-        ) -> Option<DurableItemTableView<I>>
-            where 
-                L: PmCopy,
-        {
-            if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
-                // If the memory is not large enough to store the metadata header,
-                // it is not valid
-                None
-            }
-            else {
-                // replay the log on `mem`, then parse it into (hopefully) a valid item table view
-                // TODO: may not need to do any replay here?
-                // let mem = Self::spec_replay_log_item_table(mem, op_log);
-                parse_item_table::<I, K>(mem, num_keys as nat, valid_indices)
-            }
+        // pub open spec fn recover<L>(
+        //     mem: Seq<u8>,
+        //     // op_log: Seq<OpLogEntryType<L>>,
+        //     valid_indices: Set<int>,
+        //     num_keys: u64,
+        // ) -> Option<DurableItemTableView<I>>
+        //     where 
+        //         L: PmCopy,
+        // {
+        //     if mem.len() < ABSOLUTE_POS_OF_TABLE_AREA {
+        //         // If the memory is not large enough to store the metadata header,
+        //         // it is not valid
+        //         None
+        //     }
+        //     else {
+        //         // replay the log on `mem`, then parse it into (hopefully) a valid item table view
+        //         // TODO: may not need to do any replay here?
+        //         // let mem = Self::spec_replay_log_item_table(mem, op_log);
+        //         parse_item_table::<I, K>(mem, num_keys as nat, valid_indices)
+        //     }
 
-        }
+        // }
 
         // // Recursively apply log operations to the item table bytes. Skips all log entries that 
         // // do not modify the item table.
         // // TODO: check length of `mem`?
-        // pub open spec fn spec_replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<OpLogEntryType<L>>) -> Seq<u8>
+        // pub open spec fn spec_replay_log_item_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
         //     where 
         //         L: PmCopy,
         //     decreases op_log.len(),

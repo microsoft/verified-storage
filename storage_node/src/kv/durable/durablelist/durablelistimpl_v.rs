@@ -63,79 +63,52 @@ verus! {
             // Self::parse_all_lists(metadata_table_view, mem, list_node_size, num_list_entries_per_node)
         }
 
-        // pub open spec fn replay_log_list_nodes(
-        //     mem: Seq<u8>, 
-        //     node_size: u64, 
-        //     op_log: Seq<AbstractPhysicalOpLogEntry>, 
-        // ) -> Seq<u8>
-        //     decreases op_log.len() 
-        // {
-        //     if op_log.len() == 0 {
-        //         mem 
-        //     } else {
-        //         let current_op = op_log[0];
-        //         let op_log = op_log.drop_first();
-        //         let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op);
-        //         Self::replay_log_list_nodes(mem, node_size, op_log)
-        //     }
-        // }
+        pub open spec fn replay_log_list_nodes(
+            mem: Seq<u8>, 
+            node_size: u64, 
+            op_log: Seq<LogicalOpLogEntry<L>>, 
+        ) -> Seq<u8>
+            decreases op_log.len() 
+        {
+            if op_log.len() == 0 {
+                mem 
+            } else {
+                let current_op = op_log[0];
+                let op_log = op_log.drop_first();
+                let mem = Self::apply_log_op_to_list_node_mem(mem, node_size, current_op);
+                Self::replay_log_list_nodes(mem, node_size, op_log)
+            }
+        }
 
-        // pub open spec fn apply_log_op_to_list_node_mem(
-        //     mem: Seq<u8>, 
-        //     node_size: u64, 
-        //     op: AbstractPhysicalOpLogEntry, 
-        // ) -> Seq<u8>
-        // {
-        //     match op {
-        //         OpLogEntryType::AppendListNode{metadata_index, old_tail, new_tail} => {
-        //             // To append a node, we set both the old tail and new tail's next pointers to the new tail,
-        //             // plus update both of their CRCs. The `metadata_crc` field in the enum is used when updating
-        //             // the metadata table; we just use the CRC of the new tail index here.
-        //             let old_tail_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + old_tail * node_size;
-        //             let old_tail_next_pointer_addr = old_tail_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
-        //             let old_tail_crc_addr = old_tail_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
-        //             let new_tail_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + new_tail * node_size;
-        //             let new_tail_next_pointer_addr = new_tail_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
-        //             let new_tail_crc_addr = new_tail_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
-        //             let new_tail_crc = new_tail.spec_crc();
-        //             let new_tail_bytes = spec_u64_to_le_bytes(new_tail);
-        //             let crc_bytes = spec_u64_to_le_bytes(new_tail_crc);
-        //             let mem = mem.map(|pos: int, pre_byte: u8| {
-        //                 if old_tail_next_pointer_addr <= pos < old_tail_next_pointer_addr + 8 {
-        //                     new_tail_bytes[pos - old_tail_next_pointer_addr]
-        //                 } else if old_tail_crc_addr <= pos < old_tail_crc_addr + 8 {
-        //                     crc_bytes[pos - old_tail_crc_addr]
-        //                 } else if new_tail_next_pointer_addr <= pos < new_tail_next_pointer_addr + 8 {
-        //                     new_tail_bytes[pos - new_tail_next_pointer_addr]
-        //                 } else if new_tail_crc_addr <= pos < new_tail_crc_addr + 8 {
-        //                     crc_bytes[pos - new_tail_crc_addr]
-        //                 } else {
-        //                     pre_byte
-        //                 }
-        //             });
-        //             mem
-        //         }
-        //         OpLogEntryType::InsertListElement{node_offset, index_in_node, list_element} => {
-        //             let node_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_offset * node_size;
-        //             let crc_addr = node_addr + RELATIVE_POS_OF_LIST_NODE_CRC;
-        //             let list_element_addr = node_addr + RELATIVE_POS_OF_LIST_CONTENTS_AREA;
-        //             let crc = list_element.spec_crc();
-        //             let list_element_bytes = list_element.spec_to_bytes();
-        //             let crc_bytes = crc.spec_to_bytes();
-        //             let mem = mem.map(|pos: int, pre_byte: u8| {
-        //                 if crc_addr <= pos < crc_addr + 8 {
-        //                     crc_bytes[pos - crc_addr]
-        //                 } else if list_element_addr <= pos < list_element_addr + L::spec_size_of() {
-        //                     list_element_bytes[pos - list_element_addr]
-        //                 } else {
-        //                     pre_byte
-        //                 }
-        //             });
-        //             mem
-        //         }
-        //         _ => mem // all other ops do not modify the list node region
-        //     }
-        // }
+        pub open spec fn apply_log_op_to_list_node_mem(
+            mem: Seq<u8>, 
+            node_size: u64, 
+            op: LogicalOpLogEntry<L>, 
+        ) -> Seq<u8>
+        {
+            match op {
+                LogicalOpLogEntry::UpdateListElement { node_index, index_in_node, list_element } => {
+                    let node_addr = node_index * node_size;
+                    let list_entry_size = L::spec_size_of() + u64::spec_size_of(); // list element + CRC
+                    let list_element_slot = node_addr + list_entry_size * index_in_node;
+                    let crc_addr = list_element_slot;
+                    let list_element_addr = crc_addr + u64::spec_size_of();
+                    let new_element_bytes = list_element.spec_to_bytes();
+                    let new_crc_bytes = spec_crc_bytes(new_element_bytes);
+                    let mem = mem.map(|pos: int, pre_byte: u8| {
+                        if crc_addr <= pos < crc_addr + u64::spec_size_of() {
+                            new_crc_bytes[pos - crc_addr]
+                        } else if list_element_addr <= pos < list_element_addr + L::spec_size_of() {
+                            new_element_bytes[pos - list_element_addr]
+                        } else {
+                            pre_byte
+                        }
+                    });
+                    mem
+                },
+                _ => mem // all other ops do not modify the list node region
+            }
+        }
 
         pub open spec fn parse_all_lists(
             metadata_table: MetadataTableView<K>,

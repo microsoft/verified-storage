@@ -150,6 +150,55 @@ verus! {
             }
         }
 
+        // In logical recovery, we replay logical log entries based on replay functions provided by each component
+        // TODO: might be useful to return mem from here?
+        pub open spec fn logical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> 
+        {
+            let recovered_log = UntrustedOpLog::<K, L>::recover(mem, overall_metadata);
+            if let Some(recovered_log) = recovered_log {
+                let logical_log_entries = recovered_log.logical_op_list;
+                // recover main table from logical log
+                let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let main_table_region = MetadataTable::<K>::spec_replay_log_metadata_table(main_table_region, logical_log_entries);
+                let main_table_view = parse_metadata_table::<K>(
+                    main_table_region, 
+                    overall_metadata.num_keys,
+                    overall_metadata.metadata_node_size
+                );
+                if let Some(main_table_view) = main_table_view {
+                    // recover item table. This does not involve the logical log, so we can just directly parse it
+                    let item_table_region = extract_bytes(mem, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                    let item_table_view = parse_item_table::<I, K>(
+                        item_table_region,
+                        overall_metadata.num_keys as nat,
+                        main_table_view.valid_item_indices()
+                    );
+                    if let Some(item_table_view) = item_table_view {
+                        // recover the list area from logical log
+                        let list_area_region = extract_bytes(mem, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                        let list_area_region = DurableList::<K, L>::replay_log_list_nodes(list_area_region, overall_metadata.list_node_size, logical_log_entries);
+                        let list_view = DurableList::<K, L>::parse_all_lists(
+                            main_table_view,
+                            list_area_region,
+                            overall_metadata.list_node_size,
+                            overall_metadata.num_list_entries_per_node
+                        );
+                        if let Some(list_view) = list_view {
+                            Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+
         // pub open spec fn recover(bytes: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
         //     let recovered_log = UntrustedOpLog::<K, L>::recover(bytes, overall_metadata);
         //     if let Some(recovered_log) = recovered_log {
