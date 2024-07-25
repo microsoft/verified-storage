@@ -15,10 +15,7 @@ pub closed spec fn logical_and_physical_logs_correspond<L>(
 ) -> bool 
     where 
         L: PmCopy
-{
-    // TODO: an actual way to check correspondence
-    true 
-}
+;
 
 // // This function indicates whether the CRC is correctly set at the end of 
 // // a non-empty op log. It takes the abstract log state of the base log

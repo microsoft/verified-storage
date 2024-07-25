@@ -38,22 +38,17 @@ verus! {
     {
 
 
+        // TODO: should this take overall metadata and say that recovery is successful?
         pub closed spec fn inv<PM>(self, pm_region: &PM, log_start_addr: nat, log_size: nat) -> bool
             where 
                 PM: PersistentMemoryRegion,
         {
             &&& self.log.inv(pm_region, log_start_addr, log_size)
-            // TODO: some kind of correspondence between physical and logical abstract states
-
-            // // // if the log is not empty, then its last 8 bytes are a CRC of the rest of the log
-            // &&& self.log@.log.len() > 0 ==> {
-            //         let log = self.log@.log;
-            //         // TODO: maybe also need to specify that the log is larger than 8 bytes?
-            //         // TODO NEXT
-            //         let log_bytes = extract_bytes(log, 0, (self.log@.log.len() - u64::spec_size_of()) as nat);
-            //         let crc_bytes = extract_bytes(log, (self.log@.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-            //         crc_bytes == spec_crc_bytes(log_bytes)
-            //     }
+            &&& ({
+                    // either the log is empty or it has valid matching logical and physical op logs
+                    ||| self.log@.log.len() == 0
+                    ||| logical_and_physical_logs_correspond(self@.logical_op_list, self@.physical_op_list)
+                })
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState<L>
@@ -86,15 +81,19 @@ verus! {
                             // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
                             // if we don't know exactly what it is)
                             if let Some(physical_log_entries) =  Self::parse_log_ops(log_contents) {
-                                let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
-                                Some(AbstractOpLogState {
-                                    logical_op_list: logical_log_entries,
-                                    physical_op_list: physical_log_entries,
-                                    op_list_committed: true
-                                })
+                                if exists |logical_log: Seq<LogicalOpLogEntry<_>>| logical_and_physical_logs_correspond::<L>(logical_log, physical_log_entries) {
+                                    let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
+                                    Some(AbstractOpLogState {
+                                        logical_op_list: logical_log_entries,
+                                        physical_op_list: physical_log_entries,
+                                        op_list_committed: true
+                                    })
+                                } else {
+                                    None
+                                }
                             } else {
                                 None
-                            } 
+                            }
                         }
                     }
                 }
@@ -165,7 +164,7 @@ verus! {
             ensures
                 match result {
                     Ok((op_log_impl, phys_op_log_buffer)) => {
-                        true 
+                        op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -206,10 +205,9 @@ verus! {
                     Vec::new(),
                 ));
             } else if tail < traits_t::size_of::<u64>() as u128 || tail - head < traits_t::size_of::<u64>() as u128 {
-                // TODO: more detailed error (although this should not ever happen)
+                // TODO: more detailed error (although this should not ever happen) (then why does it need a more detailed error?)
                 return Err(KvError::InternalError); 
             }
-
 
             let len = (tail - head) as u64 - traits_t::size_of::<u64>() as u64;
 
@@ -227,26 +225,18 @@ verus! {
             if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
                 Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
             {
-                // assert(!pm_region.constants().impervious_to_corruption);
                 return Err(KvError::CRCMismatch);
             }
 
-            // assume(false);
-
-            // // precondition needs to say that we expect the CRC to be correct? once it does we should not 
-            // // need any proof here hopefully
-            // proof {
-            //     let true_crc_bytes = Seq::new(crc_addrs@.len(), |i: int| pm_region@.committed()[crc_addrs@[i]]);
-            //     let true_bytes = Seq::new(log_addrs@.len(), |i: int| pm_region@.committed()[log_addrs@[i]]);
-                
-            //     // TODO NEXT
-            //     // this needs to be part of the invariant? or precondition
-            //     // assume(false);
-            //     assert(true_crc_bytes == spec_crc_bytes(true_bytes));
-            // }
-        
-
-            Err(KvError::NotImplemented)
+            Ok((
+                Self {
+                    log,
+                    state: Ghost(op_log_state.unwrap()),
+                    current_transaction_crc: CrcDigest::new(),
+                    _phantom: None
+                },
+                log_bytes
+            ))
         }
 
         // // TODO: should we do checks on log entries/CRC here? Or do that as part of reading the log?
