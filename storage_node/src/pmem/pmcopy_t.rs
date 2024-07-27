@@ -42,7 +42,9 @@ use std::mem::MaybeUninit;
 verus! {
     pub broadcast group pmcopy_axioms {
         axiom_bytes_len,
-        axiom_to_from_bytes
+        axiom_to_from_bytes,
+        axiom_u64_to_le_bytes,
+        axiom_u64_from_le_bytes
     }
 
     // PmCopy provides functions to help reason about copying data to and from persistent memory.
@@ -176,6 +178,22 @@ verus! {
     pub broadcast proof fn axiom_to_from_bytes<S: PmCopy>(s: S)
         ensures 
             s == #[trigger] S::spec_from_bytes(s.spec_to_bytes())
+    {
+        admit();
+    }
+
+    pub broadcast proof fn axiom_u64_to_le_bytes(v: u64)
+        ensures 
+            v.spec_to_bytes() == spec_u64_to_le_bytes(v)
+    {
+        admit();
+    }
+
+    pub broadcast proof fn axiom_u64_from_le_bytes(s: Seq<u8>)
+        requires
+            s.len() == 8
+        ensures 
+            u64::spec_from_bytes(s) == spec_u64_from_le_bytes(s)
     {
         admit();
     }
@@ -362,6 +380,18 @@ verus! {
             out@ == vec@.subrange(start as int, start + len)
     {
         &vec[start..start+len]
+    }
+
+    #[verifier::external_body]
+    pub exec fn slice_range_to_vec<T>(vec: &Vec<T>, start: usize, len: usize) -> (out: Vec<T>)
+        where T: Clone
+        requires 
+            0 <= start < start + len <= vec@.len(),
+            start + len <= usize::MAX,
+        ensures 
+            out@ == vec@.subrange(start as int, start + len)
+    {
+        vec[start..start+len].to_vec()
     }
 
     // Our trusted specification of primitive sizes assumes that usize and 

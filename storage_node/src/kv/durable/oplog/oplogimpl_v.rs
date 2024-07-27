@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -37,10 +39,10 @@ verus! {
             K: std::fmt::Debug,
     {
 
-
         // TODO: should this take overall metadata and say that recovery is successful?
-        pub closed spec fn inv<PM>(self, pm_region: &PM, log_start_addr: nat, log_size: nat) -> bool
+        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) -> bool
             where 
+                Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
             &&& self.log.inv(pm_region, log_start_addr, log_size)
@@ -49,6 +51,13 @@ verus! {
                     ||| self.log@.log.len() == 0
                     ||| logical_and_physical_logs_correspond(self@.logical_op_list, self@.physical_op_list)
                 })
+            &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
+                    let op = #[trigger] self@.physical_op_list[i];
+                    // all addrs are within the bounds of the device
+                    &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region@.len() <= u64::MAX
+                    // no logged ops change bytes belonging to the log itself
+                    &&& (op.absolute_addr + op.len < log_start_addr || log_start_addr + log_size <= op.absolute_addr)
+            } 
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState<L>
@@ -80,7 +89,12 @@ verus! {
                         } else {
                             // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
                             // if we don't know exactly what it is)
-                            if let Some(physical_log_entries) =  Self::parse_log_ops(log_contents) {
+                            if let Some(physical_log_entries) =  Self::parse_log_ops(
+                                log_contents, 
+                                overall_metadata.log_area_addr as nat, 
+                                overall_metadata.log_area_size as nat,
+                                overall_metadata.region_size as nat
+                            ) {
                                 if exists |logical_log: Seq<LogicalOpLogEntry<_>>| logical_and_physical_logs_correspond::<L>(logical_log, physical_log_entries) {
                                     let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
                                     Some(AbstractOpLogState {
@@ -101,15 +115,167 @@ verus! {
             }
         }
 
-        pub open spec fn parse_log_ops(log_contents: Seq<u8>) -> Option<Seq<AbstractPhysicalOpLogEntry>>
+        pub open spec fn parse_log_ops(log_contents: Seq<u8>, log_start_addr: nat, log_size: nat, region_size: nat) -> Option<Seq<AbstractPhysicalOpLogEntry>>
         {
             let ops = Seq::empty();
-            Self::parse_log_ops_helper(log_contents, ops)
+            Self::parse_log_ops_helper(0, log_contents, ops, log_start_addr, log_size, region_size)
         }
 
+        // want to be able to talk about prefixes...all log entries up to 
+        // some offset.
+        // what exactly does the other one do. what exactly does offset mean.
+        // it gives you entries AFTER offset and appends them to the existingt
+        // sequence. but what would work better here is to get entries BEFORE
+        // some offset.... but you can't really do that because you don't know 
+        // how big they are. but you can look at lengths before doing anything else,
+        // maybe that will help?
+        pub open spec fn parse_log_ops_helper_number2(
+            offset: nat,
+            log_contents: Seq<u8>,
+            // op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
+            decreases log_contents.len() - offset 
+        {
+            if log_contents.len() - offset == 0 {
+                Some(Seq::empty())
+            } else {
+                if log_contents.len() < u64::spec_size_of() * 2 {
+                    None
+                } else {
+                    let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of())) as nat;
+                    let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of())) as nat;
+                    let entry_size = u64::spec_size_of() * 2 + len;
+                    if {
+                        ||| len == 0
+                        ||| offset + entry_size > log_contents.len()
+                    } {
+                        None
+                    } else {
+                        let seq = Self::parse_log_ops_helper_number2(offset + entry_size, log_contents, log_start_addr, log_size, region_size);
+                        if let Some(seq) = seq {
+                            let bytes = extract_bytes(log_contents, offset + u64::spec_size_of() * 2, len as nat);
+                            let op = AbstractPhysicalOpLogEntry {
+                                offset,
+                                absolute_addr, 
+                                len, 
+                                bytes
+                            };
+                            Some(seq![op] + seq)
+                        } else {
+                            None
+                        }
+                    }
+                }
+            }
+        }
+
+        // structure differently? parse everything but the last one, then parse that one?
+        // maybe would work better to get a prefix?
         pub open spec fn parse_log_ops_helper(
+            offset: nat,
+            log_contents: Seq<u8>,
+            op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
+            decreases log_contents.len() - offset 
+        {
+            if log_contents.len() - offset == 0 {
+                Some(op_log_seq)
+            } else {
+                // If the log is not empty but doesn't have enough space for a log entry,
+                // recovery cannot succeed
+                if log_contents.len() < u64::spec_size_of() * 2 {
+                    None
+                } else {
+                    // 1. Read the absolute addr and log entry size
+                    let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of()));
+                    let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of()));
+                    if {
+                        ||| absolute_addr + len > region_size
+                        ||| log_start_addr <= absolute_addr < log_start_addr + log_size 
+                        ||| log_start_addr <= absolute_addr + len < log_start_addr + log_size
+                        ||| len == 0
+                        ||| log_contents.len() - u64::spec_size_of() * 2 < len
+                    } {
+                        // if the entry contains invalid values, recovery fails
+                        None 
+                    } else {
+                        // 2. Read the log entry contents
+                        let log_entry_contents = extract_bytes(log_contents, offset + u64::spec_size_of() * 2, len as nat);
+                        
+                        // 3. Construct the physical log entry and add it to the list
+                        let op_log_seq = op_log_seq.push(
+                            AbstractPhysicalOpLogEntry { offset, absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents }
+                        );
+
+                        // 4. Go to the next log entry
+                        let total_entry_len = u64::spec_size_of() * 2 + len;
+                        if total_entry_len <= 0 {
+                            None
+                        } else {
+                            let new_offset = offset + total_entry_len;
+                            if log_contents.len() - new_offset < 0 {
+                                None
+                            } else {
+                                Self::parse_log_ops_helper(
+                                    new_offset as nat,
+                                    log_contents,
+                                    op_log_seq,
+                                    log_start_addr,
+                                    log_size,
+                                    region_size
+                                )
+                            }
+                        }
+                        
+                    }
+                }
+            }
+        }
+
+        pub open spec fn parse_log_op(
+            offset: nat,
+            log_contents: Seq<u8>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        ) -> Option<AbstractPhysicalOpLogEntry>
+        {
+            // 1. Read the absolute addr and log entry size
+            let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, 0, u64::spec_size_of()));
+            let len = u64::spec_from_bytes(extract_bytes(log_contents, u64::spec_size_of(), u64::spec_size_of()));
+            if {
+                ||| absolute_addr + len > region_size
+                ||| log_start_addr <= absolute_addr < log_start_addr + log_size 
+                ||| log_start_addr <= absolute_addr + len < log_start_addr + log_size
+                ||| len == 0
+                ||| log_contents.len() - u64::spec_size_of() * 2 < len
+            } {
+                // if the entry contains invalid values, recovery fails
+                None 
+            } else {
+                // 2. Read the log entry contents
+                let log_entry_contents = extract_bytes(log_contents, u64::spec_size_of() * 2, len as nat);
+
+                // 3. Construct the physical log entry
+                let new_op = AbstractPhysicalOpLogEntry { offset, absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents };
+            
+                Some(new_op)
+            }
+        }
+
+        pub open spec fn parse_log_ops_helper2(
+            offset: nat,
             log_contents: Seq<u8>, 
             op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
         ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
             decreases log_contents.len() 
         {
@@ -121,39 +287,158 @@ verus! {
                 if log_contents.len() < u64::spec_size_of() * 2 {
                     None
                 } else {
-                    // 1. Read the absolute addr and log entry size
-                    let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, 0, u64::spec_size_of()));
-                    let len = u64::spec_from_bytes(extract_bytes(log_contents, u64::spec_size_of(), u64::spec_size_of()));
-                    // If the log doesn't have enough space for the rest of the entry, recovery fails
-                    if log_contents.len() - u64::spec_size_of() * 2 < len {
-                        None
-                    } else {
-                        // 2. Read the log entry contents
-                        let log_entry_contents = extract_bytes(log_contents, u64::spec_size_of() * 2, len as nat);
-                        
-                        // 3. Construct the physical log entry and add it to the list
-                        let op_log_seq = op_log_seq.push(
-                            AbstractPhysicalOpLogEntry { absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents }
-                        );
-
-                        // 4. Go to the next log entry
-                        let total_entry_len = u64::spec_size_of() * 2 + len;
+                    let op = Self::parse_log_op(offset, log_contents, log_start_addr, log_size, region_size);
+                    if let Some(op) = op {
+                        let op_log_seq = op_log_seq.push(op);
+                        let total_entry_len = u64::spec_size_of() * 2 + op.len;
+                        let offset = offset + total_entry_len;
                         Self::parse_log_ops_helper(
+                            offset as nat,
                             extract_bytes(log_contents, total_entry_len as nat, (log_contents.len() - total_entry_len) as nat),
-                            op_log_seq
+                            op_log_seq,
+                            log_start_addr,
+                            log_size,
+                            region_size
                         )
+                    } else {
+                        None
                     }
+                    // // 1. Read the absolute addr and log entry size
+                    // let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, 0, u64::spec_size_of()));
+                    // let len = u64::spec_from_bytes(extract_bytes(log_contents, u64::spec_size_of(), u64::spec_size_of()));
+                    // if {
+                    //     ||| absolute_addr + len > region_size
+                    //     ||| log_start_addr <= absolute_addr < log_start_addr + log_size 
+                    //     ||| log_start_addr <= absolute_addr + len < log_start_addr + log_size
+                    //     ||| len == 0
+                    // } {
+                    //     // if the entry contains invalid values, recovery fails
+                    //     None 
+                    // } else if log_contents.len() - u64::spec_size_of() * 2 < len {
+                    //     // If the log doesn't have enough space for the rest of the entry, recovery fails
+                    //     None
+                    // } else {
+                    //     // 2. Read the log entry contents
+                    //     let log_entry_contents = extract_bytes(log_contents, u64::spec_size_of() * 2, len as nat);
+                        
+                    //     // 3. Construct the physical log entry and add it to the list
+                    //     let new_op = 
+                    //         AbstractPhysicalOpLogEntry { offset, absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents };
+                    //         // AbstractPhysicalOpLogEntry { absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents };
+
+                    //     let op_log_seq = op_log_seq.push(new_op);
+
+                    //     // 4. Go to the next log entry
+                    //     let total_entry_len = u64::spec_size_of() * 2 + len;
+                    //     let offset = offset + total_entry_len;
+                    //     Self::parse_log_ops_helper(
+                    //         offset as nat,
+                    //         extract_bytes(log_contents, total_entry_len as nat, (log_contents.len() - total_entry_len) as nat),
+                    //         op_log_seq,
+                    //         log_start_addr,
+                    //         log_size,
+                    //         region_size
+                    //     )
+                    // }
                 }
-                
             }
         }
 
-        // Note that the op log is given the entire PM device but only deals with the log region
-        pub exec fn start<PM>(
-            pm_region: &PM,
+
+        // both offset and index into op_log_seq matter here....
+
+        proof fn lemma_offsets_match_helper(
+            offset: nat,
+            log_contents: Seq<u8>,
+            op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        )
+            requires
+                Some(op_log_seq) == Self::parse_log_ops_helper_number2(offset, log_contents, log_start_addr, log_size, region_size)
+            ensures 
+                ({
+                    forall |i: int| 0 <= i < op_log_seq.len() ==> {
+                        // let op = #[trigger] op_log_seq[i];
+                        // op.len > 0
+                        let op = #[trigger] op_log_seq[i];
+                        let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, op.offset, u64::spec_size_of())) as nat;
+                        let len = u64::spec_from_bytes(extract_bytes(log_contents, (op.offset + u64::spec_size_of()) as nat, u64::spec_size_of())) as nat;
+                        let bytes = extract_bytes(log_contents, (op.offset + u64::spec_size_of() * 2) as nat, len as nat);
+                        &&& op.absolute_addr == absolute_addr 
+                        &&& op.len == len 
+                        &&& op.bytes == bytes
+                    }
+                })
+            decreases log_contents.len() - offset 
+        {
+            if log_contents.len() - offset == 0 {
+                // trivial
+            } else {
+                if log_contents.len() < u64::spec_size_of() * 2 {
+                    assert(false);
+                } else {
+                    let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of())) as nat;
+                    let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of())) as nat;
+                    let entry_size = u64::spec_size_of() * 2 + len;
+                    if {
+                        ||| len == 0
+                        ||| offset + entry_size > log_contents.len()
+                    } {
+                        assert(false);
+                    } else {
+                        let seq = Self::parse_log_ops_helper_number2(offset + entry_size, log_contents, log_start_addr, log_size, region_size);
+                        if let Some(seq) = seq {
+                            assert(seq == op_log_seq.drop_first());
+                            Self::lemma_offsets_match_helper(
+                                offset + entry_size,
+                                log_contents,
+                                op_log_seq.drop_first(),
+                                log_start_addr,
+                                log_size,
+                                region_size
+                            );
+                        } else {
+                            assert(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        proof fn lemma_offsets_match(
+            log_bytes: Seq<u8>, 
+            op_log_seq: Seq<AbstractPhysicalOpLogEntry>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        ) 
+            requires
+                Some(op_log_seq) == Self::parse_log_ops_helper_number2(0, log_bytes, log_start_addr, log_size, region_size)
+            ensures
+                ({
+                    forall |i: int| 0 <= i < op_log_seq.len() ==> {
+                        let op = #[trigger] op_log_seq[i];
+                        let absolute_addr = u64::spec_from_bytes(extract_bytes(log_bytes, op.offset, u64::spec_size_of())) as nat;
+                        let len = u64::spec_from_bytes(extract_bytes(log_bytes, (op.offset + u64::spec_size_of()) as nat, u64::spec_size_of())) as nat;
+                        let bytes = extract_bytes(log_bytes, (op.offset + u64::spec_size_of() * 2) as nat, len as nat);
+                        &&& op.absolute_addr == absolute_addr 
+                        &&& op.len == len 
+                        &&& op.bytes == bytes
+                    }
+                })
+        {
+            Self::lemma_offsets_match_helper(0, log_bytes, op_log_seq, log_start_addr, log_size, region_size);
+        }
+
+        fn parse_phys_op_log<Perm, PM>(
+            pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            log_bytes: Vec<u8>,
             overall_metadata: OverallMetadata
-        ) -> (result: Result<(Self, Vec<u8>), KvError<K>>)
+        ) -> (result: Result<Vec<PhysicalOpLogEntry>, KvError<K>>)
             where 
+                Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires
                 pm_region.inv(),
@@ -161,10 +446,131 @@ verus! {
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 Self::recover(pm_region@.committed(), overall_metadata) is Some,
+                pm_region@.len() == overall_metadata.region_size,
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    &&& base_log_state matches Some(base_log_state)
+                    &&& log_bytes@ == extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat)
+                }),
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                    let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    &&& abstract_op_log matches Some(abstract_log)
+                    &&& abstract_log.len() > 0
+                }),
+                u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX
+            ensures 
+                match result {
+                    Ok(phys_log) => {
+                        let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                        let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                        // TODO: no corruption
+                        let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                        &&& abstract_op_log matches Some(abstract_op_log)
+                        &&& abstract_op_log == phys_log_view
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            
+            let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+            let ghost phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+            let ghost abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat).unwrap();
+
+            // // so basically we don't know anything about it...
+            // assert(abstract_op_log.len() > 0);
+            // assert(0 <= abstract_op_log[0].offset < phys_op_log_buffer.len());
+            // assert(abstract_op_log[0].offset == 0);
+
+            let mut offset = 0;
+            let mut index = 0;
+            let mut ops = Vec::<PhysicalOpLogEntry>::new();
+            while offset < log_bytes.len() 
+                invariant 
+                    forall |i: int| 0 <= i < ops.len() ==> #[trigger] ops[i]@ == #[trigger] abstract_op_log[i],
+                    u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX,
+                    ops.len() <= abstract_op_log.len(),
+                    index <= abstract_op_log.len(),
+            {
+                assume(false);
+                broadcast use pmcopy_axioms;
+                let ghost op = abstract_op_log[index as int];
+
+                if offset > log_bytes.len() - traits_t::size_of::<u64>() * 2
+                {
+                    return Err(KvError::InternalError);
+                }
+                let absolute_addr_bytes = slice_range(&log_bytes, offset, traits_t::size_of::<u64>());
+                let len_bytes = slice_range(&log_bytes, offset + traits_t::size_of::<u64>(), traits_t::size_of::<u64>());
+                let absolute_addr = u64_from_le_bytes(absolute_addr_bytes);
+                assert(absolute_addr == op.absolute_addr);
+                let len = u64_from_le_bytes(len_bytes);
+                if len == 0 {
+                    return Err(KvError::InternalError);
+                }
+
+                if {
+                    ||| traits_t::size_of::<u64>() * 2 >= (u64::MAX - len) as usize
+                    ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
+                    ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
+                } {
+                    return Err(KvError::InternalError);
+                }
+
+                let bytes = slice_range_to_vec(&log_bytes, offset + traits_t::size_of::<u64>() * 2, len as usize);
+
+                let op = PhysicalOpLogEntry {
+                    offset: offset as u64,
+                    absolute_addr,
+                    len,
+                    bytes
+                };
+                ops.push(op);
+
+                offset += traits_t::size_of::<u64>() + len as usize;
+                index += 1;
+            }
+
+            Err(KvError::NotImplemented)
+        }
+            
+
+        // Note that the op log is given the entire PM device but only deals with the log region
+        pub exec fn start<Perm, PM>(
+            pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            overall_metadata: OverallMetadata
+        ) -> (result: Result<(Self, Vec<u8>), KvError<K>>)
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires
+                pm_region.inv(),
+                pm_region@.no_outstanding_writes(),
+                overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
+                overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+                Self::recover(pm_region@.committed(), overall_metadata) is Some,
+                pm_region@.len() == overall_metadata.region_size,
             ensures
                 match result {
-                    Ok((op_log_impl, phys_op_log_buffer)) => {
-                        op_log_impl.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                    Ok((op_log_impl, phys_log)) => {
+                        true
+                        // let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                        // &&& op_log_impl.inv(*pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                        // &&& ({
+                        //     ||| phys_op_log_buffer@.len() == 0
+                        //     ||| {
+                        //             &&& phys_op_log_buffer@ == extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat)
+                        //             &&& Self::parse_log_ops(
+                        //                     phys_op_log_buffer@, 
+                        //                     overall_metadata.log_area_addr as nat, 
+                        //                     overall_metadata.log_area_size as nat,
+                        //                     overall_metadata.region_size as nat
+                        //                 ) matches Some(physical_log)
+                        //             &&& physical_log == op_log_impl@.physical_op_list
+                        //         }
+                        // })
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -184,6 +590,12 @@ verus! {
                 Err(e) => return Err(KvError::LogErr { log_err: e })
             };
             let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+            
+            // proof {
+            //     if op_log_state.unwrap().physical_op_list.len() > 0 {
+            //         assert(op_log_state.unwrap().physical_op_list[0].offset == 0);
+            //     }
+            // }
 
             // Read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes.
             // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
@@ -211,7 +623,7 @@ verus! {
 
             let len = (tail - head) as u64 - traits_t::size_of::<u64>() as u64;
 
-            proof { log.lemma_reveal_log_inv(pm_region, log_start_addr as nat, log_size as nat); }
+            proof { log.lemma_reveal_log_inv(*pm_region, log_start_addr as nat, log_size as nat); }
             
             let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
                 Ok(bytes) => bytes,
@@ -228,13 +640,48 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }
 
+            let op_log_impl = Self {
+                log,
+                state: Ghost(op_log_state.unwrap()),
+                current_transaction_crc: CrcDigest::new(),
+                _phantom: None
+            };
+
+            proof {
+                assert(pm_region@.len() == overall_metadata.region_size);
+                if op_log_impl@.physical_op_list.len() == 0 {
+                    
+                } else {
+                    assume(false);
+                    let log_contents = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                    // assert(log_contents == extract_bytes(log_contents, 0, (log_contents.len() - 0) as nat));
+                    // Self::lemma_phys_ops_properties(0, log_contents, log_contents, op_log_state.unwrap().physical_op_list, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    // assert forall |i: int| 0 <= i < op_log_impl@.physical_op_list.len() implies {
+                    //     let op = #[trigger] op_log_impl@.physical_op_list[i];
+                    //     // all addrs are within the bounds of the device
+                    //     &&& 0 <= op.absolute_addr 
+                    //     &&& op.absolute_addr < op.absolute_addr + op.len // fail
+                    //     // &&& op.absolute_addr + op.len < pm_region@.len() // fail
+
+                    //     // &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region@.len() <= u64::MAX
+
+                    //     // no logged ops change bytes belonging to the log itself
+                    //     // &&& (op.absolute_addr + op.len < log_start_addr || log_start_addr + log_size <= op.absolute_addr)
+                    // } by {
+                    //     let op = #[trigger] op_log_impl@.physical_op_list[i];
+                    //     // assert(op.len > 0);
+                    //     assume(false);
+                    // }
+                }
+                
+                // assert(op_log_impl.inv(*pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+            }
+
+            assume(false);
+            
+
             Ok((
-                Self {
-                    log,
-                    state: Ghost(op_log_state.unwrap()),
-                    current_transaction_crc: CrcDigest::new(),
-                    _phantom: None
-                },
+                op_log_impl,
                 log_bytes
             ))
         }

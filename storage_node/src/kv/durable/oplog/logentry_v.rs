@@ -21,6 +21,8 @@ use crate::pmem::traits_t::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
+use super::oplogspec_t::AbstractPhysicalOpLogEntry;
+
 verus! {
     // Physical log entries contain an absolute address, a size,
     // and a sequence of bytes of the specified size to copy
@@ -87,6 +89,26 @@ verus! {
         NodeDeallocInMemory {
             old_head: u64,
             new_head: u64,
+        }
+    }
+
+    // DRAM-only representation of a physical log entry, for use during recovery/
+    // log installation.
+    pub struct PhysicalOpLogEntry {
+        pub offset: u64,
+        pub absolute_addr: u64,
+        pub len: u64,
+        pub bytes: Vec<u8>
+    }
+
+    impl PhysicalOpLogEntry {
+        pub open spec fn view(self) -> AbstractPhysicalOpLogEntry {
+            AbstractPhysicalOpLogEntry {
+                offset: self.offset as nat,
+                absolute_addr: self.absolute_addr as nat,
+                len: self.len as nat,
+                bytes: self.bytes@
+            }
         }
     }
 

@@ -94,8 +94,9 @@ impl UntrustedLogImpl {
         self.state@
     }
 
-    pub closed spec fn inv<PM>(self, pm: &PM, log_start_addr: nat, log_size: nat) -> bool
+    pub closed spec fn inv<Perm, PM>(self, pm: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) -> bool
         where 
+            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion
     {
         &&& pm.inv()
@@ -111,8 +112,9 @@ impl UntrustedLogImpl {
     }
 
     // This lemma makes some facts about non-private fields of self visible
-    pub proof fn lemma_reveal_log_inv<PM>(self, pm: &PM, log_start_addr: nat, log_size: nat) 
+    pub proof fn lemma_reveal_log_inv<Perm, PM>(self, pm: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) 
         where 
+            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
             self.inv(pm, log_start_addr, log_size),
@@ -218,13 +220,14 @@ impl UntrustedLogImpl {
 
     // TODO: rename TrustedKvPermission to TrustedPermission
     // or use a trait
-    pub fn start<PM>(
-        pm_region: &PM,
+    pub fn start<Perm, PM>(
+        pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_start_addr: u64,
         log_size: u64, 
         Ghost(state): Ghost<AbstractLogState>,
     ) -> (result: Result<Self, LogErr>)
         where 
+            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
             Self::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(state),
@@ -237,7 +240,7 @@ impl UntrustedLogImpl {
                 match result {
                     Ok(log_impl) => {
                         &&& log_impl@ == state
-                        &&& log_impl.inv(pm_region, log_start_addr as nat, log_size as nat)
+                        &&& log_impl.inv(*pm_region, log_start_addr as nat, log_size as nat)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
@@ -247,9 +250,9 @@ impl UntrustedLogImpl {
         // First, we read the corruption-detecting boolean and
         // return an error if that fails.
 
-        let cdb = read_cdb(pm_region, log_start_addr, log_size)?;
+        let cdb = read_cdb(pm_region.get_pm_region_ref(), log_start_addr, log_size)?;
 
-        let info = read_log_variables(pm_region, log_start_addr, log_size, cdb)?;
+        let info = read_log_variables(pm_region.get_pm_region_ref(), log_start_addr, log_size, cdb)?;
 
         Ok(Self { cdb, info, state: Ghost(state) })
     }  
@@ -316,18 +319,19 @@ impl UntrustedLogImpl {
     // containing the read bytes. It doesn't guarantee that those
     // bytes aren't corrupted by persistent memory corruption. See
     // `README.md` for more documentation and examples of its use.
-    pub exec fn read<PM>(
+    pub exec fn read<Perm, PM>(
         &self,
-        pm_region: &PM,
+        pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_start_addr: u64,
         log_size: u64, 
         pos: u128,
         len: u64,
     ) -> (result: Result<(Vec<u8>, Ghost<Seq<int>>), LogErr>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            self.inv(pm_region, log_start_addr as nat, log_size as nat),
+            self.inv(*pm_region, log_start_addr as nat, log_size as nat),
             pos + len <= u128::MAX,
             log_start_addr + spec_log_area_pos() <= pm_region@.len() <= u64::MAX,
         ensures
@@ -401,7 +405,7 @@ impl UntrustedLogImpl {
             let addr: u64 = log_start_addr + log_area_pos() + relative_pos - (info.log_area_len - info.head_log_area_offset);
             proof { self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat, log_size as nat, pos as nat,
                                                         len as nat, addr as nat); }
-            let bytes = match pm_region.read_unaligned(addr, len) {
+            let bytes = match pm_region.get_pm_region_ref().read_unaligned(addr, len) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     assert(e == PmemError::AccessOutOfRange);
@@ -451,7 +455,7 @@ impl UntrustedLogImpl {
 
             proof { self.lemma_read_of_continuous_range(pm_region@, log_start_addr as nat, log_size as nat, pos as nat,
                                                         len as nat, addr as nat); }
-            let bytes = match pm_region.read_unaligned(addr, len) {
+            let bytes = match pm_region.get_pm_region_ref().read_unaligned(addr, len) {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     assert(e == PmemError::AccessOutOfRange);
@@ -477,7 +481,7 @@ impl UntrustedLogImpl {
                                                 max_len_without_wrapping as nat, addr as nat);
         }
 
-        let mut part1 = match pm_region.read_unaligned(addr, max_len_without_wrapping) {
+        let mut part1 = match pm_region.get_pm_region_ref().read_unaligned(addr, max_len_without_wrapping) {
             Ok(part1) => part1,
             Err(e) => {
                 assert(e == PmemError::AccessOutOfRange);
@@ -499,7 +503,7 @@ impl UntrustedLogImpl {
                                                 (log_start_addr + spec_log_area_pos()) as nat);
         }
 
-        let mut part2 = match pm_region.read_unaligned(log_start_addr + log_area_pos(), len - max_len_without_wrapping) {
+        let mut part2 = match pm_region.get_pm_region_ref().read_unaligned(log_start_addr + log_area_pos(), len - max_len_without_wrapping) {
             Ok(part2) => part2,
             Err(e) => {
                 assert(e == PmemError::AccessOutOfRange);
@@ -540,16 +544,17 @@ impl UntrustedLogImpl {
     // tail, and capacity of the log. See `README.md` for more
     // documentation and examples of its use.
     #[allow(unused_variables)]
-    pub exec fn get_head_tail_and_capacity<PM>(
+    pub exec fn get_head_tail_and_capacity<Perm, PM>(
         &self,
-        pm_region: &PM,
+        pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_start_addr: u64,
         log_size: u64, 
     ) -> (result: Result<(u128, u128, u64), LogErr>)
         where
+            Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            self.inv(pm_region, log_start_addr as nat, log_size as nat)
+            self.inv(*pm_region, log_start_addr as nat, log_size as nat)
         ensures
             ({
                 let log = self@;
