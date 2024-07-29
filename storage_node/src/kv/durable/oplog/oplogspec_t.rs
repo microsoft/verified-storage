@@ -10,6 +10,7 @@ use crate::pmem::pmcopy_t::*;
 
 verus! {
 
+    #[verifier::ext_equal]
     pub struct AbstractPhysicalOpLogEntry {
         pub offset: nat, // offset of this log entry relative to the beginning of the log
         pub absolute_addr: nat,
