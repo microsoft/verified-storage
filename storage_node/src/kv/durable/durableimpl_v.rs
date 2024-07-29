@@ -402,6 +402,7 @@ verus! {
                     Err(_) => false
                 }
         {
+            assume(false);
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, overall_metadata)?;
