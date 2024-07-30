@@ -78,13 +78,9 @@ verus! {
                 &&& abstract_op_log matches Some(abstract_op_log)
                 &&& abstract_op_log.physical_op_list == phys_log
                 &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata)
-                // &&& forall |i: int| 0 <= i < phys_log.len() ==> {
-                //     let op = #[trigger] phys_log[i];
-                //     &&& op.absolute_addr <= overall_metadata.region_size
-                //     &&& op.absolute_addr + op.len <= overall_metadata.region_size 
-                //     &&& op.len == op.bytes.len()
-                // }
             }),
+            forall |s| DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) 
+                ==> perm.check_permission(s),
             forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(phys_log, i),
             addr + bytes.len() < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr,
             0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
@@ -118,12 +114,6 @@ verus! {
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
         let region_size = overall_metadata.region_size as nat;
-
-        // let addr_modified_by_recovery = |i: int| 0 <= i < wrpm_region@.len() ==> {
-        //     exists |j: int| 0 <= j < phys_log.len() ==> {
-        //         #[trigger] phys_log[j].absolute_addr <= i < phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len()
-        //     }
-        // };
 
         // bytes that were not updated by the write remain the same
         assert(new_wrpm_region.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + log_size) as int));
@@ -185,42 +175,15 @@ verus! {
                 assert(forall |i: int| 0 <= i < s.len() && s[i] != mem[i] ==> addr_modified_by_recovery(phys_log, i));
 
                 DurableKvStore::<PM, K, I, L>::lemma_mem_equal_after_recovery(mem, s, overall_metadata, phys_log);
-
-                assume(false);
-                // addrs unmodified by replay remain the same
-                assert(forall |i: int| 0 <= i < s.len() && !addr_modified_by_recovery(phys_log, i) ==> crash_replay[i] == reg_replay[i]) by {
-
-                    assert(forall |i: int| 0 <= i < s.len() && !#[trigger]addr_modified_by_recovery(phys_log, i) ==> {
-                        forall |j: int| 0 <= j < phys_log.len() ==> {
-                            i < #[trigger] phys_log[j].absolute_addr || phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len() <= i
-                        }
-                    });
-
-                    assert forall |i: int| 0 <= i < s.len() && !addr_modified_by_recovery(phys_log, i) implies s[i] == crash_replay[i] by {
-                        // DurableKvStore::<PM, K, I, L>::lemma_addrs_not_modified_by_recovery_do_not_change(s, overall_metadata, phys_log);
-                    }
-                    assert forall |i: int| 0 <= i < s.len() && !addr_modified_by_recovery(phys_log, i) implies mem[i] == reg_replay[i] by {
-                        // DurableKvStore::<PM, K, I, L>::lemma_addrs_not_modified_by_recovery_do_not_change(mem, overall_metadata, phys_log);
-                    }
-
-                    assert(forall |i: int| 0 <= i < s.len() && !addr_modified_by_recovery(phys_log, i) ==> s[i] == mem[i]);
-                }
-                
-                assert(forall |i: int| 0 <= i < s.len() && addr_modified_by_recovery(phys_log, i) ==> crash_replay[i] == reg_replay[i]);
-
-                
-                assert(crash_replay =~= reg_replay);
             }
 
-
-
-
-            assume(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) is Some);
+            assert(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) is Some);
             // s can only differ from the original state in locations that are overwritten by recovery
             assert(forall |i: int| 0 <= i < s.len() && #[trigger] s[i] != #[trigger] wrpm_region@.committed()[i] ==> #[trigger] addr_modified_by_recovery(phys_log, i));
 
-            assume(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata).unwrap() == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
-            assume(perm.check_permission(s));
+            assert(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata).unwrap() == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
+            
+            assert(perm.check_permission(s));
         }
     }
 
