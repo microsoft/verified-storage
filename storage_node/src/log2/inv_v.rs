@@ -1,6 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use crate::kv::layout_v::OverallMetadata;
+use crate::lemma_establish_extract_bytes_equivalence;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::subregion_v::*;
@@ -187,4 +189,74 @@ pub proof fn lemma_addresses_in_log_area_correspond_to_relative_log_positions(
             }
 {}
 
+pub proof fn lemma_auto_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)
+    requires
+        mem1 == mem2 
+    ensures
+        forall |addr: int, len: int| 0 <= addr < addr + len < mem1.len() ==> {
+            #[trigger] extract_bytes(mem1, addr as nat, len as nat) == #[trigger] extract_bytes(mem2, addr as nat, len as nat)
+        }
+{}
+
+pub proof fn lemma_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>, addr: nat, len: nat)
+    requires
+        mem1 == mem2 
+    ensures
+        extract_bytes(mem1, addr as nat, len as nat) == extract_bytes(mem2, addr as nat, len as nat)
+{}
+
+// This lemma proves that a subrange of a subrange is equal to just obtaining the final subrange using its 
+// absolute start index. This is obvious and requires no body, but having a dedicated lemma helps
+// Z3 establish the equality
+// TODO: do this about subranges rather than extract_bytes -- should be equivalent and more useful
+pub proof fn lemma_subrange_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, start2: nat, len1: nat, len2: nat)
+    requires 
+        start1 <= start2 <= start2 + len2 <= start1 + len1 <= mem.len()
+    ensures 
+        ({
+            let start_offset = start2 - start1;
+            extract_bytes(extract_bytes(mem, start1, len1), start_offset as nat, len2) =~= 
+                extract_bytes(mem, start2, len2)
+        })
+{}
+
+// This lemma proves that two sequences of bytes that may contain valid logs, and their log
+// subregions are equal, then the sequences recover to the same log. This is obvious
+// but the proof is non-trivial because we need to explicitly prove the equality of 
+// each relevant subrange.
+pub proof fn lemma_same_bytes_recover_to_same_state(
+    mem1: Seq<u8>,
+    mem2: Seq<u8>,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        mem1.len() == overall_metadata.region_size,
+        mem1.len() == mem2.len(),
+        extract_bytes(mem1, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+            extract_bytes(mem2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+        0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+        0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+    ensures
+        UntrustedLogImpl::recover(mem1, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) ==
+            UntrustedLogImpl::recover(mem2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+    {
+        let log_start_addr = overall_metadata.log_area_addr as nat;
+        let log_size = overall_metadata.log_area_size as nat;
+
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+
+        // Proves that the CDBs are the same
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
+        let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
+        if let Some(cdb1) = cdb1 {
+            let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
+            let crc_pos = metadata_pos + LogMetadata::spec_size_of();
+            // Proves that metadata, CRC, and log area are the same
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
+        } else {
+            // both are None
+        }
+    }
 }

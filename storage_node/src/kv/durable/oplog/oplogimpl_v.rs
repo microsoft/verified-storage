@@ -150,7 +150,7 @@ verus! {
                 let new_seq = Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size).unwrap();
                 let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size).unwrap();
                 new_seq == old_seq + seq![last_op]
-            })
+            }),
         decreases end - start
         {
             let old_seq = Self::parse_log_ops_helper(start, mid,log_contents, log_start_addr, log_size, region_size).unwrap();
@@ -175,6 +175,39 @@ verus! {
             // seq![last_op] == Seq::empty() + seq![last_op]
             Self::lemma_op_log_parse_equal(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);  
         }
+
+        // pub proof fn lemma_successful_parse_implies_invariants(
+        //     start: nat,
+        //     mid: nat,
+        //     end: nat,
+        //     log_contents: Seq<u8>,
+        //     log_start_addr: nat, 
+        //     log_size: nat,
+        //     region_size: nat,
+        // )
+        // requires
+        //     start <= mid <= end <= log_contents.len(),
+        //     Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size) is Some,
+        //     Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is Some,
+        //     Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size) is Some,
+        //     ({
+        //         let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
+        //         &&& last_op matches Some(last_op)
+        //         &&& end == last_op.offset + u64::spec_size_of() * 2 + last_op.len
+        //     })
+        // ensures
+        //     ({
+        //         let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size).unwrap();
+        //         last_op.absolute_addr < last_op.absolute_addr + last_op.len <= region_size
+        //     })
+        // {
+        //     if mid == start {
+
+        //     } else {
+        //         // assume(false);
+        //     }
+        // }
+
 
         pub open spec fn parse_log_op(
             offset: nat,

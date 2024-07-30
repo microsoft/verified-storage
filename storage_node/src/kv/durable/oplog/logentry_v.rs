@@ -16,6 +16,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
+use crate::kv::layout_v::OverallMetadata;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
@@ -110,7 +111,23 @@ verus! {
                 bytes: self.bytes@
             }
         }
+
+        pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
+            &&& self.len > 0
+            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
+            &&& ({
+                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
+            })
+            &&& self.len == self.bytes.len()
+        }
+
+        pub open spec fn log_inv(log: Vec<PhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool {
+            forall |i: int| 0 <= i < log.len() ==> #[trigger] log[i].inv(overall_metadata)
+        }
     }
+
+    
 
     // // NOTE: Verus does not support .into() so implementing the From trait is not 
     // // useful here at the moment; in the future, it would be better to have a From

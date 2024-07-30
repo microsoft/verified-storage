@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 use builtin::*;
 use builtin_macros::*;
+use vstd::assert_seqs_equal;
 use vstd::bytes::u64_from_le_bytes;
 use vstd::bytes::u64_to_le_bytes;
 use vstd::prelude::*;
@@ -21,6 +22,7 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::util_v::*;
+use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::layout_v::*;
@@ -41,7 +43,6 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 
 use super::inv_v::lemma_safe_recovery_writes;
-use super::inv_v::lemma_subrange_of_extract_bytes_equal;
 use super::oplog::oplogspec_t::AbstractOpLogState;
 use super::oplog::oplogspec_t::AbstractPhysicalOpLogEntry;
 
@@ -144,27 +145,385 @@ verus! {
                 Some(mem)
             } else {
                 let entry = physical_log_entries[0];
-                if {
-                    ||| entry.absolute_addr > mem.len() 
-                    ||| entry.absolute_addr + entry.len > mem.len() 
-                    ||| entry.bytes.len() != entry.len
-                } {
-                    // Return None if the entry is ill-formed
-                    None
-                } else {
-                    // Update the bytes indicated in the log entry
-                    let mem = mem.map(|pos: int, pre_byte: u8| 
-                        if entry.absolute_addr <= pos < entry.absolute_addr + entry.len {
-                            entry.bytes[pos - entry.absolute_addr]
-                        } else {
-                            pre_byte
-                        }
-                    );
-                    let physical_log_entries = physical_log_entries.subrange(1, physical_log_entries.len() as int);
+                // Update the bytes indicated in the log entry
+                let op = physical_log_entries[0];
+                let mem = Self::apply_physical_log_entry(mem, op);
+                if let Some(mem) = mem {
+                    let physical_log_entries = physical_log_entries.drop_first();
                     Self::apply_physical_log_entries(mem, physical_log_entries)
+                } else {
+                    None
                 }
             }
         }
+
+        pub open spec fn apply_physical_log_entry(mem: Seq<u8>, log_op: AbstractPhysicalOpLogEntry) -> Option<Seq<u8>>
+        {
+            if {
+                ||| log_op.absolute_addr > mem.len() 
+                ||| log_op.absolute_addr + log_op.len > mem.len() 
+                ||| log_op.bytes.len() != log_op.len
+            } {
+                // Return None if the log_op is ill-formed
+                None
+            } else {
+                Some(mem.map(|pos: int, pre_byte: u8| 
+                    if log_op.absolute_addr <= pos < log_op.absolute_addr + log_op.len {
+                        log_op.bytes[pos - log_op.absolute_addr]
+                    } else {
+                        pre_byte
+                    }
+                ))
+            }
+        }
+
+        pub proof fn lemma_log_replay_preserves_size(
+            mem: Seq<u8>, 
+            phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        ) 
+            requires
+                Self::apply_physical_log_entries(mem, phys_log) is Some 
+            ensures
+                ({ 
+                    let replay_mem = Self::apply_physical_log_entries(mem, phys_log).unwrap();
+                    replay_mem.len() == mem.len()
+                })
+            decreases phys_log.len()
+        {
+            if phys_log.len() == 0 {
+                // trivial
+            } else {
+                let current_entry = phys_log[0];
+                let new_log = phys_log.drop_first();
+
+                let mem1 = Self::apply_physical_log_entry(mem, current_entry).unwrap();
+                assert(mem1.len() == mem.len());
+
+                Self::lemma_log_replay_preserves_size(mem1, new_log);
+            }
+        }
+
+        // This lemma proves that replaying a log of valid entries will always result in a Some return value
+        pub proof fn lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
+            mem: Seq<u8>, 
+            overall_metadata: OverallMetadata,
+            phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        )
+            requires 
+                AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                mem.len() == overall_metadata.region_size,
+                overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
+            ensures 
+                Self::apply_physical_log_entries(mem, phys_log) is Some 
+            decreases phys_log.len()
+        {
+            if phys_log.len() == 0 {
+                // trivial -- empty log always returns Some
+            } else {
+                let current_entry = phys_log[0];
+                let new_log = phys_log.drop_first();
+
+                // Note that we have to apply the current entry before the recursive call
+                // to make sure memory contents are correct for this point in replay
+                assert(Self::apply_physical_log_entry(mem, current_entry) is Some);
+
+                let mem1 = Self::apply_physical_log_entry(mem, current_entry).unwrap();
+
+                assert(mem1.len() == mem.len());
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
+                    mem1,
+                    overall_metadata,
+                    new_log
+                );
+            }
+        }
+
+        pub proof fn lemma_mem_equal_after_recovery(
+            mem1: Seq<u8>, 
+            mem2: Seq<u8>,
+            overall_metadata: OverallMetadata,
+            phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        )
+            requires
+                mem1.len() == mem2.len(),
+                mem1.len() == overall_metadata.region_size,
+                Self::apply_physical_log_entries(mem1, phys_log) is Some,
+                Self::apply_physical_log_entries(mem2, phys_log) is Some,
+                AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                forall |i: int| 0 <= i < mem1.len() && mem1[i] != mem2[i] ==> addr_modified_by_recovery(phys_log, i),
+            ensures
+                ({
+                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+                    replay1 == replay2
+                })
+            decreases phys_log.len()
+        {
+            let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+            let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+
+            Self::lemma_log_replay_preserves_size(mem1, phys_log);
+            Self::lemma_log_replay_preserves_size(mem2, phys_log);
+
+            assert_seqs_equal!(replay1 == replay2, addr => {
+                if mem1[addr] == mem2[addr] {
+                    Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1, mem2, overall_metadata, phys_log);
+                } else {
+                    Self::lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(addr, mem1, mem2, overall_metadata, phys_log);
+                }
+            });
+        }
+
+        pub proof fn lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(
+            addr: int,
+            mem1: Seq<u8>, 
+            mem2: Seq<u8>,
+            overall_metadata: OverallMetadata,
+            phys_log: Seq<AbstractPhysicalOpLogEntry>,
+        )
+            requires
+                mem1.len() == mem2.len(),
+                mem1.len() == overall_metadata.region_size,
+                Self::apply_physical_log_entries(mem1, phys_log) is Some,
+                Self::apply_physical_log_entries(mem2, phys_log) is Some,
+                AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                mem1[addr] == mem2[addr],
+                0 <= addr < mem1.len(),
+            ensures
+                ({
+                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+                    replay1[addr] == replay2[addr]
+                })
+            decreases phys_log.len()
+        {
+            if phys_log.len() == 0 {
+                // trivial
+            } else {
+                let current_entry = phys_log[0];
+                let remaining_log_entries = phys_log.drop_first();
+
+                let mem1_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
+                let mem2_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
+
+                Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
+            }
+        }
+
+        pub proof fn lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(
+            addr: int,
+            mem1: Seq<u8>, 
+            mem2: Seq<u8>,
+            overall_metadata: OverallMetadata,
+            phys_log: Seq<AbstractPhysicalOpLogEntry>,
+        )
+            requires
+                mem1.len() == mem2.len(),
+                mem1.len() == overall_metadata.region_size,
+                Self::apply_physical_log_entries(mem1, phys_log) is Some,
+                Self::apply_physical_log_entries(mem2, phys_log) is Some,
+                AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                addr_modified_by_recovery(phys_log, addr),
+                0 <= addr < mem1.len(),
+            ensures
+                ({
+                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+                    replay1[addr] == replay2[addr]
+                })
+            decreases phys_log.len()
+        {
+            if phys_log.len() == 0 {
+                // trivial
+            } else {
+                let current_entry = phys_log[0];
+                let remaining_log_entries = phys_log.drop_first();
+
+                let mem1_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
+                let mem2_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
+
+                if current_entry.absolute_addr <= addr < current_entry.absolute_addr + current_entry.len {
+                    Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
+                } else {
+                    let log_index = choose |i: int| 0 <= i < phys_log.len() && (#[trigger] phys_log[i]).absolute_addr <= addr < phys_log[i].absolute_addr + phys_log[i].len;
+                    assert(remaining_log_entries[log_index - 1] == phys_log[log_index]);
+                    Self::lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
+                }
+            }
+        }
+
+        // pub proof fn lemma_addrs_not_modified_by_recovery_do_not_change(
+        //     mem: Seq<u8>, 
+        //     overall_metadata: OverallMetadata,
+        //     phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        //     // addr_modified_by_recovery: spec_fn(int) -> bool
+        // ) 
+        //     requires
+        //         // forall |i: int| 0 <= i < phys_log.len() ==> {
+        //         //     forall |j: int| 0 <= j < mem.len() && #[trigger] phys_log[i].absolute_addr <= j < phys_log[i].absolute_addr + #[trigger] phys_log[i].len <==> {
+        //         //         #[trigger] addr_modified_by_recovery(j)
+        //         //     }
+        //         // },
+        //         // ({
+        //         //     let current_addr_modified_by_recovery = |i: int| 0 <= i < mem.len() ==> {
+        //         //         exists |j: int| 0 <= j < phys_log.len() ==> {
+        //         //             #[trigger] phys_log[j].absolute_addr <= i < phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len()
+        //         //         }
+        //         //     };
+        //         //     forall |i: int| 0 <= i < mem.len() && !#[trigger]addr_modified_by_recovery(i) ==> !#[trigger]current_addr_modified_by_recovery(i)
+        //         // }),
+        //         // 0 <= i < mem.len(),
+        //         Self::apply_physical_log_entries(mem, phys_log) is Some,
+        //         forall |i: int| 0 <= i < phys_log.len() ==> {
+        //             let op = #[trigger] phys_log[i];
+        //             &&& op.absolute_addr < op.absolute_addr + op.len < overall_metadata.region_size 
+        //             &&& op.len == op.bytes.len()
+        //         },
+        //         mem.len() == overall_metadata.region_size,
+        //     ensures 
+        //         ({
+        //             let addr_modified_by_recovery = |i: int| 0 <= i < mem.len() ==> {
+        //                 exists |j: int| 0 <= j < phys_log.len() ==> {
+        //                     #[trigger] phys_log[j].absolute_addr <= i < phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len()
+        //                 }
+        //             };
+        //             let replay_mem = Self::apply_physical_log_entries(mem, phys_log).unwrap();
+        //             forall |i: int| 0 <= i < mem.len() && !addr_modified_by_recovery(i) ==> mem[i] == replay_mem[i]
+        //         })
+        //     decreases phys_log.len()
+        // {
+        //     if phys_log.len() == 0 {
+        //         // trivial
+        //     } else {
+        //         let addr_modified_by_recovery = |i: int| 0 <= i < mem.len() ==> {
+        //             exists |j: int| 0 <= j < phys_log.len() ==> {
+        //                 #[trigger] phys_log[j].absolute_addr <= i < phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len()
+        //             }
+        //         };
+
+        //         let current_entry = phys_log[0];
+        //         let new_log = phys_log.drop_first();
+
+        //         let mem1 = Self::apply_physical_log_entry(mem, current_entry).unwrap();
+        //         assert(forall |i: int| 0 <= i < mem.len() && !addr_modified_by_recovery(i) ==> mem[i] == mem1[i]);
+
+        //         Self::lemma_addrs_not_modified_by_recovery_do_not_change(mem1, overall_metadata, new_log);
+
+        //         let new_addr_modified_by_recovery = |i: int| 0 <= i < mem1.len() ==> {
+        //             exists |j: int| 0 <= j < new_log.len() ==> {
+        //                 #[trigger] new_log[j].absolute_addr <= i < new_log[j].absolute_addr + #[trigger] new_log[j].bytes.len()
+        //             }
+        //         };
+
+        //         let replay_mem = Self::apply_physical_log_entries(mem1, new_log).unwrap();
+        //         assert(forall |i: int| 0 <= i < replay_mem.len() && !new_addr_modified_by_recovery(i) ==> mem1[i] == replay_mem[i]);
+        //         assert(replay_mem == Self::apply_physical_log_entries(mem, phys_log).unwrap());
+
+        //         // missing a step here... if it's not modified by either operation then it's not modified at all?
+            
+
+        //         assert(forall |i: int| 0 <= i < mem.len() && !addr_modified_by_recovery(i) ==> mem[i] == replay_mem[i]);
+
+
+        //         // // this is literally in the precondition?? why can't we prove it? 
+        //         // assert(forall |i: int| 0 <= i < phys_log.len() ==> {
+        //         //     forall |j: int| 0 <= j < mem.len() && #[trigger] phys_log[i].absolute_addr <= j < phys_log[i].absolute_addr + #[trigger] phys_log[i].len ==> {
+        //         //         #[trigger] addr_modified_by_recovery(j)
+        //         //     }
+        //         // });
+
+        //         // assert forall |i: int| 0 <= i < mem.len() && current_entry.absolute_addr <= i < current_entry.absolute_addr + current_entry.len implies {
+        //         //     #[trigger] addr_modified_by_recovery(i)
+        //         // } by {
+                    
+        //         // }
+
+        //         // assert forall |i: int| 0 <= i < mem.len() && !addr_modified_by_recovery(i) implies mem1[i] == mem[i] by {
+        //         //     assert(!(current_entry.absolute_addr <= i < current_entry.absolute_addr + current_entry.len));
+        //         //     if current_entry.absolute_addr <= i < current_entry.absolute_addr + current_entry.len {
+        //         //         assert(addr_modified_by_recovery(i));
+        //         //         // assert(false);
+        //         //     }
+        //         //     // assert(i < current_entry.absolute_addr || current_entry.absolute_addr + current_entry.len <= i);
+                    
+        //         // }
+
+        //         // assume(false);
+
+        //         // Self::lemma_addrs_not_modified_by_recovery_do_not_change(mem1, overall_metadata, new_log, addr_modified_by_recovery);
+        //         // // assume(false);
+        //         // // assert(mem1[i] == mem[i]);
+
+        //         // // addrs modified by ops in new log are a subset of those modified by the current log
+        //         // let old_addr_modified_by_recovery = |i: int| 0 <= i < mem.len() ==> {
+        //         //     exists |j: int| 0 <= j < phys_log.len() ==> {
+        //         //         #[trigger] phys_log[j].absolute_addr <= i < phys_log[j].absolute_addr + #[trigger] phys_log[j].bytes.len()
+        //         //     }
+        //         // };
+        //         // let new_addr_modified_by_recovery = |i: int| 0 <= i < mem.len() ==> {
+        //         //     exists |j: int| 0 <= j < new_log.len() ==> {
+        //         //         #[trigger] new_log[j].absolute_addr <= i < new_log[j].absolute_addr + #[trigger] new_log[j].bytes.len()
+        //         //     }
+        //         // };
+        //         // let addrs_modified_by_current_entry = |i: int| current_entry.absolute_addr <= i < current_entry.absolute_addr + current_entry.len;
+                
+        //         // let old_addrs = Set::new(|i: int| old_addr_modified_by_recovery(i));
+        //         // let new_addrs = Set::new(|i: int| new_addr_modified_by_recovery(i));
+        //         // let current_addrs = Set::new(|i: int| addrs_modified_by_current_entry(i));
+                
+        //         // assert(old_addrs == new_addrs + current_addrs);
+
+        //         // Self::lemma_addrs_not_modified_by_recovery_do_not_change(mem1, overall_metadata, new_log, i);
+        //     }
+        // }
+                
+
+
+
+        // pub proof fn lemma_apply_phys_log_succeeds_if_recover_succeeds(
+        //     mem: Seq<u8>, 
+        //     overall_metadata: OverallMetadata,
+        //     phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        // )
+        //     requires
+        //         Self::physical_recover(mem, overall_metadata) is Some,
+        //         phys_log == UntrustedOpLog::<K, L>::recover(mem, overall_metadata).unwrap().physical_op_list,
+        //     ensures 
+        //         Self::apply_physical_log_entries(mem, phys_log) is Some,
+        // {}
+
+        // pub proof fn lemma_recover_fails_if_apply_phys_log_fails(
+        //     mem: Seq<u8>, 
+        //     overall_metadata: OverallMetadata,
+        //     phys_log: Seq<AbstractPhysicalOpLogEntry>, 
+        // )
+        //     ensures
+        //         Self::apply_physical_log_entries(mem, phys_log) is None ==> 
+        //             Self::physical_recover(mem, overall_metadata) is None,
+        //     decreases phys_log.len(),
+        // {
+        //     if phys_log.len() == 0 {
+        //         // trivial -- we always succeed in this case
+        //     } else {
+        //         let current_entry = phys_log[0];
+        //         let new_log = phys_log.drop_first();
+
+        //         // let mem1 = Self::apply_physical_log_entry(mem, current_entry);
+        //         // if let Some(mem1) = mem1 {
+        //         //     Self::lemma_recover_fails_if_apply_phys_log_fails(
+        //         //         mem1,
+        //         //         overall_metadata,
+        //         //         new_log
+        //         //     );
+        //         //     assume(false);
+        //         // } else {
+        //         //     assert(mem1 is None);
+        //         //     assert(Self::apply_physical_log_entries(mem, phys_log) is None);
+        //         //     assert(Self::physical_recover(mem, overall_metadata) is None);
+        //         // }
+        //     }
+        // }
+
 
         // In logical recovery, we replay logical log entries based on replay functions provided by each component
         // TODO: might be useful to return mem from here?
@@ -389,6 +748,13 @@ verus! {
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::physical_recover(s, overall_metadata) == Some(state),
                 wrpm_region@.len() == overall_metadata.region_size,
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                    let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    &&& abstract_op_log matches Some(abstract_log)
+                    &&& 0 < abstract_log.len() <= u64::MAX
+                }),
             ensures
                 match result {
                     Ok(kvstore) => {
@@ -402,176 +768,118 @@ verus! {
                     Err(_) => false
                 }
         {
-            assume(false);
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, overall_metadata)?;
 
             // 2. Replay the log onto the entire PM region
+            // Log entries are replayed blindly onto bytes; components do not have their own
+            // replay functions. We only parse them after finishing log replay
             
             assume(false);
             Err(KvError::NotImplemented)
         }
 
-        fn install_log(
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
+        fn install_log<Perm>(
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
             op_log: UntrustedOpLog<K, L>,
-            physical_log_buf: Vec<u8>,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+            phys_log: Vec<PhysicalOpLogEntry>,
+            Tracked(perm): Tracked<&Perm>,
             Ghost(state): Ghost<DurableKvStoreView<K, I, L>>,
             // Ghost(op_log_state): Ghost<AbstractOpLogState<L>>
         ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
+                Perm: CheckPermission<Seq<u8>>,
             requires
-                // old(wrpm_region).inv(),
-                // old(wrpm_region)@.no_outstanding_writes(),
-                // Self::physical_recover(old(wrpm_region)@.committed(), overall_metadata) == Some(state),
-                // ({
-                //     let mem = old(wrpm_region)@.committed();
-                //     let deserialized_version_metadata = deserialize_version_metadata(mem);
-                //     let deserialized_overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
-                //     &&& deserialized_version_metadata == version_metadata
-                //     &&& deserialized_overall_metadata == overall_metadata
-                // }),
-                // overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
-                // memory_correctly_set_up_on_region::<K, I, L>(old(wrpm_region)@.committed(), overall_metadata.kvstore_id),
-                // overall_metadata.log_area_addr + overall_metadata.log_area_size <= old(wrpm_region)@.len() <= u64::MAX,
-                // overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-                // forall |s| #[trigger] perm.check_permission(s) <==> Self::physical_recover(s, overall_metadata) == Some(state),
-                // u64::spec_size_of() * 2 < physical_log_buf@.len() <= u64::MAX, // log needs to fit at least 2 u64 
-                // UntrustedOpLog::<K,L>::parse_log_ops(physical_log_buf@) is Some,
-                // UntrustedOpLog::<K,L>::parse_log_ops(physical_log_buf@).unwrap() == op_log@.physical_op_list,
-                // op_log.inv(*old(wrpm_region), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
-                // old(wrpm_region)@.no_outstanding_writes(),
-                // op_log@ == UntrustedOpLog::<K, L>::recover(old(wrpm_region)@.committed(), overall_metadata).unwrap(),
-                // 0 < op_log@.physical_op_list.len() <= u64::MAX,
-                // // the only thing we are allowed to do is recover to the specified state
-                // forall |s| #[trigger] perm.check_permission(s) <==> Self::physical_recover(s, overall_metadata) == Some(state),
-                // // replaying the log should not modify the log itself
-                // extract_bytes(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
-                //     extract_bytes(Self::apply_physical_log_entries(old(wrpm_region)@.committed(), op_log@.physical_op_list).unwrap(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                old(wrpm_region).inv(),
+                old(wrpm_region)@.no_outstanding_writes(),
+                old(wrpm_region)@.len() == overall_metadata.region_size,
+                PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                phys_log.len() > 0,
+                UntrustedLogImpl::recover(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                    let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    &&& abstract_op_log matches Some(abstract_op_log)
+                    &&& abstract_op_log == phys_log_view
+                }),
+                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             ensures 
-                // match result {
-                //     Ok(()) => {
-                //         &&& Self::apply_physical_log_entries(old(wrpm_region)@.committed(), op_log@.physical_op_list) matches Some(mem_with_log_installed)
-                //         &&& wrpm_region@.committed() == mem_with_log_installed
-                //     }
-                //     Err(_) => true // TODO
-                // }
+                // TODO
         {
-            // // // First, establish that a write to any byte modified by recovery is always safe
-            // // // This spec fn returns true if a byte will be overwritten by a completed recovery
-            // // let ghost addr_modified_by_recovery = |i: int| {
-            // //     exists |j: int| 0 <= j < op_log_state.physical_op_list.len() ==> {
-            // //         #[trigger] op_log_state.physical_op_list[j].absolute_addr <= i < op_log_state.physical_op_list[j].absolute_addr + #[trigger] op_log_state.physical_op_list[j].len
-            // //     }
-            // // };
+            let log_start_addr = overall_metadata.log_area_addr;
+            let log_size = overall_metadata.log_area_size;
+            let region_size = overall_metadata.region_size;
 
-            // // Go through the physical log and copy logged bytes to their specified positions
-            // let mut offset = 0;
-            // let mut index = 0; // TODO: remove this or make this ghost once you've figured the proof out?
+            let mut index = 0;
+            while index < phys_log.len() 
+                invariant
+                    wrpm_region.inv(),
+                    wrpm_region@.no_outstanding_writes(),
+                    wrpm_region@.len() == overall_metadata.region_size,
+                    PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
+                    UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
+                    ({
+                        let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                        let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                        let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                        &&& abstract_op_log matches Some(abstract_op_log)
+                        &&& abstract_op_log == phys_log_view
+                    }),
+                    0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                    0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+            {
+                let op = &phys_log[index];
 
-            // // proof {
-            // //     assert(UntrustedOpLog::<K,L>::parse_log_ops(physical_log_buf@).unwrap() == op_log@.physical_op_list);
-            // //     let base_log = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-            // //     lemma_establish_extract_bytes_equivalence(base_log.log, physical_log_buf@);
-            // //     assert(physical_log_buf@ == extract_bytes(base_log.log, 0, (base_log.log.len() - u64::spec_size_of()) as nat));
-            // //     lemma_establish_extract_bytes_equivalence(extract_bytes(base_log.log, 0, (base_log.log.len() - u64::spec_size_of()) as nat), physical_log_buf@);
+                proof {
+                    // These two assertions are obvious from the loop invariant, but we need them to for triggers
+                    assert(op.inv(overall_metadata)); 
+                    assert({
+                        ||| op.absolute_addr + op.len < overall_metadata.log_area_addr
+                        ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= op.absolute_addr
+                    });
+                    // TODO
+                    assume(false);
+                    // assume({
+                    //     &&& op.absolute_addr <= region_size
+                    //     &&& op.absolute_addr + op.len <= region_size 
+                    //     &&& op.len == op.bytes.len()
+                    // });
+                    // assert(forall |i: int| 0 <= i < phys_log.len() ==> {
+                    //     let op = #[trigger] phys_log[i];
+                    //     &&& op.absolute_addr <= region_size
+                    //     &&& op.absolute_addr + op.len <= region_size 
+                    //     &&& op.len == op.bytes.len()
+                    // });
 
-            // //     let op = op_log@.physical_op_list[0];
-            // //     let absolute_addr_bytes = extract_bytes(physical_log_buf@, offset as nat, u64::spec_size_of());
-            // //     let len_bytes = extract_bytes(physical_log_buf@, (offset + u64::spec_size_of()) as nat, u64::spec_size_of());
-            // //     let absolute_addr = u64::spec_from_bytes(absolute_addr_bytes) as nat;
-            // //     let len = u64::spec_from_bytes(len_bytes) as nat;
-
-            // //     let bytes = extract_bytes(physical_log_buf@, (offset + u64::spec_size_of() * 2) as nat, len);
-
-            // //     assert(op_log@.physical_op_list[index as int] == AbstractPhysicalOpLogEntry { absolute_addr, len, bytes });
-            // // }
-
-            // let ghost old_log_bytes = extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
-
-            // while offset < physical_log_buf.len() 
-            //     invariant 
-            //         wrpm_region.inv(),
-            //         0 < physical_log_buf@.len() <= u64::MAX,
-            //         overall_metadata.region_size <= wrpm_region@.len(),
-            //         wrpm_region@.no_outstanding_writes(),
-            //         op_log@.physical_op_list.len() > 0,
-            //         forall |s| #[trigger] perm.check_permission(s) <==> Self::physical_recover(s, overall_metadata) == Some(state),
-            //         extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == old_log_bytes,
-
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    let addr_modified_by_recovery = |i: int| {
+                        exists |j: int| 0 <= j < phys_log_view.len() ==> {
+                            #[trigger] phys_log_view[j].absolute_addr <= i < phys_log_view[j].absolute_addr + #[trigger] phys_log_view[j].bytes.len()
+                        }
+                    };
+                    // Again, these are obviously true, but they help with triggers so that we can satisfy
+                    // the precondition of lemma_safe_recovery_writes
+                    assert(phys_log_view[index as int] == op@);
+                    assert(forall |i: int| op@.absolute_addr <= i < op@.absolute_addr + op@.bytes.len() ==> 
+                            #[trigger] addr_modified_by_recovery(i));
                     
-            //         op_log.inv(*wrpm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
-            //         0 <= index <= op_log@.physical_op_list.len() <= u64::MAX,
-            //         UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata) is Some,
-            //         op_log@ == UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata).unwrap(),
-            //         Self::physical_recover(wrpm_region@.committed(), overall_metadata) == Some(state),
-            //         ({
-            //             let absolute_addr_bytes = extract_bytes(physical_log_buf@, offset as nat, u64::spec_size_of());
-            //             let len_bytes = extract_bytes(physical_log_buf@, (offset + u64::spec_size_of()) as nat, u64::spec_size_of());
-            //             let absolute_addr = u64::spec_from_bytes(absolute_addr_bytes) as nat;
-            //             let len = u64::spec_from_bytes(len_bytes) as nat;
-            //             let bytes = extract_bytes(physical_log_buf@, (offset + u64::spec_size_of() * 2) as nat, len);
-            //             op_log@.physical_op_list[index as int] == AbstractPhysicalOpLogEntry { absolute_addr, len, bytes }
-            //         }),
-            // {
-            //     if {
-            //         ||| offset > u64::MAX as usize - traits_t::size_of::<u64>() * 2
-            //         ||| offset + traits_t::size_of::<u64>() * 2 > physical_log_buf.len()
-            //         ||| index >= u64::MAX // TODO this should not be necessary..
-            //     } {
-            //         return Err(KvError::IndexOutOfRange);
-            //     }
+                    lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, perm, op.absolute_addr as int, op.bytes@);
+                }
 
-            //     let absolute_addr_bytes = slice_range(&physical_log_buf, offset, traits_t::size_of::<u64>());
-            //     let absolute_addr = u64_from_le_bytes(absolute_addr_bytes); // this does a copy and handles alignment right?
-            //     let len_bytes = slice_range(&physical_log_buf, offset + traits_t::size_of::<u64>(), traits_t::size_of::<u64>());
-            //     let len = u64_from_le_bytes(len_bytes); // this does a copy and handles alignment right?
+                // write the current op's updates to the specified location on storage
+                wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
+                wrpm_region.flush();
 
-            //     if {
-            //         ||| offset + traits_t::size_of::<u64>() * 2 > u64::MAX as usize - len as usize 
-            //         ||| offset + traits_t::size_of::<u64>() * 2 + len as usize > physical_log_buf.len()
-            //         ||| len == 0
-            //         ||| absolute_addr > u64::MAX - len
-            //         ||| absolute_addr + len >= overall_metadata.region_size
-            //     } {
-            //         return Err(KvError::IndexOutOfRange);
-            //     }
-
-            //     let bytes = slice_range(&physical_log_buf, offset + traits_t::size_of::<u64>() * 2, len as usize);
-
-            //     proof {
-            //         let addr_modified_by_recovery = |i: int| {
-            //             exists |j: int| 0 <= j < op_log@.physical_op_list.len() ==> {
-            //                 #[trigger] op_log@.physical_op_list[j].absolute_addr <= i < op_log@.physical_op_list[j].absolute_addr + #[trigger] op_log@.physical_op_list[j].len
-            //             }
-            //         };
-            //         assert forall |i: int| absolute_addr <= i < absolute_addr + bytes.len() implies #[trigger] addr_modified_by_recovery(i) by {
-            //             broadcast use pmcopy_axioms;
-            //             assert(op_log@.physical_op_list[index as int].absolute_addr == absolute_addr);
-            //             assert(op_log@.physical_op_list[index as int].len == len);
-            //         }
-            //         lemma_safe_recovery_writes::<PM, K, I, L>(wrpm_region@, overall_metadata, op_log@, perm, absolute_addr as int, bytes@);
-            //     }
-
-            //     let ghost old_log = extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
-
-            //     // write the logged bytes to PM
-            //     wrpm_region.write(absolute_addr, bytes, Tracked(perm));
-            //     wrpm_region.flush(); // TODO: to avoid a flush on each one, we would have to prove that the log only updates each address once
-            //     assert((absolute_addr + bytes.len() < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= absolute_addr));
-            //     assert(old_log =~= extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-
-            //     offset += traits_t::size_of::<u64>() * 2 + len as usize;
-            //     index += 1;
-            // }
-
-
-
+                index += 1;
+            }
 
             assume(false);
             Err(KvError::NotImplemented)
