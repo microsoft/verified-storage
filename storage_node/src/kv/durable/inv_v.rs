@@ -69,7 +69,7 @@ verus! {
             wrpm_region@.no_outstanding_writes(),
             wrpm_region@.len() == overall_metadata.region_size,
             phys_log.len() > 0,
-            0 <= addr < addr + bytes.len() < wrpm_region@.len(),
+            0 <= addr < addr + bytes.len() <= wrpm_region@.len(),
             UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
             DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) is Some,
             ({
@@ -79,7 +79,7 @@ verus! {
                 &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata)
             }),
             forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(phys_log, i),
-            addr + bytes.len() < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr,
+            addr + bytes.len() <= overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr,
             0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
             0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
         ensures

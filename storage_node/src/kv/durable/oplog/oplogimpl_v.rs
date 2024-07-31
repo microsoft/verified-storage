@@ -82,15 +82,7 @@ verus! {
                             op_list_committed: true
                         })
                     } else {
-                        let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
-                        let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-                        let crc = u64::spec_from_bytes(crc_bytes);
-                        // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
-                        if !u64::bytes_parseable(crc_bytes) {
-                            None
-                        } else if crc != spec_crc_u64(log_contents) {
-                            None
-                        } else {
+                        if let Some(log_contents) = Self::get_log_contents(log) {
                             // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
                             // if we don't know exactly what it is)
                             if let Some(physical_log_entries) =  Self::parse_log_ops(
@@ -112,10 +104,27 @@ verus! {
                             } else {
                                 None
                             }
+                        } else {
+                            None
                         }
                     }
                 }
                 None => None
+            }
+        }
+
+        pub open spec fn get_log_contents(log: AbstractLogState) -> Option<Seq<u8>>
+        {
+            let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
+            let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+            let crc = u64::spec_from_bytes(crc_bytes);
+            // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
+            if !u64::bytes_parseable(crc_bytes) {
+                None
+            } else if crc != spec_crc_u64(log_contents) {
+                None
+            } else {
+                Some(log_contents)
             }
         }
 
@@ -176,39 +185,6 @@ verus! {
             Self::lemma_op_log_parse_equal(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);  
         }
 
-        // pub proof fn lemma_successful_parse_implies_invariants(
-        //     start: nat,
-        //     mid: nat,
-        //     end: nat,
-        //     log_contents: Seq<u8>,
-        //     log_start_addr: nat, 
-        //     log_size: nat,
-        //     region_size: nat,
-        // )
-        // requires
-        //     start <= mid <= end <= log_contents.len(),
-        //     Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size) is Some,
-        //     Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is Some,
-        //     Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size) is Some,
-        //     ({
-        //         let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
-        //         &&& last_op matches Some(last_op)
-        //         &&& end == last_op.offset + u64::spec_size_of() * 2 + last_op.len
-        //     })
-        // ensures
-        //     ({
-        //         let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size).unwrap();
-        //         last_op.absolute_addr < last_op.absolute_addr + last_op.len <= region_size
-        //     })
-        // {
-        //     if mid == start {
-
-        //     } else {
-        //         // assume(false);
-        //     }
-        // }
-
-
         pub open spec fn parse_log_op(
             offset: nat,
             log_contents: Seq<u8>,
@@ -222,8 +198,11 @@ verus! {
             let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of()));
             if {
                 ||| absolute_addr + len > region_size
-                ||| log_start_addr <= absolute_addr < log_start_addr + log_size 
-                ||| log_start_addr <= absolute_addr + len < log_start_addr + log_size
+                ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
+                ||| !({
+                    ||| absolute_addr < absolute_addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= absolute_addr < absolute_addr + len // region ends after log area
+                })
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len
             } {
@@ -290,6 +269,36 @@ verus! {
             }
         }
 
+        pub proof fn lemma_successful_log_ops_parse_implies_inv(
+            current_offset: nat,
+            target_offset: nat,
+            log_contents: Seq<u8>,
+            overall_metadata: OverallMetadata,
+        )
+            requires 
+                Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some 
+            ensures 
+                ({
+                    let parsed_log = Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat).unwrap();
+                    AbstractPhysicalOpLogEntry::log_inv(parsed_log, overall_metadata)
+                })
+            decreases target_offset - current_offset
+        {
+            if target_offset == current_offset {
+                // trivial
+            } else {
+                let op = Self::parse_log_op(current_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                assert(op is Some); // inv holds when op can be parsed
+                let entry_size = u64::spec_size_of() * 2 + op.unwrap().len;
+                Self::lemma_successful_log_ops_parse_implies_inv(
+                    current_offset + entry_size,
+                    target_offset,
+                    log_contents,
+                    overall_metadata
+                );
+            }
+        }
+
         pub exec fn parse_phys_op_log<Perm, PM>(
             pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             log_bytes: Vec<u8>,
@@ -317,17 +326,26 @@ verus! {
                     &&& abstract_op_log matches Some(abstract_log)
                     &&& 0 < abstract_log.len() <= u64::MAX
                 }),
+                ({
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                    let parsed_ops = Self::parse_log_ops(log_bytes@, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    &&& recovered_log matches Some(recovered_log)
+                    &&& parsed_ops matches Some(parsed_ops)
+                    &&& recovered_log.physical_op_list == parsed_ops
+                }),
                 u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX,
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= u64::MAX
             ensures 
                 match result {
                     Ok(phys_log) => {
-                        let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                        let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                        let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
-                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                        &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& abstract_op_log == phys_log_view
+                        ||| phys_log.len() == 0
+                        ||| {
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                            &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& abstract_op_log.physical_op_list == phys_log_view
+                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                        }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -354,6 +372,11 @@ verus! {
             assert(Some(phys_log_view) == Self::parse_log_ops_helper(0, 0, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat))
         }
 
+        // let ghost old_log_start_addr = log_start_addr;
+        // let ghost old_log_size = log_size;
+        // let ghost old_region_size = region_size;
+        let ghost old_overall_metadata = overall_metadata;
+
         while offset < log_bytes.len()
             invariant
                 u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX,
@@ -363,9 +386,21 @@ verus! {
                     let phys_log_view = Seq::new(ops@.len(), |i: int| ops[i]@);
                     &&& Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) matches Some(abstract_log_view)
                     &&& phys_log_view == abstract_log_view
+                    &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                }),
+                ({
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                    let parsed_ops = Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                    &&& recovered_log matches Some(recovered_log)
+                    &&& parsed_ops matches Some(parsed_ops)
+                    &&& recovered_log.physical_op_list == parsed_ops
                 }),
                 log_start_addr + log_size <= u64::MAX,
                 offset <= log_bytes.len(),
+                old_overall_metadata == overall_metadata,
+                log_start_addr == overall_metadata.log_area_addr,
+                log_size == overall_metadata.log_area_size,
+                region_size == overall_metadata.region_size,
         {
             broadcast use pmcopy_axioms;
 
@@ -387,8 +422,10 @@ verus! {
                 ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
                 ||| addr >= u64::MAX - len
                 ||| addr + len > region_size 
-                ||| (log_start_addr <= addr && addr < log_start_addr + log_size)
-                ||| (log_start_addr <= addr + len && addr + len < log_start_addr + log_size)
+                ||| !({
+                    ||| addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= addr // region ends after log area
+                })
             } {
                 return Err(KvError::InternalError);
             }
@@ -409,11 +446,16 @@ verus! {
             offset += entry_size;
 
             proof {
-                // Prove that the loop invariant holds by invoking the inductive lemma to prove that iterative and recursive parsing are equivalent
-                let abstract_partial_log = Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
                 let phys_log_view = Seq::new(ops@.len(), |i: int| ops[i]@);
+                assert(Self::parse_log_op(old_offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) is Some);
                 Self::lemma_op_log_parse_equal(0, old_offset as nat, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);      
-                assert(abstract_partial_log.unwrap() == phys_log_view);
+                
+                let abstract_partial_log = Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                assert(abstract_partial_log is Some);
+                let abstract_partial_log = abstract_partial_log.unwrap();
+                assert(abstract_partial_log == phys_log_view);
+
+                Self::lemma_successful_log_ops_parse_implies_inv(0, offset as nat, log_bytes@, overall_metadata);
             }
         }
         Ok(ops)
@@ -445,14 +487,13 @@ verus! {
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {
-                    ||| op_log_impl.log_len() == 0
+                    ||| phys_log.len() == 0
                     ||| {
-                        let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                        let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                        let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
                         let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                         &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& abstract_op_log == phys_log_view
+                        &&& abstract_op_log.physical_op_list == phys_log_view
+                        &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
                     }
                 }
                 Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,

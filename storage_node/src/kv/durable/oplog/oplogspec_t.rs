@@ -24,7 +24,7 @@ verus! {
             &&& self.len > 0
             &&& 0 <= self.absolute_addr < self.absolute_addr + self.len <= overall_metadata.region_size
             &&& ({
-                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
+                ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
                 ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
             &&& self.len == self.bytes.len()

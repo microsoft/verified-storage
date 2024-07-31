@@ -114,9 +114,9 @@ verus! {
 
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
             &&& self.len > 0
-            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
+            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len <= overall_metadata.region_size
             &&& ({
-                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
+                ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
                 ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
             &&& self.len == self.bytes.len()
@@ -124,6 +124,29 @@ verus! {
 
         pub open spec fn log_inv(log: Vec<PhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool {
             forall |i: int| 0 <= i < log.len() ==> #[trigger] log[i].inv(overall_metadata)
+        }
+
+        pub proof fn lemma_abstract_log_inv_implies_concrete_log_inv(log: Vec<PhysicalOpLogEntry>, overall_metadata: OverallMetadata)
+            requires
+                ({
+                    let log_view = Seq::new(log@.len(), |i: int| log[i]@);
+                    AbstractPhysicalOpLogEntry::log_inv(log_view, overall_metadata)
+                })
+            ensures 
+                PhysicalOpLogEntry::log_inv(log, overall_metadata)
+        {
+            let log_view = Seq::new(log@.len(), |i: int| log[i]@);
+            assert(forall |i: int| 0 <= i < log.len() ==> #[trigger] log_view[i] == #[trigger] log[i]@);
+            assert(forall |i: int| 0 <= i < log.len() ==> (#[trigger] log_view[i]).inv(overall_metadata));
+            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]@).inv(overall_metadata) by {
+                assert(log[i]@ =~= log_view[i]);
+            }
+            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]).inv(overall_metadata) by {
+                let op = log[i];
+                assert(op.absolute_addr == op@.absolute_addr);
+                assert(op.len == op@.len);
+                assert(op.absolute_addr + op.len <= overall_metadata.region_size);
+            }
         }
     }
 

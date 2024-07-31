@@ -755,6 +755,9 @@ verus! {
                     &&& abstract_op_log matches Some(abstract_log)
                     &&& 0 < abstract_log.len() <= u64::MAX
                 }),
+                // TODO: move these into one of the metadata validity spec fns
+                0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
             ensures
                 match result {
                     Ok(kvstore) => {
@@ -775,19 +778,29 @@ verus! {
             // 2. Replay the log onto the entire PM region
             // Log entries are replayed blindly onto bytes; components do not have their own
             // replay functions. We only parse them after finishing log replay
+            if phys_log.len() > 0 {
+                proof {
+                    PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, overall_metadata);
+                }
+                Self::install_log(&mut wrpm_region, overall_metadata, version_metadata, phys_log, Tracked(perm));
+            }
+            
             
             assume(false);
             Err(KvError::NotImplemented)
         }
 
+        // This function installs the log by blindly replaying physical log entries onto the WRPM region. All writes
+        // made by this function are crash-safe; if we crash during this operation, replaying the full log on the resulting
+        // crash state gets us to the final desired state. This function does not return a Result because it cannot fail
+        // as long as the log is well-formed, which is required by the precondition.
         fn install_log<Perm>(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
-            op_log: UntrustedOpLog<K, L>,
             phys_log: Vec<PhysicalOpLogEntry>,
             Tracked(perm): Tracked<&Perm>,
-        ) -> (result: Result<(), KvError<K>>)
+        ) 
             where 
                 PM: PersistentMemoryRegion,
                 Perm: CheckPermission<Seq<u8>>,
@@ -811,15 +824,12 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
-                match result {
-                    Ok(()) => {
-                        let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
-                        let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
-                        &&& recovery_state matches Some(recovery_state)
-                        &&& recovery_state == true_recovery_state
-                    }
-                    Err(_) => false
-                }
+                ({
+                    let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
+                    let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
+                    &&& recovery_state matches Some(recovery_state)
+                    &&& recovery_state == true_recovery_state
+                })   
         {
             let log_start_addr = overall_metadata.log_area_addr;
             let log_size = overall_metadata.log_area_size;
@@ -859,7 +869,7 @@ verus! {
                     // These two assertions are obvious from the loop invariant, but we need them to for triggers
                     assert(op.inv(overall_metadata)); 
                     assert({
-                        ||| op.absolute_addr + op.len < overall_metadata.log_area_addr
+                        ||| op.absolute_addr + op.len <= overall_metadata.log_area_addr
                         ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= op.absolute_addr
                     });
 
@@ -869,7 +879,6 @@ verus! {
                         #[trigger] addr_modified_by_recovery(phys_log_view, i));
 
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                    
                     // Prove that any write to an address modified by recovery is crash-safe
                     lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
                 }
@@ -880,8 +889,6 @@ verus! {
 
                 index += 1;
             }
-
-            Ok(())
         }
 
 
