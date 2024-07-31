@@ -3,11 +3,12 @@
 DB=$1
 RESULTS_DIR=$2
 PM=$3
-OP_COUNT=500000
-RECORD_COUNT=500000
+OP_COUNT=10000000
+RECORD_COUNT=10000000
 mount_point=/mnt/pmem
 pm_device=/dev/pmem0
 dram_db_dir=~/db_files # TODO: should this be in /tmp?
+iterations=10
 
 REDIS_PID=0
 
@@ -102,10 +103,13 @@ fi
 options=""
 if [ $DB = "rocksdb" ]; then 
     if [ $PM == "--pm" ]; then
+        DB="pmemrocksdb"
         options="-p rocksdb.dir=$mount_point -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
     else 
         options="-p rocksdb.dir=$dram_db_dir -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
     fi
+elif [ $DB = "pmemrocksdb" ]; then 
+    options="-p rocksdb.dir=$mount_point -p rocksdb.allow_mmap_reads=true -p rocksdb.allow_mmap_writes=true"
 elif [ $DB = "redis" ]; then 
     options="-p redis.host=127.0.0.1 -p redis.port=6379"
 elif [ $DB = "capybarakv" ]; then 
@@ -116,7 +120,7 @@ echo $options
 
 export LD_LIBRARY_PATH=~/verified-storage/evaluation/ycsb_ffi/target/debug
 
-iter=1
+
 
 mkdir -p $RESULTS_DIR/$DB/Loada
 check_error $?
@@ -133,40 +137,43 @@ check_error $?
 sudo chmod 777 $RESULTS_DIR -R
 
 cd YCSB
-if [ $DB = "capybarakv" ]; then 
-    setup_capybarakv $use_pm
-elif [ $DB = "redis" ]; then 
-    echo "Starting redis..."
-    setup_redis $use_pm
-elif [ $DB = "rocksdb" ]; then 
-    setup_rocksdb $use_pm
-else 
-    echo "Unrecognized database $DB"
-    exit 1
-fi
 
-./bin/ycsb load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
-check_error $?
-./bin/ycsb run $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
-check_error $?
-./bin/ycsb run $DB -threads 1 -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
-check_error $?
-./bin/ycsb run $DB -threads 1 -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
-check_error $?
+for iter in $(seq $iterations); do 
+    if [ $DB = "capybarakv" ]; then 
+        setup_capybarakv $use_pm
+    elif [ $DB = "redis" ]; then 
+        echo "Starting redis..."
+        setup_redis $use_pm
+    elif [ $DB = "rocksdb" ] || [ $DB = "pmemrocksdb" ]; then 
+        setup_rocksdb $use_pm
+    else 
+        echo "Unrecognized database $DB"
+        exit 1
+    fi
 
-if [ $DB = "capybarakv" ]; then 
-    setup_capybarakv $use_pm
-elif [ $DB = "redis" ]; then 
-    setup_redis $use_pm
-elif [ $DB = "rocksdb" ]; then 
-    setup_rocksdb $use_pm
-else 
-    echo "Unrecognized database $DB"
-    exit 1
-fi
-./bin/ycsb load $DB -threads 1 -s -P workloads/workloade -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loade/Run$iter
-check_error $?
-./bin/ycsb run $DB -threads 1 -s -P workloads/workloadf -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runf/Run$iter
-check_error $?
+    ./bin/ycsb load $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loada/Run$iter
+    check_error $?
+    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloada -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runa/Run$iter
+    check_error $?
+    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadb -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runb/Run$iter
+    check_error $?
+    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadc -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runc/Run$iter
+    check_error $?
 
-cleanup
+    if [ $DB = "capybarakv" ]; then 
+        setup_capybarakv $use_pm
+    elif [ $DB = "redis" ]; then 
+        setup_redis $use_pm
+    elif [ $DB = "rocksdb" ] || [ $DB = "pmemrocksdb" ]; then 
+        setup_rocksdb $use_pm
+    else 
+        echo "Unrecognized database $DB"
+        exit 1
+    fi
+    ./bin/ycsb load $DB -threads 1 -s -P workloads/workloade -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Loade/Run$iter
+    check_error $?
+    ./bin/ycsb run $DB -threads 1 -s -P workloads/workloadf -p recordcount=$RECORD_COUNT -p operationcount=$OP_COUNT $options > ../$RESULTS_DIR/$DB/Runf/Run$iter
+    check_error $?
+
+    cleanup
+done
