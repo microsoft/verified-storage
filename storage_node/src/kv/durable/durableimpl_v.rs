@@ -787,8 +787,6 @@ verus! {
             op_log: UntrustedOpLog<K, L>,
             phys_log: Vec<PhysicalOpLogEntry>,
             Tracked(perm): Tracked<&Perm>,
-            Ghost(state): Ghost<DurableKvStoreView<K, I, L>>,
-            // Ghost(op_log_state): Ghost<AbstractOpLogState<L>>
         ) -> (result: Result<(), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
@@ -813,7 +811,15 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
-                // TODO
+                match result {
+                    Ok(()) => {
+                        let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
+                        let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
+                        &&& recovery_state matches Some(recovery_state)
+                        &&& recovery_state == true_recovery_state
+                    }
+                    Err(_) => false
+                }
         {
             let log_start_addr = overall_metadata.log_area_addr;
             let log_size = overall_metadata.log_area_size;
@@ -864,9 +870,8 @@ verus! {
 
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     
+                    // Prove that any write to an address modified by recovery is crash-safe
                     lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
-                
-                    let new_wrpm = wrpm_region@.write(op.absolute_addr as int, op.bytes@).flush();
                 }
 
                 // write the current op's updates to the specified location on storage
@@ -876,8 +881,7 @@ verus! {
                 index += 1;
             }
 
-            assume(false);
-            Err(KvError::NotImplemented)
+            Ok(())
         }
 
 
