@@ -55,7 +55,6 @@ verus! {
         wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         overall_metadata: OverallMetadata,
         phys_log: Seq<AbstractPhysicalOpLogEntry>,
-        perm: &Perm,
         addr: int,
         bytes: Seq<u8>
     )
@@ -79,8 +78,6 @@ verus! {
                 &&& abstract_op_log.physical_op_list == phys_log
                 &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata)
             }),
-            forall |s| DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) 
-                ==> perm.check_permission(s),
             forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(phys_log, i),
             addr + bytes.len() < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr,
             0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
@@ -92,20 +89,21 @@ verus! {
                 forall |s| wrpm_region@.write(addr, bytes).can_crash_as(s) ==> {
                     &&& DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) matches Some(crash_recover_state)
                     &&& crash_recover_state == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap()
-                    &&& perm.check_permission(s)
                 }
             }),
             ({
+                // this one is failing
                 let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
-                UntrustedLogImpl::recover(new_wrpm_region.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
+                &&& DurableKvStore::<PM, K, I, L>::physical_recover(new_wrpm_region.committed(), overall_metadata) is Some
+                &&& DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap() == 
+                        DurableKvStore::<PM, K, I, L>::physical_recover(new_wrpm_region.committed(), overall_metadata).unwrap()
             }),
             ({
                 let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
-                let base_log_state = UntrustedLogImpl::recover(new_wrpm_region.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                let abstract_op_log = UntrustedOpLog::<K, L>::recover(new_wrpm_region.committed(), overall_metadata);
                 &&& abstract_op_log matches Some(abstract_op_log)
-                &&& abstract_op_log == phys_log
+                &&& abstract_op_log.physical_op_list == phys_log
+                &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata)
             })
     {
         let new_wrpm_region = wrpm_region@.write(addr, bytes);
@@ -128,7 +126,6 @@ verus! {
         assert forall |s| new_wrpm_region.can_crash_as(s) implies {
             &&& DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) matches Some(crash_recover_state)
             &&& crash_recover_state == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap()
-            &&& perm.check_permission(s)
         } by {
             lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), s);
             
@@ -182,71 +179,10 @@ verus! {
             assert(forall |i: int| 0 <= i < s.len() && #[trigger] s[i] != #[trigger] wrpm_region@.committed()[i] ==> #[trigger] addr_modified_by_recovery(phys_log, i));
 
             assert(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata).unwrap() == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
-            
-            assert(perm.check_permission(s));
         }
+        
+        // We've just proven that all possible crash states recover to the desired state, and new_wrpm_region_flushed is a possible crash state,
+        // so it also recovers to the desired state.
+        assert(new_wrpm_region.can_crash_as(new_wrpm_region_flushed.committed()));
     }
-
-    // pub proof fn lemma_safe_recovery_writes<PM, K, I, L>(
-    //     pm_region: PersistentMemoryRegionView,
-    //     overall_metadata: OverallMetadata,
-    //     op_log: AbstractOpLogState<L>,
-    //     perm: &TrustedKvPermission<PM>,
-    //     addr: int,
-    //     bytes: Seq<u8>,
-    // )
-    //     where 
-    //         PM: PersistentMemoryRegion,
-    //         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
-    //         I: PmCopy + Sized + std::fmt::Debug,
-    //         L: PmCopy + std::fmt::Debug + Copy,
-    //     requires
-    //         // pm_region.inv(),
-    //         op_log.physical_op_list.len() > 0,
-    //         op_log == UntrustedOpLog::<K, L>::recover(pm_region.committed(), overall_metadata).unwrap(),
-    //         DurableKvStore::<PM, K, I, L>::physical_recover(pm_region.committed(), overall_metadata) is Some,
-    //         // the only thing we are allowed to do is recover to the specified state
-    //         forall |s| #[trigger] perm.check_permission(s) <==> DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) == 
-    //             DurableKvStore::<PM, K, I, L>::physical_recover(pm_region.committed(), overall_metadata),
-    //         0 <= addr < addr + bytes.len() < pm_region.len(),
-    //         ({
-    //             let addr_modified_by_recovery = |i: int| {
-    //                 exists |j: int| 0 <= j < op_log.physical_op_list.len() ==> {
-    //                     #[trigger] op_log.physical_op_list[j].absolute_addr <= i < op_log.physical_op_list[j].absolute_addr + #[trigger] op_log.physical_op_list[j].len
-    //                 }
-    //             };
-    //             forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(i)
-    //         })
-    //     ensures
-    //         ({
-    //             // if we can crash as s, recovering s is equivalent to recovering the original state
-    //             forall |s| pm_region.write(addr, bytes).can_crash_as(s) ==> {
-    //                 &&& DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) matches Some(crash_recover_state)
-    //                 &&& crash_recover_state == DurableKvStore::<PM, K, I, L>::physical_recover(pm_region.committed(), overall_metadata).unwrap()
-    //                 &&& perm.check_permission(s)
-    //             }
-    //             // let addr_modified_by_recovery = |i: int| {
-    //             //     exists |j: int| 0 <= j < op_log.physical_op_list.len() ==> {
-    //             //         #[trigger] op_log.physical_op_list[j].absolute_addr <= i < op_log.physical_op_list[j].absolute_addr + #[trigger] op_log.physical_op_list[j].len
-    //             //     }
-    //             // };
-    //             // // forall writes that only access addrs modified by recovery, the write is crash safe because recovering from the crashed state is equivalent
-    //             // // to recovering from the original state
-    //             // forall |addr: int, bytes: Seq<u8>| #![trigger pm_region.write(addr, bytes)] { 
-    //             //     &&& 0 <= addr < addr + bytes.len() < pm_region.len() 
-    //             //     &&& forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(i)
-    //             // } ==> {
-    //             //     // if we can crash as s, recovering s is equivalent to recovering the original state
-    //             //     forall |s| pm_region.write(addr, bytes).can_crash_as(s) ==> {
-    //             //         &&& DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) matches Some(crash_recover_state)
-    //             //         &&& crash_recover_state == DurableKvStore::<PM, K, I, L>::physical_recover(pm_region.committed(), overall_metadata).unwrap()
-    //             //         &&& perm.check_permission(s)
-    //             //     }
-    //             // }
-    //         })
-    // {
-    //     // TODO: once you are reasonably sure that this is what you need to prove that recovery is safe, prove it!
-    //     assume(false);
-    // }
-
 }

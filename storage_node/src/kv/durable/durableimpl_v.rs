@@ -801,21 +801,28 @@ verus! {
                 phys_log.len() > 0,
                 UntrustedLogImpl::recover(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
                 ({
-                    let base_log_state = UntrustedLogImpl::recover(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                    let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                    let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    let abstract_op_log = UntrustedOpLog::<K, L>::recover(old(wrpm_region)@.committed(), overall_metadata);
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     &&& abstract_op_log matches Some(abstract_op_log)
-                    &&& abstract_op_log == phys_log_view
+                    &&& abstract_op_log.physical_op_list == phys_log_view
+                    &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
                 }),
+                forall |s| DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) == DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) 
+                    ==> perm.check_permission(s),
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+                DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
                 // TODO
         {
             let log_start_addr = overall_metadata.log_area_addr;
             let log_size = overall_metadata.log_area_size;
             let region_size = overall_metadata.region_size;
+
+            let ghost old_phys_log = phys_log;
+            let ghost old_wrpm = wrpm_region@.committed();
+
+            let ghost final_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
 
             let mut index = 0;
             while index < phys_log.len() 
@@ -825,14 +832,18 @@ verus! {
                     wrpm_region@.len() == overall_metadata.region_size,
                     PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
                     UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
+                    forall |s|  DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) == 
+                        Some(final_recovery_state) ==> #[trigger] perm.check_permission(s),
+                    DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == 
+                        Some(final_recovery_state),
                     ({
-                        let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                        let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                        let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata);
                         let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                         &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& abstract_op_log == phys_log_view
+                        &&& abstract_op_log.physical_op_list == phys_log_view
+                        &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
                     }),
+                    old_phys_log == phys_log,
                     0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                     0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             {
@@ -845,33 +856,17 @@ verus! {
                         ||| op.absolute_addr + op.len < overall_metadata.log_area_addr
                         ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= op.absolute_addr
                     });
-                    // TODO
-                    assume(false);
-                    // assume({
-                    //     &&& op.absolute_addr <= region_size
-                    //     &&& op.absolute_addr + op.len <= region_size 
-                    //     &&& op.len == op.bytes.len()
-                    // });
-                    // assert(forall |i: int| 0 <= i < phys_log.len() ==> {
-                    //     let op = #[trigger] phys_log[i];
-                    //     &&& op.absolute_addr <= region_size
-                    //     &&& op.absolute_addr + op.len <= region_size 
-                    //     &&& op.len == op.bytes.len()
-                    // });
 
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                    let addr_modified_by_recovery = |i: int| {
-                        exists |j: int| 0 <= j < phys_log_view.len() ==> {
-                            #[trigger] phys_log_view[j].absolute_addr <= i < phys_log_view[j].absolute_addr + #[trigger] phys_log_view[j].bytes.len()
-                        }
-                    };
-                    // Again, these are obviously true, but they help with triggers so that we can satisfy
-                    // the precondition of lemma_safe_recovery_writes
-                    assert(phys_log_view[index as int] == op@);
-                    assert(forall |i: int| op@.absolute_addr <= i < op@.absolute_addr + op@.bytes.len() ==> 
-                            #[trigger] addr_modified_by_recovery(i));
+                    assert(phys_log_view[index as int] == phys_log[index as int]@);
+                    assert(forall |i: int| op.absolute_addr <= i < op.absolute_addr + op.len ==> 
+                        #[trigger] addr_modified_by_recovery(phys_log_view, i));
+
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     
-                    lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, perm, op.absolute_addr as int, op.bytes@);
+                    lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
+                
+                    let new_wrpm = wrpm_region@.write(op.absolute_addr as int, op.bytes@).flush();
                 }
 
                 // write the current op's updates to the specified location on storage
