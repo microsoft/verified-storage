@@ -409,7 +409,6 @@ verus! {
                     proof {
                         lemma_mul_strict_inequality(index as int, max_index as int, entry_slot_size as int);
                         if index + 1 < max_index {
-                            assert(index + 1 < max_index);
                             lemma_mul_strict_inequality(index + 1, max_index as int, entry_slot_size as int);
                         }
                         // also prove that we can read the next entry at this index without going out of bounds
