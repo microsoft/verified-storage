@@ -1043,50 +1043,22 @@ verus! {
 
             while index < phys_log.len() 
                 invariant
-                    wrpm_region.inv(),
-                    wrpm_region@.no_outstanding_writes(),
-                    wrpm_region@.len() == overall_metadata.region_size,
                     old_wrpm.len() == wrpm_region@.len(),
                     PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
-                    UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
                     forall |s|  DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) == 
                         Some(final_recovery_state) ==> #[trigger] perm.check_permission(s),
                     DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == 
                         Some(final_recovery_state),
-                    ({
-                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata);
-                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                        &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& abstract_op_log.physical_op_list == phys_log_view
-                        &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
-                    }),
                     old_phys_log == phys_log,
-                    0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
-                    0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
-                    // ({
-                    //     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                    //     let replayed_ops = phys_log_view.subrange(0, index as int);
-                    //     let remaining_ops = phys_log_view.subrange(index as int, phys_log.len() as int);
-                    //     let final_mem = Self::apply_physical_log_entries(old_wrpm, phys_log_view);
-                    //     let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
-                    //     &&& final_mem is Some
-                    //     &&& current_mem is Some
-                    //     &&& wrpm_region@.committed() == current_mem.unwrap()
-                    //     &&& Self::apply_physical_log_entries(current_mem.unwrap(), remaining_ops) is Some
-                    //     &&& Self::apply_physical_log_entries(current_mem.unwrap(), remaining_ops).unwrap() == final_mem.unwrap()
-                    //     // let current_state = Self::apply_physical_log_entries(old_wrpm, phys_log_view.subrange(0, index as int));
-                    //     // &&& current_state matches Some(current_state)
-                    //     // &&& wrpm_region@.committed() == current_state
-                    // }),
                     ({
                         let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                         let replayed_ops = phys_log_view.subrange(0, index as int);
                         let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
                         &&& current_mem is Some 
                         &&& current_mem.unwrap() == wrpm_region@.committed()
+                        &&& recovery_write_region_invariant::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view)
                     }),
                     0 <= index <= phys_log.len(),
-                    
             {
                 let op = &phys_log[index];
 
