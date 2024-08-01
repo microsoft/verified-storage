@@ -320,6 +320,8 @@ verus! {
                     overall_metadata.metadata_node_size 
                 ) is Some,
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() <= u64::MAX,
+                subregion.len() == overall_metadata.main_table_size,
+                subregion.view(pm_region).no_outstanding_writes(),
             ensures 
                 match result {
                     Ok((main_table, entry_list)) => {
@@ -331,7 +333,7 @@ verus! {
                     }
                     Err(KvError::IndexOutOfRange) => {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                        overall_metadata.num_keys > u64::MAX / entry_slot_size
+                        overall_metadata.num_keys > overall_metadata.main_table_size / entry_slot_size
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::PmemErr{ pmem_err }) => true,
@@ -346,19 +348,22 @@ verus! {
 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
             let mut key_index_pairs: Vec<(Box<K>, u64)> = Vec::new();
-            let max_index = u64::MAX / entry_slot_size;
-            let ghost mem = pm_region@.committed();
+            let max_index = overall_metadata.main_table_size / entry_slot_size;
+            let ghost mem = subregion.view(pm_region).committed();
             let mut index = 0;
             while index < num_keys
                 invariant
                     subregion.inv(pm_region),
-                    index * entry_slot_size <= u64::MAX,
-                    max_index == u64::MAX / entry_slot_size,
+                    index * entry_slot_size <= overall_metadata.main_table_size <= u64::MAX,
+                    max_index == overall_metadata.main_table_size / entry_slot_size,
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == entry_slot_size,
                     num_keys == overall_metadata.num_keys,
+                    subregion.len() == overall_metadata.main_table_size,
+                    subregion.view(pm_region).no_outstanding_writes(),
+                    mem == subregion.view(pm_region).committed(),
             {
                 if index < max_index {
-                    // This case proves that index * entry_slot_size will not overflow (here or at the end
+                    // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
                     // of the loop) if index < max_index
                     proof {
                         lemma_mul_strict_inequality(index as int, max_index as int, entry_slot_size as int);
@@ -366,9 +371,12 @@ verus! {
                             assert(index + 1 < max_index);
                             lemma_mul_strict_inequality(index + 1, max_index as int, entry_slot_size as int);
                         }
+                        // also prove that we can read the next entry at this index without going out of bounds
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(entry_slot_size as int, index as int, 1int);
+                        assert((index + 1) * entry_slot_size == index * entry_slot_size + entry_slot_size);
                     }
                 } else {
-                    proof { lemma_fundamental_div_mod(u64::MAX as int, entry_slot_size as int); }
+                    proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int); }
                     return Err(KvError::IndexOutOfRange);
                 }
 
@@ -377,11 +385,15 @@ verus! {
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
                 let cdb_addr = entry_offset;
-                let cdb = match subregion.read_relative_aligned(pm_region, cdb_addr) {
+                assert(cdb_addr + u64::spec_size_of() <= subregion.len());
+                let cdb = match subregion.read_relative_aligned::<u64, _>(pm_region, cdb_addr) {
                     Ok(cdb) => cdb,
                     Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                 };
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+                
+                assume(false);
+
                 match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index), // slot is free
                     Some(true) => {

@@ -140,11 +140,18 @@ verus! {
 
         let cdb = u64::spec_from_bytes(cdb_bytes);
         let crc = u64::spec_from_bytes(crc_bytes);
-        ||| cdb == CDB_FALSE
-        ||| {
-              &&& cdb == CDB_TRUE
-              &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
-           }
+        
+        &&& u64::bytes_parseable(cdb_bytes)
+        &&& u64::bytes_parseable(crc_bytes)
+        &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+        &&& K::bytes_parseable(key_bytes)
+        &&& {
+            ||| cdb == CDB_FALSE
+            ||| {
+                &&& cdb == CDB_TRUE
+                &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+            }
+        }   
     }
 
     pub open spec fn validate_metadata_entries<K>(mem: Seq<u8>, num_keys: nat, metadata_node_size: nat) -> bool

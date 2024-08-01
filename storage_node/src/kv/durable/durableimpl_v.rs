@@ -654,6 +654,8 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
             ensures
+                wrpm_region.inv(),
+                wrpm_region@.no_outstanding_writes(),
                 match result {
                     Ok(kvstore) => {
                         &&& kvstore@ == state
@@ -666,7 +668,7 @@ verus! {
                     Err(_) => true // TODO
                 }
         {
-            let ghost old_wrpm = wrpm_region@;
+            let ghost old_wrpm = wrpm_region;
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, overall_metadata)?;
@@ -679,9 +681,9 @@ verus! {
                     PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, overall_metadata);
                 }
                 Self::install_log(&mut wrpm_region, overall_metadata, version_metadata, phys_log, Tracked(perm));
-                let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm.committed(), overall_metadata).unwrap();
+                let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), overall_metadata).unwrap();
                 let ghost physical_log_entries = recovered_log.physical_op_list;
-                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
             }
             
 
@@ -747,6 +749,7 @@ verus! {
                 wrpm_region.inv(),
                 wrpm_region@.no_outstanding_writes(),
                 wrpm_region@.len() == overall_metadata.region_size,
+                wrpm_region.constants() == old(wrpm_region).constants(),
                 ({
                     let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
                     let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
@@ -765,6 +768,7 @@ verus! {
 
             let ghost old_phys_log = phys_log;
             let ghost old_wrpm = wrpm_region@.committed();
+            let ghost old_wrpm_constants = wrpm_region.constants();
 
             let ghost final_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
 
@@ -801,6 +805,7 @@ verus! {
                         &&& recovery_write_region_invariant::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view)
                     }),
                     0 <= index <= phys_log.len(),
+                    old_wrpm_constants == wrpm_region.constants(),
             {
                 let op = &phys_log[index];
 
@@ -819,7 +824,6 @@ verus! {
                     assert(forall |i: int| op.absolute_addr <= i < op.absolute_addr + op.len ==> 
                         #[trigger] addr_modified_by_recovery(phys_log_view, i));
 
-                    
                     // Prove that any write to an address modified by recovery is crash-safe
                     lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
                 }
