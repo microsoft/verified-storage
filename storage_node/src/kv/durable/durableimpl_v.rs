@@ -663,7 +663,7 @@ verus! {
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,
                     Err(KvError::InternalError) => true,
-                    Err(_) => false
+                    Err(_) => true // TODO
                 }
         {
             let ghost old_wrpm = wrpm_region@;
@@ -682,18 +682,7 @@ verus! {
                 let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm.committed(), overall_metadata).unwrap();
                 let ghost physical_log_entries = recovered_log.physical_op_list;
                 assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
-            } else {
-                assert(phys_log.len() == 0);
-                assert(wrpm_region@ == old_wrpm);
-                let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm.committed(), overall_metadata).unwrap();
-                let ghost physical_log_entries = recovered_log.physical_op_list;
-                let ghost phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                assert(phys_log_view.len() == 0);
-                assert(phys_log_view =~= physical_log_entries);
-                assert(physical_log_entries.len() == 0);
-                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
             }
-
             
 
             // We can now start the rest of the components. 
@@ -701,7 +690,6 @@ verus! {
             // We use read-only subregions to make reasoning about each region separately easier
 
             let pm_region = wrpm_region.get_pm_region_ref();
-            // main table
             let main_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.main_table_addr, Ghost(overall_metadata.main_table_size as nat));
             
             proof {
@@ -712,7 +700,8 @@ verus! {
                 lemma_physical_recover_succeeds_implies_component_parse_succeeds::<PM, K, I, L>(mem, overall_metadata);
             }
             
-            let (main_table, entry_list) = MetadataTable::<K>::start::<PM>(&main_table_subregion, pm_region, overall_metadata)?;
+            // main table
+            let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
 
 
             

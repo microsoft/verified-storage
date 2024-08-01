@@ -1,5 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
+use vstd::arithmetic::div_mod::lemma_fundamental_div_mod;
+use vstd::arithmetic::mul::lemma_mul_strict_inequality;
 use std::fs::Metadata;
 use std::hash::Hash;
 use vstd::prelude::*;
@@ -10,7 +12,8 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
-use crate::kv::layout_v::OverallMetadata;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -297,21 +300,26 @@ verus! {
             Ok(())
         }
 
-        pub exec fn start<PM>(
+        pub exec fn start<PM, I, L>(
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
-            overall_metadata: OverallMetadata
+            overall_metadata: OverallMetadata,
+            version_metadata: VersionMetadata,
         ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
+                I: PmCopy + Sized + std::fmt::Debug,
+                L: PmCopy + std::fmt::Debug,
             requires
                 subregion.inv(pm_region),
                 pm_region@.no_outstanding_writes(),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
                 parse_metadata_table::<K>(
                     subregion.view(pm_region).committed(),
                     overall_metadata.num_keys, 
                     overall_metadata.metadata_node_size 
                 ) is Some,
+                ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() <= u64::MAX,
             ensures 
                 match result {
                     Ok((main_table, entry_list)) => {
@@ -321,9 +329,70 @@ verus! {
                                 overall_metadata.metadata_node_size
                             ).unwrap() == main_table@
                     }
+                    Err(KvError::IndexOutOfRange) => {
+                        let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+                        overall_metadata.num_keys > u64::MAX / entry_slot_size
+                    }
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }
         {
+            let num_keys = overall_metadata.num_keys;
+            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + K::size_of()) as u64;
+
+            // Since we've already replayed the log, we just need to construct 
+            // the allocator and determine which item indices are valid. 
+
+            let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
+            let mut key_index_pairs: Vec<(Box<K>, u64)> = Vec::new();
+            let max_index = u64::MAX / entry_slot_size;
+            let ghost mem = pm_region@.committed();
+            let mut index = 0;
+            while index < num_keys
+                invariant
+                    subregion.inv(pm_region),
+                    index * entry_slot_size <= u64::MAX,
+                    max_index == u64::MAX / entry_slot_size,
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == entry_slot_size,
+                    num_keys == overall_metadata.num_keys,
+            {
+                if index < max_index {
+                    // This case proves that index * entry_slot_size will not overflow (here or at the end
+                    // of the loop) if index < max_index
+                    proof {
+                        lemma_mul_strict_inequality(index as int, max_index as int, entry_slot_size as int);
+                        if index + 1 < max_index {
+                            assert(index + 1 < max_index);
+                            lemma_mul_strict_inequality(index + 1, max_index as int, entry_slot_size as int);
+                        }
+                    }
+                } else {
+                    proof { lemma_fundamental_div_mod(u64::MAX as int, entry_slot_size as int); }
+                    return Err(KvError::IndexOutOfRange);
+                }
+
+                let entry_offset = index * entry_slot_size;
+
+                // Read the CDB at this slot. If it's valid, we need to read the rest of the 
+                // entry to get the key and check its CRC
+                let cdb_addr = entry_offset;
+                let cdb = match subregion.read_relative_aligned(pm_region, cdb_addr) {
+                    Ok(cdb) => cdb,
+                    Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                };
+                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+                match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
+                    Some(false) => metadata_allocator.push(index), // slot is free
+                    Some(true) => {
+                        // We have to read the entry to get its key and item index
+                    }
+                    None => return Err(KvError::CRCMismatch)
+                }
+
+                index += 1;
+            }
+
             assume(false);
             Err(KvError::NotImplemented)
         }
