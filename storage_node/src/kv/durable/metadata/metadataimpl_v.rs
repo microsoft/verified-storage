@@ -425,8 +425,12 @@ verus! {
 
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
-                let cdb_addr = entry_offset;
-                assert(cdb_addr + u64::spec_size_of() < cdb_addr + entry_slot_size <= subregion.len());
+                let relative_cdb_addr = entry_offset;
+                
+                // these two asserts are a bit unstable....
+                assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size <= subregion.len());
+                assert(relative_cdb_addr + entry_slot_size <= subregion.len());
+
                 proof {
                     lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
                         subregion.view(pm_region).committed(),
@@ -439,16 +443,21 @@ verus! {
                         u64::spec_size_of()
                     )));
                 }
-                let cdb = match subregion.read_relative_aligned::<u64, _>(pm_region, cdb_addr) {
+                let cdb = match subregion.read_relative_aligned::<u64, _>(pm_region, relative_cdb_addr) {
                     Ok(cdb) => cdb,
                     Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                 };
-                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-                
-                match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
+                let ghost relative_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| relative_cdb_addr + i);
+                proof {
+                    let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[relative_cdb_addrs[i]]);
+                    assert(true_cdb_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_cdb_addr as nat, u64::spec_size_of()));
+                }
+
+                match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index), // slot is free
                     Some(true) => {
                         // We have to read the entry to get its key and item index
+                        // TODO
                     }
                     None => return Err(KvError::CRCMismatch)
                 }

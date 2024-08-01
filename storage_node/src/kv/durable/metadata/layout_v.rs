@@ -228,7 +228,9 @@ verus! {
                 let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
                 forall |i: nat| i < num_keys ==> {
                     let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
-                    u64::bytes_parseable(cdb_bytes)
+                    let cdb = u64::spec_from_bytes(cdb_bytes);
+                    &&& u64::bytes_parseable(cdb_bytes)
+                    &&& cdb == CDB_FALSE || cdb == CDB_TRUE
                 }
             })
     {}

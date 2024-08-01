@@ -781,6 +781,14 @@ impl PersistentMemorySubregion
         &&& self.start() + self.len() <= pm@.len()
     }
 
+    // Bytes are maybe corrupted relative to this subregion if they are maybe corrupted wrt absolute
+    // addrs calculated from this subregion's start addr
+    pub open spec fn maybe_corrupted_relative(self, bytes: Seq<u8>, true_bytes: Seq<u8>, relative_addrs: Seq<int>) -> bool 
+    {
+        let absolute_addrs = Seq::new(relative_addrs.len(), |i: int| self.start() + relative_addrs[i]);
+        maybe_corrupted(bytes, true_bytes, absolute_addrs)
+    }
+
     pub exec fn read_relative_unaligned<'a, PMRegion>(
         self: &Self,
         pm: &'a PMRegion,
@@ -897,9 +905,14 @@ impl PersistentMemorySubregion
         ensures
             match result {
                 Ok(bytes) => {
-                    let true_bytes = self.view(pm).committed().subrange(
-                        relative_addr as int,
-                        relative_addr + S::spec_size_of(),
+                    // let true_bytes = self.view(pm).committed().subrange(
+                    //     relative_addr as int,
+                    //     relative_addr + S::spec_size_of(),
+                    // );
+                    let true_bytes = extract_bytes(
+                        self.view(pm).committed(),
+                        relative_addr as nat,
+                        S::spec_size_of(),
                     );
                     if pm.constants().impervious_to_corruption {
                         bytes@ == true_bytes

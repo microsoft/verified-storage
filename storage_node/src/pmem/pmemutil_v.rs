@@ -9,6 +9,7 @@ use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::crc_t::*;
+use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::bytes::*;
@@ -439,6 +440,73 @@ verus! {
         }
         
         let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(impervious_to_corruption));
+        assert(cdb_val.spec_to_bytes() == cdb_c@);
+
+        // If the read encoded CDB is one of the expected ones, translate
+        // it into a boolean; otherwise, indicate corruption.
+
+        if *cdb_val == CDB_FALSE {
+            Some(false)
+        }
+        else if *cdb_val == CDB_TRUE {
+            Some(true)
+        }
+        else {
+            proof {
+                // This part of the proof can be flaky -- invoking this axiom helps stabilize it
+                // by helping Z3 prove that the real CDB is neither valid value, which implies we are 
+                // not impervious to corruption
+               axiom_to_from_bytes::<u64>(*cdb_val);
+            }
+            None
+        }
+    }
+
+    // TODO DOCUMENTATION
+    pub fn check_cdb_in_subregion<PM>(
+        cdb_c: MaybeCorruptedBytes<u64>,
+        subregion: &PersistentMemorySubregion,
+        pm_region: &PM,
+        Ghost(impervious_to_corruption): Ghost<bool>,
+        Ghost(relative_cdb_addrs): Ghost<Seq<int>>,
+    ) -> (result: Option<bool>)
+        where 
+            PM: PersistentMemoryRegion,
+        requires
+            forall |i: int| 0 <= i < relative_cdb_addrs.len() ==> relative_cdb_addrs[i] <= subregion.view(pm_region).len(),
+            all_elements_unique(relative_cdb_addrs),
+            ({
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+                let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                &&& u64::bytes_parseable(true_cdb_bytes)
+                &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
+                &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
+                        else { subregion.maybe_corrupted_relative(cdb_c@, true_cdb_bytes, relative_cdb_addrs) }
+            })
+        ensures
+            ({
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+                let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                match result {
+                    Some(b) => if b { true_cdb == CDB_TRUE }
+                               else { true_cdb == CDB_FALSE },
+                    None => !impervious_to_corruption,
+                }
+            })
+    {
+        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+        let ghost absolute_cdb_addrs = Seq::new(relative_cdb_addrs.len(), |i: int| subregion.start() + relative_cdb_addrs[i]);
+        proof {
+            // We may need to invoke the axiom
+            // `axiom_corruption_detecting_boolean` to justify concluding
+            // that, if we read `CDB_FALSE` or `CDB_TRUE`, it can't have
+            // been corrupted.
+            if !impervious_to_corruption && (cdb_c@ == CDB_FALSE.spec_to_bytes() || cdb_c@ == CDB_TRUE.spec_to_bytes()) {
+                axiom_corruption_detecting_boolean(cdb_c@, true_cdb_bytes, absolute_cdb_addrs);
+            }  
+        }
+        
+        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(absolute_cdb_addrs), Ghost(impervious_to_corruption));
         assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate
