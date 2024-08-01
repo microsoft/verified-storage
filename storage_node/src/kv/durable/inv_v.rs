@@ -5,6 +5,9 @@ use crate::log2::inv_v::lemma_same_bytes_recover_to_same_state;
 use crate::{kv::layout_v::OverallMetadata, pmem::pmemspec_t::*, DurableKvStore};
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
+use crate::kv::durable::metadata::layout_v::*;
+use crate::kv::durable::itemtable::layout_v::*;
+use crate::kv::durable::durablelist::durablelistimpl_v::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::kvspec_t::*;
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
@@ -283,5 +286,44 @@ verus! {
             assert(DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata).unwrap() == DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
         }
     }
+
+    pub proof fn lemma_physical_recover_succeeds_implies_component_parse_succeeds<PM, K, I, L>(
+        mem: Seq<u8>,
+        overall_metadata: OverallMetadata,
+    )
+        where
+            PM: PersistentMemoryRegion,
+            K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
+        requires
+            DurableKvStore::<PM, K, I, L>::physical_recover(mem, overall_metadata) is Some, 
+        ensures 
+            ({
+                let recovered_log = UntrustedOpLog::<K, L>::recover(mem, overall_metadata).unwrap();
+                let physical_log_entries = recovered_log.physical_op_list;
+                let mem_with_log_installed = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem, physical_log_entries).unwrap();
+                let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                &&& parse_metadata_table::<K>(
+                        main_table_region, 
+                        overall_metadata.num_keys,
+                        overall_metadata.metadata_node_size
+                    ) matches Some(main_table)
+                &&& parse_item_table::<I, K>(
+                        item_table_region,
+                        overall_metadata.num_keys as nat,
+                        main_table.valid_item_indices()
+                    ) is Some
+                &&& DurableList::<K, L>::parse_all_lists(
+                    main_table,
+                    list_area_region,
+                    overall_metadata.list_node_size,
+                    overall_metadata.num_list_entries_per_node
+                ) is Some
+            })
+
+    {}
             
 }
