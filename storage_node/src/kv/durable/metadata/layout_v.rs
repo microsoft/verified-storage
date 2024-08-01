@@ -83,6 +83,8 @@ verus! {
         pub item_index: u64,
     }
 
+    impl PmCopy for ListEntryMetadata {}
+
     impl ListEntryMetadata {
         pub closed spec fn spec_new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {
             Self {head, tail, length, first_entry_offset, item_index}
@@ -140,16 +142,16 @@ verus! {
 
         let cdb = u64::spec_from_bytes(cdb_bytes);
         let crc = u64::spec_from_bytes(crc_bytes);
-        
+
         &&& u64::bytes_parseable(cdb_bytes)
-        &&& u64::bytes_parseable(crc_bytes)
-        &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
-        &&& K::bytes_parseable(key_bytes)
         &&& {
             ||| cdb == CDB_FALSE
             ||| {
                 &&& cdb == CDB_TRUE
                 &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+                &&& u64::bytes_parseable(crc_bytes)
+                &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+                &&& K::bytes_parseable(key_bytes)
             }
         }   
     }
@@ -216,7 +218,19 @@ verus! {
         }
     }
 
-
-    impl PmCopy for ListEntryMetadata {}
+    pub proof fn lemma_if_table_parseable_then_all_cdbs_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
+        where 
+            K: PmCopy
+        requires
+            parse_metadata_table::<K>(mem, num_keys, metadata_node_size) is Some
+        ensures 
+            ({
+                let table_entry_slot_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+                forall |i: nat| i < num_keys ==> {
+                    let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
+                    u64::bytes_parseable(cdb_bytes)
+                }
+            })
+    {}
 
 }

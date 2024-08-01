@@ -891,8 +891,9 @@ impl PersistentMemorySubregion
                 relative_addr as int,
                 relative_addr + S::spec_size_of(),
             ),
-            S::bytes_parseable(self.view(pm).committed().subrange(relative_addr as int,
-                                                                  relative_addr + S::spec_size_of())),
+            S::bytes_parseable(
+                extract_bytes(self.view(pm).committed(), relative_addr as nat, S::spec_size_of())
+            ),
         ensures
             match result {
                 Ok(bytes) => {
@@ -1350,6 +1351,8 @@ impl WritablePersistentMemorySubregion
             pm@.len() == old(pm)@.len(),
             self.inv(pm),
             self.view(pm) == self.view(old::<&mut _>(pm)).write(relative_addr as int, to_write.spec_to_bytes()),
+            // if we serialize and write an S to this address, we expect to be able to get it back
+            S::bytes_parseable(pm@.flush().committed().subrange(relative_addr + self.start(), relative_addr + self.start() + S::spec_size_of())), 
     {
         let ghost bytes = to_write.spec_to_bytes();
         assert(bytes.len() == S::spec_size_of());
@@ -1388,6 +1391,7 @@ impl WritablePersistentMemorySubregion
             self.inv(pm),
             self.view(pm) == self.view(old::<&mut _>(pm)).write(absolute_addr - self.start(),
                                                               to_write.spec_to_bytes()),
+            S::bytes_parseable(pm@.flush().committed().subrange(absolute_addr as int, absolute_addr + S::spec_size_of()))
     {
         let ghost bytes = to_write.spec_to_bytes();
         // assert(bytes.len() == S::spec_size_of()) by {

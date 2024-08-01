@@ -501,6 +501,8 @@ verus! {
                 self.constants() == old(self).constants(),
                 self@ == old(self)@.write(addr as int, to_write.spec_to_bytes()),
                 self@.flush().committed().subrange(addr as int, addr + S::spec_size_of()) == to_write.spec_to_bytes(),
+                // if we serialize and write an S to this address, we expect to be able to get it back
+                S::bytes_parseable(self@.flush().committed().subrange(addr as int, addr + S::spec_size_of())), 
         ;
 
 

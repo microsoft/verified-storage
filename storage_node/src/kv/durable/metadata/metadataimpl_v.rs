@@ -225,6 +225,14 @@ verus! {
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
                         subregion.view(pm_region).flush().committed(), k, metadata_node_size
                     ) == CDB_FALSE,
+                    ({
+                        let mem = subregion.view(pm_region).flush().committed();
+                        forall |k: nat| k < index ==> u64::bytes_parseable(#[trigger] extract_bytes(
+                            mem,
+                            k * metadata_node_size as nat,
+                            u64::spec_size_of())
+                        )
+                    }),
                     pm_region@.len() == original_pm_len,
             {
                 proof {lemma_valid_entry_index(index as nat, num_keys as nat, metadata_node_size as nat);}
@@ -235,7 +243,8 @@ verus! {
                 }
                 assert forall |k: nat| k < index + 1 implies #[trigger] Self::extract_cdb_for_entry(
                         subregion.view(pm_region).flush().committed(), k, metadata_node_size
-                    ) == CDB_FALSE by {
+                    ) == CDB_FALSE 
+                by {
                     let mem = subregion.view(pm_region).flush().committed();
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
@@ -254,6 +263,32 @@ verus! {
                         broadcast use axiom_to_from_bytes;
                     }
                 }
+
+                // TODO: refactor this if you can -- the proof is the same as the above assertion, but we can't have
+                // triggers on k in both arithmetic and non arithmetic contexts, so the two conjuncts have to be asserted
+                // separately.
+                assert forall |k: nat| k < index + 1 implies 
+                    #[trigger] u64::bytes_parseable(extract_bytes(subregion.view(pm_region).flush().committed(), k * metadata_node_size as nat, u64::spec_size_of())) 
+                by {
+                    let mem = subregion.view(pm_region).flush().committed();
+                    if k < index {
+                        assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
+                        assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
+                            vstd::arithmetic::mul::lemma_mul_inequality(k + 1int, index as int, metadata_node_size as int);
+                            vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
+                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
+                                                                                        k as int, 1);
+                        }
+                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
+                            extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
+                    }
+                    else {
+                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) ==
+                            CDB_FALSE.spec_to_bytes());
+                        broadcast use axiom_to_from_bytes;
+                    }
+                }
+                
                 entry_offset += metadata_node_size as u64;
             }
 
@@ -269,6 +304,7 @@ verus! {
                 validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
                         metadata_node_size as nat))
             } by {
+                assert(u64::bytes_parseable(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of())));
                 assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
@@ -326,7 +362,7 @@ verus! {
                 match result {
                     Ok((main_table, entry_list)) => {
                             &&& parse_metadata_table::<K>(
-                                subregion.view(pm_region).flush().committed(),
+                                subregion.view(pm_region).committed(),
                                 overall_metadata.num_keys, 
                                 overall_metadata.metadata_node_size
                             ).unwrap() == main_table@
@@ -342,7 +378,6 @@ verus! {
         {
             let num_keys = overall_metadata.num_keys;
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + K::size_of()) as u64;
-
             // Since we've already replayed the log, we just need to construct 
             // the allocator and determine which item indices are valid. 
 
@@ -361,6 +396,12 @@ verus! {
                     subregion.len() == overall_metadata.main_table_size,
                     subregion.view(pm_region).no_outstanding_writes(),
                     mem == subregion.view(pm_region).committed(),
+                    parse_metadata_table::<K>(
+                        subregion.view(pm_region).committed(),
+                        overall_metadata.num_keys, 
+                        overall_metadata.metadata_node_size 
+                    ) is Some,
+                    entry_slot_size == overall_metadata.metadata_node_size,
             {
                 if index < max_index {
                     // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
@@ -385,15 +426,25 @@ verus! {
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
                 let cdb_addr = entry_offset;
-                assert(cdb_addr + u64::spec_size_of() <= subregion.len());
+                assert(cdb_addr + u64::spec_size_of() < cdb_addr + entry_slot_size <= subregion.len());
+                proof {
+                    lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
+                        subregion.view(pm_region).committed(),
+                        overall_metadata.num_keys, 
+                        overall_metadata.metadata_node_size
+                    );
+                    assert(u64::bytes_parseable(extract_bytes(
+                        subregion.view(pm_region).committed(),
+                        (index * entry_slot_size) as nat,
+                        u64::spec_size_of()
+                    )));
+                }
                 let cdb = match subregion.read_relative_aligned::<u64, _>(pm_region, cdb_addr) {
                     Ok(cdb) => cdb,
                     Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                 };
                 let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
                 
-                assume(false);
-
                 match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
                     Some(false) => metadata_allocator.push(index), // slot is free
                     Some(true) => {
