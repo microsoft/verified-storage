@@ -177,6 +177,73 @@ verus! {
             }
         }
 
+        // pub proof fn lemma_write_log_entry_equivalent_to_spec_apply(
+        //     mem: PersistentMemoryRegionView,
+        //     op: AbstractPhysicalOpLogEntry,
+        // )
+        //     requires
+        //         Self::apply_physical_log_entry(mem.committed(), op) is Some 
+        //     ensures 
+        //         ({
+        //             let mem_applied = Self::apply_physical_log_entry(mem.committed(), op).unwrap();
+        //             let mem_written = mem.write(op.absolute_addr as int, op.bytes).flush();
+        //             mem_applied =~= mem_written.committed()
+        //         })
+        // {
+        //     assume(false);
+        // }
+
+        // pub proof fn lemma_apply_remaining_log_ops_obtains_final_state(
+        //     original_mem: Seq<u8>,
+        //     current_mem: Seq<u8>,
+        //     final_mem: Seq<u8>,
+        //     replayed_log_ops: Seq<AbstractPhysicalOpLogEntry>,
+        //     remaining_log_ops: Seq<AbstractPhysicalOpLogEntry>
+        // )
+        //     requires
+        //         Self::apply_physical_log_entries(original_mem, replayed_log_ops + remaining_log_ops) is Some,
+        //         Self::apply_physical_log_entries(original_mem, replayed_log_ops) is Some,
+        //         final_mem == Self::apply_physical_log_entries(original_mem, replayed_log_ops + remaining_log_ops).unwrap(),
+        //         current_mem == Self::apply_physical_log_entries(original_mem, replayed_log_ops).unwrap(),
+        //     ensures
+        //         Self::apply_physical_log_entries(current_mem, remaining_log_ops) is Some,
+        //         final_mem == Self::apply_physical_log_entries(current_mem, remaining_log_ops).unwrap()
+        // {
+        //     assume(false);
+        // }
+
+
+        // pub proof fn lemma_apply_phys_log_entries_to_index(mem: Seq<u8>, index: int, phys_log: Seq<AbstractPhysicalOpLogEntry>)
+        //     requires 
+        //         0 < index <= phys_log.len(),
+        //         Self::apply_physical_log_entries(mem, phys_log.subrange(0, index - 1)) is Some,
+        //         Self::apply_physical_log_entries(mem, phys_log.subrange(0, index)) is Some,
+        //         ({
+        //             let mem1 = Self::apply_physical_log_entries(mem, phys_log.subrange(0, index - 1)).unwrap();
+        //             let mem2 = Self::apply_physical_log_entry(mem1, phys_log[index - 1]);
+        //             mem2 is Some
+        //         }),
+        //     ensures 
+        //         ({
+        //             let mem1 = Self::apply_physical_log_entries(mem, phys_log.subrange(0, index - 1)).unwrap();
+        //             let mem2 = Self::apply_physical_log_entry(mem1, phys_log[index - 1]).unwrap();
+        //             let final_mem = Self::apply_physical_log_entries(mem, phys_log.subrange(0, index)).unwrap();
+        //             final_mem == mem2
+        //         })
+        //     decreases index
+        // {
+        //     if index == 1 {
+        //         let mem1 = Self::apply_physical_log_entries(mem, phys_log.subrange(0, index - 1)).unwrap();
+        //         assert(mem1 == mem);
+        //         let mem2 = Self::apply_physical_log_entry(mem1, phys_log[index - 1]);
+        //         assert(mem2 == Self::apply_physical_log_entries(mem, phys_log.subrange(0, index)));
+
+        //     } else {
+        //         // Self::lemma_apply_phys_log_entries_to_index(mem, index - 1, phys_log);
+        //         assume(false);
+        //     }
+        // }
+
         pub proof fn lemma_log_replay_preserves_size(
             mem: Seq<u8>, 
             phys_log: Seq<AbstractPhysicalOpLogEntry>, 
@@ -351,6 +418,117 @@ verus! {
                 }
             }
         }
+
+        pub proof fn lemma_apply_op(
+            mem: Seq<u8>,
+            ops: Seq<AbstractPhysicalOpLogEntry>,
+            overall_metadata: OverallMetadata,
+        )
+            requires
+                ops.len() > 0,
+                overall_metadata.region_size == mem.len(),
+                AbstractPhysicalOpLogEntry::log_inv(ops, overall_metadata),
+                overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
+                ({
+                    let last_op = ops[ops.len() - 1];
+                    let prefix_ops = ops.subrange(0, ops.len() - 1);
+                    &&& Self::apply_physical_log_entries(mem, prefix_ops) matches Some(m2)
+                    &&& Self::apply_physical_log_entry(m2, last_op) is Some
+                })
+            ensures 
+                ({
+                    let last_op = ops[ops.len() - 1];
+                    let prefix_ops = ops.subrange(0, ops.len() - 1);
+                    let prefix_mem = Self::apply_physical_log_entries(mem, prefix_ops).unwrap();
+                    let full_mem = Self::apply_physical_log_entry(prefix_mem, last_op).unwrap();
+                    &&& Self::apply_physical_log_entries(mem, ops) is Some
+                    &&& Self::apply_physical_log_entries(mem, ops).unwrap() == full_mem
+                })
+            decreases ops.len()
+        {
+            if ops.len() == 1 {
+                // Base case -- applying one op then an empty log is the same as just applying that op
+                let op = ops[0];
+                let mem1 = Self::apply_physical_log_entry(mem, op).unwrap();
+                let new_ops = ops.drop_first();
+                assert(new_ops.len() == 0);
+                assert(Self::apply_physical_log_entries(mem1, new_ops).unwrap() == mem1);
+            } else {
+                let first_op = ops[0];
+                let last_op = ops[ops.len() - 1];
+                // note -- you NEED to use drop_first here to hit the trigger
+                let middle_ops = ops.subrange(0, ops.len() - 1).drop_first();
+                let prefix_ops = ops.subrange(0, ops.len() - 1);
+                let suffix_ops = ops.drop_first();
+
+                // by def of apply, applying first then middle is equivalent to applying prefix
+                let apply_first = Self::apply_physical_log_entry(mem, first_op).unwrap();
+                let apply_middle_to_first = Self::apply_physical_log_entries(apply_first, middle_ops).unwrap();
+                let apply_prefix = Self::apply_physical_log_entries(mem, prefix_ops).unwrap();
+                assert(apply_middle_to_first == apply_prefix);
+
+                // applying first, then middle, then last is equivalent to applying prefix then last
+                let apply_last_to_middle_to_first = Self::apply_physical_log_entry(apply_middle_to_first, last_op).unwrap();
+                let apply_last_to_prefix = Self::apply_physical_log_entry(apply_prefix, last_op).unwrap();
+                assert(apply_last_to_middle_to_first == apply_last_to_prefix);
+
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(mem, overall_metadata, seq![first_op]);
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(apply_first, overall_metadata, suffix_ops);
+
+                // the prefix considered on the next iteration will be the current `middle_ops`
+                assert(middle_ops == suffix_ops.subrange(0, suffix_ops.len() - 1));
+
+                assert(Self::apply_physical_log_entries(apply_first, suffix_ops) is Some);
+
+                // shrink from the front and apply the first op each time; by the base case, 
+                // the prefix will be empty and we can easily apply the last one.
+                // we apply the first op and pass in just the suffix (i.e. with the first op removed)
+                Self::lemma_apply_op(apply_first, suffix_ops, overall_metadata);
+            }
+        }
+
+        // pub proof fn lemma_apply_op(
+        //     // start: nat,
+        //     // mid: nat, 
+        //     // end: nat,
+        //     original_mem: Seq<u8>,
+        //     current_mem: Seq<u8>,
+        //     phys_ops: Seq<AbstractPhysicalOpLogEntry>,
+        //     // current_op: AbstractPhysicalOpLogEntry,
+        // )
+        //     // requires
+        //     //     ({
+        //     //         let mem = Self::apply_physical_log_entries(original_mem, phys_ops.drop_last());
+        //     //         &&& mem is Some 
+        //     //         &&& current_mem == mem.unwrap()
+        //     //     }),
+        //     //     ({
+        //     //         let mem = Self::apply_physical_log_entries(original_mem, phys_ops);
+        //     //         mem is Some
+        //     //     }),
+        //     //     ({
+        //     //         let mem = Self::apply_physical_log_entry(current_mem, phys_ops[phys_ops.len() - 1]);
+        //     //         &&& mem is Some 
+        //     //     })
+        //     // ensures 
+        //     //     ({
+        //     //         let mem1 = Self::apply_physical_log_entries(original_mem, phys_ops).unwrap();
+        //     //         let mem2 = Self::apply_physical_log_entry(current_mem, phys_ops[phys_ops.len() - 1]).unwrap();
+        //     //         mem1 == mem2
+        //     //     })
+        //     // decreases phys_ops.len() 
+        // {
+        //     // if phys_ops.len() == 1 {
+        //     //     // not trivial
+        //     //     assume(false);
+        //     // } else {
+        //     //     // // assume(false);
+        //     //     // let new_current_op = phys_ops[phys_ops.len() - 1];
+        //     //     // let new_phys_ops = phys_ops.subrange(0, phys_ops.len() - 1);
+                
+        //     //     // Self::lemma_apply_op(original_mem, new_current_mem, new_phys_ops, new_current_op);
+        //     // }
+        // }
 
         // pub proof fn lemma_addrs_not_modified_by_recovery_do_not_change(
         //     mem: Seq<u8>, 
@@ -784,6 +962,8 @@ verus! {
                 }
                 Self::install_log(&mut wrpm_region, overall_metadata, version_metadata, phys_log, Tracked(perm));
             }
+
+            // assert(wrpm_region@.committed())
             
             
             assume(false);
@@ -825,11 +1005,17 @@ verus! {
                 DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
                 ({
+                    // is this postcond strong enough? no.. it's trivial
                     let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
                     let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
                     &&& recovery_state matches Some(recovery_state)
                     &&& recovery_state == true_recovery_state
-                })   
+                }),
+                ({
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    let true_final_state = Self::apply_physical_log_entries(old(wrpm_region)@.committed(), phys_log_view);
+                    wrpm_region@.committed() == true_final_state.unwrap()
+                })
         {
             let log_start_addr = overall_metadata.log_area_addr;
             let log_size = overall_metadata.log_area_size;
@@ -841,11 +1027,26 @@ verus! {
             let ghost final_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
 
             let mut index = 0;
+
+            proof {
+                let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                let replayed_ops = phys_log_view.subrange(0, index as int);
+                let remaining_ops = phys_log_view.subrange(index as int, phys_log.len() as int);
+                let final_mem = Self::apply_physical_log_entries(old_wrpm, phys_log_view).unwrap();
+                let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops).unwrap();
+
+                assert(replayed_ops.len() == 0);
+                assert(remaining_ops == phys_log_view);
+                assert(current_mem == old_wrpm);
+                assert(Self::apply_physical_log_entries(old_wrpm, remaining_ops).unwrap() == final_mem);
+            }
+
             while index < phys_log.len() 
                 invariant
                     wrpm_region.inv(),
                     wrpm_region@.no_outstanding_writes(),
                     wrpm_region@.len() == overall_metadata.region_size,
+                    old_wrpm.len() == wrpm_region@.len(),
                     PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
                     UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
                     forall |s|  DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) == 
@@ -862,10 +1063,36 @@ verus! {
                     old_phys_log == phys_log,
                     0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                     0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+                    // ({
+                    //     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    //     let replayed_ops = phys_log_view.subrange(0, index as int);
+                    //     let remaining_ops = phys_log_view.subrange(index as int, phys_log.len() as int);
+                    //     let final_mem = Self::apply_physical_log_entries(old_wrpm, phys_log_view);
+                    //     let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
+                    //     &&& final_mem is Some
+                    //     &&& current_mem is Some
+                    //     &&& wrpm_region@.committed() == current_mem.unwrap()
+                    //     &&& Self::apply_physical_log_entries(current_mem.unwrap(), remaining_ops) is Some
+                    //     &&& Self::apply_physical_log_entries(current_mem.unwrap(), remaining_ops).unwrap() == final_mem.unwrap()
+                    //     // let current_state = Self::apply_physical_log_entries(old_wrpm, phys_log_view.subrange(0, index as int));
+                    //     // &&& current_state matches Some(current_state)
+                    //     // &&& wrpm_region@.committed() == current_state
+                    // }),
+                    ({
+                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                        let replayed_ops = phys_log_view.subrange(0, index as int);
+                        let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
+                        &&& current_mem is Some 
+                        &&& current_mem.unwrap() == wrpm_region@.committed()
+                    }),
+                    0 <= index <= phys_log.len(),
+                    
             {
                 let op = &phys_log[index];
 
                 proof {
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+
                     // These two assertions are obvious from the loop invariant, but we need them to for triggers
                     assert(op.inv(overall_metadata)); 
                     assert({
@@ -878,16 +1105,59 @@ verus! {
                     assert(forall |i: int| op.absolute_addr <= i < op.absolute_addr + op.len ==> 
                         #[trigger] addr_modified_by_recovery(phys_log_view, i));
 
-                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    
                     // Prove that any write to an address modified by recovery is crash-safe
                     lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
                 }
+
+                proof {
+                    
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    let replayed_ops = phys_log_view.subrange(0, index as int);
+                    // let remaining_ops = phys_log_view.subrange(index as int, phys_log.len() as int);
+                    // let final_mem = Self::apply_physical_log_entries(old_wrpm, phys_log_view);
+                    let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
+
+                    // From the loop invariant
+                    assert(current_mem is Some);
+                    assert(current_mem.unwrap() == wrpm_region@.committed());
+
+                    let new_wrpm = wrpm_region@.write(op.absolute_addr as int, op.bytes@).flush();
+                    let new_replayed_ops = phys_log_view.subrange(0, index + 1);
+                    let new_mem = Self::apply_physical_log_entries(old_wrpm, new_replayed_ops);
+
+                    Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_wrpm, overall_metadata, new_replayed_ops);
+                    assert(new_mem is Some);
+
+                    // Self::lemma_write_log_entry_equivalent_to_spec_apply(wrpm_region@, op@);
+
+                    let step_mem = Self::apply_physical_log_entry(current_mem.unwrap(), op@);
+
+                    assert(step_mem is Some);
+                    assert(new_replayed_ops == replayed_ops + seq![op@]);
+
+                    assert(Self::apply_physical_log_entries(old_wrpm, replayed_ops) is Some);
+                    assert(replayed_ops == new_replayed_ops.subrange(0, new_replayed_ops.len() - 1));
+                    Self::lemma_apply_op(old_wrpm, new_replayed_ops, overall_metadata);
+
+                    assert(step_mem.unwrap() == new_wrpm.committed());
+                    assert(step_mem.unwrap() == new_mem.unwrap());
+
+                    assert(new_mem.unwrap() == new_wrpm.committed());
+                }
+
+                let ghost pre_write_wrpm = wrpm_region@;
 
                 // write the current op's updates to the specified location on storage
                 wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
                 wrpm_region.flush();
 
                 index += 1;
+            }
+
+            proof {
+                let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                assert(phys_log_view.subrange(0, index as int) == phys_log_view);
             }
         }
 
