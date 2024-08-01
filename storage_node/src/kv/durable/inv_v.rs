@@ -92,11 +92,11 @@ verus! {
                 }
             }),
             ({
-                // this one is failing
                 let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
                 &&& DurableKvStore::<PM, K, I, L>::physical_recover(new_wrpm_region.committed(), overall_metadata) is Some
                 &&& DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap() == 
                         DurableKvStore::<PM, K, I, L>::physical_recover(new_wrpm_region.committed(), overall_metadata).unwrap()
+                &&& DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(wrpm_region@.committed(), phys_log).unwrap() == new_wrpm_region.committed() 
             }),
             ({
                 let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
@@ -104,7 +104,7 @@ verus! {
                 &&& abstract_op_log matches Some(abstract_op_log)
                 &&& abstract_op_log.physical_op_list == phys_log
                 &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata)
-            })
+            }),
     {
         let new_wrpm_region = wrpm_region@.write(addr, bytes);
         let new_wrpm_region_flushed = new_wrpm_region.flush();
