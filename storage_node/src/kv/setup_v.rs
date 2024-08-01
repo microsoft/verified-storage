@@ -53,6 +53,7 @@ where
     &&& overall_metadata.log_area_size >= overall_metadata.log_entry_size
     &&& overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE
     &&& overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size
+    &&& overall_metadata.region_size <= u64::MAX
 }
 
 // This function evaluates whether memory was correctly set up.

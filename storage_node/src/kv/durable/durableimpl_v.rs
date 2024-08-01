@@ -666,6 +666,7 @@ verus! {
                     Err(_) => false
                 }
         {
+            let ghost old_wrpm = wrpm_region@;
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, overall_metadata)?;
@@ -678,9 +679,42 @@ verus! {
                     PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, overall_metadata);
                 }
                 Self::install_log(&mut wrpm_region, overall_metadata, version_metadata, phys_log, Tracked(perm));
+                let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm.committed(), overall_metadata).unwrap();
+                let ghost physical_log_entries = recovered_log.physical_op_list;
+                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+            } else {
+                assert(phys_log.len() == 0);
+                assert(wrpm_region@ == old_wrpm);
+                let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm.committed(), overall_metadata).unwrap();
+                let ghost physical_log_entries = recovered_log.physical_op_list;
+                let ghost phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                assert(phys_log_view.len() == 0);
+                assert(phys_log_view =~= physical_log_entries);
+                assert(physical_log_entries.len() == 0);
+                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
             }
 
-            // assert(wrpm_region@.committed())
+            
+
+            // We can now start the rest of the components. 
+            // We've already played the log, so we won't do any additional writes from this point on.
+            // We use read-only subregions to make reasoning about each region separately easier
+
+            let pm_region = wrpm_region.get_pm_region_ref();
+            // main table
+            let main_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.main_table_addr, Ghost(overall_metadata.main_table_size as nat));
+            
+            proof {
+                // Prove that since we know overall recovery succeeded, parsing/starting the rest of the components will also succeed
+                let mem = pm_region@.committed();
+                let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                assert(main_table_region == main_table_subregion.view(pm_region).committed());
+                lemma_physical_recover_succeeds_implies_component_parse_succeeds::<PM, K, I, L>(mem, overall_metadata);
+            }
+            
+            let (main_table, entry_list) = MetadataTable::<K>::start::<PM>(&main_table_subregion, pm_region, overall_metadata)?;
+
+
             
             
             assume(false);
@@ -721,8 +755,10 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
+                wrpm_region.inv(),
+                wrpm_region@.no_outstanding_writes(),
+                wrpm_region@.len() == overall_metadata.region_size,
                 ({
-                    // is this postcond strong enough? no.. it's trivial
                     let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
                     let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
                     &&& recovery_state matches Some(recovery_state)

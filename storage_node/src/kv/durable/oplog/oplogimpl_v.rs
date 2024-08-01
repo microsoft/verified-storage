@@ -338,7 +338,12 @@ verus! {
             ensures 
                 match result {
                     Ok(phys_log) => {
-                        ||| phys_log.len() == 0
+                        ||| {
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& phys_log.len() == 0
+                            &&& abstract_op_log.physical_op_list.len() == 0
+                        }
                         ||| {
                             let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
@@ -487,7 +492,12 @@ verus! {
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {
-                    ||| phys_log.len() == 0
+                    ||| {
+                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                        &&& abstract_op_log matches Some(abstract_op_log)
+                        &&& phys_log.len() == 0
+                        &&& abstract_op_log.physical_op_list.len() == 0
+                    }
                     ||| {
                         let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
                         let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);

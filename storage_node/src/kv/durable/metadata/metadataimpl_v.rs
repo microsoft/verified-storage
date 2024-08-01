@@ -10,6 +10,7 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
+use crate::kv::layout_v::OverallMetadata;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
@@ -294,6 +295,37 @@ verus! {
             });
             
             Ok(())
+        }
+
+        pub exec fn start<PM>(
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            overall_metadata: OverallMetadata
+        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                subregion.inv(pm_region),
+                pm_region@.no_outstanding_writes(),
+                parse_metadata_table::<K>(
+                    subregion.view(pm_region).committed(),
+                    overall_metadata.num_keys, 
+                    overall_metadata.metadata_node_size 
+                ) is Some,
+            ensures 
+                match result {
+                    Ok((main_table, entry_list)) => {
+                            &&& parse_metadata_table::<K>(
+                                subregion.view(pm_region).flush().committed(),
+                                overall_metadata.num_keys, 
+                                overall_metadata.metadata_node_size
+                            ).unwrap() == main_table@
+                    }
+                    Err(_) => false
+                }
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
         }
 
 /* Temporarily commented out for subregion work
