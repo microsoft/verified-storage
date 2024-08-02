@@ -86,6 +86,11 @@ verus! {
             self.durable_metadata_table
         }
 
+        pub open spec fn get_tentative_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        {
+            self.tentative_metadata_table
+        }
+
         // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
         //     if 0 <= index < self.metadata_table.len() {
         //         self.metadata_table[index]
@@ -101,6 +106,21 @@ verus! {
                     &&& entry.item_index() == i
                 }
             )
+        }
+
+        // We return the free indices as a set, not a seq, because the order they are listed in
+        // doesn't actually matter, and then we don't have to worry about matching the order
+        // they are kept in in executable code.
+        // An index is only considered free if it is free in BOTH the tentative and durable views
+        // of the table. If it's free in the tentative but not the durable, we haven't completed
+        // the deallocation yet and the index should not be reallocated. If it's free in durable
+        // but not tentative, we have a pending creation op at that index, so it's not free.
+        pub open spec fn free_indices(self) -> Set<u64> {
+            Set::new(|i: u64| {
+                &&& 0 <= i < self.tentative_metadata_table.len() 
+                &&& self.tentative_metadata_table[i as int] matches DurableEntry::Invalid 
+                &&& self.durable_metadata_table[i as int] matches DurableEntry::Invalid
+            })
         }
     }
 }

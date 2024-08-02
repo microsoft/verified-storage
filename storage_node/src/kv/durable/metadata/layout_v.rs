@@ -173,16 +173,16 @@ verus! {
             K: PmCopy,
         recommends
             bytes.len() == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-            RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
-            RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
+            // RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
+            // RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
+            // RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
             validate_metadata_entry::<K>(bytes)
     {
-        let cdb_bytes = extract_bytes(bytes, RELATIVE_POS_OF_VALID_CDB as nat, u64::spec_size_of());
-        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA_CRC as nat, u64::spec_size_of());
-        let metadata_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_METADATA as nat,
+        let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
+        let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes = extract_bytes(bytes, u64::spec_size_of() * 2,
                                            ListEntryMetadata::spec_size_of());
-        let key_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ENTRY_KEY as nat, K::spec_size_of());
+        let key_bytes = extract_bytes(bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of());
 
         let cdb = u64::spec_from_bytes(cdb_bytes);
         let crc = u64::spec_from_bytes(crc_bytes);
