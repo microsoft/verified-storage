@@ -364,6 +364,7 @@ verus! {
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() <= u64::MAX,
                 subregion.len() == overall_metadata.main_table_size,
                 subregion.view(pm_region).no_outstanding_writes(),
+                K::spec_size_of() > 0,
             ensures 
                 match result {
                     Ok((main_table, entry_list)) => {
@@ -375,10 +376,10 @@ verus! {
                         let durable_table = table.durable_metadata_table;
                         let key_entry_list_view = Set::new(
                             |pair: (K, u64)| {
-                                exists |j: int| {
+                                exists |j: u64| {
                                     &&& 0 <= j < durable_table.len()
-                                    &&& #[trigger] durable_table[j] matches DurableEntry::Valid(entry)
-                                    &&& pair == (entry.key(), entry.item_index())
+                                    &&& #[trigger] durable_table[j as int] matches DurableEntry::Valid(entry)
+                                    &&& pair == (entry.key(), j)
                                 } 
                             }
                         );
@@ -415,30 +416,11 @@ verus! {
                 overall_metadata.num_keys, 
                 overall_metadata.metadata_node_size 
             );
+            let ghost old_pm_constants = pm_region.constants();
 
             proof {
                 // proves that max_index * entry_slot_size <= overall_metadata.main_table_size
                 vstd::arithmetic::div_mod::lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int);
-
-                assert(index == 0);
-                // let empty_seq = Seq::<u64>::empty();
-                // assert(metadata_allocator@ == empty_seq);
-                // assert(metadata_allocator@.to_set() == empty_seq.to_set());
-
-                // assert(!exists |i: u64| Self::temp_midpoint(0, i, 0));
-                // let current_set = Set::new(|i: u64| Self::temp_midpoint(0, i, 0));
-                // assert(current_set.finite());
-                // assert(!exists |j: u64| current_set.contains(j));
-                // lemma_set_empty_equivalency_len(current_set);
-                // assert(current_set.len() == 0);
-
-                // assert(Set::new(|i: u64| {
-                //     &&& 0 <= i < index
-                //     &&& table_view.unwrap().tentative_metadata_table[i as int] matches DurableEntry::Invalid 
-                //     &&& table_view.unwrap().durable_metadata_table[i as int] matches DurableEntry::Invalid
-                // }).len() == 0);
-                // assert(metadata_allocator@.len() == 0);
-                // assert(metadata_allocator@.to_set().len() == 0);
             }
 
             while index < num_keys
@@ -453,6 +435,7 @@ verus! {
                     subregion.len() == overall_metadata.main_table_size,
                     subregion.view(pm_region).no_outstanding_writes(),
                     mem == subregion.view(pm_region).committed(),
+                    old_pm_constants == pm_region.constants(),
                     table_view == parse_metadata_table::<K>(
                         subregion.view(pm_region).committed(),
                         overall_metadata.num_keys, 
@@ -465,16 +448,19 @@ verus! {
                         entry matches DurableEntry::Invalid <==> 
                             metadata_allocator@.contains(i)
                     },
-                    // metadata_allocator@.to_set() == Seq::new(|i: u64| {
-                    //     &&& 0 <= i < index
-                    //     &&& table_view.unwrap().tentative_metadata_table[i as int] matches DurableEntry::Invalid 
-                    //     &&& table_view.unwrap().durable_metadata_table[i as int] matches DurableEntry::Invalid
-                    // }),
-                    forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index
-                    // come back to this 
-                    // ({
-                    //     let key_index_pairs_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
-                    // })
+                    forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
+                    ({
+                        let key_index_pairs_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        forall |i: u64| 0 <= i < index ==> {
+                            let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
+                            entry matches DurableEntry::Valid(valid_entry) <==> {
+                                // janky way of binding the enum info to a variable
+                                &&& entry matches DurableEntry::Valid(valid_entry)
+                                &&& key_index_pairs_view.contains((valid_entry.key(), i))
+                            } 
+                        }
+                    }),
+                    K::spec_size_of() > 0,
             {
                 if index < max_index {
                     // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
@@ -497,20 +483,21 @@ verus! {
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
                 let relative_cdb_addr = entry_offset;
-                
-                // these asserts are a bit unstable....
-                assert(u64::spec_size_of() < entry_slot_size);
-                assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size);
-                assert(entry_offset + entry_slot_size <= subregion.len());
-                assert(relative_cdb_addr + entry_slot_size <= subregion.len());
-                assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size <= subregion.len());
 
                 proof {
+                    // these asserts are a bit unstable....
+                    assert(u64::spec_size_of() < entry_slot_size);
+                    assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size);
+                    assert(entry_offset + entry_slot_size <= subregion.len());
+                    assert(relative_cdb_addr + entry_slot_size <= subregion.len());
+                    assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size <= subregion.len());
+
                     lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
                         subregion.view(pm_region).committed(),
                         overall_metadata.num_keys, 
                         overall_metadata.metadata_node_size
                     );
+                    // trigger for CDB bytes parseable
                     assert(u64::bytes_parseable(extract_bytes(
                         subregion.view(pm_region).committed(),
                         (index * entry_slot_size) as nat,
@@ -528,11 +515,9 @@ verus! {
 
                 match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_cdb_addrs)) {
                     Some(false) => {
-                        // slot is free
-
+                        // Slot is free -- we just need to put it in the allocator
                         let ghost old_metadata_allocator = metadata_allocator@;
                         metadata_allocator.push(index);
-
 
                         proof {
                             // these assertions hit triggers needed by the loop invariants
@@ -544,9 +529,93 @@ verus! {
                         }
                     }, 
                     Some(true) => {
+                        // TODO: refactor this into its own function
                         // We have to read the entry to get its key and item index
-                        // TODO
+                        // We don't need the metadata here, but we have to read it so we can check the CRC
+                        
+                        let relative_crc_addr = relative_cdb_addr + traits_t::size_of::<u64>() as u64;
+                        let relative_entry_addr = relative_crc_addr + traits_t::size_of::<u64>() as u64;
+                        let relative_key_addr = relative_entry_addr + traits_t::size_of::<ListEntryMetadata>()  as u64;
+
+                        // let ghost true_crc_bytes = extract_bytes(mem, relative_crc_addr as nat, u64::spec_size_of());
+                        // let ghost true_entry_bytes = extract_bytes(mem, relative_entry_addr as nat, ListEntryMetadata::spec_size_of());
+                        // let ghost true_key_bytes = extract_bytes(mem, relative_key_addr as nat, K::spec_size_of());
+
+                        let ghost relative_crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| relative_crc_addr + i);
+                        let ghost relative_entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| relative_entry_addr + i);
+                        let ghost relative_key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| relative_key_addr + i);
+
+                        let ghost true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
+                        let ghost true_entry_bytes = Seq::new(relative_entry_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_entry_addrs[i]]);
+                        let ghost true_key_bytes = Seq::new(relative_key_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_key_addrs[i]]);
+
+                        let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+                        let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
+                        let ghost true_key = K::spec_from_bytes(true_key_bytes);
+
+                        proof {
+                            // These assertions help Verus figure out some arithmetic necessary for the preconditions of the 
+                            // read methods to hold later
+                            assert(index * entry_slot_size + u64::spec_size_of() < subregion.len());
+                            assert(index * entry_slot_size + u64::spec_size_of() + u64::spec_size_of() < subregion.len());
+                            assert(index * entry_slot_size + u64::spec_size_of() * 2 < subregion.len());
+
+                            assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_crc_addr as nat, u64::spec_size_of()));
+                            assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
+                            assert(true_key_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_key_addr as nat, K::spec_size_of()));
+
+                            lemma_if_table_parseable_then_all_valid_entries_parseable::<K>(
+                                subregion.view(pm_region).committed(),
+                                overall_metadata.num_keys, 
+                                overall_metadata.metadata_node_size
+                            );
+                            // trigger for CRC bytes parseable
+                            assert(u64::bytes_parseable(
+                                    extract_bytes(
+                                        subregion.view(pm_region).committed(),
+                                        (index * entry_slot_size + u64::spec_size_of()) as nat,
+                                        u64::spec_size_of()
+                            )));
+                            // trigger for entry bytes parseable
+                            assert(ListEntryMetadata::bytes_parseable(
+                                extract_bytes(
+                                    subregion.view(pm_region).committed(),
+                                    (index * entry_slot_size + u64::spec_size_of() * 2) as nat,
+                                    ListEntryMetadata::spec_size_of()
+                            )));
+                            // trigger for key bytes parseable
+                            assert(K::bytes_parseable(
+                                extract_bytes(
+                                    subregion.view(pm_region).committed(),
+                                    (index * entry_slot_size + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat,
+                                    K::spec_size_of()
+                            )));
+                        }
+                        
+                        let crc = match subregion.read_relative_aligned::<u64, _>(pm_region, relative_crc_addr) {
+                            Ok(crc) => crc,
+                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                        };
+                        let entry = match subregion.read_relative_aligned::<ListEntryMetadata, _>(pm_region, relative_entry_addr) {
+                            Ok(entry) => entry,
+                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                        };
+                        let key = match subregion.read_relative_aligned::<K, _>(pm_region, relative_key_addr) {
+                            Ok(key) => key,
+                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                        };
+                        
+                        if !check_crc_for_two_reads_in_subregion(entry.as_slice(), key.as_slice(), crc.as_slice(), subregion, pm_region, 
+                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_entry_addrs), Ghost(relative_key_addrs), Ghost(relative_crc_addrs)) {
+                                assert(!pm_region.constants().impervious_to_corruption);
+                                return Err(KvError::CRCMismatch);
+                        }
+
                         assume(false);
+
+                        let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
+                            Ghost(pm_region.constants().impervious_to_corruption));
+                        key_index_pairs.push((key, index));
                     }
                     None => return Err(KvError::CRCMismatch)
                 }
@@ -572,10 +641,10 @@ verus! {
                 let durable_table = table.durable_metadata_table;
                 let key_entry_list_view = Set::new(
                     |pair: (K, u64)| {
-                        exists |j: int| {
+                        exists |j: u64| {
                             &&& 0 <= j < durable_table.len()
-                            &&& #[trigger] durable_table[j] matches DurableEntry::Valid(entry)
-                            &&& pair == (entry.key(), entry.item_index())
+                            &&& #[trigger] durable_table[j as int] matches DurableEntry::Valid(entry)
+                            &&& pair == (entry.key(), j)
                         } 
                     }
                 );
@@ -583,11 +652,7 @@ verus! {
 
                 assert(main_table@.get_tentative_metadata_table() == main_table@.get_durable_metadata_table());
                 assert(main_table.allocator_view() == main_table@.free_indices());
-
-
-
-                // the entry list corresponds to the table
-                assume(entry_list_view.to_set() == key_entry_list_view);
+                assert(entry_list_view.to_set() == key_entry_list_view);
             }
 
             Ok((main_table, key_index_pairs))

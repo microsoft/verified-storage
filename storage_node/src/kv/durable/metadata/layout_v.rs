@@ -279,7 +279,31 @@ verus! {
             lemma_subrange_of_extract_bytes_equal(mem, (i * metadata_node_size) as nat, (i * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
             assert(cdb_bytes =~= cdb_bytes2);
         }
+    }
 
+    pub proof fn lemma_if_table_parseable_then_all_valid_entries_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
+    where 
+        K: PmCopy
+    requires
+        parse_metadata_table::<K>(mem, num_keys, metadata_node_size) is Some,
+        metadata_node_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+        num_keys * metadata_node_size <= mem.len(),
+    ensures 
+        forall |i: nat| i < num_keys ==> {
+            let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
+            let crc_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of()) as nat, u64::spec_size_of());
+            let entry_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of() * 2) as nat, ListEntryMetadata::spec_size_of());
+            let key_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat, K::spec_size_of());
+            let cdb = u64::spec_from_bytes(cdb_bytes);
+            cdb == CDB_TRUE ==> {
+                &&& u64::bytes_parseable(crc_bytes)
+                &&& ListEntryMetadata::bytes_parseable(entry_bytes)
+                &&& K::bytes_parseable(key_bytes)
+                &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+            }
+        }
+    {
+        assume(false);
     }
 
 }
