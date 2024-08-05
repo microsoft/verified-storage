@@ -5,11 +5,7 @@
 
 use builtin::*;
 use builtin_macros::*;
-use crate::pmem::pmemspec_t::{
-    copy_from_slice, maybe_corrupted, PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
-    PmemError,
-};
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use deps_hack::rand::Rng;
 use deps_hack::winapi::ctypes::c_void;
