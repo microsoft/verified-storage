@@ -360,14 +360,14 @@ verus! {
         }
     }
 
-    pub open spec fn metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
+    pub open spec fn multilog_metadata_types_set(mems: Seq<Seq<u8>>) -> bool 
     {
-        &&& metadata_types_set_in_first_region(mems[0])
+        &&& multilog_metadata_types_set_in_first_region(mems[0])
         &&& deserialize_and_check_log_cdb(mems[0]) matches Some(cdb)
-        &&& forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < mems.len() ==> metadata_types_set_in_region(mems[i], cdb)
+        &&& forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < mems.len() ==> multilog_metadata_types_set_in_region(mems[i], cdb)
     }
 
-    pub open spec fn metadata_types_set_in_first_region(mem: Seq<u8>) -> bool 
+    pub open spec fn multilog_metadata_types_set_in_first_region(mem: Seq<u8>) -> bool 
     {
         &&& u64::bytes_parseable(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()))
         &&& {
@@ -376,7 +376,7 @@ verus! {
            }
     }
 
-    pub open spec fn metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
+    pub open spec fn multilog_metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool
     {
         &&& {
             let metadata_pos = ABSOLUTE_POS_OF_GLOBAL_METADATA as int;
@@ -411,7 +411,7 @@ verus! {
         }
     }
 
-    pub open spec fn inactive_metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool 
+    pub open spec fn inactive_multilog_metadata_types_set_in_region(mem: Seq<u8>, cdb: bool) -> bool 
     {
         let metadata_pos = if cdb { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int }
                            else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int };
@@ -426,7 +426,7 @@ verus! {
 
     // This lemma helps us establish that metadata types are set in the a region even when we obtain 
     // a view of its bytes in different ways.
-    pub proof fn lemma_metadata_types_set_flush_committed(
+    pub proof fn lemma_multilog_metadata_types_set_flush_committed(
         pm_regions_view: PersistentMemoryRegionsView,
         cdb: bool
     )
@@ -434,8 +434,8 @@ verus! {
             forall |i: int| {
                 &&& #[trigger] log_index_trigger(i)
                 &&& 0 <= i < pm_regions_view.len()
-                &&& metadata_types_set_in_region(pm_regions_view[i].flush().committed(), cdb) 
-            } ==> metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
+                &&& multilog_metadata_types_set_in_region(pm_regions_view[i].flush().committed(), cdb) 
+            } ==> multilog_metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb)
     {} 
 
     pub proof fn lemma_metadata_set_after_crash_in_region(
@@ -444,16 +444,16 @@ verus! {
     )
         requires 
             no_outstanding_writes_to_active_metadata_in_region(pm_region_view, cdb),
-            metadata_types_set_in_region(pm_region_view.committed(), cdb),
+            multilog_metadata_types_set_in_region(pm_region_view.committed(), cdb),
             ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < pm_region_view.len()
         ensures 
-            forall |s| pm_region_view.can_crash_as(s) ==> metadata_types_set_in_region(s, cdb),
+            forall |s| pm_region_view.can_crash_as(s) ==> multilog_metadata_types_set_in_region(s, cdb),
     {
         reveal(spec_padding_needed);
 
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
 
-        assert forall |s| pm_region_view.can_crash_as(s) implies metadata_types_set_in_region(s, cdb) by {
+        assert forall |s| pm_region_view.can_crash_as(s) implies multilog_metadata_types_set_in_region(s, cdb) by {
             lemma_establish_subrange_equivalence(s, pm_region_view.committed());
         }
     }
@@ -464,7 +464,7 @@ verus! {
     )
         requires 
             no_outstanding_writes_to_active_metadata_in_region(pm_regions_view[0], cdb),
-            metadata_types_set_in_first_region(pm_regions_view[0].committed()),
+            multilog_metadata_types_set_in_first_region(pm_regions_view[0].committed()),
             deserialize_and_check_log_cdb(pm_regions_view[0].committed()) == Some(cdb),
         ensures 
             forall |s| {
@@ -472,7 +472,7 @@ verus! {
                 &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
             } ==> {
                 &&& deserialize_and_check_log_cdb(s) == Some(cdb)
-                &&& metadata_types_set_in_first_region(s)
+                &&& multilog_metadata_types_set_in_first_region(s)
             }
     {
         let pm_bytes = pm_regions_view[0].committed();
@@ -483,7 +483,7 @@ verus! {
             &&& s.len() >= ABSOLUTE_POS_OF_LOG_AREA
         } implies {
             &&& deserialize_and_check_log_cdb(s) == Some(cdb)
-            &&& metadata_types_set_in_first_region(s)
+            &&& multilog_metadata_types_set_in_first_region(s)
         } by {
             lemma_establish_subrange_equivalence(s, pm_bytes);
         }
@@ -495,20 +495,20 @@ verus! {
     ) 
         requires 
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
-            metadata_types_set(pm_regions_view.committed()),
+            multilog_metadata_types_set(pm_regions_view.committed()),
             memory_matches_deserialized_cdb(pm_regions_view, cdb),
             pm_regions_view.len() > 0,
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len()
         ensures 
-            forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==> metadata_types_set(s),
+            forall |s| #[trigger] pm_regions_view.can_crash_as(s) ==> multilog_metadata_types_set(s),
     {
-        assert(metadata_types_set(pm_regions_view.committed()));
+        assert(multilog_metadata_types_set(pm_regions_view.committed()));
 
-        assert forall |s| #[trigger] pm_regions_view.can_crash_as(s) implies metadata_types_set(s) by {
+        assert forall |s| #[trigger] pm_regions_view.can_crash_as(s) implies multilog_metadata_types_set(s) by {
             assert forall |s| #[trigger] pm_regions_view[0].can_crash_as(s) implies {
                 &&& deserialize_and_check_log_cdb(s) == Some(cdb)
-                &&& metadata_types_set_in_first_region(s)
+                &&& multilog_metadata_types_set_in_first_region(s)
             } by {
                 assert(log_index_trigger(0));
                 lemma_metadata_set_after_crash_in_first_region(pm_regions_view, cdb);
@@ -518,7 +518,7 @@ verus! {
                 &&& log_index_trigger(i)
                 &&& 0 <= i < pm_regions_view.len()
                 &&& #[trigger] pm_regions_view[i].can_crash_as(s)
-            } implies metadata_types_set_in_region(s, cdb)
+            } implies multilog_metadata_types_set_in_region(s, cdb)
             by {
                 lemma_metadata_set_after_crash_in_region(pm_regions_view[i], cdb);
             }
@@ -911,7 +911,7 @@ verus! {
     // `pm1` -- the multilog that has metadata types set
     // `pm2` -- a multilog with equal active metadata to pm1
     // `cdb` -- the current CDB of pm1 (and pm2)
-    pub proof fn lemma_regions_metadata_matches_implies_metadata_types_set(
+    pub proof fn lemma_regions_metadata_matches_implies_multilog_metadata_types_set(
         pm1: PersistentMemoryRegionsView,
         pm2: PersistentMemoryRegionsView,
         cdb: bool
@@ -919,7 +919,7 @@ verus! {
         requires 
             no_outstanding_writes_to_active_metadata(pm1, cdb),
             no_outstanding_writes_to_active_metadata(pm2, cdb),
-            metadata_types_set(pm1.committed()),
+            multilog_metadata_types_set(pm1.committed()),
             memory_matches_deserialized_cdb(pm1, cdb),
             active_metadata_is_equal(pm1, pm2),
             pm1.len() == pm2.len(),
@@ -927,20 +927,20 @@ verus! {
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm1.len() ==> pm1[i].len() == pm2[i].len(),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm1.len() ==> ABSOLUTE_POS_OF_LOG_AREA < pm1[i].len(),
         ensures 
-            metadata_types_set(pm2.committed())
+            multilog_metadata_types_set(pm2.committed())
     {
         reveal(spec_padding_needed);
 
         let log_metadata_pos = get_log_metadata_pos(cdb);
 
-        assert(metadata_types_set_in_first_region(pm2.committed()[0])) by {
+        assert(multilog_metadata_types_set_in_first_region(pm2.committed()[0])) by {
             assert(log_index_trigger(0));
             lemma_auto_smaller_range_of_seq_is_subrange(pm1[0].committed());
             lemma_auto_smaller_range_of_seq_is_subrange(pm2[0].committed());
         }
 
         assert forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm1.len() implies
-                   metadata_types_set_in_region(pm2.committed()[i], cdb) by {
+                   multilog_metadata_types_set_in_region(pm2.committed()[i], cdb) by {
             lemma_establish_subrange_equivalence(pm1.committed()[i], pm2.committed()[i]);
             lemma_auto_smaller_range_of_seq_is_subrange(pm1.committed()[i]);
         }
@@ -954,7 +954,7 @@ verus! {
     // `log_id` -- the ID of the multilog
     // `new_cdb_bytes` -- a byte representation of the new CDB value. 
     // `old_cdb` -- the current CDB, as a boolean, of `old_pm_regions_view``
-    pub proof fn lemma_metadata_types_set_after_cdb_update(
+    pub proof fn lemma_multilog_metadata_types_set_after_cdb_update(
         old_pm_regions_view: PersistentMemoryRegionsView,
         new_pm_regions_view: PersistentMemoryRegionsView,
         log_id: u128,
@@ -972,15 +972,15 @@ verus! {
             old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
             !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
             new_pm_regions_view == old_pm_regions_view.write(0, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes).flush(),
-            metadata_types_set(old_pm_regions_view.committed()),
+            multilog_metadata_types_set(old_pm_regions_view.committed()),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old_pm_regions_view.len() ==>
                 old_pm_regions_view[i].len() == new_pm_regions_view[i].len(),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old_pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < old_pm_regions_view[i].len(),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old_pm_regions_view.len() ==>
-                inactive_metadata_types_set_in_region(old_pm_regions_view.committed()[i], old_cdb),
+                inactive_multilog_metadata_types_set_in_region(old_pm_regions_view.committed()[i], old_cdb),
         ensures 
-            metadata_types_set(new_pm_regions_view.committed())
+            multilog_metadata_types_set(new_pm_regions_view.committed())
     {
         reveal(spec_padding_needed);
         assert(log_index_trigger(0));
@@ -994,7 +994,7 @@ verus! {
         let log_metadata_pos = get_log_metadata_pos(new_cdb);
 
         assert forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old_pm_regions_view.len() implies {
-            metadata_types_set_in_region(new_pm_regions_view.committed()[i], new_cdb)
+            multilog_metadata_types_set_in_region(new_pm_regions_view.committed()[i], new_cdb)
         } by {
             lemma_establish_subrange_equivalence(old_pm_regions_view.committed()[i],
                                                  new_pm_regions_view.committed()[i]);
@@ -1006,7 +1006,7 @@ verus! {
     // 
     // `pm_regions_view` -- a PM state with metadata types set and no outstanding writes to active metadata
     // `cdb` -- the current CDB of `pm_regions_view`
-    pub proof fn lemma_no_outstanding_writes_to_active_metadata_implies_metadata_types_set_after_flush(
+    pub proof fn lemma_no_outstanding_writes_to_active_metadata_implies_multilog_metadata_types_set_after_flush(
         pm_regions_view: PersistentMemoryRegionsView,
         cdb: bool,
     ) 
@@ -1014,28 +1014,28 @@ verus! {
             deserialize_and_check_log_cdb(pm_regions_view.committed()[0]) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions_view.committed()[0]).unwrap(),
             no_outstanding_writes_to_active_metadata(pm_regions_view, cdb),
-            metadata_types_set(pm_regions_view.committed()),
+            multilog_metadata_types_set(pm_regions_view.committed()),
             pm_regions_view.len() > 0,
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
                 pm_regions_view[i].len() > ABSOLUTE_POS_OF_LOG_AREA
         ensures 
-            metadata_types_set(pm_regions_view.flush().committed()),
+            multilog_metadata_types_set(pm_regions_view.flush().committed()),
     {
         reveal(spec_padding_needed);
 
         assert(pm_regions_view.len() == pm_regions_view.committed().len());
         
-        assert(metadata_types_set_in_first_region(pm_regions_view.committed()[0]));
+        assert(multilog_metadata_types_set_in_first_region(pm_regions_view.committed()[0]));
 
         let first_region_committed = pm_regions_view.committed()[0];
         let first_region_flushed = pm_regions_view.flush().committed()[0];
         lemma_establish_subrange_equivalence(first_region_committed, first_region_flushed);
 
         assert(log_index_trigger(0));
-        assert(metadata_types_set_in_first_region(pm_regions_view.flush().committed()[0]));
+        assert(multilog_metadata_types_set_in_first_region(pm_regions_view.flush().committed()[0]));
 
         assert forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() implies
-            metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb) 
+            multilog_metadata_types_set_in_region(pm_regions_view.flush().committed()[i], cdb) 
         by {
             let committed = pm_regions_view.committed()[i];
             let flushed = pm_regions_view.flush().committed()[i];
@@ -1063,7 +1063,7 @@ verus! {
             wrpm_regions_new == wrpm_regions_old.write(which_log, addr, bytes_to_write),
             0 <= which_log < wrpm_regions_old.len(),
             memory_matches_deserialized_cdb(wrpm_regions_old, cdb),
-            metadata_types_set(wrpm_regions_old.committed()),
+            multilog_metadata_types_set(wrpm_regions_old.committed()),
             ({
                 let unused_metadata_pos = get_log_metadata_pos(!cdb);
                 unused_metadata_pos <= addr < addr + bytes_to_write.len()
@@ -1079,7 +1079,7 @@ verus! {
             },
             deserialize_and_check_log_cdb(wrpm_regions_old[0].committed()) == Some(cdb),
         ensures
-            metadata_types_set(wrpm_regions_new.committed()),
+            multilog_metadata_types_set(wrpm_regions_new.committed()),
             active_metadata_is_equal(wrpm_regions_new, wrpm_regions_old)
     {
         reveal(spec_padding_needed);
@@ -1109,7 +1109,7 @@ verus! {
                extract_bytes(cur_new, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
 
         assert(active_metadata_is_equal_in_region(wrpm_regions_old[which_log], wrpm_regions_new[which_log], cdb));
-        lemma_regions_metadata_matches_implies_metadata_types_set(wrpm_regions_old, wrpm_regions_new, cdb);
-        assert(metadata_types_set(wrpm_regions_new.committed()));
+        lemma_regions_metadata_matches_implies_multilog_metadata_types_set(wrpm_regions_old, wrpm_regions_new, cdb);
+        assert(multilog_metadata_types_set(wrpm_regions_new.committed()));
     }
 }

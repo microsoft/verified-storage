@@ -62,7 +62,7 @@ verus! {
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             no_outstanding_writes_to_metadata(pm_regions_view),
-            metadata_types_set(pm_regions_view.committed()),
+            multilog_metadata_types_set(pm_regions_view.committed()),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
@@ -111,10 +111,10 @@ verus! {
                 // The active metadata is unchanged after the write
                 &&& active_metadata_is_equal(pm_regions_view, pm_regions_view2)
                 // Metadata types are set after the write and a subsequent commit
-                &&& metadata_types_set(pm_regions_view2.committed())
+                &&& multilog_metadata_types_set(pm_regions_view2.committed())
                 // Metadata types are set after the write and a subsequent crash
                 &&& forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) ==>
-                      metadata_types_set(mem)
+                      multilog_metadata_types_set(mem)
                 &&& no_outstanding_writes_to_active_metadata(pm_regions_view2, cdb)
             }),
     {
@@ -203,11 +203,11 @@ verus! {
             ));
         }
 
-        assert(metadata_types_set(pm_regions_view2.committed())) by {
-            lemma_regions_metadata_matches_implies_metadata_types_set(pm_regions_view, pm_regions_view2, cdb);
+        assert(multilog_metadata_types_set(pm_regions_view2.committed())) by {
+            lemma_regions_metadata_matches_implies_multilog_metadata_types_set(pm_regions_view, pm_regions_view2, cdb);
         }
 
-        assert forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) implies metadata_types_set(mem) by {
+        assert forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) implies multilog_metadata_types_set(mem) by {
             lemma_metadata_set_after_crash(pm_regions_view2, cdb);
         }
     }
@@ -258,7 +258,7 @@ verus! {
             each_metadata_consistent_with_info(pm_regions_view, multilog_id, num_logs, cdb, prev_infos),
             each_info_consistent_with_log_area(pm_regions_view, num_logs, prev_infos, prev_state),
             no_outstanding_writes_to_metadata(pm_regions_view),
-            metadata_types_set(pm_regions_view.committed()),
+            multilog_metadata_types_set(pm_regions_view.committed()),
             forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < pm_regions_view.len() ==>
                 ABSOLUTE_POS_OF_LOG_AREA < pm_regions_view[i].len(),
             ({
@@ -321,12 +321,12 @@ verus! {
                 // The active metadata is unchanged after the write
                 &&& active_metadata_is_equal(pm_regions_view, pm_regions_view3)
                 // Metadata types are set after the write and a subsequent commit
-                &&& metadata_types_set(pm_regions_view3.committed())
+                &&& multilog_metadata_types_set(pm_regions_view3.committed())
                 // Metadata types are set after each write and a subsequent crash
                 &&& forall |mem| #[trigger] pm_regions_view2.can_crash_as(mem) ==>
-                      metadata_types_set(mem)
+                      multilog_metadata_types_set(mem)
                 &&& forall |mem| #[trigger] pm_regions_view3.can_crash_as(mem) ==>
-                      metadata_types_set(mem)
+                      multilog_metadata_types_set(mem)
                 &&& no_outstanding_writes_to_active_metadata(pm_regions_view3, cdb)
             }),
     {

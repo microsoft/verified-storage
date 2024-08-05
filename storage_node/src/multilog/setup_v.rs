@@ -182,7 +182,7 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[which_log as int].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, which_log),
-            metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
+            multilog_metadata_types_set_in_region(pm_regions@[which_log as int].flush().committed(), false),
     {
         broadcast use pmcopy_axioms;
         reveal(spec_padding_needed);
@@ -278,8 +278,8 @@ verus! {
             memory_correctly_set_up_on_single_region(
                 pm_regions@[0].flush().committed(), // it'll be correct after the next flush
                 region_size, multilog_id, num_logs, 0),
-            metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
-            metadata_types_set_in_region(pm_regions@[0].flush().committed(), false),
+            multilog_metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
+            multilog_metadata_types_set_in_region(pm_regions@[0].flush().committed(), false),
             deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()) is Some,
             !deserialize_and_check_log_cdb(pm_regions@[0].flush().committed()).unwrap(),
     {
@@ -353,7 +353,7 @@ verus! {
             assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as nat, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
-            assert(metadata_types_set_in_first_region(pm_regions@[0].flush().committed()));
+            assert(multilog_metadata_types_set_in_first_region(pm_regions@[0].flush().committed()));
         }
     }
 
@@ -408,7 +408,7 @@ verus! {
                 pm_regions@[i].len() == old(pm_regions)@[i].len(),
             pm_regions@.no_outstanding_writes(),
             recover_all(pm_regions@.committed(), multilog_id) == Some(AbstractMultiLogState::initialize(log_capacities)),
-            metadata_types_set(pm_regions@.committed()),
+            multilog_metadata_types_set(pm_regions@.committed()),
     {
         // Loop `which_log` from 0 to `region_sizes.len() - 1`, each time
         // setting up the metadata for region `which_log`.
@@ -445,9 +445,9 @@ verus! {
                 forall |i: u32| #[trigger] log_index_trigger(i as int) && i < which_log ==>
                     memory_correctly_set_up_on_single_region(pm_regions@[i as int].flush().committed(),
                                                              region_sizes@[i as int], multilog_id, num_logs, i),
-                metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
+                multilog_metadata_types_set_in_first_region(pm_regions@[0].flush().committed()),
                 forall |i: u32| #[trigger] log_index_trigger(i as int) && i < which_log ==>
-                    metadata_types_set_in_region(pm_regions@[i as int].flush().committed(), false),
+                    multilog_metadata_types_set_in_region(pm_regions@[i as int].flush().committed(), false),
         {
             assert(log_index_trigger(which_log as int));
             let region_size: u64 = region_sizes[which_log as usize];
@@ -478,8 +478,8 @@ verus! {
                    pm_regions@[i].len() == flushed_regions[i].len());
             
             // Finally, help Verus establish that the metadata types are set for all regions
-            lemma_metadata_types_set_flush_committed(pm_regions@, false);
-            assert(metadata_types_set(pm_regions@.flush().committed()));
+            lemma_multilog_metadata_types_set_flush_committed(pm_regions@, false);
+            assert(multilog_metadata_types_set(pm_regions@.flush().committed()));
         }
 
         pm_regions.flush()

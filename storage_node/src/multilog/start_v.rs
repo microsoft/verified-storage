@@ -43,7 +43,7 @@ verus! {
             pm_regions@.len() > 0,
             recover_cdb(pm_regions@[0].committed()).is_Some(),
             pm_regions@.no_outstanding_writes(),
-            metadata_types_set(pm_regions@.committed()),
+            multilog_metadata_types_set(pm_regions@.committed()),
         ensures
             match result {
                 Ok(b) => Some(b) == recover_cdb(pm_regions@[0].committed()),
@@ -55,7 +55,7 @@ verus! {
             }
     {
         let ghost mem = pm_regions@.committed()[0];
-        assert(metadata_types_set_in_first_region(mem));
+        assert(multilog_metadata_types_set_in_first_region(mem));
         let ghost log_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LOG_CDB + i);
         let ghost true_cdb_bytes = mem.subrange(ABSOLUTE_POS_OF_LOG_CDB as int, ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of());
        
@@ -135,7 +135,7 @@ verus! {
             which_log < num_logs,
             num_logs == pm_regions@.len(),
             pm_regions@[which_log as int].no_outstanding_writes(),
-            metadata_types_set(pm_regions@.committed()),
+            multilog_metadata_types_set(pm_regions@.committed()),
             deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         ensures
@@ -173,7 +173,7 @@ verus! {
         // Read the global metadata and its CRC, and check that the
         // CRC matches.
 
-        assert(metadata_types_set_in_region(mem, cdb));
+        assert(multilog_metadata_types_set_in_region(mem, cdb));
 
         let ghost true_global_metadata = GlobalMetadata::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of()));
         let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of()));
@@ -460,7 +460,7 @@ verus! {
             pm_regions@.no_outstanding_writes(),
             memory_matches_deserialized_cdb(pm_regions@, cdb),
             recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
-            metadata_types_set(pm_regions@.committed()),
+            multilog_metadata_types_set(pm_regions@.committed()),
             deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
             cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         ensures
@@ -486,7 +486,7 @@ verus! {
                 num_regions == pm_regions@.len(),
                 recover_given_cdb(pm_regions@.committed(), multilog_id, cdb) == Some(state),
                 pm_regions@.no_outstanding_writes(),
-                metadata_types_set(pm_regions@.committed()),
+                multilog_metadata_types_set(pm_regions@.committed()),
                 deserialize_and_check_log_cdb(pm_regions@[0].committed()) is Some,
                 cdb == deserialize_and_check_log_cdb(pm_regions@[0].committed()).unwrap(),
         {

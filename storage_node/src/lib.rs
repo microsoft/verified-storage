@@ -43,6 +43,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
+use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
 mod tests {

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERUS_PATH=/home/$USER/verus/source/target-verus/release/verus
+VERUS_PATH=/mnt/local_ssd/home/hayley/verus/source/target-verus/release/verus
 
 clear
 cd ../../deps_hack

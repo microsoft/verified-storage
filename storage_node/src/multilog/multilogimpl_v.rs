@@ -7,8 +7,6 @@
 
 #[cfg(verus_keep_ghost)]
 use crate::log::inv_v::lemma_auto_smaller_range_of_seq_is_subrange;
-#[cfg(verus_keep_ghost)]
-use crate::log::inv_v::lemma_metadata_matches_implies_metadata_types_set;
 use crate::multilog::append_v::*;
 use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;
@@ -80,7 +78,7 @@ verus! {
         // multilog state.
         pub closed spec fn recover(mems: Seq<Seq<u8>>, multilog_id: u128) -> Option<AbstractMultiLogState>
         {
-            if !metadata_types_set(mems) {
+            if !multilog_metadata_types_set(mems) {
                 // If the metadata types aren't properly set up, the log is unrecoverable.
                 None
             } else {
@@ -110,7 +108,7 @@ verus! {
             &&& each_metadata_consistent_with_info(wrpm_regions@, multilog_id, self.num_logs, self.cdb, self.infos@)
             &&& each_info_consistent_with_log_area(wrpm_regions@, self.num_logs, self.infos@, self.state@)
             &&& can_only_crash_as_state(wrpm_regions@, multilog_id, self.state@.drop_pending_appends())
-            &&& metadata_types_set(wrpm_regions@.committed())
+            &&& multilog_metadata_types_set(wrpm_regions@.committed())
             &&& forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
                    ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len()
         }
@@ -651,7 +649,7 @@ verus! {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
-                metadata_types_set(old(wrpm_regions)@.committed()),
+                multilog_metadata_types_set(old(wrpm_regions)@.committed()),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(wrpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
@@ -686,7 +684,7 @@ verus! {
 
             assert(self.num_logs == wrpm_regions@.len());
             assert(forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
-                    inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb));
+                    inactive_multilog_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb));
 
             proof {
                 // Prove that after the flush we're about to do, all our
@@ -696,7 +694,7 @@ verus! {
                                                              prev_infos, prev_state);
 
                 // Also, prove that metadata types will still be set after the flush.
-                lemma_no_outstanding_writes_to_active_metadata_implies_metadata_types_set_after_flush(wrpm_regions@,
+                lemma_no_outstanding_writes_to_active_metadata_implies_multilog_metadata_types_set_after_flush(wrpm_regions@,
                                                                                                       self.cdb);
             }
 
@@ -730,7 +728,7 @@ verus! {
                 &&& metadata_consistent_with_info(pm_regions_after_flush[w], multilog_id, self.num_logs, which_log,
                                                  !self.cdb, self.infos@[w])
                 &&& info_consistent_with_log_area(pm_regions_after_flush[w], self.infos@[w], self.state@[w])
-                &&& metadata_types_set(pm_regions_after_flush.committed())
+                &&& multilog_metadata_types_set(pm_regions_after_flush.committed())
             } by {
                 let w = which_log as int;
                 lemma_establish_subrange_equivalence(
@@ -748,7 +746,7 @@ verus! {
                 );
 
                 assert(pm_regions_after_flush.len() == wrpm_regions@.len());
-                lemma_metadata_types_set_after_cdb_update(wrpm_regions@, pm_regions_after_flush, multilog_id,
+                lemma_multilog_metadata_types_set_after_cdb_update(wrpm_regions@, pm_regions_after_flush, multilog_id,
                                                           new_cdb_bytes, self.cdb);
             }
             assert(memory_matches_deserialized_cdb(pm_regions_after_flush, !self.cdb));
@@ -833,7 +831,7 @@ verus! {
                           ||| Self::recover(s, multilog_id) == Some(prev_state.drop_pending_appends())
                           ||| Self::recover(s, multilog_id) == Some(old(self).state@.drop_pending_appends())
                       } ==> #[trigger] perm.check_permission(s),
-                metadata_types_set(old(wrpm_regions)@.committed()),
+                multilog_metadata_types_set(old(wrpm_regions)@.committed()),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < old(wrpm_regions)@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < old(wrpm_regions)@[i].len(),
                 old(wrpm_regions)@.len() > 0,
@@ -856,14 +854,14 @@ verus! {
                                                   !self.cdb, self.infos@[w])
                 },
                 no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb),
-                metadata_types_set(wrpm_regions@.committed()),
+                multilog_metadata_types_set(wrpm_regions@.committed()),
                 active_metadata_is_equal(old(wrpm_regions)@, wrpm_regions@),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
                     wrpm_regions@[i].len() == old(wrpm_regions)@[i].len(),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
                     ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
                 forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
-                    inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
+                    inactive_multilog_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
                 wrpm_regions@.len() > 0,
                 
         {
@@ -931,7 +929,7 @@ verus! {
                     // modified by the loop.
 
                     no_outstanding_writes_to_active_metadata(wrpm_regions@, self.cdb),
-                    metadata_types_set(wrpm_regions@.committed()),
+                    multilog_metadata_types_set(wrpm_regions@.committed()),
                     active_metadata_is_equal(old_wrpm_regions, wrpm_regions@),
 
                     // The loop does not change the size of any of the regions
@@ -940,12 +938,12 @@ verus! {
                     forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < wrpm_regions@.len() ==>
                         ABSOLUTE_POS_OF_LOG_AREA < wrpm_regions@[i].len(),
                     forall |i: int| #[trigger] log_index_trigger(i) && 0 <= i < current_log ==>
-                        inactive_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
+                        inactive_multilog_metadata_types_set_in_region(wrpm_regions@.flush().committed()[i], self.cdb),
                     wrpm_regions@.len() > 0,
 
                     self.cdb == old(self).cdb,
-                    prev_infos == old_prev_infos,
-                    prev_state == old_prev_state,
+                    // prev_infos == old_prev_infos,
+                    // prev_state == old_prev_state,
             {
                 broadcast use pmcopy_axioms; // Remove this workaround once https://github.com/verus-lang/verus/issues/1166 is fixed
                 reveal(spec_padding_needed);
@@ -1011,7 +1009,7 @@ verus! {
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
                     lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
-                    assert(metadata_types_set(crash_bytes));
+                    assert(multilog_metadata_types_set(crash_bytes));
                 }
 
                 // Write the new metadata to the inactive header (without the CRC)
@@ -1048,11 +1046,11 @@ verus! {
                         wrpm_regions_new, multilog_id, self.num_logs, self.cdb, prev_infos, prev_state);
 
                     lemma_metadata_set_after_crash(wrpm_regions_new, self.cdb);
-                    assert(metadata_types_set(crash_bytes));
+                    assert(multilog_metadata_types_set(crash_bytes));
                 }
 
                 wrpm_regions.serialize_and_write(
-                    current_log as usize, unused_metadata_pos + size_of::<LogMetadata>() as u64,
+                    current_log as usize, unused_metadata_pos + traits_t::size_of::<LogMetadata>() as u64,
                     &log_crc, Tracked(perm)
                 );
                 
