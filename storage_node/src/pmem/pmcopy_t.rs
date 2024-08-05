@@ -327,7 +327,6 @@ verus! {
         #[verifier::external_body]
         pub exec fn extract_cdb(
             self, 
-            Ghost(true_val): Ghost<u64>, 
             Ghost(true_bytes): Ghost<Seq<u8>>, 
             Ghost(addrs): Ghost<Seq<int>>,
             Ghost(impervious_to_corruption): Ghost<bool>
@@ -338,8 +337,11 @@ verus! {
                 } else {
                     maybe_corrupted(self@, true_bytes, addrs)
                 },
-                true_val.spec_to_bytes() == true_bytes,
-                true_val == CDB_TRUE || true_val == CDB_FALSE,
+                ({
+                    let true_val = u64::spec_from_bytes(true_bytes);
+                    ||| true_val == CDB_TRUE
+                    ||| true_val == CDB_FALSE
+                }),
             ensures 
                 out.spec_to_bytes() == self@
         {
@@ -383,8 +385,8 @@ verus! {
     // of the external unsafe trait UnsafeSpecPmSized to ensure that 
     // structures only implement it if they use the provided derive macros.
     pub trait SpecPmSized : UnsafeSpecPmSized {
-        spec fn spec_size_of() -> int;
-        spec fn spec_align_of() -> int;
+        spec fn spec_size_of() -> nat;
+        spec fn spec_align_of() -> nat;
     }
 
     // User-defined structures that derive PmSized have their 
@@ -417,12 +419,12 @@ verus! {
     // we provide a manual implementation here rather than using the macro.
     // Unsafe implementations of PmSized and UnsafeSpecPmSized live in traits_t.rs
     impl<T: PmSafe + PmSized, const N: usize> SpecPmSized for [T; N] {
-        open spec fn spec_size_of() -> int
+        open spec fn spec_size_of() -> nat
         {
-            N * T::spec_size_of()
+            (N * T::spec_size_of()) as nat
         }   
 
-        open spec fn spec_align_of() -> int
+        open spec fn spec_align_of() -> nat
         {
             T::spec_align_of()
         }
@@ -432,11 +434,14 @@ verus! {
     // padding needed before the next field in a repr(C) structure to ensure it is aligned.
     // This is the same algorithm described here:
     // https://doc.rust-lang.org/reference/type-layout.html#the-c-representation
-    pub open spec fn spec_padding_needed(offset: int, align: int) -> int
+    #[verifier::opaque]
+    pub open spec fn spec_padding_needed(offset: nat, align: nat) -> nat
     {
         let misalignment = offset % align;
         if misalignment > 0 {
-            align - misalignment
+            // we can safely cast this to a nat because it will always be the case that
+            // misalignment <= align
+            (align - misalignment) as nat
         } else {
             0
         }
@@ -450,8 +455,9 @@ verus! {
             align > 0,
         ensures 
             out <= align,
-            out as int == spec_padding_needed(offset as int, align as int)
+            out as nat == spec_padding_needed(offset as nat, align as nat)
     {
+        reveal(spec_padding_needed);
         let misalignment = offset % align;
         if misalignment > 0 {
             align - misalignment

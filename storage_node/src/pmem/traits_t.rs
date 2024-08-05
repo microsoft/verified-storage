@@ -89,14 +89,14 @@ verus! {
     // instead to obtain the runtime size and alignment of a type.
     pub fn size_of<S: PmSized>() -> (out: usize)
         ensures 
-            out as int == S::spec_size_of()
+            out as nat == S::spec_size_of()
     {
         S::size_of()
     }
 
     pub fn align_of<S: PmSized>() -> (out: usize)
         ensures 
-            out as int == S::spec_align_of()
+            out as nat == S::spec_align_of()
     {
         S::align_of()
     }

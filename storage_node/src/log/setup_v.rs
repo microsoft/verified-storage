@@ -128,6 +128,7 @@ verus! {
         let log_crc = calculate_crc(&log_metadata);
 
         assert(pm_region@.no_outstanding_writes());
+        reveal(spec_padding_needed);
         // Write all metadata structures and their CRCs to memory
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_CRC, &global_crc);
@@ -146,21 +147,21 @@ verus! {
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
             let mem = pm_region@.flush().committed();
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as int, GlobalMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of())
                    =~= global_crc.spec_to_bytes());
 
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as int, RegionMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of())
                    =~= region_metadata.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of())
                    =~= region_crc.spec_to_bytes());
 
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as int, u64::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of())
                    =~= CDB_FALSE.spec_to_bytes());
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, LogMetadata::spec_size_of())
+            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat, LogMetadata::spec_size_of())
                    =~= log_metadata.spec_to_bytes());
-            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int, u64::spec_size_of())
+            assert (extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as nat, u64::spec_size_of())
                     =~= log_crc.spec_to_bytes());
 
             // Asserting these two postconditions here helps Verus finish out the proof.

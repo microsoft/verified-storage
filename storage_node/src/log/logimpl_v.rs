@@ -315,7 +315,7 @@ verus! {
                 // invariants, we can only crash as `state`. The second says that,
                 // because this is a recovered state, it's unaffected by dropping
                 // all pending appends.
-
+                reveal(spec_padding_needed);
                 lemma_invariants_imply_crash_recover_forall(pm_region@, log_id, cdb, info, state);
                 lemma_recovered_state_is_crash_idempotent(wrpm_region@.committed(), log_id);
 
@@ -547,6 +547,7 @@ verus! {
                     _ => false
                 },
         {
+            reveal(spec_padding_needed);
             // One useful invariant implies that
             // `info.log_plus_pending_length <= info.log_area_len`, so
             // we know we can safely do the following subtraction
@@ -589,24 +590,25 @@ verus! {
                 &&& #[trigger] alt_region_view.can_crash_as(crash_state)
                 &&& wrpm_region@.len() == alt_region_view.len()
                 &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
-                                                           ABSOLUTE_POS_OF_LOG_AREA as int,
-                                                           info.log_area_len as int,
+                                                           ABSOLUTE_POS_OF_LOG_AREA as nat,
+                                                           info.log_area_len as nat,
                                                            is_writable_absolute_addr_fn)
             } implies perm.check_permission(crash_state) by {
+                reveal(spec_padding_needed);
                 lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
                     is_writable_absolute_addr_fn
                 );
                 assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
-                lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
+                lemma_establish_subrange_equivalence(wrpm_region@.committed(), alt_region_view.committed());
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.committed(), alt_region_view.committed());
                 lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
                 lemma_metadata_set_after_crash(alt_region_view, self.cdb);
             }
             let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-                Ghost(self.info.log_area_len as int), Ghost(is_writable_absolute_addr_fn)
+                Ghost(self.info.log_area_len as nat), Ghost(is_writable_absolute_addr_fn)
             );
 
             // Call `tentatively_append_to_log` to do the real work of this function,
@@ -627,11 +629,12 @@ verus! {
             self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
 
             proof {
+                reveal(spec_padding_needed);
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-                lemma_establish_extract_bytes_equivalence(subregion.initial_region_view().committed(),
-                                                          wrpm_region@.committed());
+                lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
+                                                     wrpm_region@.committed());
                 assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
-                ABSOLUTE_POS_OF_LOG_AREA as int, self.info.log_area_len as int, is_writable_absolute_addr_fn));
+                ABSOLUTE_POS_OF_LOG_AREA as nat, self.info.log_area_len as nat, is_writable_absolute_addr_fn));
                 assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
                     wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.committed(), wrpm_region@.committed());
@@ -715,9 +718,9 @@ verus! {
 
             proof {
                 let state_after_flush = subregion.view(wrpm_region).flush().committed();
-                assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of() as int)
+                assert(extract_bytes(state_after_flush, 0, LogMetadata::spec_size_of())
                        =~= log_metadata.spec_to_bytes());
-                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of() as int, u64::spec_size_of() as int)
+                assert(extract_bytes(state_after_flush, LogMetadata::spec_size_of(), u64::spec_size_of())
                        =~= log_crc.spec_to_bytes());
             }
         }
@@ -778,6 +781,9 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            broadcast use pmcopy_axioms;
+            reveal(spec_padding_needed);
+
             // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
             // since we're writing in the inactive part of the metadata.
 
@@ -805,7 +811,7 @@ verus! {
             assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& condition(s1)
                 &&& s1.len() == s2.len() == wrpm_region@.len()
-                &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as int,
+                &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as nat,
                     LogMetadata::spec_size_of() + u64::spec_size_of(), is_writable_absolute_addr_fn)
             } implies condition(s2) by {
                 lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
@@ -830,7 +836,7 @@ verus! {
                 let mem1 = old_wrpm.committed();
                 let mem2 = wrpm_region@.committed();
                 subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-                lemma_establish_extract_bytes_equivalence(mem1, mem2);
+                lemma_establish_subrange_equivalence(mem1, mem2);
         
                 assert(wrpm_region.inv());
                 assert(wrpm_region.constants() == old(wrpm_region).constants());
@@ -844,13 +850,13 @@ verus! {
                 assert(self.info.log_area_len == prev_info.log_area_len);
                 assert(metadata_consistent_with_info(wrpm_region@.flush(), log_id, !self.cdb, self.info)) by {
                     let mem3 = wrpm_region@.flush().committed();
-                    lemma_establish_extract_bytes_equivalence(mem1, mem3);
-                    assert(extract_bytes(mem3, unused_metadata_pos as int, LogMetadata::spec_size_of())
+                    lemma_establish_subrange_equivalence(mem1, mem3);
+                    assert(extract_bytes(mem3, unused_metadata_pos as nat, LogMetadata::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(), 0,
-                                            LogMetadata::spec_size_of() as int));
-                    assert(extract_bytes(mem3, unused_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of())
+                                            LogMetadata::spec_size_of()));
+                    assert(extract_bytes(mem3, unused_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of())
                            =~= extract_bytes(subregion.view(wrpm_region).flush().committed(),
-                                            LogMetadata::spec_size_of(),  u64::spec_size_of()));
+                                            LogMetadata::spec_size_of(), u64::spec_size_of()));
                 }
 
 
@@ -869,11 +875,8 @@ verus! {
                     let new_crc = new_metadata.spec_crc();
 
                     let inactive_metadata_pos = get_log_metadata_pos(!self.cdb);
-                    assert(extract_bytes(mem, inactive_metadata_pos as int, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
-                    assert(extract_bytes(mem, inactive_metadata_pos + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
-                
-                    axiom_bytes_len::<LogMetadata>(new_metadata);
-                    axiom_to_from_bytes::<LogMetadata>(new_metadata);
+                    assert(extract_bytes(mem, inactive_metadata_pos as nat, LogMetadata::spec_size_of()) == new_metadata.spec_to_bytes());
+                    assert(extract_bytes(mem, inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()) == new_crc.spec_to_bytes());
                 }
             }
 
@@ -915,10 +918,9 @@ verus! {
                 &&& info_consistent_with_log_area_in_region(pm_region_after_flush, self.info, self.state@)
                 &&& metadata_types_set(pm_region_after_flush.committed())
             }) by {
-                lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(),
-                                                          pm_region_after_flush.committed());
-                axiom_bytes_len::<u64>(new_cdb);
-                axiom_to_from_bytes::<u64>(new_cdb);
+                lemma_establish_subrange_equivalence(wrpm_region@.committed(),
+                                                     pm_region_after_flush.committed());
+
                 lemma_metadata_consistent_with_info_after_cdb_update(
                     wrpm_region@,
                     pm_region_after_flush,

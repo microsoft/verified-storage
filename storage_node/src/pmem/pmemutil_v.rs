@@ -231,7 +231,7 @@ verus! {
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes) ==> {
+                true_crc_bytes == spec_crc_bytes(true_data_bytes) ==> {
                     if b {
                         &&& data_c@ == true_data_bytes
                         &&& crc_c@ == true_crc_bytes
@@ -401,7 +401,6 @@ verus! {
     // addresses don't work out.
     pub fn check_cdb(
         cdb_c: MaybeCorruptedBytes<u64>,
-        Ghost(true_cdb): Ghost<u64>,
         Ghost(mem): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
         Ghost(cdb_addrs): Ghost<Seq<int>>,
@@ -411,7 +410,8 @@ verus! {
             all_elements_unique(cdb_addrs),
             ({
                 let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
-                &&& true_cdb.spec_to_bytes() == true_cdb_bytes
+                let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
                 &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
                         else { maybe_corrupted(cdb_c@, true_cdb_bytes, cdb_addrs) }
@@ -438,7 +438,7 @@ verus! {
             }  
         }
         
-        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb), Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(impervious_to_corruption));
+        let cdb_val = cdb_c.extract_cdb(Ghost(true_cdb_bytes), Ghost(cdb_addrs), Ghost(impervious_to_corruption));
         assert(cdb_val.spec_to_bytes() == cdb_c@);
 
         // If the read encoded CDB is one of the expected ones, translate
