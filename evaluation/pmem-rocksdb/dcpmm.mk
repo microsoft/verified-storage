@@ -7,7 +7,7 @@ LDFLAGS += -L$(PMDK_LIBRARY_PATH) -Wl,-rpath=$(PMDK_LIBRARY_PATH)
 else
 LDFLAGS += -L/usr/local/lib/ -L/usr/local/lib64/
 endif
-LDFLAGS += -lpmem -lpmemobj
+LDFLAGS += -lpmem -lpmemobj -lzstd
 
 ifdef PMDK_INCLUDE_PATH
 CXXFLAGS += -I$(PMDK_INCLUDE_PATH)

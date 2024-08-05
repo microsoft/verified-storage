@@ -68,6 +68,7 @@ checksum = "514de17de45fdb8dc022b1a7975556c53c86f9f0aa5f534b98977b171857c2c9"
 name = "capybarakv_interface"
 version = "0.1.0"
 dependencies = [
+ "bindgen",
  "builtin",
  "builtin_macros",
  "pmsafe",

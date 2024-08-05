@@ -1,0 +1,13 @@
+Loada,redis,pmemrocksdb,capybarakv
+,8515.28,49771.05,24677.95
+
+Runa,redis,pmemrocksdb,capybarakv
+,23020.26,45846.32,22538.77
+
+Runb,redis,pmemrocksdb,capybarakv
+,26018.63,61349.69,26015.92
+
+Runc,redis,pmemrocksdb,capybarakv
+,22905.31,65223.06,27056.28
+
+Loade,redis,pmemrocksdb,capybarakv

@@ -19,8 +19,8 @@ use builtin_macros::*;
 
 pub const MAX_KEY_LEN: usize = 24;
 pub const MAX_ITEM_LEN: usize = 1140; 
-pub const REGION_SIZE: u64 = 1024*1024*1024*10; // 20GB
-pub const NUM_KEYS: u64 = 500001; 
+pub const REGION_SIZE: u64 = 1024*1024*1024*20; // 20GB
+pub const NUM_KEYS: u64 = 10000001; 
 
 use capybarakv_interface::capybarakv_interface::{read_filenames, remove_file, open_pm_region, 
     create_pm_region, KVSTORE_ID};

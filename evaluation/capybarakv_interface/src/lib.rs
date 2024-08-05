@@ -1,22 +1,34 @@
-use capybarakv_interface::*;
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
+use capybarakv_interface::*;
 use storage_node::kv::kvimpl_t::*;
 use storage_node::kv::volatile::volatileimpl_v::*;
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
+use std::ffi::CStr;
+
+
+include!("./bindings.rs");
 
 pub mod capybarakv_interface;
+mod microbenchmarks;
 
+const DB_PATH: &CStr = c"/mnt/pmem/";
+
+// stop indicator for magic-trace.
 #[no_mangle]
 fn capybarakv_stop_indicator() {}
 
 pub fn main() {
-    loada_test();
+    // capybarakv_test();
+    rocksdb_test();
 }
 
-fn loada_test() {
+fn capybarakv_test() {
     let node_size = 16;
     
     let config_file_name: String = "config.toml".to_string();
@@ -54,4 +66,11 @@ fn loada_test() {
         let _item = kv.read_item(&keys_vec[i]).unwrap();
         capybarakv_stop_indicator();
     }
+}
+
+fn rocksdb_test() {
+    // TODO: move this stuff to a safe wrapper
+    let rocksdb_options = unsafe { rocksdb_options_create() };
+    let mut err: *mut i8 = core::ptr::null_mut();
+    let db = unsafe { rocksdb_open(rocksdb_options, DB_PATH.as_ptr(), &mut err) };
 }
