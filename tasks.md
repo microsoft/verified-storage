@@ -6,7 +6,7 @@ Starred functions * have an unverified implementation (which may be out of date 
 - Durable
     - General durable operations
         - [x] `setup`
-        - [ ] `start` *
+        - [ ] `start` - hayley-leblanc
         - [x] `install_log`
         - [ ] `commit` *
         - [ ] `tentative_create` * 
@@ -37,7 +37,7 @@ Starred functions * have an unverified implementation (which may be out of date 
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
-        - [x] `start`
+        - [ ] `start` - hayley-leblanc
         - [ ] `tentative_create` *
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
@@ -64,9 +64,9 @@ Starred functions * have an unverified implementation (which may be out of date 
     - [x] Constructor
     - [x] `insert_key`
     - [ ] `append_list_node_addr`
-    - [ ] `get`
+    - [ ] `get` *
     - [ ] `get_location_by_index`
-    - [ ] `remove`
+    - [ ] `remove` *
     - [ ] `trim_list`
 
 - KV store interface
