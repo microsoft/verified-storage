@@ -1,0 +1,86 @@
+## Tasks
+
+Starred functions * have an unverified implementation (which may be out of date or incomplete).
+
+
+- Durable
+    - General durable operations
+        - [x] `setup`
+        - [ ] `start` *
+        - [x] `install_log`
+        - [ ] `commit` *
+        - [ ] `tentative_create` * 
+        - [ ] `read_item` * 
+        - [ ] `get_list_len` *
+        - [ ] `read_list_entry_at_index` *
+        - [ ] `tentative_update_item` * 
+        - [ ] `tentative_delete` * 
+        - [ ] `tentative_append` *
+        - [ ] `tentative_alloc_list_node` *
+        - [ ] `tentative_update_list_entry_at_index` *
+        - [ ] `tentative_trim_list` *
+    - Operation log
+        - [x] `start`
+        - [ ] `tentatively_append_log_entry` *
+        - [ ] `commit_log` *
+        - [ ] `clear_log` *
+        - [ ] Port single log operations to `log2` module
+            - [x] `setup`
+            - [x] `start` 
+            - [x] `read`
+            - [x] `get_head_tail_and_capacity`
+            - [ ] `tentative_append`
+            - [ ] `commit`
+            - [ ] `advance_head`
+            - [ ] `update_inactive_log_metadata`
+            - [ ] `update_log_metadata`
+    - Main table 
+        - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
+        - [x] `setup`
+        - [x] `start`
+        - [ ] `tentative_create` *
+        - [ ] `overwrite_entry` * 
+        - [ ] `commit_entry` *
+        - [ ] `get_key_and_metadata_entry_at_index` *
+        - [ ] `invalidate_entry` *
+    - Item table
+        - [x] Prove that table is empty at setup
+        - [ ] `start` *
+        - [ ] `tentatively_write_item` *
+        - [ ] `read_item` *
+        - [ ] Deallocate item table slot
+    - Lists
+        - [x] Prove that lists are empty at setup
+        - [ ] `start`*
+        - [ ] Allocate new list node *
+        - [ ] Append new list node *
+        - [ ] Append list element * 
+        - [ ] Read element at given index *
+        - [ ] Deallocate list node *
+        - [ ] Traverse list for volatile index setup 
+
+- Volatile
+    - [ ] Use `vstd` `HashMap` 
+    - [x] Constructor
+    - [x] `insert_key`
+    - [ ] `append_list_node_addr`
+    - [ ] `get`
+    - [ ] `get_location_by_index`
+    - [ ] `remove`
+    - [ ] `trim_list`
+
+- KV store interface
+    - [ ] `setup`
+    - [ ] `start`
+    - [ ] `create`
+    - [ ] `read_item`
+    - [ ] `read_item_and_list`
+    - [ ] `read_list_entry_at_index`
+    - [ ] `read_list`
+    - [ ] `update_item`
+    - [ ] `delete`
+    - [ ] `append_to_list`
+    - [ ] `update_list_entry_at_index`
+    - [ ] `trim_list`
+    - [ ] `commit`
+    - [ ] `get_keys`
