@@ -460,10 +460,7 @@ verus! {
                         let durable_table = table.durable_metadata_table;
                         forall |i: u64| 0 <= i < index ==> {
                             let entry = #[trigger] table.durable_metadata_table[i as int];
-                            match entry {
-                                DurableEntry::Valid(valid_entry) => entry_list_view.contains((valid_entry.key(), i)),
-                                _ => true
-                            }
+                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i))
                         }
                     }),
                     ({
@@ -482,6 +479,8 @@ verus! {
                     }),
                     K::spec_size_of() > 0,
             {
+                let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+
                 if index < max_index {
                     // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
                     // of the loop) if index < max_index
@@ -500,6 +499,24 @@ verus! {
                     proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int); }
                     return Err(KvError::IndexOutOfRange);
                 }
+
+                proof {
+                    let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                    let table = parse_metadata_table::<K>(
+                        subregion.view(pm_region).committed(),
+                        overall_metadata.num_keys, 
+                        overall_metadata.metadata_node_size
+                    ).unwrap();
+                    let durable_table = table.durable_metadata_table;
+
+                    assert(entry_list_view == old_entry_list_view);
+                    // we already know this is true for values less than index from the loop invariant... or we should....
+                    assert(forall |j: u64| 0 <= j < index ==> {
+                        let entry = #[trigger] table.durable_metadata_table[j as int];
+                        entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), j))
+                    });
+                }
+
 
                 let entry_offset = index * entry_slot_size;
 
@@ -535,7 +552,14 @@ verus! {
                 let ghost relative_cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| relative_cdb_addr + i);
                 let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[relative_cdb_addrs[i]]);
                 let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                // Proving that true_cdb_bytes matches various ways of obtaining the CDB subrange from mem is useful later to prove whether 
+                // an entry is valid or invalid based on the value of its CDB
                 assert(true_cdb_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_cdb_addr as nat, u64::spec_size_of()));
+                assert(true_cdb_bytes == extract_bytes(
+                    extract_bytes(mem, (index * overall_metadata.metadata_node_size) as nat, overall_metadata.metadata_node_size as nat),
+                    0,
+                    u64::spec_size_of()
+                ));
 
                 match check_cdb_in_subregion(cdb, subregion, pm_region, Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_cdb_addrs)) {
                     Some(false) => {
@@ -550,6 +574,9 @@ verus! {
 
                             // Invoking this lemma here proves that the CDB we just read is the same one checked by parse_metadata_entry
                             lemma_subrange_of_extract_bytes_equal(mem, relative_cdb_addr as nat, relative_cdb_addr as nat, entry_slot_size as nat, u64::spec_size_of());
+                        
+                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                            assert(entry_list_view == old_entry_list_view);
                         }
                     }, 
                     Some(true) => {
@@ -583,6 +610,12 @@ verus! {
                             assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_crc_addr as nat, u64::spec_size_of()));
                             assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
                             assert(true_key_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_key_addr as nat, K::spec_size_of()));
+
+                            assert(true_key_bytes == extract_bytes(
+                                extract_bytes(mem, (index * entry_slot_size) as nat, entry_slot_size as nat),
+                                u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                                K::spec_size_of()
+                            ));
 
                             lemma_if_table_parseable_then_all_valid_entries_parseable::<K>(
                                 subregion.view(pm_region).committed(),
@@ -647,6 +680,7 @@ verus! {
                     ).unwrap();
                     let durable_table = table.durable_metadata_table;
 
+                    // TODO: may be able to remove this
                     assert forall |i: u64| 0 <= i <= index implies {
                         let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
                         entry matches DurableEntry::Invalid <==> metadata_allocator@.contains(i)
@@ -669,14 +703,33 @@ verus! {
                             assert(metadata_allocator@.contains(index));
                         }
                     }
-    
-                    assume(forall |i: u64| 0 <= i <= index ==> {
+
+                
+                    assert forall |i: u64| 0 <= i <= index implies {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
-                        match entry {
-                            DurableEntry::Valid(valid_entry) => entry_list_view.contains((valid_entry.key(), i)),
-                            _ => true
+                        entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i))
+                    } by {
+                        // We already know this is true for values less than index from the loop invariant.
+                        // To help Verus prove this, we need to establish that the part of the entry list we are making an assertion about has not
+                        // changed on this iteration.
+                        assert(entry_list_view == old_entry_list_view || entry_list_view.subrange(0, entry_list_view.len() - 1) == old_entry_list_view);
+                        assert(forall |j: u64| 0 <= j < index ==> {
+                            let entry = #[trigger] table.durable_metadata_table[j as int];
+                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), j))
+                        });
+                        // Prove that the assertion holds when i == index as well
+                        if i == index {
+                            let entry = table.durable_metadata_table[i as int];
+                            if let DurableEntry::Valid(valid_entry) = entry {
+                                assert(entry_list_view == old_entry_list_view.push((valid_entry.key(), index)));
+                                assert(entry_list_view[entry_list_view.len() - 1] == (valid_entry.key(), index));
+                            } else {
+                                assert(entry matches DurableEntry::Invalid);
+                                assert(entry_list_view == old_entry_list_view);
+                            }
                         }
-                    });
+                    }
+
                     assume(forall |i: int| 0 <= i < entry_list_view.len() ==> {
                         let table_index = entry_list_view[i].1;
                         &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)

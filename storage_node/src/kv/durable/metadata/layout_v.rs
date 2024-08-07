@@ -193,6 +193,7 @@ verus! {
         if cdb == CDB_FALSE {
             DurableEntry::Invalid
         } else {
+            // cdb == CDB_TRUE
             DurableEntry::Valid(MetadataTableViewEntry::<K>::new(crc, metadata, key))
         }
     }
