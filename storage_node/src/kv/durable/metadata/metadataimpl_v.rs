@@ -430,6 +430,7 @@ verus! {
                     index * entry_slot_size <= overall_metadata.main_table_size <= u64::MAX,
                     max_index == overall_metadata.main_table_size / entry_slot_size,
                     max_index * entry_slot_size <= overall_metadata.main_table_size,
+                    index <= max_index,
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == entry_slot_size,
                     num_keys == overall_metadata.num_keys,
                     subregion.len() == overall_metadata.main_table_size,
@@ -450,14 +451,33 @@ verus! {
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     ({
-                        let key_index_pairs_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let table = parse_metadata_table::<K>(
+                            subregion.view(pm_region).committed(),
+                            overall_metadata.num_keys, 
+                            overall_metadata.metadata_node_size
+                        ).unwrap();
+                        let durable_table = table.durable_metadata_table;
                         forall |i: u64| 0 <= i < index ==> {
-                            let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
-                            entry matches DurableEntry::Valid(valid_entry) <==> {
-                                // janky way of binding the enum info to a variable
-                                &&& entry matches DurableEntry::Valid(valid_entry)
-                                &&& key_index_pairs_view.contains((valid_entry.key(), i))
-                            } 
+                            let entry = #[trigger] table.durable_metadata_table[i as int];
+                            match entry {
+                                DurableEntry::Valid(valid_entry) => entry_list_view.contains((valid_entry.key(), i)),
+                                _ => true
+                            }
+                        }
+                    }),
+                    ({
+                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let table = parse_metadata_table::<K>(
+                            subregion.view(pm_region).committed(),
+                            overall_metadata.num_keys, 
+                            overall_metadata.metadata_node_size
+                        ).unwrap();
+                        forall |i: int| 0 <= i < entry_list_view.len() ==> {
+                            let table_index = entry_list_view[i].1;
+                            &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                            &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                            &&& 0 <= table_index < table.durable_metadata_table.len()
                         }
                     }),
                     K::spec_size_of() > 0,
@@ -472,6 +492,9 @@ verus! {
                         }
                         // also prove that we can read the next entry at this index without going out of bounds
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add(entry_slot_size as int, index as int, 1int);
+                        // asserting these here seems to help stabilize some arithmetic assertions later
+                        assert(entry_slot_size * (index + 1) == entry_slot_size * index + entry_slot_size);
+                        assert(entry_slot_size * (index + 1) <= entry_slot_size * max_index);
                     }
                 } else {
                     proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int); }
@@ -488,6 +511,7 @@ verus! {
                     // these asserts are a bit unstable....
                     assert(u64::spec_size_of() < entry_slot_size);
                     assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size);
+                    assert(index * entry_slot_size + entry_slot_size <= subregion.len());
                     assert(entry_offset + entry_slot_size <= subregion.len());
                     assert(relative_cdb_addr + entry_slot_size <= subregion.len());
                     assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size <= subregion.len());
@@ -536,10 +560,6 @@ verus! {
                         let relative_crc_addr = relative_cdb_addr + traits_t::size_of::<u64>() as u64;
                         let relative_entry_addr = relative_crc_addr + traits_t::size_of::<u64>() as u64;
                         let relative_key_addr = relative_entry_addr + traits_t::size_of::<ListEntryMetadata>()  as u64;
-
-                        // let ghost true_crc_bytes = extract_bytes(mem, relative_crc_addr as nat, u64::spec_size_of());
-                        // let ghost true_entry_bytes = extract_bytes(mem, relative_entry_addr as nat, ListEntryMetadata::spec_size_of());
-                        // let ghost true_key_bytes = extract_bytes(mem, relative_key_addr as nat, K::spec_size_of());
 
                         let ghost relative_crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| relative_crc_addr + i);
                         let ghost relative_entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| relative_entry_addr + i);
@@ -611,13 +631,58 @@ verus! {
                                 return Err(KvError::CRCMismatch);
                         }
 
-                        assume(false);
-
                         let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
                         key_index_pairs.push((key, index));
                     }
                     None => return Err(KvError::CRCMismatch)
+                }
+
+                proof {
+                    let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                    let table = parse_metadata_table::<K>(
+                        subregion.view(pm_region).committed(),
+                        overall_metadata.num_keys, 
+                        overall_metadata.metadata_node_size
+                    ).unwrap();
+                    let durable_table = table.durable_metadata_table;
+
+                    assert forall |i: u64| 0 <= i <= index implies {
+                        let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
+                        entry matches DurableEntry::Invalid <==> metadata_allocator@.contains(i)
+                    } by {
+                        // we already know this is true for values less than index
+                        assert(forall |i: u64| 0 <= i < index ==> {
+                            let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
+                            entry matches DurableEntry::Invalid <==> metadata_allocator@.contains(i)
+                        });
+                        // and we already know that this direction holds for i == index
+                        assert(metadata_allocator@.contains(i) ==> table_view.unwrap().durable_metadata_table[i as int] matches DurableEntry::Invalid);
+
+                        // just have to prove the other direction for i == index
+                        let entry = table_view.unwrap().durable_metadata_table[index as int];
+                        if let DurableEntry::Invalid = entry {
+                            // the metadata allocator contains index if the CDB we read at this index is false
+                            // this might be a tricky spot to do this since we don't actually know that the cdb was false here.
+                            // maybe this proof should go in the false case
+                            assert(true_cdb == CDB_FALSE);
+                            assert(metadata_allocator@.contains(index));
+                        }
+                    }
+    
+                    assume(forall |i: u64| 0 <= i <= index ==> {
+                        let entry = #[trigger] table.durable_metadata_table[i as int];
+                        match entry {
+                            DurableEntry::Valid(valid_entry) => entry_list_view.contains((valid_entry.key(), i)),
+                            _ => true
+                        }
+                    });
+                    assume(forall |i: int| 0 <= i < entry_list_view.len() ==> {
+                        let table_index = entry_list_view[i].1;
+                        &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                        &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                        &&& 0 <= table_index < table.durable_metadata_table.len()
+                    });  
                 }
 
                 index += 1;
@@ -638,16 +703,13 @@ verus! {
                     overall_metadata.num_keys, 
                     overall_metadata.metadata_node_size
                 ).unwrap();
-                let durable_table = table.durable_metadata_table;
                 let key_entry_list_view = Set::new(
                     |pair: (K, u64)| {
                         exists |j: u64| {
-                            &&& 0 <= j < durable_table.len()
-                            &&& #[trigger] durable_table[j as int] matches DurableEntry::Valid(entry)
+                            &&& 0 <= j < table.durable_metadata_table.len()
+                            &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry)
                             &&& pair == (entry.key(), j)
-                        } 
-                    }
-                );
+                }});
                 let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
 
                 assert(main_table@.get_tentative_metadata_table() == main_table@.get_durable_metadata_table());
