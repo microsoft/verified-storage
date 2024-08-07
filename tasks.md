@@ -6,7 +6,7 @@ Starred functions * have an unverified implementation (which may be out of date 
 - Durable
     - General durable operations
         - [x] `setup`
-        - [ ] `start` - hayley-leblanc
+        - [ ] `start` * - hayley-leblanc
         - [x] `install_log`
         - [ ] `commit` *
         - [ ] `tentative_create` * 
@@ -37,7 +37,7 @@ Starred functions * have an unverified implementation (which may be out of date 
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
-        - [ ] `start` - hayley-leblanc
+        - [ ] `start` * - hayley-leblanc
         - [ ] `tentative_create` *
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
