@@ -9,10 +9,11 @@ use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
-use crate::kv::volatile::hash_map::*; // replace with std::hash_map when available
 use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmcopy_t::*;
+use std::collections::HashMap;
 use std::hash::Hash;
+use vstd::std_specs::hash::*;
 
 verus! {
 
@@ -127,7 +128,7 @@ pub struct VolatileKvIndexImpl<K>
 where
     K: Hash + Eq + Clone + Sized + std::fmt::Debug,
 {
-    pub m: MyHashMap<K, VolatileKvIndexEntryImpl>,
+    pub m: HashMap<K, VolatileKvIndexEntryImpl>,
     pub num_list_entries_per_node: u64,
 }
 
@@ -145,6 +146,7 @@ where
 
     open spec fn valid(&self) -> bool
     {
+        &&& obeys_key_model::<K>()
         &&& 0 < self.num_list_entries_per_node
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
@@ -158,7 +160,7 @@ where
     ) -> (result: Result<Self, KvError<K>>)
     {
         let ret = Self {
-            m: MyHashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            m: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
@@ -178,6 +180,7 @@ where
         let key_clone = key.clone();
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
         self.m.insert(key_clone, entry);
+        broadcast use group_hash_axioms;
         assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
         Ok(())
     }
@@ -203,6 +206,7 @@ where
         key: &K
     ) -> (result: Option<u64>)
     {
+        broadcast use group_hash_axioms;
         match self.m.get(key) {
             Some(entry) => Some(entry.header_addr),
             None => None,
@@ -230,6 +234,7 @@ where
             Some(entry) => Ok(entry.header_addr),
             None => Err(KvError::<K>::KeyNotFound),
         };
+        broadcast use group_hash_axioms;
         assert(self@.contents =~= old(self)@.contents.remove(*key));
         result
     }

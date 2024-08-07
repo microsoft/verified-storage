@@ -241,6 +241,7 @@ where
     ) -> (result: Result<Self, KvError<K>>)
         requires
             num_list_entries_per_node > 0,
+            vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures
             match result {
                 Ok(volatile_index) => {
