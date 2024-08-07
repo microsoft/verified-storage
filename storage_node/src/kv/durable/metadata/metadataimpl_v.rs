@@ -115,68 +115,6 @@ verus! {
             }
         }
 
-        pub fn read_table_metadata<PM>(pm_regions: &PM, list_id: u128) -> (result: Result<Box<MetadataTableHeader>, KvError<K>>)
-            where
-                PM: PersistentMemoryRegions,
-            requires
-                pm_regions.inv(),
-                // TODO
-            ensures
-                match result {
-                    Ok(output_metadata) => {
-                        let metadata_size = ListEntryMetadata::spec_size_of();
-                        let key_size = K::spec_size_of();
-                        let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
-                        &&& output_metadata.num_keys * metadata_slot_size <= u64::MAX
-                        &&& metadata_slot_size * output_metadata.num_keys  <= u64::MAX
-                    }
-                    Err(_) => true // TODO
-                }
-                // TODO
-        {
-            assume(false);
-
-            let ghost mem = pm_regions@[0].committed();
-
-            // read in the header and its CRC, check for corruption
-            let ghost true_metadata = MetadataTableHeader::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + MetadataTableHeader::spec_size_of()));
-            let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of()));
-
-            let metadata = pm_regions.read_aligned::<MetadataTableHeader>(0, ABSOLUTE_POS_OF_METADATA_HEADER).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-            let metadata_crc = pm_regions.read_aligned::<u64>(0, ABSOLUTE_POS_OF_HEADER_CRC).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-
-            let ghost metadata_addrs = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_METADATA_HEADER + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_HEADER_CRC + i);
-
-            let ghost true_metadata_bytes = Seq::new(MetadataTableHeader::spec_size_of() as nat, |i: int| mem[metadata_addrs[i]]);
-            let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i]]);
-
-            if !check_crc(metadata.as_slice(), metadata_crc.as_slice(), Ghost(mem),
-                    Ghost(pm_regions.constants().impervious_to_corruption),
-                    Ghost(metadata_addrs),
-                    Ghost(crc_addrs)) {
-                return Err(KvError::CRCMismatch);
-            }
-
-            let metadata = metadata.extract_init_val(
-                Ghost(true_metadata),
-                Ghost(true_metadata_bytes),
-                Ghost(pm_regions.constants().impervious_to_corruption),
-            );
-
-            // Since we've already checked for corruption, this condition will only fail
-            // if the caller tries to use an L with a different size than the one
-            // the list was originally set up with
-            if {
-                ||| metadata.version_number != METADATA_TABLE_VERSION_NUMBER
-                ||| metadata.program_guid != METADATA_TABLE_PROGRAM_GUID
-            } {
-                return Err(KvError::InvalidListMetadata);
-            }
-
-            Ok(metadata)
-        }
-
         spec fn extract_cdb_for_entry(mem: Seq<u8>, k: nat, metadata_node_size: u32) -> u64
         {
             u64::spec_from_bytes(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()))

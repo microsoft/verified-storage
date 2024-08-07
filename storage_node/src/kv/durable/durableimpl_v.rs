@@ -687,7 +687,6 @@ verus! {
                 assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
             }
             
-
             // We can now start the rest of the components. 
             // We've already played the log, so we won't do any additional writes from this point on.
             // We use read-only subregions to make reasoning about each region separately easier
@@ -706,9 +705,6 @@ verus! {
             // main table
             let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
 
-
-
-            
             assume(false);
             Err(KvError::NotImplemented)
         }
