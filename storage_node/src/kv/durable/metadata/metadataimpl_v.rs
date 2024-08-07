@@ -525,13 +525,10 @@ verus! {
                 let relative_cdb_addr = entry_offset;
 
                 proof {
-                    // these asserts are a bit unstable....
-                    assert(u64::spec_size_of() < entry_slot_size);
-                    assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size);
-                    assert(index * entry_slot_size + entry_slot_size <= subregion.len());
-                    assert(entry_offset + entry_slot_size <= subregion.len());
-                    assert(relative_cdb_addr + entry_slot_size <= subregion.len());
-                    assert(relative_cdb_addr + u64::spec_size_of() < relative_cdb_addr + entry_slot_size <= subregion.len());
+                    // This helps Verus prove that we don't go out of bounds when reading the entry at index * entry_slot_size
+                    assert(entry_slot_size * max_index == max_index * entry_slot_size) by {
+                        vstd::arithmetic::mul::lemma_mul_is_commutative(entry_slot_size as int, max_index as int);
+                    }
 
                     lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
                         subregion.view(pm_region).committed(),
@@ -664,9 +661,44 @@ verus! {
                                 return Err(KvError::CRCMismatch);
                         }
 
+                        let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+
                         let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
                         key_index_pairs.push((key, index));
+
+                        proof {
+                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                            
+                            assert(entry_list_view.subrange(0, entry_list_view.len() - 1) =~= pre_entry_list);
+
+                            assert(forall |i: int| 0 <= i < pre_entry_list.len() ==> {
+                                let table_index = pre_entry_list[i].1;
+                                &&& table_view.unwrap().durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                                &&& valid_entry.key() == #[trigger] pre_entry_list[i].0
+                                &&& 0 <= table_index < table_view.unwrap().durable_metadata_table.len()
+                            });
+
+                            assert forall |i: int| 0 <= i < entry_list_view.len() implies {
+                                let table_index = entry_list_view[i].1;
+                                &&& table_view.unwrap().durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                                &&& 0 <= table_index < table_view.unwrap().durable_metadata_table.len()
+                            } by {
+                                // we already know this is true for all entries except for the very last one, so we just have to 
+                                // prove it for the last entry.
+                                if i == entry_list_view.len() - 1 {
+                                    let table_index = entry_list_view[i].1;
+                                    if let DurableEntry::Valid(valid_entry) = table_view.unwrap().durable_metadata_table[table_index as int] {
+                                        assert(valid_entry.key() == entry_list_view[i].0);
+                                        assert(0 <= table_index < table_view.unwrap().durable_metadata_table.len());
+                                    }
+                                } else {
+                                    // all entries except the last one haven't changed and still satisfy the invariant
+                                    assert(entry_list_view[i] == pre_entry_list[i]);
+                                }
+                            }
+                        }
                     }
                     None => return Err(KvError::CRCMismatch)
                 }
@@ -679,31 +711,6 @@ verus! {
                         overall_metadata.metadata_node_size
                     ).unwrap();
                     let durable_table = table.durable_metadata_table;
-
-                    // TODO: may be able to remove this
-                    assert forall |i: u64| 0 <= i <= index implies {
-                        let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
-                        entry matches DurableEntry::Invalid <==> metadata_allocator@.contains(i)
-                    } by {
-                        // we already know this is true for values less than index
-                        assert(forall |i: u64| 0 <= i < index ==> {
-                            let entry = #[trigger] table_view.unwrap().durable_metadata_table[i as int];
-                            entry matches DurableEntry::Invalid <==> metadata_allocator@.contains(i)
-                        });
-                        // and we already know that this direction holds for i == index
-                        assert(metadata_allocator@.contains(i) ==> table_view.unwrap().durable_metadata_table[i as int] matches DurableEntry::Invalid);
-
-                        // just have to prove the other direction for i == index
-                        let entry = table_view.unwrap().durable_metadata_table[index as int];
-                        if let DurableEntry::Invalid = entry {
-                            // the metadata allocator contains index if the CDB we read at this index is false
-                            // this might be a tricky spot to do this since we don't actually know that the cdb was false here.
-                            // maybe this proof should go in the false case
-                            assert(true_cdb == CDB_FALSE);
-                            assert(metadata_allocator@.contains(index));
-                        }
-                    }
-
                 
                     assert forall |i: u64| 0 <= i <= index implies {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
@@ -713,11 +720,7 @@ verus! {
                         // To help Verus prove this, we need to establish that the part of the entry list we are making an assertion about has not
                         // changed on this iteration.
                         assert(entry_list_view == old_entry_list_view || entry_list_view.subrange(0, entry_list_view.len() - 1) == old_entry_list_view);
-                        assert(forall |j: u64| 0 <= j < index ==> {
-                            let entry = #[trigger] table.durable_metadata_table[j as int];
-                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), j))
-                        });
-                        // Prove that the assertion holds when i == index as well
+                        // Prove that the assertion holds when i == index
                         if i == index {
                             let entry = table.durable_metadata_table[i as int];
                             if let DurableEntry::Valid(valid_entry) = entry {
@@ -729,13 +732,6 @@ verus! {
                             }
                         }
                     }
-
-                    assume(forall |i: int| 0 <= i < entry_list_view.len() ==> {
-                        let table_index = entry_list_view[i].1;
-                        &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                        &&& valid_entry.key() == #[trigger] entry_list_view[i].0
-                        &&& 0 <= table_index < table.durable_metadata_table.len()
-                    });  
                 }
 
                 index += 1;

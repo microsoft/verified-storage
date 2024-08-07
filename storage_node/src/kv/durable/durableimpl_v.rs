@@ -650,6 +650,7 @@ verus! {
                     &&& abstract_op_log matches Some(abstract_log)
                     &&& 0 < abstract_log.len() <= u64::MAX
                 }),
+                K::spec_size_of() > 0,
                 // TODO: move these into one of the metadata validity spec fns
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
@@ -706,7 +707,7 @@ verus! {
             let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
 
 
-            
+
             
             assume(false);
             Err(KvError::NotImplemented)
