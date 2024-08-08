@@ -37,7 +37,7 @@ Starred functions * have an unverified implementation (which may be out of date 
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
-        - [ ] `start` * - hayley-leblanc
+        - [x] `start` *
         - [ ] `tentative_create` *
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
@@ -45,7 +45,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
-        - [ ] `start` *
+        - [ ] `start` * - hayley-leblanc
         - [ ] `tentatively_write_item` *
         - [ ] `read_item` *
         - [ ] Deallocate item table slot
