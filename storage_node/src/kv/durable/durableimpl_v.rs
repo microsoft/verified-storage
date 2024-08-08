@@ -693,7 +693,7 @@ verus! {
 
             let pm_region = wrpm_region.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.main_table_addr, Ghost(overall_metadata.main_table_size as nat));
-            
+            let item_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.item_table_addr, Ghost(overall_metadata.item_table_size as nat));
             proof {
                 // Prove that since we know overall recovery succeeded, parsing/starting the rest of the components will also succeed
                 let mem = pm_region@.committed();

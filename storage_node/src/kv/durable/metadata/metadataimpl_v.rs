@@ -285,7 +285,7 @@ verus! {
             pm_region: &PM,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
-        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
+        ) -> (result: Result<(Self, Vec<(Box<K>, u64, u64)>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
                 I: PmCopy + Sized + std::fmt::Debug,
@@ -312,13 +312,14 @@ verus! {
                             overall_metadata.metadata_node_size
                         ).unwrap();
                         let key_entry_list_view = Set::new(
-                            |pair: (K, u64)| {
+                            |val: (K, u64, u64)| {
                                 exists |j: u64| {
                                     &&& 0 <= j < table.durable_metadata_table.len()
                                     &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry)
-                                    &&& pair == (entry.key(), j)
+                                    &&& val == (entry.key(), j, entry.item_index())
                         }});
-                        let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1));
+                        let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
+
                         // main table states match
                         &&& table == main_table@
                         // main table allocator matches its state 
@@ -337,12 +338,12 @@ verus! {
         {
             let num_keys = overall_metadata.num_keys;
             let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + K::size_of()) as u64;
-            
+
             // Since we've already replayed the log, we just need to construct 
             // the allocator and determine which item indices are valid. 
 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
-            let mut key_index_pairs: Vec<(Box<K>, u64)> = Vec::new();
+            let mut key_index_pairs: Vec<(Box<K>, u64, u64)> = Vec::new();
             let max_index = overall_metadata.main_table_size / entry_slot_size;
             let ghost mem = subregion.view(pm_region).committed();
             let mut index = 0;
@@ -395,24 +396,27 @@ verus! {
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     ({
-                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                         forall |i: u64| 0 <= i < index ==> {
                             let entry = #[trigger] table.durable_metadata_table[i as int];
-                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i))
+                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
                         }
                     }),
                     ({
-                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                         forall |i: int| 0 <= i < entry_list_view.len() ==> {
                             let table_index = entry_list_view[i].1;
+                            let item_index = entry_list_view[i].2;
                             &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
                             &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                            &&& valid_entry.item_index() == item_index
                             &&& 0 <= table_index < table.durable_metadata_table.len()
+                            
                         }
                     }),
                     K::spec_size_of() > 0,
             {
-                let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
                 if index < max_index {
                     // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
@@ -509,6 +513,11 @@ verus! {
 
                             assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_crc_addr as nat, u64::spec_size_of()));
                             assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
+                            assert(true_entry_bytes == extract_bytes(
+                                extract_bytes(mem, (index * entry_slot_size) as nat, entry_slot_size as nat),
+                                u64::spec_size_of() * 2,
+                                ListEntryMetadata::spec_size_of()
+                            ));
                             assert(true_key_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_key_addr as nat, K::spec_size_of()));
                             assert(true_key_bytes == extract_bytes(
                                 extract_bytes(mem, (index * entry_slot_size) as nat, entry_slot_size as nat),
@@ -563,18 +572,25 @@ verus! {
                                 return Err(KvError::CRCMismatch);
                         }
 
-                        let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                        let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
+                        let crc = crc.extract_init_val(Ghost(true_crc), Ghost(true_crc_bytes),
+                            Ghost(pm_region.constants().impervious_to_corruption));
                         let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
-                        key_index_pairs.push((key, index));
+                        let metadata = entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes), 
+                            Ghost(pm_region.constants().impervious_to_corruption));
+
+                        key_index_pairs.push((key, index, metadata.item_index));
 
                         proof {
-                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                             assert forall |i: int| 0 <= i < entry_list_view.len() implies {
                                 let table_index = entry_list_view[i].1;
+                                let item_index = entry_list_view[i].2;
                                 &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
                                 &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                                &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
                             } by {
                                 // we already know this is true for all entries except for the very last one via the loop invariant, 
@@ -583,6 +599,7 @@ verus! {
                                     let table_index = entry_list_view[i].1;
                                     if let DurableEntry::Valid(valid_entry) = table.durable_metadata_table[table_index as int] {
                                         assert(valid_entry.key() == entry_list_view[i].0);
+                                        assert(valid_entry.item_index() == entry_list_view[i].2);
                                         assert(0 <= table_index < table.durable_metadata_table.len());
                                     }
                                 } else {
@@ -596,11 +613,11 @@ verus! {
                 }
 
                 proof {
-                    let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                    let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                 
                     assert forall |i: u64| 0 <= i <= index implies {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
-                        entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i))
+                        entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
                     } by {
                         // We already know this is true for values less than index from the loop invariant.
                         // To help Verus prove this, we need to establish that the part of the entry list we are making an assertion about has not
@@ -610,7 +627,7 @@ verus! {
                         if i == index {
                             let entry = table.durable_metadata_table[i as int];
                             if let DurableEntry::Valid(valid_entry) = entry {
-                                assert(entry_list_view[entry_list_view.len() - 1] == (valid_entry.key(), index));
+                                assert(entry_list_view[entry_list_view.len() - 1] == (valid_entry.key(), index, valid_entry.item_index()));
                             }
                         }
                     }
@@ -629,13 +646,13 @@ verus! {
 
             proof {
                 let key_entry_list_view = Set::new(
-                    |pair: (K, u64)| {
+                    |val: (K, u64, u64)| {
                         exists |j: u64| {
                             &&& 0 <= j < table.durable_metadata_table.len()
                             &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry)
-                            &&& pair == (entry.key(), j)
+                            &&& val == (entry.key(), j, entry.item_index())
                 }});
-                let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1));
+                let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
                 assert(main_table@.get_tentative_metadata_table() == main_table@.get_durable_metadata_table());
                 assert(main_table.allocator_view() == main_table@.free_indices());

@@ -4,6 +4,8 @@ use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::oplog::oplogspec_t::AbstractOpLogState;
 use crate::kv::kvimpl_t::*;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -30,24 +32,6 @@ verus! {
         state: Ghost<DurableItemTableView<I>>,
         _phantom: Ghost<Option<K>>,
     }
-
-    // // TODO: make a PR to Verus
-    // #[verifier::opaque]
-    // pub open spec fn filter_map<A, B>(seq: Seq<A>, pred: spec_fn(A) -> Option<B>) -> Seq<B>
-    //     decreases seq.len()
-    // {
-    //     if seq.len() == 0 {
-    //         Seq::<B>::empty()
-    //     } else {
-    //         let subseq = filter_map(seq.drop_last(), pred);
-    //         let last = pred(seq.last());
-    //         if let Some(last) = last {
-    //             subseq.push(last)
-    //         } else {
-    //             subseq
-    //         }
-    //     }
-    // }
 
     impl<K, I> DurableItemTable<K, I>
         where
@@ -187,6 +171,44 @@ verus! {
             assert(item_table_view.durable_item_table == item_table_view.tentative_item_table);
             
             assert(item_table_view == DurableItemTableView::<I>::init(num_keys as int));
+        }
+
+        pub exec fn start<PM, L>(
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            valid_indices: Vec<u64>,
+            overall_metadata: OverallMetadata,
+            version_metadata: VersionMetadata,
+        ) -> (result: Result<Self, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+                L: PmCopy + std::fmt::Debug,
+            requires
+                subregion.inv(pm_region),
+                pm_region@.no_outstanding_writes(),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                subregion.len() == overall_metadata.item_table_size,
+                subregion.view(pm_region).no_outstanding_writes(),
+                ({
+                    let valid_indices_view = Seq::new(valid_indices@.len(), |i: int| valid_indices[i] as int);
+                    let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
+                    table is Some
+                })
+            ensures 
+                match result {
+                    Ok(item_table) => {
+                        let valid_indices_view = Seq::new(valid_indices@.len(), |i: int| valid_indices[i] as int);
+                        let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
+                        table == item_table@
+                        // TODO finish
+                    }
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::PmemErr{ pmem_err }) => true,
+                    Err(_) => false
+                }
+        {
+            assume(false);
+            Err(KvError::NotImplemented)
         }
 
         /* temporarily commented out for subregion development 

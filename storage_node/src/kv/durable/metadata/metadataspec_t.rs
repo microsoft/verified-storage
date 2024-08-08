@@ -22,9 +22,9 @@ verus! {
         pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
                 crc,
-                list_head_index: entry.spec_head(),
-                item_index: entry.spec_item_index(),
-                list_len: entry.spec_len(),
+                list_head_index: entry.head,
+                item_index: entry.item_index,
+                list_len: entry.length,
                 key,
             }
         }
@@ -37,7 +37,7 @@ verus! {
             self.list_head_index
         }
 
-        pub closed spec fn item_index(self) -> u64 {
+        pub open spec fn item_index(self) -> u64 {
             self.item_index
         }
 
