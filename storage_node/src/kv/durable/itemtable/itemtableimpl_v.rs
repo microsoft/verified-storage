@@ -16,6 +16,7 @@ use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
+use vstd::hash_map::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
@@ -176,7 +177,7 @@ verus! {
         pub exec fn start<PM, L>(
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
-            valid_indices: Vec<u64>,
+            key_index_info: &Vec<(Box<K>, u64, u64)>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
         ) -> (result: Result<Self, KvError<K>>)
@@ -190,25 +191,140 @@ verus! {
                 subregion.len() == overall_metadata.item_table_size,
                 subregion.view(pm_region).no_outstanding_writes(),
                 ({
-                    let valid_indices_view = Seq::new(valid_indices@.len(), |i: int| valid_indices[i] as int);
+                    let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
                     let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
                     table is Some
-                })
+                }),
+                forall |j: int| 0 <= j < key_index_info.len() ==> 
+                    0 <= (#[trigger] key_index_info[j]).2 < overall_metadata.num_keys,
+                overall_metadata.item_size + u64::spec_size_of() <= u64::MAX,
             ensures 
                 match result {
                     Ok(item_table) => {
-                        let valid_indices_view = Seq::new(valid_indices@.len(), |i: int| valid_indices[i] as int);
+                        let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
                         let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
-                        table == item_table@
-                        // TODO finish
+                        // table view is correct
+                        &&& table == item_table@
+                        &&& forall |i: int| 0 <= i < key_index_info.len() ==> {
+                                let index = #[trigger] key_index_info[i].2;
+                                // all indexes that are in use are not in the free list
+                                !item_table.spec_free_list().contains(index)
+                            }
+                        &&& {
+                            let in_use_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys && exists |j: int| #[trigger] key_index_info[j].2 == i);
+                            let all_possible_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys);
+                            let free_indices = all_possible_indices - in_use_indices;
+                            // all free indexes are in the free list
+                            forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.spec_free_list().contains(i)
+                        }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::PmemErr{ pmem_err }) => true,
                     Err(_) => false
                 }
         {
-            assume(false);
-            Err(KvError::NotImplemented)
+            // The main thing we need to do here is to use the key_index_info vector to construct the item table's
+            // allocator. We don't need to read anything from the item table, but we should have its subregion so we can 
+            // prove that the allocator is correct
+
+            let num_keys = overall_metadata.num_keys;
+            let ghost mem = pm_region@.committed();
+
+            let ghost valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
+            let ghost table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
+
+            // TODO: we could make this a bit more efficient by making the boolean vector a bitmap
+            let mut free_vec: Vec<bool> = Vec::with_capacity(num_keys as usize);
+            let mut i: usize = 0;
+            // initialize the vec to all true; we'll set indexes that are in-use to false. 
+            // verus doesn't support array literals right now, so we have to do this with a loop
+            while i < num_keys as usize
+                invariant 
+                    0 <= i <= num_keys,
+                    free_vec.len() == i,
+                    forall |j: int| 0 <= j < i ==> free_vec[j],
+            {
+                free_vec.push(true);
+                i += 1;    
+            }
+
+            i = 0;
+            // now set all indexes that are in use to false
+            let ghost old_free_vec_len = free_vec.len();
+            while i < key_index_info.len()
+                invariant 
+                    free_vec.len() == old_free_vec_len,
+                    free_vec.len() == num_keys,
+                    forall |j: int| 0 <= j < key_index_info.len() ==> 0 <= #[trigger] key_index_info[j].2 < num_keys,
+                    forall |j: int| 0 <= j < i ==> {
+                        let index = #[trigger] key_index_info[j].2;
+                        !free_vec[index as int]
+                    },
+                    forall |j: int| 0 <= j < free_vec.len() ==> {
+                        // either free_vec is true at j and there are no entries between 0 and i with this index
+                        ||| {
+                            &&& free_vec[j]
+                            &&& forall |k: int| 0 <= k < i ==> #[trigger] key_index_info[k].2 != j
+                        }
+                        // or its false and there is an entry between 0 and i with this index
+                        ||| {
+                            &&& !free_vec[j]
+                            &&& exists |k: int| 0 <= k < i && #[trigger] key_index_info[k].2 == j
+                        }
+                    }
+            {
+                let index = key_index_info[i].2;
+                free_vec.set(index as usize, false);
+                i += 1;
+            }
+
+            // next, build the allocator based on the values in the boolean array. indexes containing true 
+            // are free, indexes containing false are not
+            let mut item_table_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
+            i = 0;
+            while i < num_keys as usize
+                invariant 
+                    item_table_allocator.len() <= i <= num_keys,
+                    free_vec.len() == num_keys,
+                    forall |j: u64| 0 <= j < i ==> free_vec[j as int] ==> item_table_allocator@.contains(j),
+                    forall |j: int| 0 <= j < key_index_info.len() ==> !item_table_allocator@.contains(#[trigger] key_index_info[j].2),
+                    forall |j: int| 0 <= j < free_vec.len() ==> 
+                        free_vec[j] ==>forall |k: int| 0 <= k < key_index_info.len() ==> #[trigger] key_index_info[k].2 != j
+            {
+                let ghost old_item_table_allocator = item_table_allocator;
+                assert(forall |j: int| 0 <= j < key_index_info.len() ==> !item_table_allocator@.contains(#[trigger] key_index_info[j].2));
+                if free_vec[i] {
+                    item_table_allocator.push(i as u64);
+                    assert(item_table_allocator@.subrange(0, item_table_allocator.len() - 1) == old_item_table_allocator@);
+                    assert(item_table_allocator@[item_table_allocator.len() - 1] == i);
+                    assert(forall |j: int| 0 <= j < key_index_info.len() ==> #[trigger] key_index_info[j].2 != i);
+                }
+                
+                i += 1;
+            }
+
+            let item_table = Self {
+                item_size: overall_metadata.item_size,
+                item_slot_size: overall_metadata.item_size + traits_t::size_of::<u64>() as u64, // item + CRC
+                num_keys: overall_metadata.num_keys,
+                free_list: item_table_allocator,
+                state: Ghost(table.unwrap()),
+                _phantom: Ghost(None)
+            };
+
+            proof {
+                assert(forall |i: int| 0 <= i < key_index_info.len() ==> {
+                    let index = #[trigger] key_index_info[i].2;
+                    !item_table.spec_free_list().contains(index)
+                });
+
+                let in_use_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys && exists |j: int| #[trigger] key_index_info[j].2 == i);
+                let all_possible_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys);
+                let free_indices = all_possible_indices - in_use_indices;
+                assert(forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.spec_free_list().contains(i));
+            }
+
+            Ok(item_table)
         }
 
         /* temporarily commented out for subregion development 
