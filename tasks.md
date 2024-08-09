@@ -10,7 +10,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [x] `install_log`
         - [ ] `commit` *
         - [ ] `tentative_create` * 
-        - [ ] `read_item` * 
+        - [ ] `read_item` * jaylorch
         - [ ] `get_list_len` *
         - [ ] `read_list_entry_at_index` *
         - [ ] `tentative_update_item` * 
