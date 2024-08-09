@@ -654,6 +654,7 @@ verus! {
                 // TODO: move these into one of the metadata validity spec fns
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                overall_metadata.item_size + u64::spec_size_of() <= u64::MAX,
             ensures
                 wrpm_region.inv(),
                 wrpm_region@.no_outstanding_writes(),
@@ -698,12 +699,15 @@ verus! {
                 // Prove that since we know overall recovery succeeded, parsing/starting the rest of the components will also succeed
                 let mem = pm_region@.committed();
                 let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region = extract_bytes(mem, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 assert(main_table_region == main_table_subregion.view(pm_region).committed());
+                assert(item_table_region == item_table_subregion.view(pm_region).committed());
                 lemma_physical_recover_succeeds_implies_component_parse_succeeds::<PM, K, I, L>(mem, overall_metadata);
             }
             
-            // main table
+            // start each region
             let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
+            let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
 
             assume(false);
             Err(KvError::NotImplemented)

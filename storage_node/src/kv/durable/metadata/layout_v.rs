@@ -128,7 +128,7 @@ verus! {
         }
     }
 
-    pub open spec fn validate_metadata_entry<K>(bytes: Seq<u8>) -> bool
+    pub open spec fn validate_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> bool
         where 
             K: PmCopy,
         recommends
@@ -145,6 +145,7 @@ verus! {
 
         let cdb = u64::spec_from_bytes(cdb_bytes);
         let crc = u64::spec_from_bytes(crc_bytes);
+        let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
 
         &&& u64::bytes_parseable(cdb_bytes)
         &&& {
@@ -155,6 +156,7 @@ verus! {
                 &&& u64::bytes_parseable(crc_bytes)
                 &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
                 &&& K::bytes_parseable(key_bytes)
+                &&& 0 <= metadata.item_index < num_keys
             }
         }   
     }
@@ -166,10 +168,10 @@ verus! {
             mem.len() >= num_keys * metadata_node_size,
     {
         forall |i: nat| i < num_keys ==> validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, i * metadata_node_size,
-                                                                                        metadata_node_size))
+                                                                                        metadata_node_size), num_keys)
     }
 
-    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>) -> DurableEntry<MetadataTableViewEntry<K>>
+    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MetadataTableViewEntry<K>>
         where 
             K: PmCopy,
         recommends
@@ -177,7 +179,7 @@ verus! {
             // RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
             // RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
             // RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
-            validate_metadata_entry::<K>(bytes)
+            validate_metadata_entry::<K>(bytes, num_keys)
     {
         let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
         let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
@@ -216,7 +218,7 @@ verus! {
                 Some(MetadataTableView::<K>::new(Seq::new(
                     num_keys as nat,
                     |i: int| parse_metadata_entry(extract_bytes(mem, (i * metadata_node_size as int) as nat,
-                                                              metadata_node_size as nat))
+                                                              metadata_node_size as nat), num_keys as nat)
                 )))
             }
         }
@@ -246,7 +248,7 @@ verus! {
             &&& cdb == CDB_FALSE || cdb == CDB_TRUE
         } by {
             let entry_bytes = extract_bytes(mem, (i * metadata_node_size) as nat, metadata_node_size as nat);
-            assert(validate_metadata_entry::<K>(entry_bytes));
+            assert(validate_metadata_entry::<K>(entry_bytes, num_keys as nat));
 
             let cdb_bytes = #[trigger] extract_bytes(entry_bytes, 0, u64::spec_size_of());
             assert(u64::bytes_parseable(cdb_bytes));
