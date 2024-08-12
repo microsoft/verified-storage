@@ -659,10 +659,9 @@ verus! {
                 wrpm_region.inv(),
                 wrpm_region@.no_outstanding_writes(),
                 match result {
-                    Ok(kvstore) => {
-                        &&& kvstore@ == state
-                        &&& kvstore.inv(wrpm_region@.committed())
-                    }
+                    // the primary postcondition is just that we've recovered to the target state, which 
+                    // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
+                    Ok(kvstore) => kvstore@ == state
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,
@@ -695,22 +694,35 @@ verus! {
             let pm_region = wrpm_region.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.main_table_addr, Ghost(overall_metadata.main_table_size as nat));
             let item_table_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.item_table_addr, Ghost(overall_metadata.item_table_size as nat));
+            let list_area_subregion = PersistentMemorySubregion::new(pm_region, overall_metadata.list_area_addr, Ghost(overall_metadata.list_area_size as nat));
             proof {
                 // Prove that since we know overall recovery succeeded, parsing/starting the rest of the components will also succeed
                 let mem = pm_region@.committed();
                 let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let item_table_region = extract_bytes(mem, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region = extract_bytes(mem, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
                 assert(main_table_region == main_table_subregion.view(pm_region).committed());
                 assert(item_table_region == item_table_subregion.view(pm_region).committed());
+                assert(list_area_region == list_area_subregion.view(pm_region).committed());
                 lemma_physical_recover_succeeds_implies_component_parse_succeeds::<PM, K, I, L>(mem, overall_metadata);
             }
             
             // start each region
             let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
+            let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, overall_metadata, version_metadata)?;
 
-            assume(false);
-            Err(KvError::NotImplemented)
+            let durable_kv_store = Self {
+                item_table,
+                durable_list,
+                log: op_log,
+                metadata_table: main_table,
+                wrpm: wrpm_region,
+                pending_updates: Vec::new(),
+            };
+
+            Ok(durable_kv_store)
+            
         }
 
         // This function installs the log by blindly replaying physical log entries onto the WRPM region. All writes

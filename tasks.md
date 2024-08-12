@@ -7,6 +7,8 @@ Starred functions * have an unverified implementation (which may be out of date 
     - General durable operations
         - [x] `setup`
         - [ ] `start` * - hayley-leblanc
+          - [x] `start` for op log, item table, and main table
+          - [ ] `start` with list area
         - [x] `install_log`
         - [ ] `commit` *
         - [ ] `tentative_create` * 

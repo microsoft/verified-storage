@@ -7,6 +7,8 @@ use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
@@ -30,7 +32,7 @@ verus! {
             L: PmCopy + std::fmt::Debug,
     {
         list_node_region_free_list: Vec<u64>,
-        node_size: u32,
+        node_size: u64,
         elements_per_node: u64,
         num_nodes: u64,
         state: Ghost<DurableListView<K, L>>
@@ -362,158 +364,194 @@ verus! {
             }
         }
 
-        // TODO: refactor into smaller functions
-        pub exec fn start<PM>(
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
-            list_id: u128,
-            node_size: u32,
-            // log_entries: &Vec<OpLogEntryType<L>>,
-            Tracked(perm): Tracked<&TrustedListPermission>,
-            Ghost(state): Ghost<DurableListView<K, L>>
+        pub fn start<PM, I>(
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            overall_metadata: OverallMetadata,
+            version_metadata: VersionMetadata,
         ) -> (result: Result<Self, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
+                I: PmCopy + Sized + std::fmt::Debug,
             requires
-                old(wrpm_region).inv(),
-                ({
-                    let metadata_size = ListEntryMetadata::spec_size_of();
-                    let key_size = K::spec_size_of();
-                    let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
-                    let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
-                    &&& metadata_slot_size <= u64::MAX
-                    &&& list_element_slot_size <= u64::MAX
-                })
-            ensures
-                wrpm_region.inv()
-                // TODO
+                subregion.inv(pm_region),
+                pm_region@.no_outstanding_writes(),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+            ensures 
+                // TODO: update postcondition
+                match result {
+                    Ok(list) => true,
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
+                    Err(KvError::PmemErr { pmem_err }) => true,
+                    Err(KvError::InternalError) => true,
+                    Err(_) => true // TODO
+                }
+        
         {
             assume(false);
-
-            // We assume that the caller set up the regions with `setup`, which checks that we got the
-            // correct number of regions and that they are large enough, but we check again here
-            // in case they didn't.
-            let pm_region = wrpm_region.get_pm_region_ref();
-            let region_size = pm_region.get_region_size();
-            if region_size < ABSOLUTE_POS_OF_LIST_REGION_NODE_START {
-                let required = ABSOLUTE_POS_OF_LIST_REGION_NODE_START as usize;
-                let actual = region_size as usize;
-                return Err(KvError::RegionTooSmall{required, actual});
-            }
-
-            // Read the metadata headers for both regions
-            let list_region_metadata = Self::read_list_region_header(pm_region, list_id)?;
-
-            // check that the region the caller passed in is sufficiently large
-            let list_element_size = L::size_of();
-            let list_element_slot_size = list_element_size + traits_t::size_of::<u64>();
-
-            // region needs to fit at least one node
-            let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
-            if required_node_region_size > region_size {
-                let required = required_node_region_size as usize;
-                let actual = region_size as usize;
-                return Err(KvError::RegionTooSmall{required, actual});
-            }
-
-            let ghost mem = pm_region@.committed();
-
-            // // recover the list region from the log entries
-            // Self::replay_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
-
-            // reborrow to satisfy the borrow checker
-            let pm_region = wrpm_region.get_pm_region_ref();
-
-            let mut list_node_region_free_list: Vec<u64> = Vec::new();
-            // this list will store in-use nodes; all nodes not in this list go in the free list
-            let mut list_nodes_in_use: Vec<u64> = Vec::new();
-            // separate vector to help traverse the lists and fill in list_nodes_in_use
-            let mut list_node_region_stack: Vec<u64> = Vec::new();
-
-            // construct allocator for the list node region
-            // we need to use two vectors for this -- one as a stack for traversal of the lists,
-            // and one to record which nodes are in use
-            let ghost mem1 = pm_region@.committed();
-            while list_node_region_stack.len() != 0 {
-                assume(false);
-                let current_index = list_node_region_stack.pop().unwrap();
-                list_nodes_in_use.push(current_index);
-
-                // read the node, check its CRC; if it's fine, push its next
-                // pointer onto the stack
-                let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
-                    current_index * node_size as u64;
-                let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
-                let ghost ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ptr_addr as int + i);
-                let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
-                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr as int + i);
-                let ptr_size_of = traits_t::size_of::<u64>();
-
-                // The true next pointer and CRC are the deserializations of the bytes we originally wrote to these addresses.
-                // To prove that the values we read are uncorrupted and initialized, we need to prove that they match these true values
-                // using check_crc.
-                let ghost true_next_pointer = u64::spec_from_bytes(mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_size_of()));
-                let ghost true_crc = u64::spec_from_bytes(mem1.subrange(crc_addr as int, crc_addr + u64::spec_size_of()));
-
-                let next_pointer = pm_region.read_aligned::<u64>(ptr_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-                let node_header_crc = pm_region.read_aligned::<u64>(crc_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-
-                let ghost true_next_pointer_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[ptr_addrs[i]]);
-                let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[crc_addrs[i]]);
-
-                if !check_crc(next_pointer.as_slice(), node_header_crc.as_slice(), Ghost(mem1),
-                        Ghost(pm_region.constants().impervious_to_corruption),
-                        Ghost(ptr_addrs),
-                        Ghost(crc_addrs)
-                ) {
-                    return Err(KvError::CRCMismatch);
-                }
-  
-                let next_pointer = *next_pointer.extract_init_val(
-                    Ghost(true_next_pointer), 
-                    Ghost(true_next_pointer_bytes),
-                    Ghost(pm_region.constants().impervious_to_corruption)
-                );
-
-                // If the CRC check passes, then the next pointer is valid.
-                // If a node's next pointer points to itself, we've reached the end of the list;
-                // otherwise, push the next pointer onto the stack
-                if next_pointer != current_index {
-                    list_node_region_stack.push(next_pointer);
-                }
-            }
-
-            // construct the list region allocator
-            // TODO: this is pretty inefficient, but I don't think Verus currently supports
-            // structures like HashMaps that might make it easier. it would be faster if
-            // the in-use vector was sorted, but it may not be, and we don't have
-            // access to Rust std::vec sort methods
-            let mut found = false;
-            for i in 0..list_region_metadata.num_nodes - 1 {
-                assume(false);
-                found = false;
-                for j in 0..list_nodes_in_use.len() {
-                    assume(false);
-                    if list_nodes_in_use[j] == i {
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    list_node_region_free_list.push(i);
-                }
-            }
-
-            // The number of elements per node is the (node size - the size of the next ptr+crc) / list element size
-            let elements_per_node = node_size as u64 - (traits_t::size_of::<u64>() as u64 * 2) / traits_t::size_of::<L>() as u64;
-
-            Ok(Self {
-                list_node_region_free_list,
-                node_size,
-                elements_per_node,
-                num_nodes: list_region_metadata.num_nodes,
-                state: Ghost(state) // TODO: this needs to be set up properly
-            })
+            let list = Self {
+                list_node_region_free_list: Vec::new(),
+                node_size: overall_metadata.list_node_size,
+                elements_per_node: overall_metadata.num_list_entries_per_node as u64,
+                num_nodes: overall_metadata.num_list_nodes,
+                state: Ghost(DurableListView::init())
+            };
+            Ok(list)
         }
+
+        // // TODO: refactor into smaller functions
+        // pub exec fn start<PM>(
+        //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,
+        //     list_id: u128,
+        //     node_size: u32,
+        //     // log_entries: &Vec<OpLogEntryType<L>>,
+        //     Tracked(perm): Tracked<&TrustedListPermission>,
+        //     Ghost(state): Ghost<DurableListView<K, L>>
+        // ) -> (result: Result<Self, KvError<K>>)
+        //     where
+        //         PM: PersistentMemoryRegion,
+        //     requires
+        //         old(wrpm_region).inv(),
+        //         ({
+        //             let metadata_size = ListEntryMetadata::spec_size_of();
+        //             let key_size = K::spec_size_of();
+        //             let metadata_slot_size = metadata_size + u64::spec_size_of() + key_size + u64::spec_size_of();
+        //             let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
+        //             &&& metadata_slot_size <= u64::MAX
+        //             &&& list_element_slot_size <= u64::MAX
+        //         })
+        //     ensures
+        //         wrpm_region.inv()
+        //         // TODO
+        // {
+        //     assume(false);
+
+        //     // We assume that the caller set up the regions with `setup`, which checks that we got the
+        //     // correct number of regions and that they are large enough, but we check again here
+        //     // in case they didn't.
+        //     let pm_region = wrpm_region.get_pm_region_ref();
+        //     let region_size = pm_region.get_region_size();
+        //     if region_size < ABSOLUTE_POS_OF_LIST_REGION_NODE_START {
+        //         let required = ABSOLUTE_POS_OF_LIST_REGION_NODE_START as usize;
+        //         let actual = region_size as usize;
+        //         return Err(KvError::RegionTooSmall{required, actual});
+        //     }
+
+        //     // Read the metadata headers for both regions
+        //     let list_region_metadata = Self::read_list_region_header(pm_region, list_id)?;
+
+        //     // check that the region the caller passed in is sufficiently large
+        //     let list_element_size = L::size_of();
+        //     let list_element_slot_size = list_element_size + traits_t::size_of::<u64>();
+
+        //     // region needs to fit at least one node
+        //     let required_node_region_size = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size as u64;
+        //     if required_node_region_size > region_size {
+        //         let required = required_node_region_size as usize;
+        //         let actual = region_size as usize;
+        //         return Err(KvError::RegionTooSmall{required, actual});
+        //     }
+
+        //     let ghost mem = pm_region@.committed();
+
+        //     // // recover the list region from the log entries
+        //     // Self::replay_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
+
+        //     // reborrow to satisfy the borrow checker
+        //     let pm_region = wrpm_region.get_pm_region_ref();
+
+        //     let mut list_node_region_free_list: Vec<u64> = Vec::new();
+        //     // this list will store in-use nodes; all nodes not in this list go in the free list
+        //     let mut list_nodes_in_use: Vec<u64> = Vec::new();
+        //     // separate vector to help traverse the lists and fill in list_nodes_in_use
+        //     let mut list_node_region_stack: Vec<u64> = Vec::new();
+
+        //     // construct allocator for the list node region
+        //     // we need to use two vectors for this -- one as a stack for traversal of the lists,
+        //     // and one to record which nodes are in use
+        //     let ghost mem1 = pm_region@.committed();
+        //     while list_node_region_stack.len() != 0 {
+        //         assume(false);
+        //         let current_index = list_node_region_stack.pop().unwrap();
+        //         list_nodes_in_use.push(current_index);
+
+        //         // read the node, check its CRC; if it's fine, push its next
+        //         // pointer onto the stack
+        //         let list_node_offset = ABSOLUTE_POS_OF_LIST_REGION_NODE_START +
+        //             current_index * node_size as u64;
+        //         let ptr_addr = list_node_offset + RELATIVE_POS_OF_NEXT_POINTER;
+        //         let ghost ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ptr_addr as int + i);
+        //         let crc_addr = list_node_offset + RELATIVE_POS_OF_LIST_NODE_CRC;
+        //         let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr as int + i);
+        //         let ptr_size_of = traits_t::size_of::<u64>();
+
+        //         // The true next pointer and CRC are the deserializations of the bytes we originally wrote to these addresses.
+        //         // To prove that the values we read are uncorrupted and initialized, we need to prove that they match these true values
+        //         // using check_crc.
+        //         let ghost true_next_pointer = u64::spec_from_bytes(mem1.subrange(ptr_addr as int, ptr_addr + u64::spec_size_of()));
+        //         let ghost true_crc = u64::spec_from_bytes(mem1.subrange(crc_addr as int, crc_addr + u64::spec_size_of()));
+
+        //         let next_pointer = pm_region.read_aligned::<u64>(ptr_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+        //         let node_header_crc = pm_region.read_aligned::<u64>(crc_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
+
+        //         let ghost true_next_pointer_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[ptr_addrs[i]]);
+        //         let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem1[crc_addrs[i]]);
+
+        //         if !check_crc(next_pointer.as_slice(), node_header_crc.as_slice(), Ghost(mem1),
+        //                 Ghost(pm_region.constants().impervious_to_corruption),
+        //                 Ghost(ptr_addrs),
+        //                 Ghost(crc_addrs)
+        //         ) {
+        //             return Err(KvError::CRCMismatch);
+        //         }
+  
+        //         let next_pointer = *next_pointer.extract_init_val(
+        //             Ghost(true_next_pointer), 
+        //             Ghost(true_next_pointer_bytes),
+        //             Ghost(pm_region.constants().impervious_to_corruption)
+        //         );
+
+        //         // If the CRC check passes, then the next pointer is valid.
+        //         // If a node's next pointer points to itself, we've reached the end of the list;
+        //         // otherwise, push the next pointer onto the stack
+        //         if next_pointer != current_index {
+        //             list_node_region_stack.push(next_pointer);
+        //         }
+        //     }
+
+        //     // construct the list region allocator
+        //     // TODO: this is pretty inefficient, but I don't think Verus currently supports
+        //     // structures like HashMaps that might make it easier. it would be faster if
+        //     // the in-use vector was sorted, but it may not be, and we don't have
+        //     // access to Rust std::vec sort methods
+        //     let mut found = false;
+        //     for i in 0..list_region_metadata.num_nodes - 1 {
+        //         assume(false);
+        //         found = false;
+        //         for j in 0..list_nodes_in_use.len() {
+        //             assume(false);
+        //             if list_nodes_in_use[j] == i {
+        //                 found = true;
+        //                 break;
+        //             }
+        //         }
+        //         if !found {
+        //             list_node_region_free_list.push(i);
+        //         }
+        //     }
+
+        //     // The number of elements per node is the (node size - the size of the next ptr+crc) / list element size
+        //     let elements_per_node = node_size as u64 - (traits_t::size_of::<u64>() as u64 * 2) / traits_t::size_of::<L>() as u64;
+
+        //     Ok(Self {
+        //         list_node_region_free_list,
+        //         node_size,
+        //         elements_per_node,
+        //         num_nodes: list_region_metadata.num_nodes,
+        //         state: Ghost(state) // TODO: this needs to be set up properly
+        //     })
+        // }
 
         // pub exec fn play_log_list<PM>(
         //     &mut self,
