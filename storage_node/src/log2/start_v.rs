@@ -85,7 +85,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             match result {
                 Ok(info) => state.is_Some() ==> {
                     &&& metadata_consistent_with_info(pm_region@, log_start_addr as nat, log_size as nat, cdb, info)
-                    &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
+                    &&& info_consistent_with_log_area(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
                 },
                 Err(LogErr::CRCMismatch) =>
                     state.is_Some() ==> !pm_region.constants().impervious_to_corruption,

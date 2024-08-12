@@ -73,22 +73,36 @@ pub open spec fn metadata_consistent_with_info(
     &&& mem.len() >= spec_log_area_pos() + info.log_area_len
 }
 
-pub open spec fn info_consistent_with_log_area_in_region(
-    pm_region_view: PersistentMemoryRegionView,
-    log_start_addr: nat,
-    log_size: nat,
-    info: LogInfo,
-    state: AbstractLogState,
-) -> bool
-{
-    &&& pm_region_view.len() >= log_start_addr + log_size
-    &&& info_consistent_with_log_area(
-           get_subregion_view(pm_region_view, log_start_addr + spec_log_area_pos(),
-                              (log_size - spec_log_area_pos()) as nat),
-           info,
-           state
-       )
-}
+// pub open spec fn info_consistent_with_log_area_in_region(
+//     pm_region_view: PersistentMemoryRegionView,
+//     log_start_addr: nat,
+//     log_size: nat,
+//     info: LogInfo,
+//     state: AbstractLogState,
+// ) -> bool
+// {
+//     &&& pm_region_view.len() >= log_start_addr + log_size
+//     &&& info_consistent_with_log_area(
+//            get_subregion_view(pm_region_view, log_start_addr + spec_log_area_pos(),
+//                               (log_size - spec_log_area_pos()) as nat),
+//            info,
+//            state
+//        )
+// }
+
+// pub open spec fn info_consistent_with_log_region(
+//     pm_region_view: PersistentMemoryRegionView, // FULL PM device view
+//     log_start_addr: nat,
+//     log_size: nat,
+//     info: LogInfo,
+//     state: AbstractLogState
+// ) -> bool 
+// {
+//     &&& pm_region_view.len() >= log_start_addr + log_size
+//     &&& info_consistent_with_log_area(
+//             extract_bytes(pm_region_view.committed(), )
+//     )
+// }
 
 // This invariant says that the log area of the given
 // persistent-memory region view is consistent with both the log
@@ -116,7 +130,9 @@ pub open spec fn info_consistent_with_log_area_in_region(
 // tail. This is useful so that, if there are further pending
 // appends, they can be written into this part of the log area.
 pub open spec fn info_consistent_with_log_area(
-    log_area_view: PersistentMemoryRegionView,
+    pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
     info: LogInfo,
     state: AbstractLogState,
 ) -> bool
@@ -139,7 +155,8 @@ pub open spec fn info_consistent_with_log_area(
                 #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
                                                                 info.head_log_area_offset as int,
                                                                 info.log_area_len as int);
-            let pmb = log_area_view.state[log_area_offset];
+            let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+            let pmb = pm_region_view.state[absolute_addr];
             &&& 0 <= pos_relative_to_head < info.log_length ==> {
                     &&& pmb.state_at_last_flush == state.log[pos_relative_to_head]
                     &&& pmb.outstanding_write.is_none()
@@ -239,24 +256,71 @@ pub proof fn lemma_same_bytes_recover_to_same_state(
     ensures
         UntrustedLogImpl::recover(mem1, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) ==
             UntrustedLogImpl::recover(mem2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-    {
-        let log_start_addr = overall_metadata.log_area_addr as nat;
-        let log_size = overall_metadata.log_area_size as nat;
+{
+    let log_start_addr = overall_metadata.log_area_addr as nat;
+    let log_size = overall_metadata.log_area_size as nat;
 
-        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+    lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
-        // Proves that the CDBs are the same
-        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
-        let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
-        if let Some(cdb1) = cdb1 {
+    // Proves that the CDBs are the same
+    lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
+    let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
+    if let Some(cdb1) = cdb1 {
+        let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
             let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
-            let crc_pos = metadata_pos + LogMetadata::spec_size_of();
-            // Proves that metadata, CRC, and log area are the same
-            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
-            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
-            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
-        } else {
-            // both are None
-        }
+        let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
+        let crc_pos = metadata_pos + LogMetadata::spec_size_of();
+        // Proves that metadata, CRC, and log area are the same
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
+    } else {
+        // both are None
     }
+}
+
+// This predicate describes whether a given log area offset is
+// unreachable during recovery (because it's beyond the tail).
+//
+// Its parameters are:
+// `head_log_area_offset` -- the the log offset where the log head is
+// `log_area_len` -- the length of the log area
+// `log_length` -- the length of the abstract log
+// `log_area_offset` -- the log area offet being asked about
+pub open spec fn log_area_offset_unreachable_during_recovery(
+    head_log_area_offset: int,
+    log_area_len: int,
+    log_length: int,
+    log_area_offset: int,
+) -> bool
+{
+    log_area_offset_to_relative_log_pos(log_area_offset, head_log_area_offset, log_area_len) >= log_length
+}
+
+pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
+    pm_region_view: PersistentMemoryRegionView,
+    info: LogInfo
+)
+    requires
+        pm_region_view.len() == info.log_area_len,
+        info.head_log_area_offset < info.log_area_len,
+        info.log_area_len > 0,
+    ensures
+        forall |log_area_offset: int| #![trigger pm_region_view.state[log_area_offset]]
+            0 <= log_area_offset < info.log_area_len ==> {
+                let pos_relative_to_head =
+                    if log_area_offset >= info.head_log_area_offset {
+                        log_area_offset - info.head_log_area_offset
+                    }
+                    else {
+                        log_area_offset - info.head_log_area_offset + info.log_area_len
+                    };
+                &&& 0 <= pos_relative_to_head < info.log_area_len
+                &&& log_area_offset ==
+                       relative_log_pos_to_log_area_offset(pos_relative_to_head, info.head_log_area_offset as int,
+                                                           info.log_area_len as int)
+            }
+{
+}
+
 }

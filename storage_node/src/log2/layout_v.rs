@@ -178,6 +178,20 @@ verus! {
         }
     }
 
+    pub open spec fn log_area_offset_to_relative_log_pos(
+        log_area_offset: int,
+        head_log_area_offset: int,
+        log_area_len: int
+    ) -> int
+    {
+        if log_area_offset >= head_log_area_offset {
+            log_area_offset - head_log_area_offset
+        }
+        else {
+            log_area_offset - head_log_area_offset + log_area_len
+        }
+    }
+
     // This function extracts the virtual log from the contents of a
     // persistent-memory region.
     //

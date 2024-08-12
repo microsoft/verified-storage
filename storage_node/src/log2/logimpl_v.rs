@@ -1,8 +1,7 @@
-use std::f64::MIN;
-
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::slice::*;
 
 use crate::kv::durable::inv_v::lemma_subrange_of_extract_bytes_equal;
 use crate::kv::kvimpl_t::KvError;
@@ -11,10 +10,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
-use crate::log2::layout_v::*;
-use crate::log2::logspec_t::*;
-use crate::log2::start_v::*;
-use crate::log2::inv_v::*;
+use crate::log2::{append_v::*, layout_v::*, logspec_t::*, start_v::*, inv_v::*};
 use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegion;
 
 verus! {
@@ -106,7 +102,7 @@ impl UntrustedLogImpl {
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
         &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
         &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
-        &&& info_consistent_with_log_area_in_region(pm@, log_start_addr, log_size, self.info, self.state@)
+        &&& info_consistent_with_log_area(pm@, log_start_addr, log_size, self.info, self.state@)
         // &&& can_only_crash_as_state(pm@, self.state@.drop_pending_appends())
         &&& metadata_types_set(pm@.committed(), log_start_addr)
     }
@@ -257,6 +253,178 @@ impl UntrustedLogImpl {
         Ok(Self { cdb, info, state: Ghost(state) })
     }  
 
+    // The `tentatively_append_to_log` method is called by
+    // `tentatively_append` to perform writes to the log area.
+    // It's passed a `subregion` that frames access to only that
+    // log area, and only to offsets within that log area that are
+    // unreachable during recovery.
+    exec fn tentatively_append_to_log<Perm, PMRegion>(
+        &self,
+        wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        log_start_addr: u64,
+        log_size: u64,
+        bytes_to_append: &[u8],
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<u128, LogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
+            self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
+            old(wrpm_region).inv(),
+            log_size == self.info.log_area_len,
+            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, self.info),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info, self.state@),
+            // forall |log_area_offset: int|
+            //     #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
+            //     log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+            //                                                 self.info.log_area_len as int,
+            //                                                 self.info.log_length as int,
+            //                                                 log_area_offset),
+        ensures
+            wrpm_region.inv(),
+            match result {
+                Ok(offset) => {
+                    &&& offset == self.info.head + self.info.log_plus_pending_length
+                    &&& info_consistent_with_log_area(
+                        wrpm_region@,
+                        log_start_addr as nat,
+                        log_size as nat,
+                        self.info.tentatively_append(bytes_to_append.len() as u64),
+                        self.state@.tentatively_append(bytes_to_append@)
+                    )
+                },
+                Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
+                    &&& wrpm_region@ == old(wrpm_region)@
+                    &&& available_space < bytes_to_append@.len()
+                    &&& {
+                            ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
+                            ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
+                        }
+                },
+                _ => false
+            }
+    {
+        let info = &self.info;
+        let log_area_start_addr = log_start_addr + log_area_pos();
+
+        // Compute the current logical offset of the end of the
+        // log, including any earlier pending appends. This is the
+        // offset at which we'll be logically appending, and so is
+        // the offset we're expected to return. After all, the
+        // caller wants to know what virtual log position they
+        // need to use to read this data in the future.
+
+        let old_pending_tail: u128 = info.head + info.log_plus_pending_length as u128;
+
+        // The simple case is that we're being asked to append the
+        // empty string. If so, do nothing and return.
+
+        let num_bytes: u64 = bytes_to_append.len() as u64;
+        if num_bytes == 0 {
+            assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
+            assert(bytes_to_append@ =~= Seq::<u8>::empty());
+            assert(self.info.tentatively_append(bytes_to_append.len() as u64) =~= self.info);
+            assert(self.state@.tentatively_append(bytes_to_append@) =~= self.state@);
+            assert(info_consistent_with_log_area(
+                wrpm_region@,
+                log_start_addr as nat,
+                log_size as nat,
+                self.info.tentatively_append(bytes_to_append.len() as u64),
+                self.state@.tentatively_append(bytes_to_append@)
+            ));
+            return Ok(old_pending_tail);
+        }
+
+        let ghost state = self.state@;
+
+        // If the number of bytes in the log plus pending appends
+        // is at least as many bytes as are beyond the head in the
+        // log area, there's obviously enough room to append all
+        // the bytes without wrapping. So just write the bytes
+        // there.
+
+        if info.log_plus_pending_length >= info.log_area_len - info.head_log_area_offset {
+
+            // We could compute the address to write to with:
+            //
+            // `write_addr = old_pending_tail % info.log_area_len;`
+            //
+            // But we can replace the expensive modulo operation above with two subtraction
+            // operations as follows. This is somewhat subtle, but we have verification backing
+            // us up and proving this optimization correct.
+
+            let write_addr: u64 =
+                info.log_plus_pending_length - (info.log_area_len - info.head_log_area_offset);
+            assert(write_addr ==
+                    relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                        info.head_log_area_offset as int,
+                                                        info.log_area_len as int));
+
+            proof {
+                lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+            }
+            // subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
+            wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
+        }
+        else {
+            // We could compute the address to write to with:
+            //
+            // `write_addr = old_pending_tail % info.log_area_len`
+            //
+            // But we can replace the expensive modulo operation above with an addition
+            // operation as follows. This is somewhat subtle, but we have verification backing
+            // us up and proving this optimization correct.
+
+            let write_addr: u64 = info.log_plus_pending_length + info.head_log_area_offset;
+            assert(write_addr ==
+                    relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                        info.head_log_area_offset as int,
+                                                        info.log_area_len as int));
+
+            // There's limited space beyond the pending bytes in the log area, so as we write
+            // the bytes we may have to wrap around the end of the log area. So we must compute
+            // how many bytes we can write without having to wrap:
+
+            let max_len_without_wrapping: u64 =
+                info.log_area_len - info.head_log_area_offset - info.log_plus_pending_length;
+            assert(max_len_without_wrapping == info.log_area_len -
+                    relative_log_pos_to_log_area_offset(info.log_plus_pending_length as int,
+                                                        info.head_log_area_offset as int, info.log_area_len as int));
+
+            if num_bytes <= max_len_without_wrapping {
+
+                // If there's room for all the bytes we need to write, we just need one write.
+
+                proof {
+                    lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+                }
+                wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
+            }
+            else {
+
+                // If there isn't room for all the bytes we need to write, we need two writes,
+                // one writing the first `max_len_without_wrapping` bytes to address
+                // `write_addr` and the other writing the remaining bytes to the beginning of
+                // the log area.
+                //
+                // There are a lot of things we have to prove about these writes, like the fact
+                // that they're both permitted by `perm`. We offload those proofs to a lemma in
+                // `append_v.rs` that we invoke here.
+
+                proof {
+                    lemma_tentatively_append_wrapping(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+                }
+                wrpm_region.write(log_area_start_addr + write_addr, slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize), Tracked(perm));
+                wrpm_region.write(log_area_start_addr, slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()), Tracked(perm));
+            }
+        }
+
+        Ok(old_pending_tail)
+    }
+
     // This local helper method proves that we can read a portion of
     // the abstract log by reading a continuous range of the log area.
     // It requires that the position being read from is correct, and
@@ -274,7 +442,7 @@ impl UntrustedLogImpl {
         requires
             len > 0,
             metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, self.cdb, self.info),
-            info_consistent_with_log_area_in_region(pm_region_view, log_start_addr, log_size, self.info, self.state@),
+            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, self.info, self.state@),
             log_start_addr + spec_log_area_pos() + self.info.log_area_len <= pm_region_view.len(),
             log_start_addr + spec_log_area_pos() <= addr < addr + len <= pm_region_view.len(),
             addr + len <= log_start_addr + log_size,
@@ -311,8 +479,7 @@ impl UntrustedLogImpl {
         // about addresses in the log area.
 
         lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, info);
-        assert(extract_bytes(pm_region_view.committed(), addr, len) =~= 
-                extract_bytes(s.log, (pos - s.head) as nat, len));
+        assert(extract_bytes(pm_region_view.committed(), addr, len) =~= extract_bytes(s.log, (pos - s.head) as nat, len));
     }
 
     // The `read` method reads part of the log, returning a vector
