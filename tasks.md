@@ -26,7 +26,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentatively_append_log_entry` *
         - [ ] `commit_log` *
         - [ ] `clear_log` *
-        - [ ] Port single log operations to `log2` module
+        - [ ] Port single log operations to `log2` module - hayleyleblanc
             - [x] `setup`
             - [x] `start` 
             - [x] `read`
