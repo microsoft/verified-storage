@@ -661,7 +661,7 @@ verus! {
                 match result {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
-                    Ok(kvstore) => kvstore@ == state
+                    Ok(kvstore) => kvstore@ == state,
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,
@@ -722,7 +722,6 @@ verus! {
             };
 
             Ok(durable_kv_store)
-            
         }
 
         // This function installs the log by blindly replaying physical log entries onto the WRPM region. All writes
