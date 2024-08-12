@@ -420,12 +420,6 @@ verus! {
                                 &&& item_index_view.contains(item_index as int)
                             }
                         &&& item_index_view.to_set().subset_of(table.valid_item_indices())
-                        // TODO: have to prove this one!
-                        // &&& forall |i: int| 0 <= i < index ==> #[trigger] table.valid_item_indices().contains(i) ==> item_index_view.contains(i)
-                        // &&& forall |i: int| 0 <= i < index ==> {
-                        //     let item_index = table.durable_item_table[i];
-
-                        // }
                     }),
                     forall |i: int| 0 <= i < key_index_pairs.len() ==> {
                         &&& 0 <= (#[trigger] key_index_pairs[i]).1 < overall_metadata.num_keys 
@@ -459,9 +453,8 @@ verus! {
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
                 let relative_cdb_addr = entry_offset;
-
                 proof {
-                    lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
+                    lemma_if_table_parseable_then_all_entries_parseable::<K>(
                         subregion.view(pm_region).committed(),
                         overall_metadata.num_keys, 
                         overall_metadata.metadata_node_size
@@ -469,7 +462,7 @@ verus! {
                     // trigger for CDB bytes parseable
                     assert(u64::bytes_parseable(extract_bytes(
                         subregion.view(pm_region).committed(),
-                        (index * entry_slot_size) as nat,
+                        index_to_offset(index as nat, entry_slot_size as nat),
                         u64::spec_size_of()
                     )));
                 }
@@ -494,12 +487,10 @@ verus! {
                         // Slot is free -- we just need to put it in the allocator
                         let ghost old_metadata_allocator = metadata_allocator@;
                         metadata_allocator.push(index);
-
                         proof {
                             // these assertions hit triggers needed by the loop invariants
                             assert(metadata_allocator@.subrange(0, metadata_allocator@.len() - 1) == old_metadata_allocator);
                             assert(metadata_allocator@[metadata_allocator@.len() - 1] == index);
-
                             // Invoking this lemma here proves that the CDB we just read is the same one checked by parse_metadata_entry
                             lemma_subrange_of_extract_bytes_equal(mem, relative_cdb_addr as nat, relative_cdb_addr as nat, entry_slot_size as nat, u64::spec_size_of());
                         }
@@ -542,32 +533,11 @@ verus! {
                                 K::spec_size_of()
                             ));
 
-                            lemma_if_table_parseable_then_all_valid_entries_parseable::<K>(
+                            lemma_if_table_parseable_then_all_entries_parseable::<K>(
                                 subregion.view(pm_region).committed(),
                                 overall_metadata.num_keys, 
                                 overall_metadata.metadata_node_size
                             );
-                            // trigger for CRC bytes parseable
-                            assert(u64::bytes_parseable(
-                                    extract_bytes(
-                                        subregion.view(pm_region).committed(),
-                                        (index * entry_slot_size + u64::spec_size_of()) as nat,
-                                        u64::spec_size_of()
-                            )));
-                            // trigger for entry bytes parseable
-                            assert(ListEntryMetadata::bytes_parseable(
-                                extract_bytes(
-                                    subregion.view(pm_region).committed(),
-                                    (index * entry_slot_size + u64::spec_size_of() * 2) as nat,
-                                    ListEntryMetadata::spec_size_of()
-                            )));
-                            // trigger for key bytes parseable
-                            assert(K::bytes_parseable(
-                                extract_bytes(
-                                    subregion.view(pm_region).committed(),
-                                    (index * entry_slot_size + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat,
-                                    K::spec_size_of()
-                            )));
                         }
                         
                         let crc = match subregion.read_relative_aligned::<u64, _>(pm_region, relative_crc_addr) {
@@ -597,29 +567,19 @@ verus! {
                             Ghost(pm_region.constants().impervious_to_corruption));
                         let metadata = entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
-
-                        
-                        assert(0 <= index < num_keys);
-                        assert(0 <= metadata.item_index < num_keys);
                         
                         let ghost old_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
                         assert(old_item_index_view.to_set().subset_of(table.valid_item_indices()));
                         let ghost old_key_index_pairs = key_index_pairs;
 
-                        proof {
-                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
-
-                            assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
-                                let table_index = #[trigger] entry_list_view[i].1;
-                                let item_index = #[trigger] entry_list_view[i].2;
-                                &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
-                                &&& valid_entry.item_index() == item_index
-                                &&& 0 <= table_index < table.durable_metadata_table.len()
-                                &&& table.valid_item_indices().contains(item_index as int)
-                                &&& old_item_index_view.contains(item_index as int)
-                            });
-                        }
+                        let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                        assert(forall |i: int| 0 <= i < old_entry_list_view.len() ==> {
+                            let entry = #[trigger] old_entry_list_view[i];
+                            let table_index = entry.1;
+                            let item_index = entry.2;
+                            &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                            &&& valid_entry.item_index() == item_index
+                        });
 
                         key_index_pairs.push((key, index, metadata.item_index));
 
@@ -629,24 +589,31 @@ verus! {
                         proof {
                             let new_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
                             let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                            
+                            assert(entry_list_view.subrange(0, entry_list_view.len() - 1) == old_entry_list_view);
 
                             assert forall |i: int| 0 <= i < entry_list_view.len() implies {
-                                let table_index = #[trigger] entry_list_view[i].1;
-                                let item_index = #[trigger] entry_list_view[i].2;
+                                let entry = #[trigger] entry_list_view[i];
+                                let table_index = entry.1;
+                                let item_index = entry.2;
                                 &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                                &&& valid_entry.key() == entry.0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
                                 &&& table.valid_item_indices().contains(item_index as int)
                                 &&& new_item_index_view.contains(item_index as int)
                             } by {
-                                let table_index = entry_list_view[i].1;
-                                let item_index = entry_list_view[i].2;
-                                // TODO NEXT
-                                assume(false);
+                                let entry = entry_list_view[i];
+                                let table_index = entry.1;
+                                let item_index = entry.2;
+
+                                assert(item_index == new_item_index_view[i]);
                                 if i < entry_list_view.len() - 1 {
+                                    assert(entry == old_entry_list_view[i]);
                                     assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
                                 }
+
+                                assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
                             }
 
                             // This witness and the following few assertions help us maintain the loop invariant that 
@@ -664,30 +631,6 @@ verus! {
                             assert(table.valid_item_indices().contains(metadata.item_index as int));
                             assert(new_item_index_view == old_item_index_view.push(metadata.item_index as int));
                             assert(new_item_index_view.to_set().subset_of(table.valid_item_indices()));
-
-                            
-                            assert forall |i: int| 0 <= i < entry_list_view.len() implies {
-                                let table_index = entry_list_view[i].1;
-                                let item_index = entry_list_view[i].2;
-                                &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
-                                &&& valid_entry.item_index() == item_index
-                                &&& 0 <= table_index < table.durable_metadata_table.len()
-                            } by {
-                                // we already know this is true for all entries except for the very last one via the loop invariant, 
-                                // so we just have to prove it for the last entry.
-                                if i == entry_list_view.len() - 1 {
-                                    let table_index = entry_list_view[i].1;
-                                    if let DurableEntry::Valid(valid_entry) = table.durable_metadata_table[table_index as int] {
-                                        assert(valid_entry.key() == entry_list_view[i].0);
-                                        assert(valid_entry.item_index() == entry_list_view[i].2);
-                                        assert(0 <= table_index < table.durable_metadata_table.len());
-                                    }
-                                } else {
-                                    // all entries except the last one haven't changed and still satisfy the invariant
-                                    assert(entry_list_view[i] == pre_entry_list[i]);
-                                }
-                            }
                         }
                     }
                     None => return Err(KvError::CRCMismatch)
@@ -739,16 +682,7 @@ verus! {
                 assert(main_table@.get_tentative_metadata_table() == main_table@.get_durable_metadata_table());
                 assert(main_table.allocator_view() == main_table@.free_indices());
                 assert(entry_list_view.to_set() == key_entry_list_view);
-
-                // assert(item_index_view.to_set().subset_of(main_table@.valid_item_indices()));
-                // assert(main_table@.valid_item_indices().subset_of(item_index_view.to_set()));
-
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
-
-                // assert(forall |i: int| 0 <= i < key_index_pairs.len() ==> {
-                //     &&& 0 <= (#[trigger] key_index_pairs[i]).1 < overall_metadata.num_keys 
-                //     &&& 0 <= key_index_pairs[i].2 < overall_metadata.num_keys
-                // });
             }
 
             Ok((main_table, key_index_pairs))
