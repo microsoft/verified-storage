@@ -45,7 +45,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
-        - [ ] `start` * - hayley-leblanc
+        - [x] `start` * - hayley-leblanc
         - [ ] `tentatively_write_item` *
         - [ ] `read_item` *
         - [ ] Deallocate item table slot
