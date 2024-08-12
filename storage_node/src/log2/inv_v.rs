@@ -297,30 +297,4 @@ pub open spec fn log_area_offset_unreachable_during_recovery(
     log_area_offset_to_relative_log_pos(log_area_offset, head_log_area_offset, log_area_len) >= log_length
 }
 
-pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
-    pm_region_view: PersistentMemoryRegionView,
-    info: LogInfo
-)
-    requires
-        pm_region_view.len() == info.log_area_len,
-        info.head_log_area_offset < info.log_area_len,
-        info.log_area_len > 0,
-    ensures
-        forall |log_area_offset: int| #![trigger pm_region_view.state[log_area_offset]]
-            0 <= log_area_offset < info.log_area_len ==> {
-                let pos_relative_to_head =
-                    if log_area_offset >= info.head_log_area_offset {
-                        log_area_offset - info.head_log_area_offset
-                    }
-                    else {
-                        log_area_offset - info.head_log_area_offset + info.log_area_len
-                    };
-                &&& 0 <= pos_relative_to_head < info.log_area_len
-                &&& log_area_offset ==
-                       relative_log_pos_to_log_area_offset(pos_relative_to_head, info.head_log_area_offset as int,
-                                                           info.log_area_len as int)
-            }
-{
-}
-
 }

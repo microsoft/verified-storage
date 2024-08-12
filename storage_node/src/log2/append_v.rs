@@ -45,7 +45,8 @@ verus! {
         prev_state: AbstractLogState,
     )
         requires
-            pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
+            log_size == prev_info.log_area_len,
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -69,8 +70,9 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append);
-                &&& pm_region_view.no_outstanding_writes_in_range(write_addr, write_addr + num_bytes)
+                let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
+                let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append);
+                &&& pm_region_view.no_outstanding_writes_in_range(absolute_write_addr, absolute_write_addr + num_bytes)
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + num_bytes ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
@@ -94,7 +96,7 @@ verus! {
         // about addresses in the log area (that there are no
         // outstanding writes to certain of them).
 
-        lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(pm_region_view, prev_info);
+        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
     }
 
     // This lemma establishes useful facts about performing two
@@ -130,7 +132,8 @@ verus! {
         prev_state: AbstractLogState,
     )
         requires
-            pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
+            log_size == prev_info.log_area_len,
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -157,11 +160,12 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append_part1);
-                let pm_region_view3 = pm_region_view2.write(0int, bytes_to_append_part2);
+                let absolute_write_addr1 = log_start_addr + spec_log_area_pos() + write_addr;
+                let absolute_write_addr2 = log_start_addr + spec_log_area_pos();
+                let pm_region_view2 = pm_region_view.write(absolute_write_addr1, bytes_to_append_part1);
+                let pm_region_view3 = pm_region_view2.write(absolute_write_addr2 as int, bytes_to_append_part2);
                 // The first write doesn't conflict with any outstanding writes
-                &&& pm_region_view.no_outstanding_writes_in_range(write_addr,
-                                                                 write_addr + bytes_to_append_part1.len())
+                &&& pm_region_view.no_outstanding_writes_in_range(absolute_write_addr1, absolute_write_addr1 + bytes_to_append_part1.len())
                 // The first write is only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + bytes_to_append_part1.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
@@ -169,7 +173,7 @@ verus! {
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
                 // The second write also doesn't conflict with any outstanding writes
-                &&& pm_region_view2.no_outstanding_writes_in_range(0int, bytes_to_append_part2.len() as int)
+                &&& pm_region_view2.no_outstanding_writes_in_range(absolute_write_addr2 as int, bytes_to_append_part2.len() as int)
                 // The second write is also only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| 0 <= log_area_offset < bytes_to_append_part2.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
@@ -197,7 +201,8 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append_part1);
+        let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
+        let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append_part1);
 
         // Invoke `lemma_tentatively_append` on each write.
 
