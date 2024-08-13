@@ -736,6 +736,7 @@ impl PersistentMemorySubregion
             pm.inv(),
             start + len <= pm@.len() <= u64::MAX,
         ensures
+            result.inv(pm),
             result.start() == start,
             result.len() == len,
             result.view(pm) == get_subregion_view(pm@, start as nat, len),

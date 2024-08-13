@@ -876,6 +876,34 @@ verus! {
             }
         }
 
+        /*
+        // This function takes an offset into the main table, looks up the corresponding item,
+        // and returns it if it exists.
+        pub fn read_item(
+            &self,
+            kvstore_id: u128,
+            metadata_index: u64
+        ) -> (result: Result<Box<I>, KvError<K>>)
+            requires
+                self.valid(),
+            ensures
+                match result {
+                    Ok(item) => {
+                        match self@[metadata_index as int] {
+                            Some(entry) => entry.item() == item,
+                            None => false
+                        }
+                    }
+                    Err(_) => self@[metadata_index as int].is_None()
+                }
+        {
+            let (key, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+            let item_index = metadata.item_index;
+            self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
+        }
+        */
+
 
 /*
 
@@ -1071,33 +1099,6 @@ verus! {
 
             // 6. Return the index of the metadata entry so it can be used in the volatile index.
             Ok((metadata_index, head_index))
-        }
-
-        // This function takes an offset into the METADATA table, looks up the corresponding item,
-        // and returns it if it exists.
-        pub fn read_item(
-            &self,
-            kvstore_id: u128,
-            metadata_index: u64
-        ) -> (result: Result<Box<I>, KvError<K>>)
-            requires
-                self.valid(),
-            ensures
-                match result {
-                    Ok(item) => {
-                        match self@[metadata_index as int] {
-                            Some(entry) => entry.item() == item,
-                            None => false
-                        }
-                    }
-                    Err(_) => self@[metadata_index as int].is_None()
-                }
-        {
-            assume(false);
-            let (key, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
-                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
-            let item_index = metadata.item_index;
-            self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
         }
 
         pub fn get_list_len(
