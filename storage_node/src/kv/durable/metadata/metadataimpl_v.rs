@@ -697,6 +697,7 @@ verus! {
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
             }
 
+            assert(mem =~= subregion.view(pm_region).flush().committed());
             Ok((main_table, key_index_pairs))
         }
 
