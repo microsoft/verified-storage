@@ -256,7 +256,7 @@ verus! {
             // of the table is Some so that we can then reason about its contents.
             assert forall |k: nat| k < num_keys implies {
                 validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
-                        metadata_node_size as nat))
+                        metadata_node_size as nat), num_keys as nat)
             } by {
                 assert(u64::bytes_parseable(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of())));
                 assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
@@ -329,6 +329,7 @@ verus! {
                                     &&& val == (entry.key(), j, entry.item_index())
                         }});
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
+                        let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2 as int);
 
                         &&& main_table.inv(subregion.view(pm_region).flush().committed(), overall_metadata)
                         // main table states match
@@ -337,6 +338,12 @@ verus! {
                         &&& main_table.allocator_view() == main_table@.free_indices()
                         // the entry list corresponds to the table
                         &&& entry_list_view.to_set() == key_entry_list_view
+                        // all indices in the entry list are valid
+                        &&& forall |i: int| 0 <= i < entry_list.len() ==> {
+                            &&& 0 <= (#[trigger] entry_list[i]).1 < overall_metadata.num_keys 
+                            &&& 0 <= entry_list[i].2 < overall_metadata.num_keys
+                        }
+                        &&& item_index_view.to_set() == main_table@.valid_item_indices()
                     }
                     Err(KvError::IndexOutOfRange) => {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
@@ -408,23 +415,27 @@ verus! {
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     ({
                         let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
-                        forall |i: u64| 0 <= i < index ==> {
-                            let entry = #[trigger] table.durable_metadata_table[i as int];
-                            entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
-                        }
+                        let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                        &&& forall |i: u64| 0 <= i < index ==> {
+                                let entry = #[trigger] table.durable_metadata_table[i as int];
+                                entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
+                            }
+                        &&& forall |i: int| 0 <= i < entry_list_view.len() ==> {
+                                let table_index = entry_list_view[i].1;
+                                let item_index = entry_list_view[i].2;
+                                &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                                &&& valid_entry.item_index() == item_index
+                                &&& 0 <= table_index < table.durable_metadata_table.len()
+                                &&& table.valid_item_indices().contains(item_index as int)
+                                &&& item_index_view.contains(item_index as int)
+                            }
+                        &&& item_index_view.to_set().subset_of(table.valid_item_indices())
                     }),
-                    ({
-                        let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
-                        forall |i: int| 0 <= i < entry_list_view.len() ==> {
-                            let table_index = entry_list_view[i].1;
-                            let item_index = entry_list_view[i].2;
-                            &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                            &&& valid_entry.key() == #[trigger] entry_list_view[i].0
-                            &&& valid_entry.item_index() == item_index
-                            &&& 0 <= table_index < table.durable_metadata_table.len()
-                            
-                        }
-                    }),
+                    forall |i: int| 0 <= i < key_index_pairs.len() ==> {
+                        &&& 0 <= (#[trigger] key_index_pairs[i]).1 < overall_metadata.num_keys 
+                        &&& 0 <= key_index_pairs[i].2 < overall_metadata.num_keys
+                    },
                     K::spec_size_of() > 0,
             {
                 let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
@@ -453,9 +464,8 @@ verus! {
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
                 let relative_cdb_addr = entry_offset;
-
                 proof {
-                    lemma_if_table_parseable_then_all_cdbs_parseable::<K>(
+                    lemma_if_table_parseable_then_all_entries_parseable::<K>(
                         subregion.view(pm_region).committed(),
                         overall_metadata.num_keys, 
                         overall_metadata.metadata_node_size
@@ -463,7 +473,7 @@ verus! {
                     // trigger for CDB bytes parseable
                     assert(u64::bytes_parseable(extract_bytes(
                         subregion.view(pm_region).committed(),
-                        (index * entry_slot_size) as nat,
+                        index_to_offset(index as nat, entry_slot_size as nat),
                         u64::spec_size_of()
                     )));
                 }
@@ -488,12 +498,10 @@ verus! {
                         // Slot is free -- we just need to put it in the allocator
                         let ghost old_metadata_allocator = metadata_allocator@;
                         metadata_allocator.push(index);
-
                         proof {
                             // these assertions hit triggers needed by the loop invariants
                             assert(metadata_allocator@.subrange(0, metadata_allocator@.len() - 1) == old_metadata_allocator);
                             assert(metadata_allocator@[metadata_allocator@.len() - 1] == index);
-
                             // Invoking this lemma here proves that the CDB we just read is the same one checked by parse_metadata_entry
                             lemma_subrange_of_extract_bytes_equal(mem, relative_cdb_addr as nat, relative_cdb_addr as nat, entry_slot_size as nat, u64::spec_size_of());
                         }
@@ -536,32 +544,11 @@ verus! {
                                 K::spec_size_of()
                             ));
 
-                            lemma_if_table_parseable_then_all_valid_entries_parseable::<K>(
+                            lemma_if_table_parseable_then_all_entries_parseable::<K>(
                                 subregion.view(pm_region).committed(),
                                 overall_metadata.num_keys, 
                                 overall_metadata.metadata_node_size
                             );
-                            // trigger for CRC bytes parseable
-                            assert(u64::bytes_parseable(
-                                    extract_bytes(
-                                        subregion.view(pm_region).committed(),
-                                        (index * entry_slot_size + u64::spec_size_of()) as nat,
-                                        u64::spec_size_of()
-                            )));
-                            // trigger for entry bytes parseable
-                            assert(ListEntryMetadata::bytes_parseable(
-                                extract_bytes(
-                                    subregion.view(pm_region).committed(),
-                                    (index * entry_slot_size + u64::spec_size_of() * 2) as nat,
-                                    ListEntryMetadata::spec_size_of()
-                            )));
-                            // trigger for key bytes parseable
-                            assert(K::bytes_parseable(
-                                extract_bytes(
-                                    subregion.view(pm_region).committed(),
-                                    (index * entry_slot_size + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat,
-                                    K::spec_size_of()
-                            )));
                         }
                         
                         let crc = match subregion.read_relative_aligned::<u64, _>(pm_region, relative_crc_addr) {
@@ -591,33 +578,70 @@ verus! {
                             Ghost(pm_region.constants().impervious_to_corruption));
                         let metadata = entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes), 
                             Ghost(pm_region.constants().impervious_to_corruption));
+                        
+                        let ghost old_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                        assert(old_item_index_view.to_set().subset_of(table.valid_item_indices()));
+                        let ghost old_key_index_pairs = key_index_pairs;
+
+                        let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                        assert(forall |i: int| 0 <= i < old_entry_list_view.len() ==> {
+                            let entry = #[trigger] old_entry_list_view[i];
+                            let table_index = entry.1;
+                            let item_index = entry.2;
+                            &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                            &&& valid_entry.item_index() == item_index
+                        });
 
                         key_index_pairs.push((key, index, metadata.item_index));
 
+                        assert(key_index_pairs@.subrange(0, key_index_pairs.len() - 1) == old_key_index_pairs@);
+                        assert(key_index_pairs@[key_index_pairs.len() - 1] == (key, index, metadata.item_index));
+                        
                         proof {
+                            let new_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
                             let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                            
+                            assert(entry_list_view.subrange(0, entry_list_view.len() - 1) == old_entry_list_view);
+
                             assert forall |i: int| 0 <= i < entry_list_view.len() implies {
-                                let table_index = entry_list_view[i].1;
-                                let item_index = entry_list_view[i].2;
+                                let entry = #[trigger] entry_list_view[i];
+                                let table_index = entry.1;
+                                let item_index = entry.2;
                                 &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
-                                &&& valid_entry.key() == #[trigger] entry_list_view[i].0
+                                &&& valid_entry.key() == entry.0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
+                                &&& table.valid_item_indices().contains(item_index as int)
+                                &&& new_item_index_view.contains(item_index as int)
                             } by {
-                                // we already know this is true for all entries except for the very last one via the loop invariant, 
-                                // so we just have to prove it for the last entry.
-                                if i == entry_list_view.len() - 1 {
-                                    let table_index = entry_list_view[i].1;
-                                    if let DurableEntry::Valid(valid_entry) = table.durable_metadata_table[table_index as int] {
-                                        assert(valid_entry.key() == entry_list_view[i].0);
-                                        assert(valid_entry.item_index() == entry_list_view[i].2);
-                                        assert(0 <= table_index < table.durable_metadata_table.len());
-                                    }
-                                } else {
-                                    // all entries except the last one haven't changed and still satisfy the invariant
-                                    assert(entry_list_view[i] == pre_entry_list[i]);
+                                let entry = entry_list_view[i];
+                                let table_index = entry.1;
+                                let item_index = entry.2;
+
+                                assert(item_index == new_item_index_view[i]);
+                                if i < entry_list_view.len() - 1 {
+                                    assert(entry == old_entry_list_view[i]);
+                                    assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
                                 }
+
+                                assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
                             }
+
+                            // This witness and the following few assertions help us maintain the loop invariant that 
+                            // the set of valid item indices we are constructing is a subset of table.valid_item_indices()
+                            let witness = table.durable_metadata_table[index as int];
+                            assert(witness matches DurableEntry::Valid(valid_entry));
+                            if let DurableEntry::Valid(valid_entry) = witness {
+                                assert(valid_entry.item_index() == metadata.item_index);
+                            }
+                            assert(exists |j: int| {
+                                &&& 0 <= j < table.durable_metadata_table.len() 
+                                &&& #[trigger] table.durable_metadata_table[j] matches DurableEntry::Valid(valid_entry) 
+                                &&& valid_entry.item_index() == metadata.item_index
+                            }); 
+                            assert(table.valid_item_indices().contains(metadata.item_index as int));
+                            assert(new_item_index_view == old_item_index_view.push(metadata.item_index as int));
+                            assert(new_item_index_view.to_set().subset_of(table.valid_item_indices()));
                         }
                     }
                     None => return Err(KvError::CRCMismatch)
@@ -665,10 +689,12 @@ verus! {
                             &&& val == (entry.key(), j, entry.item_index())
                 }});
                 let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
 
                 assert(main_table@.get_tentative_metadata_table() == main_table@.get_durable_metadata_table());
                 assert(main_table.allocator_view() == main_table@.free_indices());
                 assert(entry_list_view.to_set() == key_entry_list_view);
+                assert(item_index_view.to_set() == main_table@.valid_item_indices());
             }
 
             Ok((main_table, key_index_pairs))
@@ -763,135 +789,6 @@ verus! {
         }
 
 /* Temporarily commented out for subregion work
-
-        pub exec fn start<PM, L>(
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
-            table_id: u128,
-            log_entries: &Vec<OpLogEntryType<L>>,
-            Tracked(perm): Tracked<&TrustedMetadataPermission>,
-            Ghost(state): Ghost<MetadataTableView<K>>,
-        ) -> (result: Result<(Self, Vec<(Box<K>, u64)>), KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-                L: PmCopy,
-            requires 
-                old(wrpm_region).inv(),
-                // TODO
-            ensures 
-                wrpm_region.inv(),
-                // TODO
-        {
-            assume(false);
-
-            // 1. ensure that there are no outstanding writes
-            wrpm_region.flush();
-
-            let pm_region = wrpm_region.get_pm_region_ref();
-            let ghost mem = pm_region@.committed();
-
-            // 2. check that the caller passed in a region that is large enough to store the metadata table header
-            // we will check that it fits the number of entries we want below
-            let region_size = pm_region.get_region_size();
-            if region_size < ABSOLUTE_POS_OF_METADATA_TABLE {
-                return Err(KvError::RegionTooSmall{ required: ABSOLUTE_POS_OF_METADATA_TABLE as usize, actual: region_size as usize });
-            }
-
-            // 3. read and check the header 
-            let header = Self::read_header(pm_region, table_id)?;
-
-            // finish validity checks -- check that the regions the caller passed in are sufficiently large
-            // we can't do this until after reading the header since it depends on the number of keys we expect
-            // to be able to store
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let required_region_size = header.num_keys * entry_slot_size;
-            if required_region_size > region_size {
-                return Err(KvError::RegionTooSmall{ required: required_region_size as usize, actual: region_size as usize });
-            }
-
-            // 4. run recovery using the list of log entries.
-            Self::replay_log_metadata_table(wrpm_region, table_id, log_entries, Tracked(perm), Ghost(state))?;
-
-            // reborrow to satisfy the borrow checker
-            let pm_region = wrpm_region.get_pm_region_ref();
-            let ghost mem = pm_region@.committed();
-
-            // 5. read valid bytes and construct the allocator 
-            // The volatile component also needs to know what the existing key-index pairs are, so we'll 
-            // obtain these now as well to avoid doing an additional scan over the whole table
-            let mut metadata_allocator: Vec<u64> = Vec::with_capacity(header.num_keys as usize);
-            let mut key_index_pairs = Vec::new();
-            for index in 0..header.num_keys 
-                // TODO: invariant
-            {
-                assume(false);
-                let entry_offset = index * entry_slot_size;
-                let cdb_addr = entry_offset + RELATIVE_POS_OF_VALID_CDB;
-                let ghost true_cdb = u64::spec_from_bytes(mem.subrange(cdb_addr as int, cdb_addr + u64::spec_size_of()));
-                let cdb = pm_region.read_aligned::<u64>(cdb_addr).map_err(|e| KvError::PmemErr { pmem_err: e })?;
-                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-                match check_cdb(cdb, Ghost(mem), Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs)) {
-                    Some(false) => metadata_allocator.push(index),
-                    Some(true) => {
-                        // read the key at this location and add it to the key-index list
-                        // we can't use get_key_and_metadata_entry_at_index because we don't have a self yet,
-                        // but we'll use the same logic. We don't need the metadata here, but we have to 
-                        // read it so we can check the CRC.
-                        // TODO: refactor to share some code?
-                        let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-                        let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-                        let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-
-                        let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
-                        let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
-                        let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
-                        let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
-
-                        let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-                        let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
-                        let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-                        let ghost true_key = K::spec_from_bytes(true_key_bytes);
-
-                        let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-                        let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| entry_addr + i);
-                        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
-                        let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
-
-                        let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr) {
-                            Ok(metadata_entry) => metadata_entry,
-                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-                        };
-                        let crc = match pm_region.read_aligned::<u64>(crc_addr) {
-                            Ok(crc) => crc,
-                            Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-                        };
-                        let key = match pm_region.read_aligned::<K>(key_addr) {
-                            Ok(key) => key,
-                            Err(e) => return Err(KvError::PmemErr {pmem_err: e })
-                        };
-
-                        if !check_crc_for_two_reads(metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(mem),
-                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs), Ghost(crc_addrs)) 
-                        {
-                            return Err(KvError::CRCMismatch);
-                        }
-
-                        let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
-                            Ghost(pm_region.constants().impervious_to_corruption));
-                        key_index_pairs.push((key, index));
-
-                    },
-                    None => return Err(KvError::CRCMismatch),
-                }
-            }
-
-            Ok((
-                Self {
-                    metadata_table_free_list: metadata_allocator,
-                    state: Ghost(MetadataTableView::new(*header, parse_metadata_table(*header, mem).unwrap())),
-                },
-                key_index_pairs
-            ))
-        }
 
         pub exec fn play_metadata_log<PM, L>(
             &mut self,

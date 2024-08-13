@@ -7,6 +7,8 @@ Starred functions * have an unverified implementation (which may be out of date 
     - General durable operations
         - [x] `setup`
         - [ ] `start` * - hayley-leblanc
+          - [x] `start` for op log, item table, and main table
+          - [ ] `start` with list area
         - [x] `install_log`
         - [ ] `commit` *
         - [ ] `tentative_create` * 
@@ -24,7 +26,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentatively_append_log_entry` *
         - [ ] `commit_log` *
         - [ ] `clear_log` *
-        - [ ] Port single log operations to `log2` module
+        - [ ] Port single log operations to `log2` module - hayleyleblanc
             - [x] `setup`
             - [x] `start` 
             - [x] `read`
@@ -45,7 +47,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
-        - [ ] `start` * - hayley-leblanc
+        - [x] `start` * - hayley-leblanc
         - [ ] `tentatively_write_item` *
         - [ ] `read_item` *
         - [ ] Deallocate item table slot

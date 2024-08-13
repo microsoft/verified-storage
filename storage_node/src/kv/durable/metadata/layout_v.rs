@@ -128,7 +128,7 @@ verus! {
         }
     }
 
-    pub open spec fn validate_metadata_entry<K>(bytes: Seq<u8>) -> bool
+    pub open spec fn validate_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> bool
         where 
             K: PmCopy,
         recommends
@@ -145,6 +145,7 @@ verus! {
 
         let cdb = u64::spec_from_bytes(cdb_bytes);
         let crc = u64::spec_from_bytes(crc_bytes);
+        let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
 
         &&& u64::bytes_parseable(cdb_bytes)
         &&& {
@@ -155,6 +156,7 @@ verus! {
                 &&& u64::bytes_parseable(crc_bytes)
                 &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
                 &&& K::bytes_parseable(key_bytes)
+                &&& 0 <= metadata.item_index < num_keys
             }
         }   
     }
@@ -166,10 +168,10 @@ verus! {
             mem.len() >= num_keys * metadata_node_size,
     {
         forall |i: nat| i < num_keys ==> validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, i * metadata_node_size,
-                                                                                        metadata_node_size))
+                                                                                        metadata_node_size), num_keys)
     }
 
-    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>) -> DurableEntry<MetadataTableViewEntry<K>>
+    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MetadataTableViewEntry<K>>
         where 
             K: PmCopy,
         recommends
@@ -177,7 +179,7 @@ verus! {
             // RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of() <= bytes.len(),
             // RELATIVE_POS_OF_ENTRY_METADATA_CRC + u64::spec_size_of() <= bytes.len(),
             // RELATIVE_POS_OF_ENTRY_METADATA + ListEntryMetadata::spec_size_of() <= bytes.len(),
-            validate_metadata_entry::<K>(bytes)
+            validate_metadata_entry::<K>(bytes, num_keys)
     {
         let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
         let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
@@ -216,97 +218,75 @@ verus! {
                 Some(MetadataTableView::<K>::new(Seq::new(
                     num_keys as nat,
                     |i: int| parse_metadata_entry(extract_bytes(mem, (i * metadata_node_size as int) as nat,
-                                                              metadata_node_size as nat))
+                                                              metadata_node_size as nat), num_keys as nat)
                 )))
             }
         }
     }
 
-    pub proof fn lemma_if_table_parseable_then_all_cdbs_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
-        where 
-            K: PmCopy
-        requires
-            parse_metadata_table::<K>(mem, num_keys, metadata_node_size) is Some,
-            metadata_node_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-            num_keys * metadata_node_size <= mem.len(),
-        ensures 
-            forall |i: nat| i < num_keys ==> {
-                let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
-                let cdb = u64::spec_from_bytes(cdb_bytes);
-                &&& u64::bytes_parseable(cdb_bytes)
-                &&& cdb == CDB_FALSE || cdb == CDB_TRUE
-            }
-    {
-        assert(validate_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat));
-        assert forall |i: nat| i < num_keys implies {
-            let entry_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, metadata_node_size as nat);
-            let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
-            let cdb = u64::spec_from_bytes(cdb_bytes);
-            &&& u64::bytes_parseable(cdb_bytes)
-            &&& cdb == CDB_FALSE || cdb == CDB_TRUE
-        } by {
-            let entry_bytes = extract_bytes(mem, (i * metadata_node_size) as nat, metadata_node_size as nat);
-            assert(validate_metadata_entry::<K>(entry_bytes));
-
-            let cdb_bytes = #[trigger] extract_bytes(entry_bytes, 0, u64::spec_size_of());
-            assert(u64::bytes_parseable(cdb_bytes));
-
-            let cdb = u64::spec_from_bytes(cdb_bytes);
-            assert(cdb == CDB_FALSE || cdb == CDB_TRUE);
-        }
-
-        // for some reason this needs to be a separate assertion -- we can't just include cdb_bytes =~= cdb_bytes2
-        // in the other assertion. Verus can prove that they are equal but not that their equality implies the
-        // postcondition.
-        assert forall |i: nat| i < num_keys implies {
-            let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
-            let cdb = u64::spec_from_bytes(cdb_bytes);
-            &&& u64::bytes_parseable(cdb_bytes)
-            &&& cdb == CDB_FALSE || cdb == CDB_TRUE
-        } by {
-            let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
-            let entry_bytes = extract_bytes(mem, (i * metadata_node_size) as nat, metadata_node_size as nat);
-            let cdb_bytes2 = extract_bytes(entry_bytes, 0, u64::spec_size_of());
-
-            assert(i < num_keys);
-            assert(num_keys * metadata_node_size <= mem.len());
-            
-            lemma_mul_strict_inequality(i as int, num_keys as int, metadata_node_size as int);
-            if i + 1 < num_keys {
-                lemma_mul_strict_inequality((i + 1) as int, num_keys as int, metadata_node_size as int);
-            } 
-            vstd::arithmetic::mul::lemma_mul_is_distributive_add(metadata_node_size as int, i as int, 1int);
-            assert((i + 1) * metadata_node_size <= mem.len());
-
-            lemma_subrange_of_extract_bytes_equal(mem, (i * metadata_node_size) as nat, (i * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
-            assert(cdb_bytes =~= cdb_bytes2);
-        }
-    }
-
-    pub proof fn lemma_if_table_parseable_then_all_valid_entries_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
+    pub proof fn lemma_if_table_parseable_then_all_entries_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
     where 
         K: PmCopy
     requires
         parse_metadata_table::<K>(mem, num_keys, metadata_node_size) is Some,
-        metadata_node_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+        metadata_node_size == u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of() + K::spec_size_of(),
         num_keys * metadata_node_size <= mem.len(),
+        K::spec_size_of() > 0,
+        ListEntryMetadata::spec_size_of() > 0,
     ensures 
         forall |i: nat| i < num_keys ==> {
-            let cdb_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size) as nat, u64::spec_size_of());
-            let crc_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of()) as nat, u64::spec_size_of());
-            let entry_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of() * 2) as nat, ListEntryMetadata::spec_size_of());
-            let key_bytes = #[trigger] extract_bytes(mem, (i * metadata_node_size + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat, K::spec_size_of());
+            let cdb_bytes = extract_bytes(mem, #[trigger] index_to_offset(i, metadata_node_size as nat), u64::spec_size_of());
+            let crc_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of(), u64::spec_size_of());
+            let entry_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of());
+            let key_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of() as nat, K::spec_size_of());
             let cdb = u64::spec_from_bytes(cdb_bytes);
-            cdb == CDB_TRUE ==> {
-                &&& u64::bytes_parseable(crc_bytes)
-                &&& ListEntryMetadata::bytes_parseable(entry_bytes)
-                &&& K::bytes_parseable(key_bytes)
-                &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+            &&& u64::bytes_parseable(cdb_bytes)
+            &&& {
+                ||| cdb == CDB_FALSE 
+                ||| {
+                    &&& cdb == CDB_TRUE
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& ListEntryMetadata::bytes_parseable(entry_bytes)
+                    &&& K::bytes_parseable(key_bytes)
+                    &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+                }
             }
         }
     {
-        // TODO MONDAY
-        assume(false);
+        assert(validate_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat));
+        assert forall |i: nat| i < num_keys implies {
+            let cdb_bytes = extract_bytes(mem, #[trigger] index_to_offset(i, metadata_node_size as nat), u64::spec_size_of());
+            let crc_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of(), u64::spec_size_of());
+            let entry_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of());
+            let key_bytes = extract_bytes(mem, index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of() as nat, K::spec_size_of());
+            let cdb = u64::spec_from_bytes(cdb_bytes);
+            &&& u64::bytes_parseable(cdb_bytes)
+            &&& {
+                ||| cdb == CDB_FALSE 
+                ||| {
+                    &&& cdb == CDB_TRUE
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& ListEntryMetadata::bytes_parseable(entry_bytes)
+                    &&& K::bytes_parseable(key_bytes)
+                    &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+                }
+            }
+        } by {
+            lemma_mul_strict_inequality(i as int, num_keys as int, metadata_node_size as int);
+            if i + 1 < num_keys {
+                lemma_mul_strict_inequality((i + 1) as int, num_keys as int, metadata_node_size as int);
+            } 
+            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int, i as int, 1int);
+            lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat, u64::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of(), metadata_node_size as nat, u64::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2, metadata_node_size as nat, ListEntryMetadata::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), index_to_offset(i, metadata_node_size as nat) + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of() as nat, metadata_node_size as nat, K::spec_size_of());
+        }
+    }
+
+    pub open spec fn index_to_offset(index: nat, entry_size: nat) -> nat 
+    {
+        index * entry_size
     }
 
 }
