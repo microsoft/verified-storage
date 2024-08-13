@@ -9,12 +9,14 @@ use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
-use crate::kv::volatile::hash_map::*; // replace with std::hash_map when available
 use crate::kv::volatile::volatilespec_t::*;
 use crate::pmem::pmcopy_t::*;
+use std::collections::HashMap;
 use std::hash::Hash;
 
 verus! {
+
+broadcast use vstd::std_specs::hash::group_hash_axioms;
 
 pub struct VolatileKvIndexEntryImpl
 {
@@ -127,7 +129,7 @@ pub struct VolatileKvIndexImpl<K>
 where
     K: Hash + Eq + Clone + Sized + std::fmt::Debug,
 {
-    pub m: MyHashMap<K, VolatileKvIndexEntryImpl>,
+    pub m: HashMap<K, VolatileKvIndexEntryImpl>,
     pub num_list_entries_per_node: u64,
 }
 
@@ -149,6 +151,7 @@ where
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
             self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
+        &&& vstd::std_specs::hash::obeys_key_model::<K>()
     }
 
     fn new(
@@ -158,7 +161,7 @@ where
     ) -> (result: Result<Self, KvError<K>>)
     {
         let ret = Self {
-            m: MyHashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            m: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
