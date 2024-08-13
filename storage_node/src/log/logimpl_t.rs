@@ -343,9 +343,8 @@ verus! {
             // For crash safety, we must restrict the untrusted code's
             // writes to persistent memory. We must only let it write
             // such that, if a crash happens in the middle of a write,
-            // the view of the persistent state is either the current
-            // state or the current state with `bytes_to_append`
-            // appended.
+            // the view of the persistent state is the current
+            // state with pending appends dropped.
             let tracked perm = TrustedPermission::new_one_possibility(self.log_id@, self@.drop_pending_appends());
             self.untrusted_log_impl.tentatively_append(&mut self.wrpm_region, bytes_to_append,
                                                        self.log_id, Tracked(&perm))
@@ -372,8 +371,8 @@ verus! {
             // writes to persistent memory. We must only let it write
             // such that, if a crash happens in the middle of a write,
             // the view of the persistent state is either the current
-            // state or the current state with all uncommitted appends
-            // committed.
+            // state with all pending appends dropped or the current
+            // state with all uncommitted appends committed.
             let tracked perm = TrustedPermission::new_two_possibilities(self.log_id@, self@.drop_pending_appends(),
                                                                         self@.commit().drop_pending_appends());
             self.untrusted_log_impl.commit(&mut self.wrpm_region, self.log_id, Tracked(&perm))
