@@ -102,7 +102,7 @@ where
         AbstractKvStoreState {
             id: self.id,
             contents: Self::construct_view_contents(
-                self.volatile_index@, self.durable_store@),
+                self.volatile_index@, self.durable_store@.unwrap()),
         }
     }
 
@@ -110,7 +110,7 @@ where
     // then the view of the KV is also empty.
     proof fn lemma_empty_kv(self)
         requires
-            self.durable_store@.empty(),
+            self.durable_store@.unwrap().empty(),
             self.volatile_index@.empty(),
         ensures
             self@.empty()
@@ -121,7 +121,7 @@ where
 
     pub closed spec fn valid(self) -> bool
     {
-        &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
+        &&& self.durable_store@.unwrap().matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
     }

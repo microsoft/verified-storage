@@ -2,8 +2,7 @@ use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
-use crate::kv::durable::metadata::layout_v::*;
-use crate::kv::durable::metadata::metadataspec_t::*;
+use crate::kv::durable::metadata::{layout_v::*, metadataspec_t::*, metadataimpl_v::*};
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
@@ -367,6 +366,7 @@ verus! {
         pub fn start<PM, I>(
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
+            main_table: &MetadataTable<K>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
         ) -> (result: Result<Self, KvError<K>>)
@@ -377,10 +377,24 @@ verus! {
                 subregion.inv(pm_region),
                 pm_region@.no_outstanding_writes(),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                Self::parse_all_lists(
+                    main_table@, 
+                    subregion.view(pm_region).committed(), 
+                    overall_metadata.list_node_size, 
+                    overall_metadata.num_list_entries_per_node
+                ) is Some,
             ensures 
                 // TODO: update postcondition
                 match result {
-                    Ok(list) => true,
+                    Ok(list) => {
+                        let list_view = Self::parse_all_lists(
+                            main_table@, 
+                            subregion.view(pm_region).committed(), 
+                            overall_metadata.list_node_size, 
+                            overall_metadata.num_list_entries_per_node
+                        ).unwrap();
+                        list@ == list_view
+                    }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,

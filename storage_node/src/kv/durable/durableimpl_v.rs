@@ -70,8 +70,10 @@ verus! {
             I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug + Copy,
     {
-        // TODO: write this based on specs of the other structures
-        pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>;
+        pub closed spec fn view(&self) -> Option<DurableKvStoreView<K, I, L>>
+        {
+            Some(Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@))
+        }
 
         pub closed spec fn inv(self, mem: Seq<u8>) -> bool 
         {
@@ -661,7 +663,10 @@ verus! {
                 match result {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
-                    Ok(kvstore) => kvstore@ == state,
+                    Ok(kvstore) => {
+                        &&& kvstore@ is Some 
+                        &&& kvstore@.unwrap() == state
+                    }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,
@@ -710,7 +715,7 @@ verus! {
             // start each region
             let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
-            let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, overall_metadata, version_metadata)?;
+            let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
 
             let durable_kv_store = Self {
                 item_table,
@@ -720,6 +725,25 @@ verus! {
                 wrpm: wrpm_region,
                 pending_updates: Vec::new(),
             };
+
+            proof {
+                let recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), overall_metadata).unwrap();
+                let physical_log_entries = recovered_log.physical_op_list;
+                // we've replayed the physical log entries
+                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+            
+                // each recovered component parses correctly
+                assert(parse_metadata_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap() == main_table@);
+                assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
+                assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
+
+                assert(durable_kv_store@ is Some);
+                assert(durable_kv_store@.unwrap() == Self::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
+                assert(durable_kv_store@.unwrap() == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
+                // assert(durable_kv_store@.unwrap().contents =~= state.contents);
+            }
+
+            
 
             Ok(durable_kv_store)
         }
