@@ -203,28 +203,21 @@ verus! {
             requires 
                 AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
                 mem.len() == overall_metadata.region_size,
-                overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
+                overall_metadata.log_area_size <= mem.len(),
             ensures 
-                Self::apply_physical_log_entries(mem, phys_log) is Some 
+                Self::apply_physical_log_entries(mem, phys_log) is Some,
             decreases phys_log.len()
         {
             if phys_log.len() == 0 {
                 // trivial -- empty log always returns Some
             } else {
-                let current_entry = phys_log[0];
-                let new_log = phys_log.drop_first();
-
                 // Note that we have to apply the current entry before the recursive call
                 // to make sure memory contents are correct for this point in replay
-                assert(Self::apply_physical_log_entry(mem, current_entry) is Some);
 
-                let mem1 = Self::apply_physical_log_entry(mem, current_entry).unwrap();
-
-                assert(mem1.len() == mem.len());
                 Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
-                    mem1,
+                    Self::apply_physical_log_entry(mem, phys_log[0]).unwrap(),
                     overall_metadata,
-                    new_log
+                    phys_log.drop_first(),
                 );
             }
         }
