@@ -157,7 +157,6 @@ verus! {
         pub open spec fn apply_physical_log_entry(mem: Seq<u8>, log_op: AbstractPhysicalOpLogEntry) -> Option<Seq<u8>>
         {
             if {
-                ||| log_op.absolute_addr > mem.len() 
                 ||| log_op.absolute_addr + log_op.len > mem.len() 
                 ||| log_op.bytes.len() != log_op.len
             } {
