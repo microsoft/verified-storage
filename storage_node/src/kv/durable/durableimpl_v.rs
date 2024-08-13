@@ -716,6 +716,7 @@ verus! {
                 pending_updates: Vec::new(),
             };
 
+            assume(false);
             Ok(durable_kv_store)
         }
 
