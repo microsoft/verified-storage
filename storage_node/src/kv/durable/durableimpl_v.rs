@@ -250,15 +250,11 @@ verus! {
             Self::lemma_log_replay_preserves_size(mem2, phys_log);
 
             assert_seqs_equal!(replay1 == replay2, addr => {
-                if mem1[addr] == mem2[addr] {
-                    Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1, mem2, overall_metadata, phys_log);
-                } else {
-                    Self::lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(addr, mem1, mem2, overall_metadata, phys_log);
-                }
+                Self::lemma_byte_equal_after_recovery_specific_byte(addr, mem1, mem2, overall_metadata, phys_log);
             });
         }
 
-        pub proof fn lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(
+        pub proof fn lemma_byte_equal_after_recovery_specific_byte(
             addr: int,
             mem1: Seq<u8>, 
             mem2: Seq<u8>,
@@ -271,7 +267,7 @@ verus! {
                 Self::apply_physical_log_entries(mem1, phys_log) is Some,
                 Self::apply_physical_log_entries(mem2, phys_log) is Some,
                 AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
-                mem1[addr] == mem2[addr],
+                mem1[addr] == mem2[addr] || addr_modified_by_recovery(phys_log, addr),
                 0 <= addr < mem1.len(),
             ensures
                 ({
@@ -290,49 +286,17 @@ verus! {
                 let mem1_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
                 let mem2_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
 
-                Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
-            }
-        }
-
-        pub proof fn lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(
-            addr: int,
-            mem1: Seq<u8>, 
-            mem2: Seq<u8>,
-            overall_metadata: OverallMetadata,
-            phys_log: Seq<AbstractPhysicalOpLogEntry>,
-        )
-            requires
-                mem1.len() == mem2.len(),
-                mem1.len() == overall_metadata.region_size,
-                Self::apply_physical_log_entries(mem1, phys_log) is Some,
-                Self::apply_physical_log_entries(mem2, phys_log) is Some,
-                AbstractPhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
-                addr_modified_by_recovery(phys_log, addr),
-                0 <= addr < mem1.len(),
-            ensures
-                ({
-                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
-                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
-                    replay1[addr] == replay2[addr]
-                })
-            decreases phys_log.len()
-        {
-            if phys_log.len() == 0 {
-                // trivial
-            } else {
-                let current_entry = phys_log[0];
-                let remaining_log_entries = phys_log.drop_first();
-
-                let mem1_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
-                let mem2_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
-
-                if current_entry.absolute_addr <= addr < current_entry.absolute_addr + current_entry.len {
-                    Self::lemma_byte_equal_before_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
-                } else {
-                    let log_index = choose |i: int| 0 <= i < phys_log.len() && (#[trigger] phys_log[i]).absolute_addr <= addr < phys_log[i].absolute_addr + phys_log[i].len;
+                if mem1[addr] != mem2[addr] &&
+                    !(current_entry.absolute_addr <= addr < current_entry.absolute_addr + current_entry.len) {
+                    let log_index = choose |i: int| {
+                        &&& 0 <= i < phys_log.len()
+                        &&& (#[trigger] phys_log[i]).absolute_addr <= addr < phys_log[i].absolute_addr + phys_log[i].len
+                    };
                     assert(remaining_log_entries[log_index - 1] == phys_log[log_index]);
-                    Self::lemma_byte_modified_by_recovery_implies_byte_equal_after_recovery(addr, mem1_prime, mem2_prime, overall_metadata, remaining_log_entries);
+                    assert(addr_modified_by_recovery(remaining_log_entries, addr));
                 }
+                Self::lemma_byte_equal_after_recovery_specific_byte(addr, mem1_prime, mem2_prime,
+                                                                    overall_metadata, remaining_log_entries);
             }
         }
 
