@@ -189,13 +189,8 @@ verus! {
             if phys_log.len() == 0 {
                 // trivial
             } else {
-                let current_entry = phys_log[0];
-                let new_log = phys_log.drop_first();
-
-                let mem1 = Self::apply_physical_log_entry(mem, current_entry).unwrap();
-                assert(mem1.len() == mem.len());
-
-                Self::lemma_log_replay_preserves_size(mem1, new_log);
+                Self::lemma_log_replay_preserves_size(Self::apply_physical_log_entry(mem, phys_log[0]).unwrap(),
+                                                      phys_log.drop_first());
             }
         }
 
