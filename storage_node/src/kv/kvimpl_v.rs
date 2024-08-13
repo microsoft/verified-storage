@@ -48,7 +48,6 @@ where
     durable_store: DurableKvStore<PM, K, I, L>,
     volatile_index: V,
     node_size: u32,
-    _phantom: Ghost<core::marker::PhantomData<(PM, K, I, L)>>,
 }
 
 impl<PM, K, I, L, V> UntrustedKvStoreImpl<PM, K, I, L, V>
