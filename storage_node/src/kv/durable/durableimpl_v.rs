@@ -144,15 +144,10 @@ verus! {
             if physical_log_entries.len() == 0 {
                 Some(mem)
             } else {
-                let entry = physical_log_entries[0];
                 // Update the bytes indicated in the log entry
-                let op = physical_log_entries[0];
-                let mem = Self::apply_physical_log_entry(mem, op);
-                if let Some(mem) = mem {
-                    let physical_log_entries = physical_log_entries.drop_first();
-                    Self::apply_physical_log_entries(mem, physical_log_entries)
-                } else {
-                    None
+                match Self::apply_physical_log_entry(mem, physical_log_entries[0]) {
+                    Some(mem) => Self::apply_physical_log_entries(mem, physical_log_entries.drop_first()),
+                    None => None,
                 }
             }
         }
