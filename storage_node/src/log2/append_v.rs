@@ -46,7 +46,7 @@ verus! {
     )
         requires
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
-            log_size == prev_info.log_area_len,
+            log_size == prev_info.log_area_len + spec_log_area_pos(),
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -133,7 +133,7 @@ verus! {
     )
         requires
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
-            log_size == prev_info.log_area_len,
+            log_size == prev_info.log_area_len + spec_log_area_pos(),
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -173,7 +173,7 @@ verus! {
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
                 // The second write also doesn't conflict with any outstanding writes
-                &&& pm_region_view2.no_outstanding_writes_in_range(absolute_write_addr2 as int, bytes_to_append_part2.len() as int)
+                &&& pm_region_view2.no_outstanding_writes_in_range(absolute_write_addr2 as int, log_start_addr + spec_log_area_pos() + bytes_to_append_part2.len() as int)
                 // The second write is also only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| 0 <= log_area_offset < bytes_to_append_part2.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
