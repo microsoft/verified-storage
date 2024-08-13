@@ -112,7 +112,7 @@ impl UntrustedLogImpl {
         &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
         &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
         &&& info_consistent_with_log_area(pm@, log_start_addr, log_size, self.info, self.state@)
-        // &&& can_only_crash_as_state(pm@, self.state@.drop_pending_appends())
+        &&& Self::can_only_crash_as_state(pm@, log_start_addr, log_size, self.state@.drop_pending_appends())
         &&& metadata_types_set(pm@.committed(), log_start_addr)
     }
 
@@ -240,6 +240,7 @@ impl UntrustedLogImpl {
             pm_region@.no_outstanding_writes(),
             log_start_addr + log_size <= pm_region@.len() <= u64::MAX,
             log_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+            state == state.drop_pending_appends(),
         ensures
             ({
                 match result {
@@ -258,6 +259,13 @@ impl UntrustedLogImpl {
         let cdb = read_cdb(pm_region.get_pm_region_ref(), log_start_addr, log_size)?;
 
         let info = read_log_variables(pm_region.get_pm_region_ref(), log_start_addr, log_size, cdb)?;
+
+        proof {
+            // prove that we establish the part of the invariant that says that the only possible crash state is the one
+            // with all pending appends dropped
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+            assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.committed());
+        }
 
         Ok(Self { cdb, info, state: Ghost(state) })
     }  
@@ -301,6 +309,9 @@ impl UntrustedLogImpl {
                     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
         ensures
             wrpm_region.inv(),
+            log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
+            wrpm_region.constants() == old(wrpm_region).constants(),
+            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             match result {
                 Ok(offset) => {
                     &&& offset == self.info.head + self.info.log_plus_pending_length
@@ -311,6 +322,8 @@ impl UntrustedLogImpl {
                         self.info.tentatively_append(bytes_to_append.len() as u64),
                         self.state@.tentatively_append(bytes_to_append@)
                     )
+                    &&& metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, self.info)
+                    &&& metadata_types_set(wrpm_region@.committed(), log_start_addr as nat)
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& wrpm_region@ == old(wrpm_region)@
@@ -325,6 +338,7 @@ impl UntrustedLogImpl {
     {
         let info = &self.info;
         let log_area_start_addr = log_start_addr + log_area_pos();
+        let ghost old_wrpm_region = wrpm_region@;
 
         // writable fn should not allow changes to metadata
         assert(forall |i: int| log_start_addr <= i < log_start_addr + spec_log_area_pos() ==> !(#[trigger] is_writable_absolute_addr(i)));
@@ -406,7 +420,6 @@ impl UntrustedLogImpl {
             proof {
                 lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
             }
-            // subregion.write_relative(wrpm_region, write_addr, bytes_to_append, Tracked(perm));
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
         }
         else {
@@ -437,7 +450,6 @@ impl UntrustedLogImpl {
             if num_bytes <= max_len_without_wrapping {
 
                 // If there's room for all the bytes we need to write, we just need one write.
-
                 proof {
                     lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
                 }
@@ -460,6 +472,11 @@ impl UntrustedLogImpl {
                 wrpm_region.write(log_area_start_addr + write_addr, slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize), Tracked(perm));
                 wrpm_region.write(log_area_start_addr, slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()), Tracked(perm));
             }
+        }
+
+        proof {
+            // Proves that the log metadata is unchanged by the tentative append
+            lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), old_wrpm_region.committed());
         }
 
         Ok(old_pending_tail)
@@ -535,22 +552,13 @@ impl UntrustedLogImpl {
 
         let num_bytes: u64 = bytes_to_append.len() as u64;
         if num_bytes > available_space {
-            assume(false);
             return Err(LogErr::InsufficientSpaceForAppend{ available_space })
         }
         if num_bytes as u128 > u128::MAX - info.log_plus_pending_length as u128 - info.head {
-            assume(false);
             return Err(LogErr::InsufficientSpaceForAppend{
                 available_space: (u128::MAX - info.log_plus_pending_length as u128 - info.head) as u64
             })
         }
-
-        // // Create a `WriteRestrictedPersistentMemorySubregion` that only provides
-        // // access to the log area, and that places a simpler
-        // // restriction on writes: one can only use it to overwrite
-        // // log addresses not accessed by the recovery view. That
-        // // is, one can only use it to overwrite parts of the log
-        // // beyond the current tail.
 
         // Create a closure that indicates which bytes in the log region we are allowed to write to.
         // We'll use this in the same way that subregions do to prove that the append is crash consistent.
@@ -562,37 +570,6 @@ impl UntrustedLogImpl {
                     self.info.log_length as int,
                     addr - (log_start_addr + spec_log_area_pos()))
         };
-            
-        // TODO TUESDAY: I think you should move this proof to the tentatively append fns and use it to prove
-        // crash consistency THERE. since we aren't passing in a subregion, which would handle the proof,
-        // we need to put the proof in the right place ourselves.
-        // assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
-        //     &&& #[trigger] alt_region_view.can_crash_as(crash_state)
-        //     &&& wrpm_region@.len() == alt_region_view.len()
-        //     &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
-        //                                                 (log_start_addr + spec_log_area_pos()) as nat,
-        //                                                 info.log_area_len as nat,
-        //                                                 is_writable_absolute_addr_fn)
-        // } implies perm.check_permission(crash_state) by {
-        //     reveal(spec_padding_needed);
-        //     // lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-        //     //     wrpm_region@, alt_region_view, crash_state, log_id, self.cdb, self.info, self.state@,
-        //     //     is_writable_absolute_addr_fn
-        //     // );
-        //     // assert(wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
-        //     //     alt_region_view.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
-        //     // lemma_establish_subrange_equivalence(wrpm_region@.committed(), alt_region_view.committed());
-        //     // lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.committed(), alt_region_view.committed());
-        //     // lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
-        //     // lemma_metadata_set_after_crash(alt_region_view, self.cdb);
-        // }
-        // let subregion = WriteRestrictedPersistentMemorySubregion::new(
-        //     wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
-        //     Ghost(self.info.log_area_len as nat), Ghost(is_writable_absolute_addr_fn)
-        // );
-
-        // assert(no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat));
-        // assert(memory_matches_deserialized_cdb(wrpm_region@, log_start_addr as nat, self.cdb));
 
         // Call `tentatively_append_to_log` to do the real work of this function,
         // providing it the subregion created above so it doesn't have to think
@@ -610,20 +587,6 @@ impl UntrustedLogImpl {
         // We update our `state` field to reflect the tentative append.
 
         self.state = Ghost(self.state@.tentatively_append(bytes_to_append@));
-
-        proof {
-            // reveal(spec_padding_needed);
-            // subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
-            // lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
-            //                                         wrpm_region@.committed());
-            // assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
-            // ABSOLUTE_POS_OF_LOG_AREA as nat, self.info.log_area_len as nat, is_writable_absolute_addr_fn));
-            // assert(old_wrpm_region.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) ==
-            //     wrpm_region@.committed().subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int));
-            // lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.committed(), wrpm_region@.committed());
-            // lemma_metadata_matches_implies_metadata_types_set(old_wrpm_region, wrpm_region@, self.cdb);
-        }
-        assume(false);
 
         result
     }
