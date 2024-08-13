@@ -307,7 +307,7 @@ verus! {
                 ops.len() > 0,
                 overall_metadata.region_size == mem.len(),
                 AbstractPhysicalOpLogEntry::log_inv(ops, overall_metadata),
-                overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
+                overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 ({
                     let last_op = ops[ops.len() - 1];
                     let prefix_ops = ops.subrange(0, ops.len() - 1);
