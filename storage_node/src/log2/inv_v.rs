@@ -65,10 +65,9 @@ pub open spec fn active_metadata_bytes_are_equal(
     // this follows from the CDB check but it helps some proofs to state it explicitly
     &&& extract_bytes(bytes1, log_start_addr, u64::spec_size_of()) == extract_bytes(bytes2, log_start_addr, u64::spec_size_of())
     &&& {
-        let metadata_pos1 = spec_get_active_log_metadata_pos(cdb1) + log_start_addr;
-        let metadata_pos2 = spec_get_active_log_metadata_pos(cdb2) + log_start_addr;
-        extract_bytes(bytes1, metadata_pos1, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-            extract_bytes(bytes2, metadata_pos2, LogMetadata::spec_size_of() + u64::spec_size_of())
+        let metadata_pos = spec_get_active_log_metadata_pos(cdb1) + log_start_addr;
+        extract_bytes(bytes1, metadata_pos, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+            extract_bytes(bytes2, metadata_pos, LogMetadata::spec_size_of() + u64::spec_size_of())
     }
 }
 
@@ -846,6 +845,68 @@ pub proof fn lemma_metadata_types_set_after_cdb_update(
     lemma_auto_smaller_range_of_seq_is_subrange(new_mem);
     lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
     assert(extract_bytes(new_mem, log_start_addr, u64::spec_size_of()) == new_cdb_bytes);
+}
+
+// This lemma establishes that, if one flushes persistent memory,
+// this will maintain various invariants.
+//
+// `pm_region_view` -- the persistent memory region view
+// `log_id` -- the ID of the log
+// `cdb` -- the current value of the corruption-detecting boolean
+// `info` -- the log information
+// `state` -- the abstract log state
+pub proof fn lemma_flushing_metadata_maintains_invariants(
+    pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
+    cdb: bool,
+    info: LogInfo,
+    state: AbstractLogState,
+)
+    requires
+        memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_types_set(pm_region_view.committed(), log_start_addr),
+        log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < pm_region_view.len()
+    ensures
+        ({
+            let pm_region_view2 = pm_region_view.flush();
+            &&& memory_matches_deserialized_cdb(pm_region_view2, log_start_addr, cdb)
+            &&& metadata_consistent_with_info(pm_region_view2, log_start_addr, log_size, cdb, info)
+            &&& info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, info, state)
+            &&& metadata_types_set(pm_region_view2.committed(), log_start_addr)
+        })
+{
+    let pm_region_view2 = pm_region_view.flush();
+
+    assert(memory_matches_deserialized_cdb(pm_region_view2, log_start_addr, cdb)) by {
+        assert(extract_bytes(pm_region_view2.committed(), log_start_addr, u64::spec_size_of()) == 
+            extract_bytes(pm_region_view.committed(), log_start_addr, u64::spec_size_of()));
+    }
+
+    // To show that all the metadata still matches even after the
+    // flush, observe that everywhere the bytes match, any call to
+    // `extract_bytes` will also match.
+
+    assert(metadata_consistent_with_info(pm_region_view2, log_start_addr, log_size, cdb, info)) by {
+        lemma_establish_extract_bytes_equivalence(pm_region_view.committed(), pm_region_view2.committed());
+    }
+
+    // Prove that the bytes in the active metadata are unchanged after the flush, so 
+    // the metadata types are still set.
+    
+    assert(active_metadata_is_equal(pm_region_view, pm_region_view2, log_start_addr)) by {
+        broadcast use pmcopy_axioms;
+        let mem1 = pm_region_view.committed();
+        let mem2 = pm_region_view2.committed();
+        let log_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
+
+        assert(extract_bytes(mem1, log_start_addr, u64::spec_size_of()) =~= extract_bytes(mem2, log_start_addr, u64::spec_size_of()));
+        assert(extract_bytes(mem1, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) =~= 
+            extract_bytes(mem2, log_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
+    }
+    lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, log_start_addr, cdb);
 }
 
 }
