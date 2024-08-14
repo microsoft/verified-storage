@@ -43,13 +43,13 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_create` *
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
-        - [ ] `get_key_and_metadata_entry_at_index` *
+        - [ ] `get_key_and_metadata_entry_at_index` * jaylorch
         - [ ] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
         - [x] `start` * - hayley-leblanc
         - [ ] `tentatively_write_item` *
-        - [ ] `read_item` *
+        - [ ] `read_item` * jaylorch
         - [ ] Deallocate item table slot
     - Lists
         - [x] Prove that lists are empty at setup
