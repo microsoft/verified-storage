@@ -51,6 +51,10 @@ verus! {
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self.state@) ==
                 parse_metadata_table::<K>(mem, overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& forall |i| #![trigger self.state@.durable_metadata_table[i]] {
+                  let entries = self.state@.durable_metadata_table;
+                  0 <= i < entries.len() ==> !(entries[i] is Tentative)
+            }
         }
 
         pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
@@ -266,7 +270,7 @@ verus! {
                 lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
             }
 
-            // Prove that entries with CBD of false are None in the recovery view of the table. We already know that all of the entries
+            // Prove that entries with CDB of false are None in the recovery view of the table. We already know that all of the entries
             // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
             // since all entries in both are None
             let ghost metadata_table = recovered_view.unwrap().get_durable_metadata_table();
