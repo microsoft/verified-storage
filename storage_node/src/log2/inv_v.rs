@@ -404,6 +404,8 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
     assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
 }
 
+// This lemma proves that if the only bytes that differ between v1 and v2 are in inactive metadata 
+// and the unreachable log area, then any crash state of v2 recovers to the same state as v1.
 pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log_area_then_recovery_state_matches(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
@@ -416,129 +418,42 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
     is_writable_absolute_addr: spec_fn(int) -> bool,
 )
     requires 
-    no_outstanding_writes_to_metadata(v1, log_start_addr),
-    memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
-    metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
-    info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
-    log_size == info.log_area_len + spec_log_area_pos(),
-    log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
-    v2.can_crash_as(crash_state),
-    v1.len() == v2.len(),
-    ({
-        let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
-        let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
-        &&& forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
-                // either the address is in the unreachable log area
-                ||| {
-                    &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-                    &&& log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                            info.log_area_len as int,
-                            info.log_length as int,
-                            addr - (log_start_addr + spec_log_area_pos()))
+        no_outstanding_writes_to_metadata(v1, log_start_addr),
+        memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
+        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
+        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
+        log_size == info.log_area_len + spec_log_area_pos(),
+        log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
+        v2.can_crash_as(crash_state),
+        v1.len() == v2.len(),
+        ({
+            let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+            let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
+            &&& forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
+                    // either the address is in the unreachable log area
+                    ||| {
+                        &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
+                        &&& log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                                info.log_area_len as int,
+                                info.log_length as int,
+                                addr - (log_start_addr + spec_log_area_pos()))
+                    }
+                    // or it's in the inactive metadata
+                    ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
                 }
-                // or it's in the inactive metadata
-                ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
-            }
-        &&& active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
-        &&& inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
-    }),
-    views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr),
+            &&& active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
+            &&& inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
+        }),
+        views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr),
     ensures 
         v1.can_crash_as(v1.committed()),
         recover_state(crash_state, log_start_addr, log_size) == recover_state(v1.committed(), log_start_addr, log_size),
 {
     broadcast use pmcopy_axioms;
     lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
-    // let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
-    // We need to prove two things:
-    // 1. if only inactive metadata bytes differ, then the metadata is the same
-    // 2. if the metadata is the same and only unreachable log area bytes differ, then the recovery view is the same
-
-    // // log CDB addrs are not writable
-    // assert(forall |addr: int| log_start_addr <= addr < log_start_addr + u64::spec_size_of() ==> !(#[trigger] is_writable_absolute_addr(addr)));
-    // assert(forall |addr: int| log_start_addr <= addr < log_start_addr + u64::spec_size_of() ==> v1.state[addr] == #[trigger] v2.state[addr]);
-    // assert(forall |addr: int| 0 <= addr < v1.len() && !is_writable_absolute_addr(addr) ==> v1.state[addr] == #[trigger] v2.state[addr]);
-    // assert(forall |addr: int| 0 <= addr < v1.len() && !is_writable_absolute_addr(addr) ==> v1.committed()[addr] == #[trigger] v2.committed()[addr]);
-    // assert(forall |addr: int| log_start_addr <= addr < log_start_addr + u64::spec_size_of() ==> 0 <= addr < v1.len() && !(#[trigger] is_writable_absolute_addr(addr)));
-    // assert(forall |addr: int| log_start_addr <= addr < log_start_addr + u64::spec_size_of() ==> v1.committed()[addr] == #[trigger] v2.committed()[addr]);
-    // // assert(extract_bytes(v1.committed(), log_start_addr as nat, log_start_addr + u64::spec_size_of()) == 
-    // //     extract_bytes(v2.committed(), log_start_addr as nat, log_start_addr + u64::spec_size_of()));
-
-    // let cdb1_bytes = extract_bytes(v1.committed(), log_start_addr, u64::spec_size_of());
-    // let cdb2_bytes = extract_bytes(v2.committed(), log_start_addr, u64::spec_size_of());
-    // assert(cdb1_bytes == cdb2_bytes);
-
-    // let cdb1_val = spec_get_log_cdb(v1.committed(), log_start_addr);
-    // let cdb2_val = spec_get_log_cdb(v2.committed(), log_start_addr);
-    // assert(cdb1_val == cdb2_val);
-
-    // let cdb1 = spec_check_log_cdb(v1.committed(), log_start_addr);
-    // let cdb2 = spec_check_log_cdb(v2.committed(), log_start_addr);
-    
-    // assert(cdb1 is Some);
-    // assert(cdb2 is Some);
-    // let v1_bytes = v1.committed();
-    // let v2_bytes = v2.committed();
-    // let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
-    
-    // // active and inactive metadata do not overlap
-    // assert({
-    //     ||| active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= inactive_metadata_pos
-    //     ||| inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= active_metadata_pos
-    // });
-    // assert({
-    //     &&& active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
-    //     &&& inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos()
-    // });
-
-    // assert(forall |addr: int| active_metadata_pos <= addr < active_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() ==> 
-    //     !(#[trigger] is_writable_absolute_addr(addr)));
-    
-    // Prove that v1 and v2 have the same active metadata
-    // assert(active_metadata_is_equal(v1, v2, log_start_addr));
-
-    // assume(false);
-
-    // // create a new writable closure that only allows writing to addresses in the unreachable log area.
-    // // everything allowed by this closure is also allowed by the original closure
-    // let is_writable_absolute_addr_log_area = |addr: int| {
-    //     &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-    //     &&& log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-    //             info.log_area_len as int,
-    //             info.log_length as int,
-    //             addr - (log_start_addr + spec_log_area_pos()))
-    // };
-    // assert(forall |addr: int| #[trigger] is_writable_absolute_addr_log_area(addr) ==>  is_writable_absolute_addr(addr));
-
     assert(views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr));
-
-    // this doesn't hold because it refers to the entire region
-    // assert(views_differ_only_where_subregion_allows(v1, v2, log_start_addr + spec_log_area_pos(),
-    //     info.log_area_len as nat, is_writable_absolute_addr_log_area));
-
-    // assert(forall |addr: int| {
-    //     ||| log_start_addr <= addr < log_start_addr + spec_log_area_pos()
-    //     ||| log_start_addr + log_size <= addr < v1.len()
-    // } ==> v1.state[addr] == #[trigger] v2.state[addr]);
-
-    // // // this lemma is not EXACTLY what we want bc we can't meet the precond, but I think we can do a similar proof
-    // lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-    //     v1, v2, crash_state, log_start_addr, log_size, cdb, info, state, is_writable_absolute_addr_log_area);
-
-    // assert(forall |addr: int| #[trigger] is_writable_absolute_addr_log_area(addr) <==> {
-    //     &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-    //     &&& log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-    //             info.log_area_len as int,
-    //             info.log_length as int,
-    //             addr - (log_start_addr + spec_log_area_pos()))
-    // });
-
     lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
     lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
-
-
-    // assume(false);
-
     assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
 }
 
