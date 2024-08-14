@@ -677,7 +677,6 @@ verus! {
                 let physical_log_entries = recovered_log.physical_op_list;
                 // we've replayed the physical log entries
                 assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
-            
                 // each recovered component parses correctly
                 assert(parse_metadata_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap() == main_table@);
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
@@ -686,10 +685,7 @@ verus! {
                 assert(durable_kv_store@ is Some);
                 assert(durable_kv_store@.unwrap() == Self::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
                 assert(durable_kv_store@.unwrap() == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
-                // assert(durable_kv_store@.unwrap().contents =~= state.contents);
             }
-
-            
 
             Ok(durable_kv_store)
         }
