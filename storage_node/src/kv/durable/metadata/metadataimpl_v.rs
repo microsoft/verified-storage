@@ -52,6 +52,7 @@ verus! {
             &&& Some(self.state@) ==
                 parse_metadata_table::<K>(mem, overall_metadata.num_keys, overall_metadata.metadata_node_size)
             &&& self.state@.inv()
+            &&& self.allocator_view() == self@.free_indices()
         }
 
         pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
@@ -332,11 +333,9 @@ verus! {
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2 as int);
 
-                        &&& main_table.inv(subregion.view(pm_region).flush().committed(), overall_metadata)
+                        &&& main_table.inv(subregion.view(pm_region).committed(), overall_metadata)
                         // main table states match
                         &&& table == main_table@
-                        // main table allocator matches its state 
-                        &&& main_table.allocator_view() == main_table@.free_indices()
                         // the entry list corresponds to the table
                         &&& entry_list_view.to_set() == key_entry_list_view
                         // all indices in the entry list are valid
@@ -698,7 +697,6 @@ verus! {
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
             }
 
-            assert(mem =~= subregion.view(pm_region).flush().committed());
             Ok((main_table, key_index_pairs))
         }
 
