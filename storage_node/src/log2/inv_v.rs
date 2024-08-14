@@ -73,15 +73,34 @@ pub open spec fn active_metadata_bytes_are_equal(
 }
 
 pub open spec fn metadata_types_set(mem: Seq<u8>, log_start_addr: nat) -> bool 
+    recommends
+        spec_check_log_cdb(mem, log_start_addr) is Some,
+        mem.len() >= log_start_addr + spec_log_area_pos()
 {
-    let cdb = u64::spec_from_bytes(extract_bytes(mem, log_start_addr, u64::spec_size_of()));
-    let metadata_pos = if cdb == CDB_TRUE { log_start_addr + spec_log_header_pos_cdb_true() }
-                        else { log_start_addr + spec_log_header_pos_cdb_false() };
+    let cdb = spec_check_log_cdb(mem, log_start_addr).unwrap();
+    let metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
     let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()));
     let crc_pos =  metadata_pos + LogMetadata::spec_size_of();
     let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()));
     &&& u64::bytes_parseable(extract_bytes(mem, log_start_addr, u64::spec_size_of()))
-    &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+    // &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+    &&& LogMetadata::bytes_parseable(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()))
+    &&& u64::bytes_parseable(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()))
+    &&& crc == spec_crc_u64(metadata.spec_to_bytes())
+}
+
+pub open spec fn inactive_metadata_types_set(mem: Seq<u8>, log_start_addr: nat) -> bool 
+    recommends
+        spec_check_log_cdb(mem, log_start_addr) is Some,
+        mem.len() >= log_start_addr + spec_log_area_pos()
+{
+    let cdb = spec_check_log_cdb(mem, log_start_addr).unwrap();
+    let metadata_pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+    let metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()));
+    let crc_pos =  metadata_pos + LogMetadata::spec_size_of();
+    let crc = u64::spec_from_bytes(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()));
+    &&& u64::bytes_parseable(extract_bytes(mem, log_start_addr, u64::spec_size_of()))
+    // &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
     &&& LogMetadata::bytes_parseable(extract_bytes(mem, metadata_pos as nat, LogMetadata::spec_size_of()))
     &&& u64::bytes_parseable(extract_bytes(mem, crc_pos as nat, u64::spec_size_of()))
     &&& crc == spec_crc_u64(metadata.spec_to_bytes())
@@ -595,6 +614,243 @@ pub proof fn lemma_metadata_set_after_crash(
     } implies metadata_types_set(s, log_start_addr) by {
         lemma_establish_extract_bytes_equivalence(s, pm_region_view.committed());
     }
+}
+
+// This exported lemma proves that, if various invariants hold for
+// the given persistent memory region view `pm_region_view` and
+// abstract log state `state`, then for any contents `mem`
+// the view can recover into, recovery on `mem` will produce
+// `state.drop_pending_appends()`.
+//
+// `pm_region_view` -- the persistent memory region view
+// `log_id` -- the ID of the log
+// `cdb` -- the current value of the corruption-detecting boolean
+// `info` -- the log information
+// `state` -- the abstract log state
+pub proof fn lemma_invariants_imply_crash_recover_forall(
+    pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
+    cdb: bool,
+    info: LogInfo,
+    state: AbstractLogState,
+)
+    requires
+        memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_types_set(pm_region_view.committed(), log_start_addr),
+    ensures
+        forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
+            &&& recover_cdb(mem, log_start_addr) == Some(cdb)
+            &&& recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends())
+            &&& metadata_types_set(mem, log_start_addr)
+        }
+{
+    assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
+                &&& recover_cdb(mem, log_start_addr) == Some(cdb)
+                &&& recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends())
+                &&& metadata_types_set(mem, log_start_addr)
+            } by
+    {
+        lemma_invariants_imply_crash_recover(pm_region_view, mem, log_start_addr, log_size, cdb, info, state);
+    }
+}
+
+// This lemma proves that, if various invariants hold for the
+// given persistent-memory region view `pm_region_view` and
+// abstract log state `state`, and if that view can crash as
+// contents `mem`, then recovery on `mem` will produce
+// `state.drop_pending_appends()`.
+//
+// `pm_region_view` -- the persistent memory region view
+// `mem` -- a possible memory contents that `pm_region_view` can crash as
+// `log_id` -- the ID of the log
+// `cdb` -- the current value of the corruption-detecting boolean
+// `info` -- the log information
+// `state` -- the abstract multilog state
+proof fn lemma_invariants_imply_crash_recover(
+    pm_region_view: PersistentMemoryRegionView,
+    mem: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat,
+    cdb: bool,
+    info: LogInfo,
+    state: AbstractLogState,
+)
+    requires
+        pm_region_view.can_crash_as(mem),
+        memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_types_set(pm_region_view.committed(), log_start_addr),
+    ensures
+        recover_cdb(mem, log_start_addr) == Some(cdb),
+        recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends()),
+        metadata_types_set(mem, log_start_addr),
+{
+    reveal(spec_padding_needed);
+
+    // For the CDB, we observe that:
+    //
+    // (1) there are no outstanding writes, so the crashed-into
+    // state `mem` must match the committed state
+    // `pm_region_view.committed()`, and
+    //
+    // (2) wherever the crashed-into state matches the committed
+    // state on a per-byte basis, any `extract_bytes` results will
+    // also match.
+    //
+    // Therefore, since the metadata in `pm_region_view.committed()`
+    // matches `cdb` (per the invariants), the metadata in
+    // `mem` must also match `cdb`.
+
+    assert (recover_cdb(mem, log_start_addr) == Some(cdb)) by {
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+        lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+    }
+
+    // Use `lemma_invariants_imply_crash_recover_for_one_log` on
+    // each region to establish that recovery works on all the
+    // regions.
+
+    assert(recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())) by {
+        lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, mem, log_start_addr, log_size, cdb, info, state);
+    }
+
+    // Get Z3 to see the equivalence of the recovery
+    // result and the desired abstract state by asking it (with
+    // `=~=`) to prove that they're piecewise equivalent.
+
+    assert(recover_state(mem, log_start_addr, log_size) =~= Some(state.drop_pending_appends()));
+
+    // Finally, invoke the lemma that proves that metadata types 
+    // are still set in crash states
+
+    lemma_metadata_set_after_crash(pm_region_view, log_start_addr, cdb);
+}
+
+// This lemma proves that, if various invariants hold for the
+// given persistent-memory view `pm_region_view` and abstract log state
+// `state`, and if that view can crash as contents `mem`, then
+// recovery on `mem` will produce `state.drop_pending_appends()`.
+//
+// `pm_region_view` -- the view of this persistent-memory region
+// `mem` -- a possible memory contents that `pm_region_view` can crash as
+// `log_id` -- the ID of the log
+// `cdb` -- the current value of the corruption-detecting boolean
+// `info` -- the log information
+// `state` -- the abstract log state
+proof fn lemma_invariants_imply_crash_recover_for_one_log(
+    pm_region_view: PersistentMemoryRegionView,
+    mem: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat,
+    cdb: bool,
+    info: LogInfo,
+    state: AbstractLogState,
+)
+    requires
+        pm_region_view.can_crash_as(mem),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+    ensures
+        recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())
+{
+    reveal(spec_padding_needed);
+
+    // For the metadata, we observe that:
+    //
+    // (1) there are no outstanding writes, so the crashed-into
+    //     state `mem` must match the committed state
+    //     `pm_region_view.committed()`, and
+    // (2) wherever the crashed-into state matches the committed
+    //     state on a per-byte basis, any `extract_bytes` results
+    //     will also match.
+    //
+    // Therefore, since the metadata in
+    // `pm_region_view.committed()` matches `state` (per the
+    // invariants), the metadata in `mem` must also match `state`.
+
+    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+    lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
+
+    // The tricky part is showing that the result of `extract_log` will produce the desired result.
+    // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
+
+    let log_view = get_subregion_view(pm_region_view, log_start_addr, info.log_area_len as nat);
+    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
+    assert(recover_log_from_log_area_given_metadata(log_view.committed(), info.head as int, info.log_length as int)
+            =~= Some(state.drop_pending_appends()));
+    assert(recover_log(mem, log_start_addr, log_size, info.head as int, info.log_length as int)
+            =~= Some(state.drop_pending_appends()));
+}
+
+// This lemma proves that, if all regions are consistent wrt a new CDB, and then we
+// write and flush that CDB, the regions stay consistent with info.
+pub proof fn lemma_metadata_consistent_with_info_after_cdb_update(
+    old_pm_region_view: PersistentMemoryRegionView,
+    new_pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
+    new_cdb_bytes: Seq<u8>,
+    new_cdb: bool,
+    info: LogInfo,
+)
+    requires
+        new_cdb == false ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
+        new_cdb == true ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
+        new_cdb_bytes.len() == u64::spec_size_of(),
+        old_pm_region_view.no_outstanding_writes(),
+        new_pm_region_view.no_outstanding_writes(),
+        old_pm_region_view.len() > log_start_addr + log_size,
+        log_size > u64::spec_size_of(),
+        log_start_addr + spec_get_active_log_crc_end(new_cdb) <= old_pm_region_view.len(),
+        new_pm_region_view =~= old_pm_region_view.write(log_start_addr as int, new_cdb_bytes).flush(),
+        metadata_consistent_with_info(old_pm_region_view, log_start_addr, log_size, new_cdb, info),
+    ensures
+        metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info),
+{
+    broadcast use pmcopy_axioms;
+    let old_mem = old_pm_region_view.committed();
+    let new_mem = new_pm_region_view.committed();
+    lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+    assert(extract_bytes(new_mem, log_start_addr, u64::spec_size_of()) == new_cdb_bytes);
+    assert(metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info));
+}
+
+pub proof fn lemma_metadata_types_set_after_cdb_update(
+    old_pm_region_view: PersistentMemoryRegionView,
+    new_pm_region_view: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat,
+    new_cdb_bytes: Seq<u8>,
+    old_cdb: bool,
+)
+    requires 
+        old_pm_region_view.no_outstanding_writes(),
+        new_pm_region_view.no_outstanding_writes(),
+        log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= old_pm_region_view.len(),
+        old_pm_region_view.len() == new_pm_region_view.len(),
+        log_size > spec_log_header_area_size(),
+        new_cdb_bytes.len() == u64::spec_size_of(),
+        new_cdb_bytes == CDB_FALSE.spec_to_bytes() || new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
+        old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
+        !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
+        new_pm_region_view =~= old_pm_region_view.write(log_start_addr as int, new_cdb_bytes).flush(),
+        metadata_types_set(old_pm_region_view.committed(), log_start_addr),
+        inactive_metadata_types_set(old_pm_region_view.committed(), log_start_addr),
+    ensures 
+        metadata_types_set(new_pm_region_view.committed(), log_start_addr)
+{
+    broadcast use pmcopy_axioms;
+
+    let old_mem = old_pm_region_view.committed();
+    let new_mem = new_pm_region_view.committed();
+    lemma_auto_smaller_range_of_seq_is_subrange(old_mem);
+    lemma_auto_smaller_range_of_seq_is_subrange(new_mem);
+    lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
+    assert(extract_bytes(new_mem, log_start_addr, u64::spec_size_of()) == new_cdb_bytes);
 }
 
 }
