@@ -160,7 +160,10 @@ pub open spec fn metadata_consistent_with_info(
     &&& log_metadata.log_length == info.log_length
 
     // The memory region is large enough to hold the entirety of the log area
-    &&& mem.len() >= spec_log_area_pos() + info.log_area_len
+    &&& log_size == spec_log_area_pos() + info.log_area_len
+    &&& mem.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len
+    &&& log_start_addr + spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() <
+            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < spec_log_area_pos() <= log_size
 }
 
 // This invariant says that the log area of the given
@@ -689,7 +692,7 @@ proof fn lemma_invariants_imply_crash_recover(
         recover_state(mem, log_start_addr, log_size) == Some(state.drop_pending_appends()),
         metadata_types_set(mem, log_start_addr),
 {
-    reveal(spec_padding_needed);
+    // reveal(spec_padding_needed);
 
     // For the CDB, we observe that:
     //
@@ -751,39 +754,31 @@ proof fn lemma_invariants_imply_crash_recover_for_one_log(
     state: AbstractLogState,
 )
     requires
+        log_start_addr < log_start_addr + log_size <= pm_region_view.len(),
         pm_region_view.can_crash_as(mem),
         metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
         info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
     ensures
         recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())
 {
-    reveal(spec_padding_needed);
-
-    // For the metadata, we observe that:
-    //
-    // (1) there are no outstanding writes, so the crashed-into
-    //     state `mem` must match the committed state
-    //     `pm_region_view.committed()`, and
-    // (2) wherever the crashed-into state matches the committed
-    //     state on a per-byte basis, any `extract_bytes` results
-    //     will also match.
-    //
-    // Therefore, since the metadata in
-    // `pm_region_view.committed()` matches `state` (per the
-    // invariants), the metadata in `mem` must also match `state`.
+    broadcast use pmcopy_axioms;
 
     lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
     lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
 
-    // The tricky part is showing that the result of `extract_log` will produce the desired result.
-    // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
+    let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
+    let active_crc_pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
 
-    let log_view = get_subregion_view(pm_region_view, log_start_addr, info.log_area_len as nat);
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_view);
-    assert(recover_log_from_log_area_given_metadata(log_view.committed(), info.head as int, info.log_length as int)
-            =~= Some(state.drop_pending_appends()));
-    assert(recover_log(mem, log_start_addr, log_size, info.head as int, info.log_length as int)
-            =~= Some(state.drop_pending_appends()));
+    // Since there are no outstanding writes to the active metadata, all crash states recover to the same state
+    assert(pm_region_view.no_outstanding_writes_in_range(active_metadata_pos as int, LogMetadata::spec_size_of() as int));
+    assert(pm_region_view.no_outstanding_writes_in_range(active_crc_pos as int, u64::spec_size_of() as int));
+
+    assert(extract_bytes(pm_region_view.committed(), active_metadata_pos as nat, LogMetadata::spec_size_of()) ==
+        extract_bytes(mem, active_metadata_pos as nat, LogMetadata::spec_size_of()));
+    assert(extract_bytes(pm_region_view.committed(), active_crc_pos as nat, u64::spec_size_of()) ==
+        extract_bytes(mem, active_crc_pos as nat, u64::spec_size_of()));
+
+    assert(recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends()));
 }
 
 // This lemma proves that, if all regions are consistent wrt a new CDB, and then we
