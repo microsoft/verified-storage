@@ -72,6 +72,14 @@ verus! {
             }
         }
 
+        pub open spec fn inv(self) -> bool
+        {
+            &&& forall |i| #![trigger self.durable_metadata_table[i]] {
+                  let entries = self.durable_metadata_table;
+                  0 <= i < entries.len() ==> !(entries[i] is Tentative)
+            }
+        }
+
         pub open spec fn new(
             metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
         ) -> Self {

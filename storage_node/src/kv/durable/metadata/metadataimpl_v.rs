@@ -51,10 +51,7 @@ verus! {
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self.state@) ==
                 parse_metadata_table::<K>(mem, overall_metadata.num_keys, overall_metadata.metadata_node_size)
-            &&& forall |i| #![trigger self.state@.durable_metadata_table[i]] {
-                  let entries = self.state@.durable_metadata_table;
-                  0 <= i < entries.len() ==> !(entries[i] is Tentative)
-            }
+            &&& self.state@.inv()
         }
 
         pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
