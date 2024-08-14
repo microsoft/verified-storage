@@ -926,13 +926,14 @@ impl UntrustedLogImpl {
                         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self).state@.drop_pending_appends())
                     } ==> #[trigger] perm.check_permission(s),
             metadata_types_set(old(wrpm_region)@.committed(), log_start_addr as nat),
+            old(wrpm_region)@.len() <= u64::MAX,
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
             self.state == old(self).state,
     {
         broadcast use pmcopy_axioms;
-        reveal(spec_padding_needed);
+        // reveal(spec_padding_needed);
 
         // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
         // since we're writing in the inactive part of the metadata.
@@ -941,69 +942,32 @@ impl UntrustedLogImpl {
         let unused_metadata_pos = get_inactive_log_metadata_pos(self.cdb);
         assert(unused_metadata_pos == spec_get_active_log_metadata_pos(!self.cdb));
 
-        // Update the inactive log metadata by creating a
-        // subregion and invoking `update_inactive_log_metadata`.
-        // The main interesting part of creating the subregion is
-        // establishing a condition `condition` such that (1)
-        // `condition(crash_state) ==>
-        // perm.check_permission(crash_state)` and (2) `condition`
-        // is preserved by updating writable addresses within the
-        // subregion.
-
-        // let ghost is_writable_absolute_addr_fn = |addr: int| true;
-        // let ghost condition = |mem: Seq<u8>| {
-        //     &&& mem.len() >= log_start_addr + spec_log_area_pos()
-        //     &&& recover_cdb(mem) == Some(self.cdb, log_start_addr as nat)
-        //     &&& recover_state(mem, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-        //     &&& metadata_types_set(mem, log_start_addr as nat)
-        // };
-        // assert forall |s1: Seq<u8>, s2: Seq<u8>| {
-        //     &&& condition(s1)
-        //     &&& s1.len() == s2.len() == wrpm_region@.len()
-        //     &&& #[trigger] memories_differ_only_where_subregion_allows(s1, s2, unused_metadata_pos as nat,
-        //         LogMetadata::spec_size_of() + u64::spec_size_of(), is_writable_absolute_addr_fn)
-        // } implies condition(s2) by {
-        //     lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
-        //         s1, s2, log_start_addr as nat, log_size as nat, self.cdb
-        //     );
-        // }
-        // assert forall |crash_state: Seq<u8>| wrpm_region@.can_crash_as(crash_state) implies condition(crash_state) by {
-        //     lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info, prev_state);
-        // }
-        // // let subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition(
-        // //     wrpm_region, Tracked(perm), unused_metadata_pos,
-        // //     Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()), Ghost(is_writable_absolute_addr_fn),
-        // //     Ghost(condition),
-        // // );
-        let ghost inactive_metadata_pos = spec_get_inactive_log_metadata_pos(self.cdb);
+        let ghost inactive_metadata_pos = spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
         let ghost is_writable_absolute_addr = |addr: int| {
             // either the address is in the unreachable log area
             ||| {
                 &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-                &&& log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
-                        self.info.log_area_len as int,
-                        self.info.log_length as int,
+                &&& log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
+                        prev_info.log_area_len as int,
+                        prev_info.log_length as int,
                         addr - (log_start_addr + spec_log_area_pos()))
             }
             // or it's in the inactive metadata
             ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
         };
 
-        // |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
-        //     // either the address is in the unreachable log area
-        //     ||| {
-        //         &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-        //         &&& log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
-        //                 self.info.log_area_len as int,
-        //                 self.info.log_length as int,
-        //                 addr - (log_start_addr + spec_log_area_pos()))
-        //     }
-        //     // or it's in the inactive metadata
-        //     ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
-        // }
+        assume(forall |s| #[trigger] perm.check_permission(s) <==>
+            Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+
+        // assert(wrpm_region@.can_crash_as(wrpm_region@.committed()));
+        assert(Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+
+        assert(spec_log_header_area_size() < spec_log_area_pos()) by (compute);
 
         self.update_inactive_log_metadata(wrpm_region, log_start_addr, log_size, 
             Ghost(prev_info), Ghost(prev_state), Ghost(is_writable_absolute_addr), Tracked(perm));
+
+        assume(false);
 
         // We've updated the inactive log metadata now, so it's a good time to
         // mention some relevant facts about the consequent state.
@@ -1184,18 +1148,20 @@ impl UntrustedLogImpl {
         Ghost(is_writable_absolute_addr): Ghost<spec_fn(int) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     )
-        where
+        where 
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
-        requires
+        requires 
             old(wrpm_region).inv(),
+            info_consistent_with_log_area(old(wrpm_region)@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
+            no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
+            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, prev_info),
             memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, self.cdb),
-            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, self.info),
-            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info, self.state@),
-            log_size == self.info.log_area_len + spec_log_area_pos(),
-            log_start_addr + spec_log_area_pos() + self.info.log_area_len <= old(wrpm_region)@.len(),
             metadata_types_set(old(wrpm_region)@.committed(), log_start_addr as nat),
-            spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr < spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr + LogMetadata::spec_size_of() <= old(wrpm_region)@.len() <= u64::MAX,
+            log_size == prev_info.log_area_len + spec_log_area_pos(),
+            log_start_addr + spec_log_area_pos() + prev_info.log_area_len <= old(wrpm_region)@.len(),
+            log_start_addr + spec_get_inactive_log_metadata_pos(self.cdb) < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len() <= u64::MAX,
             ({
                 let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
                 // the writable closure should allow both inactive metadata and unreachable log bytes to be updated.
@@ -1205,22 +1171,19 @@ impl UntrustedLogImpl {
                         // either the address is in the unreachable log area
                         ||| {
                             &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-                            &&& log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
-                                    self.info.log_area_len as int,
-                                    self.info.log_length as int,
+                            &&& log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
+                                    prev_info.log_area_len as int,
+                                    prev_info.log_length as int,
                                     addr - (log_start_addr + spec_log_area_pos()))
                         }
                         // or it's in the inactive metadata
                         ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
                     }
-
-                &&& 0 <= inactive_metadata_pos < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len()
             }),
-            forall |s| #[trigger] perm.check_permission(s) <==>
-                    Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
-            no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len(),
-            forall |s| old(wrpm_region)@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
+            Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
         ensures
             wrpm_region.inv(),
             ({
@@ -1246,10 +1209,7 @@ impl UntrustedLogImpl {
     {
         broadcast use pmcopy_axioms;
 
-        let ghost old_wrpm = wrpm_region@;
-
         // Encode the log metadata as bytes, and compute the CRC of those bytes
-
         let info = &self.info;
         let log_metadata = LogMetadata {
             head: info.head,
@@ -1263,11 +1223,18 @@ impl UntrustedLogImpl {
         let inactive_metadata_pos = get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
 
         proof {
-            assert(wrpm_region@.no_outstanding_writes_in_range(inactive_metadata_pos as int, inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()))
-            by {
-                assert(wrpm_region@.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + spec_log_area_pos()) as int));
-                assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() < log_start_addr + spec_log_area_pos());
+            // To prove that there are no outstanding updates to inactive metadata, we have to prove that it doesn't run into the log area.
+            // We have to do this by compute; since there are two possible inactive metadata positions, we have to do case analysis
+            assert(spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_false() || spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_true());
+            if spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_false() {
+                assert(spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+            } else {
+                assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
             }
+            assert(spec_get_inactive_log_metadata_pos(self.cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos());
+            assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos());
+
+            assert(wrpm_region@.no_outstanding_writes_in_range(inactive_metadata_pos as int, inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
         } 
 
         // Prove that all crash states are legal by invoking the lemma that proves that if we only
@@ -1281,12 +1248,12 @@ impl UntrustedLogImpl {
         } implies perm.check_permission(crash_state) by {
             lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log_area_then_recovery_state_matches(
                 wrpm_region@, alt_region_view, crash_state, log_start_addr as nat, log_size as nat, self.cdb, 
-                self.info, self.state@, is_writable_absolute_addr
+                prev_info, prev_state, is_writable_absolute_addr
             );
             lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
             lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, log_start_addr as nat, self.cdb);
             lemma_metadata_set_after_crash(alt_region_view, log_start_addr as nat, self.cdb);
-            assert(Self::recover(crash_state, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
+            assert(Self::recover(crash_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
         }
 
         // Write the new metadata and CRC
@@ -1295,14 +1262,13 @@ impl UntrustedLogImpl {
 
         // Prove that after the flush, the log metadata will be reflected in the subregion's
         // state.
-
         proof {
             let state_after_flush = wrpm_region@.flush().committed();
             assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat, LogMetadata::spec_size_of()) =~= log_metadata.spec_to_bytes());
             assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()) =~= log_crc.spec_to_bytes());
         }
-    }
 
+    }
 
     // // The `commit` method commits all tentative appends that have been
     // // performed since the last one. See `README.md` for more
