@@ -956,12 +956,7 @@ impl UntrustedLogImpl {
             ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
         };
 
-        assume(forall |s| #[trigger] perm.check_permission(s) <==>
-            Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-
-        // assert(wrpm_region@.can_crash_as(wrpm_region@.committed()));
         assert(Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-
         assert(spec_log_header_area_size() < spec_log_area_pos()) by (compute);
 
         self.update_inactive_log_metadata(wrpm_region, log_start_addr, log_size, 
@@ -971,6 +966,7 @@ impl UntrustedLogImpl {
 
         // We've updated the inactive log metadata now, so it's a good time to
         // mention some relevant facts about the consequent state.
+        
         
         proof {
             // let mem1 = old_wrpm.committed();
@@ -1181,8 +1177,12 @@ impl UntrustedLogImpl {
                     }
             }),
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len(),
-            forall |s| #[trigger] perm.check_permission(s) <==>
-                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
+            forall |s| {
+                    ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+                    ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends())
+                } ==> #[trigger] perm.check_permission(s),
+            // forall |s| #[trigger] perm.check_permission(s) ==>
+            //     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
         ensures
             wrpm_region.inv(),
