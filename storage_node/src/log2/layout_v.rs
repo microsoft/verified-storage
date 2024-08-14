@@ -122,6 +122,13 @@ verus! {
         }
     }
 
+    pub open spec fn spec_get_inactive_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata 
+    {
+        let pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+        let bytes = extract_bytes(mem, pos, LogMetadata::spec_size_of());
+        LogMetadata::spec_from_bytes(bytes)
+    }
+
     pub open spec fn spec_get_active_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata 
     {
         let pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
@@ -138,9 +145,25 @@ verus! {
         }
     }
 
+    pub open spec fn spec_get_inactive_log_crc_pos(cdb: bool) -> nat
+    {
+        if !cdb { 
+            spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of()
+        } else { 
+            spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of()
+        }
+    }
+
     pub open spec fn spec_get_active_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64
     {
         let pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
+        let bytes = extract_bytes(mem, pos, u64::spec_size_of());
+        u64::spec_from_bytes(bytes)
+    }
+
+    pub open spec fn spec_get_inactive_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64
+    {
+        let pos = spec_get_inactive_log_crc_pos(cdb) + log_start_addr;
         let bytes = extract_bytes(mem, pos, u64::spec_size_of());
         u64::spec_from_bytes(bytes)
     }
