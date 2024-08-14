@@ -544,4 +544,45 @@ pub proof fn lemma_metadata_set_after_crash(
     }
 }
 
+// // This exported lemma proves that, if various invariants hold for
+// // the given persistent memory region view `pm_region_view` and
+// // abstract log state `state`, then for any contents `mem`
+// // the view can recover into, recovery on `mem` will produce
+// // `state.drop_pending_appends()`.
+// //
+// // `pm_region_view` -- the persistent memory region view
+// // `log_id` -- the ID of the log
+// // `cdb` -- the current value of the corruption-detecting boolean
+// // `info` -- the log information
+// // `state` -- the abstract log state
+// pub proof fn lemma_invariants_imply_crash_recover_forall(
+//     pm_region_view: PersistentMemoryRegionView,
+//     log_start_addr: nat,
+//     log_size: nat,
+//     cdb: bool,
+//     info: LogInfo,
+//     state: AbstractLogState,
+// )
+//     requires
+//         memory_matches_deserialized_cdb(pm_region_view, cdb),
+//         metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
+//         info_consistent_with_log_area(pm_region_view, info, state),
+//         metadata_types_set(pm_region_view.committed()),
+//     ensures
+//         forall |mem| #[trigger] pm_region_view.can_crash_as(mem) ==> {
+//             &&& recover_cdb(mem) == Some(cdb)
+//             &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+//             &&& metadata_types_set(mem)
+//         }
+// {
+//     assert forall |mem| #[trigger] pm_region_view.can_crash_as(mem) implies {
+//                 &&& recover_cdb(mem) == Some(cdb)
+//                 &&& recover_state(mem, log_id) == Some(state.drop_pending_appends())
+//                 &&& metadata_types_set(mem)
+//             } by
+//     {
+//         lemma_invariants_imply_crash_recover(pm_region_view, mem, log_id, cdb, info, state);
+//     }
+// }
+
 }

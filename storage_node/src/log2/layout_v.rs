@@ -1,10 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::log2::logspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use crate::log2::{logspec_t::*, inv_v::*, logimpl_v::*};
+use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
@@ -100,6 +98,23 @@ verus! {
             out == spec_get_active_log_metadata_pos(cdb),
     {
         if cdb {
+            log_header_pos_cdb_true()
+        }
+        else {
+            log_header_pos_cdb_false()
+        }
+    }
+
+    pub open spec fn spec_get_inactive_log_metadata_pos(cdb: bool) -> nat 
+    {
+        if !cdb { spec_log_header_pos_cdb_true() } else { spec_log_header_pos_cdb_false() }
+    }
+
+    pub exec fn get_inactive_log_metadata_pos(cdb: bool) -> (out: u64) 
+        ensures 
+            out == spec_get_inactive_log_metadata_pos(cdb)
+    {
+        if !cdb {
             log_header_pos_cdb_true()
         }
         else {
@@ -271,5 +286,82 @@ verus! {
             })
         }
     }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        log_start_addr: nat,
+        log_size: nat,
+        cdb: bool,
+    )
+        requires
+            mem1.len() == mem2.len() >= log_start_addr + spec_log_area_pos(),
+            recover_cdb(mem1, log_start_addr) == Some(cdb),
+            metadata_types_set(mem1, log_start_addr),
+            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
+            ({
+                let unused_metadata_start = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+                let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
+                forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+                    ==> mem1[addr] == mem2[addr]
+            }),
+        ensures
+            recover_cdb(mem2, log_start_addr) == Some(cdb),
+            recover_state(mem1, log_start_addr, log_size) == recover_state(mem2, log_start_addr, log_size),
+            metadata_types_set(mem2, log_start_addr),
+    {
+        reveal(spec_padding_needed);
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        assert(recover_state(mem1, log_start_addr, log_size) =~= recover_state(mem2, log_start_addr, log_size));
+        assert(active_metadata_bytes_are_equal(mem1, mem2, log_start_addr));
+        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, log_start_addr, cdb);
+    }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches2(
+        mem1: PersistentMemoryRegionView,
+        mem2: PersistentMemoryRegionView,
+        crash_state: Seq<u8>,
+        log_start_addr: nat,
+        log_size: nat,
+        cdb: bool,
+        info: LogInfo,
+        state: AbstractLogState,
+        is_writable_absolute_addr: spec_fn(int) -> bool,
+    )
+        requires
+            no_outstanding_writes_to_metadata(mem1, log_start_addr),
+            memory_matches_deserialized_cdb(mem1, log_start_addr, cdb),
+            metadata_consistent_with_info(mem1, log_start_addr, log_size, cdb, info),
+            info_consistent_with_log_area(mem1, log_start_addr, log_size, info, state),
+            mem2.can_crash_as(crash_state),
+
+        //     mem1.len() == mem2.len() >= log_start_addr + spec_log_area_pos(),
+        //     recover_cdb(mem1, log_start_addr) == Some(cdb),
+        //     metadata_types_set(mem1, log_start_addr),
+        //     log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
+        //     ({
+        //         let unused_metadata_start = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+        //         let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
+        //         forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+        //             ==> mem1[addr] == mem2[addr]
+        //     }),
+        ensures
+            // recover_cdb(mem2, log_start_addr) == Some(cdb),
+            // recover_state(mem1, log_start_addr, log_size) == recover_state(mem2, log_start_addr, log_size),
+            // metadata_types_set(mem2, log_start_addr),
+            mem1.can_crash_as(mem1.committed()),
+            recover_state(crash_state, log_start_addr, log_size) == recover_state(mem1.committed(), log_start_addr, log_size),
+    {
+        // assume(false);
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(mem2);
+        // reveal(spec_padding_needed);
+        // lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        lemma_establish_extract_bytes_equivalence(crash_state, mem1.committed());
+        // assert(recover_state(mem1, log_start_addr, log_size) =~= recover_state(mem2, log_start_addr, log_size));
+        // assert(active_metadata_bytes_are_equal(mem1, mem2, log_start_addr));
+        // lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, log_start_addr, cdb);
+        assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(mem1.committed(), log_start_addr, log_size));
+    }
+
 
 }
