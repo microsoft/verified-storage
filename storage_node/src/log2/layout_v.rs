@@ -317,51 +317,43 @@ verus! {
         lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, log_start_addr, cdb);
     }
 
-    // pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches2(
-    //     mem1: PersistentMemoryRegionView,
-    //     mem2: PersistentMemoryRegionView,
-    //     crash_state: Seq<u8>,
-    //     log_start_addr: nat,
-    //     log_size: nat,
-    //     cdb: bool,
-    //     info: LogInfo,
-    //     state: AbstractLogState,
-    //     is_writable_absolute_addr: spec_fn(int) -> bool,
-    // )
-    //     requires
-    //         no_outstanding_writes_to_metadata(mem1, log_start_addr),
-    //         memory_matches_deserialized_cdb(mem1, log_start_addr, cdb),
-    //         metadata_consistent_with_info(mem1, log_start_addr, log_size, cdb, info),
-    //         info_consistent_with_log_area(mem1, log_start_addr, log_size, info, state),
-    //         mem2.can_crash_as(crash_state),
-
-    //     //     mem1.len() == mem2.len() >= log_start_addr + spec_log_area_pos(),
-    //     //     recover_cdb(mem1, log_start_addr) == Some(cdb),
-    //     //     metadata_types_set(mem1, log_start_addr),
-    //     //     log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
-    //     //     ({
-    //     //         let unused_metadata_start = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
-    //     //         let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
-    //     //         forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
-    //     //             ==> mem1[addr] == mem2[addr]
-    //     //     }),
-    //     ensures
-    //         // recover_cdb(mem2, log_start_addr) == Some(cdb),
-    //         // recover_state(mem1, log_start_addr, log_size) == recover_state(mem2, log_start_addr, log_size),
-    //         // metadata_types_set(mem2, log_start_addr),
-    //         mem1.can_crash_as(mem1.committed()),
-    //         recover_state(crash_state, log_start_addr, log_size) == recover_state(mem1.committed(), log_start_addr, log_size),
-    // {
-    //     // assume(false);
-    //     lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(mem2);
-    //     // reveal(spec_padding_needed);
-    //     // lemma_establish_extract_bytes_equivalence(mem1, mem2);
-    //     lemma_establish_extract_bytes_equivalence(crash_state, mem1.committed());
-    //     // assert(recover_state(mem1, log_start_addr, log_size) =~= recover_state(mem2, log_start_addr, log_size));
-    //     // assert(active_metadata_bytes_are_equal(mem1, mem2, log_start_addr));
-    //     // lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, log_start_addr, cdb);
-    //     assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(mem1.committed(), log_start_addr, log_size));
-    // }
+    // This function specifies how recovery should treat the contents
+    // of the log area in the persistent-memory region as an abstract
+    // log state. It only deals with data; it assumes the metadata has
+    // already been recovered. Relevant aspects of that metadata are
+    // passed in as parameters.
+    //
+    // `log_area` -- the contents of the log area
+    //
+    // `head` -- the virtual log position of the head
+    //
+    // `log_length` -- the current length of the virtual log past the
+    // head
+    //
+    // Returns an `Option<AbstractLogState>` with the following
+    // meaning:
+    //
+    // `None` -- the given metadata isn't valid
+    // `Some(s)` -- `s` is the abstract state represented in memory
+    pub open spec fn recover_log_from_log_area_given_metadata(
+        log_area: Seq<u8>,
+        head: int,
+        log_length: int,
+    ) -> Option<AbstractLogState>
+    {
+        if log_length > log_area.len() || head + log_length > u128::MAX
+        {
+            None
+        }
+        else {
+            Some(AbstractLogState {
+                head,
+                log: extract_log_from_log_area(log_area, head, log_length),
+                pending: Seq::<u8>::empty(),
+                capacity: log_area.len() as int
+            })
+        }
+    }
 
 
 }
