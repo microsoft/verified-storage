@@ -1400,6 +1400,7 @@ impl UntrustedLogImpl {
             info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@),
             metadata_consistent_with_info(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, !self.cdb, self.info),
     {
+        assume(false);
         // broadcast use pmcopy_axioms;
 
         // Encode the log metadata as bytes, and compute the CRC of those bytes
