@@ -85,7 +85,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             match result {
                 Ok(info) => state.is_Some() ==> {
                     &&& metadata_consistent_with_info(pm_region@, log_start_addr as nat, log_size as nat, cdb, info)
-                    &&& info_consistent_with_log_area_in_region(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
+                    &&& info_consistent_with_log_area(pm_region@, log_start_addr as nat, log_size as nat, info, state.unwrap())
                 },
                 Err(LogErr::CRCMismatch) =>
                     state.is_Some() ==> !pm_region.constants().impervious_to_corruption,
@@ -132,11 +132,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             return Err(LogErr::CRCMismatch);
         }
 
-        let log_metadata = log_metadata.extract_init_val(
-            Ghost(true_log_metadata), 
-            Ghost(true_bytes),
-            Ghost(pm_region.constants().impervious_to_corruption)
-        );
+        let log_metadata = log_metadata.extract_init_val(Ghost(true_log_metadata));
 
         // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area

@@ -930,8 +930,7 @@ verus! {
             }
 
             // 5. Extract and return the uncorrupted list element
-            let list_elem = list_elem.extract_init_val(Ghost(true_elem), Ghost(true_elem_bytes),
-                Ghost(pm_region.constants().impervious_to_corruption));
+            let list_elem = list_elem.extract_init_val(Ghost(true_elem));
             Ok(list_elem)
         }
 
@@ -1035,11 +1034,7 @@ verus! {
                 return Err(KvError::CRCMismatch);
             }
 
-            let region_header = region_header.extract_init_val(
-                Ghost(true_region_header),
-                Ghost(true_header_bytes),
-                Ghost(pm_region.constants().impervious_to_corruption),
-            );
+            let region_header = region_header.extract_init_val(Ghost(true_region_header));
 
             if {
                 ||| region_header.version_number != DURABLE_LIST_REGION_VERSION_NUMBER
@@ -1094,8 +1089,7 @@ verus! {
             {
                 return Err(KvError::CRCMismatch);
             }
-            let next_ptr = *next_ptr.extract_init_val(Ghost(true_next_ptr), Ghost(true_next_ptr_bytes), 
-                Ghost(pm_region.constants().impervious_to_corruption));
+            let next_ptr = *next_ptr.extract_init_val(Ghost(true_next_ptr));
 
             // 2. If the node's next pointer does not point to itself, return it; otherwise return None
             if next_ptr == node_index {

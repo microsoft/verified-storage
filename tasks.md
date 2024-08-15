@@ -23,19 +23,19 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_trim_list` *
     - Operation log
         - [x] `start`
-        - [ ] `tentatively_append_log_entry` *
-        - [ ] `commit_log` *
+        - [x] `tentatively_append_log_entry` * - hayley-leblanc
+        - [ ] `commit_log` * - hayley-leblanc
         - [ ] `clear_log` *
-        - [ ] Port single log operations to `log2` module - hayleyleblanc
+        - [x] Port single log operations to `log2` module - hayley-leblanc
             - [x] `setup`
             - [x] `start` 
             - [x] `read`
             - [x] `get_head_tail_and_capacity`
-            - [ ] `tentative_append`
-            - [ ] `commit`
-            - [ ] `advance_head`
-            - [ ] `update_inactive_log_metadata`
-            - [ ] `update_log_metadata`
+            - [x] `tentative_append`
+            - [x] `commit`
+            - [x] `advance_head`
+            - [x] `update_inactive_log_metadata`
+            - [x] `update_log_metadata`
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`

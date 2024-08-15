@@ -1,10 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::log2::logspec_t::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe};
+use crate::log2::{logspec_t::*, inv_v::*, logimpl_v::*};
+use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
@@ -107,6 +105,30 @@ verus! {
         }
     }
 
+    pub open spec fn spec_get_inactive_log_metadata_pos(cdb: bool) -> nat 
+    {
+        if !cdb { spec_log_header_pos_cdb_true() } else { spec_log_header_pos_cdb_false() }
+    }
+
+    pub exec fn get_inactive_log_metadata_pos(cdb: bool) -> (out: u64) 
+        ensures 
+            out == spec_get_inactive_log_metadata_pos(cdb)
+    {
+        if !cdb {
+            log_header_pos_cdb_true()
+        }
+        else {
+            log_header_pos_cdb_false()
+        }
+    }
+
+    pub open spec fn spec_get_inactive_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata 
+    {
+        let pos = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+        let bytes = extract_bytes(mem, pos, LogMetadata::spec_size_of());
+        LogMetadata::spec_from_bytes(bytes)
+    }
+
     pub open spec fn spec_get_active_log_metadata(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> LogMetadata 
     {
         let pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
@@ -123,9 +145,25 @@ verus! {
         }
     }
 
+    pub open spec fn spec_get_inactive_log_crc_pos(cdb: bool) -> nat
+    {
+        if !cdb { 
+            spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of()
+        } else { 
+            spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of()
+        }
+    }
+
     pub open spec fn spec_get_active_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64
     {
         let pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
+        let bytes = extract_bytes(mem, pos, u64::spec_size_of());
+        u64::spec_from_bytes(bytes)
+    }
+
+    pub open spec fn spec_get_inactive_log_crc(mem: Seq<u8>, log_start_addr: nat, cdb: bool) -> u64
+    {
+        let pos = spec_get_inactive_log_crc_pos(cdb) + log_start_addr;
         let bytes = extract_bytes(mem, pos, u64::spec_size_of());
         u64::spec_from_bytes(bytes)
     }
@@ -175,6 +213,20 @@ verus! {
         }
         else {
             log_area_offset
+        }
+    }
+
+    pub open spec fn log_area_offset_to_relative_log_pos(
+        log_area_offset: int,
+        head_log_area_offset: int,
+        log_area_len: int
+    ) -> int
+    {
+        if log_area_offset >= head_log_area_offset {
+            log_area_offset - head_log_area_offset
+        }
+        else {
+            log_area_offset - head_log_area_offset + log_area_len
         }
     }
 
@@ -257,5 +309,74 @@ verus! {
             })
         }
     }
+
+    pub proof fn lemma_if_only_differences_in_memory_are_inactive_metadata_then_recover_state_matches(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        log_start_addr: nat,
+        log_size: nat,
+        cdb: bool,
+    )
+        requires
+            mem1.len() == mem2.len() >= log_start_addr + spec_log_area_pos(),
+            recover_cdb(mem1, log_start_addr) == Some(cdb),
+            metadata_types_set(mem1, log_start_addr),
+            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
+            ({
+                let unused_metadata_start = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
+                let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
+                forall |addr: int| 0 <= addr < mem1.len() && !(unused_metadata_start <= addr < unused_metadata_end)
+                    ==> mem1[addr] == mem2[addr]
+            }),
+        ensures
+            recover_cdb(mem2, log_start_addr) == Some(cdb),
+            recover_state(mem1, log_start_addr, log_size) == recover_state(mem2, log_start_addr, log_size),
+            metadata_types_set(mem2, log_start_addr),
+    {
+        reveal(spec_padding_needed);
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+        assert(recover_state(mem1, log_start_addr, log_size) =~= recover_state(mem2, log_start_addr, log_size));
+        assert(active_metadata_bytes_are_equal(mem1, mem2, log_start_addr));
+        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, log_start_addr, cdb);
+    }
+
+    // This function specifies how recovery should treat the contents
+    // of the log area in the persistent-memory region as an abstract
+    // log state. It only deals with data; it assumes the metadata has
+    // already been recovered. Relevant aspects of that metadata are
+    // passed in as parameters.
+    //
+    // `log_area` -- the contents of the log area
+    //
+    // `head` -- the virtual log position of the head
+    //
+    // `log_length` -- the current length of the virtual log past the
+    // head
+    //
+    // Returns an `Option<AbstractLogState>` with the following
+    // meaning:
+    //
+    // `None` -- the given metadata isn't valid
+    // `Some(s)` -- `s` is the abstract state represented in memory
+    pub open spec fn recover_log_from_log_area_given_metadata(
+        log_area: Seq<u8>,
+        head: int,
+        log_length: int,
+    ) -> Option<AbstractLogState>
+    {
+        if log_length > log_area.len() || head + log_length > u128::MAX
+        {
+            None
+        }
+        else {
+            Some(AbstractLogState {
+                head,
+                log: extract_log_from_log_area(log_area, head, log_length),
+                pending: Seq::<u8>::empty(),
+                capacity: log_area.len() as int
+            })
+        }
+    }
+
 
 }
