@@ -141,10 +141,6 @@ pub open spec fn metadata_consistent_with_info(
     let log_metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
     let log_crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
 
-    // // The durable cDB 
-    // &&& read_cdb matches Some(read_cdb)
-    // &&& read_cdb == cdb
-
     // No outstanding writes to the CDB, log metadata, or log metadata CRC
     &&& pm_region_view.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
     // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
@@ -162,7 +158,7 @@ pub open spec fn metadata_consistent_with_info(
     &&& log_size == spec_log_area_pos() + info.log_area_len
     &&& mem.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len
     &&& log_start_addr + spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() <
-            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_size
+            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_start_addr + log_size
 }
 
 // This invariant says that the log area of the given
