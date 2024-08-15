@@ -2,6 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::slice::*;
+use vstd::arithmetic::{mul::*, div_mod::*};
 
 use crate::kv::durable::inv_v::lemma_subrange_of_extract_bytes_equal;
 use crate::kv::kvimpl_t::KvError;
@@ -649,6 +650,240 @@ impl UntrustedLogImpl {
 
         lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, info);
         assert(extract_bytes(pm_region_view.committed(), addr, len) =~= extract_bytes(s.log, (pos - s.head) as nat, len));
+    }
+
+    // This lemma, used by `advance_head`, gives a mathematical
+    // proof that one can compute `new_head % log_area_len`
+    // using only linear math operations (`+` and `-`).
+    proof fn lemma_check_fast_way_to_compute_head_mod_log_area_len(
+        info: LogInfo,
+        state: AbstractLogState,
+        new_head: u128,
+    )
+        requires
+            info.head <= new_head,
+            new_head - info.head <= info.log_length as u128,
+            info.log_area_len >= MIN_LOG_AREA_SIZE,
+            info.log_length <= info.log_plus_pending_length <= info.log_area_len,
+            info.head_log_area_offset == info.head as int % info.log_area_len as int,
+        ensures
+            ({
+                let amount_of_advancement: u64 = (new_head - info.head) as u64;
+                new_head as int % info.log_area_len as int ==
+                    if amount_of_advancement < info.log_area_len - info.head_log_area_offset {
+                        amount_of_advancement + info.head_log_area_offset
+                    }
+                    else {
+                        amount_of_advancement - (info.log_area_len - info.head_log_area_offset)
+                    }
+            }),
+    {
+        let amount_of_advancement: u64 = (new_head - info.head) as u64;
+        let new_head_log_area_offset =
+            if amount_of_advancement < info.log_area_len - info.head_log_area_offset {
+                amount_of_advancement + info.head_log_area_offset
+            }
+            else {
+                amount_of_advancement - (info.log_area_len - info.head_log_area_offset)
+            };
+
+        let n = info.log_area_len as int;
+        let advancement = amount_of_advancement as int;
+        let head = info.head as int;
+        let head_mod_n = info.head_log_area_offset as int;
+        let supposed_new_head_mod_n = new_head_log_area_offset as int;
+
+        // First, observe that `advancement` plus `head` is
+        // congruent modulo n to `advancement` plus `head` % n.
+
+        assert((advancement + head) % n == (advancement + head_mod_n) % n) by {
+            assert(head == n * (head / n) + head % n) by {
+                lemma_fundamental_div_mod(head, n);
+            }
+            assert((n * (head / n) + (advancement + head_mod_n)) % n == (advancement + head_mod_n) % n) by {
+                lemma_mod_multiples_vanish(head / n, advancement + head_mod_n, n);
+            }
+        }
+
+        // Next, observe that `advancement` + `head` % n is
+        // congruent modulo n to itself minus n. This is
+        // relevant because there are two cases for computing
+        // `new_head_mod_log_area_offset`. In one case, it's
+        // computed as `advancement` + `head` % n. In the
+        // other case, it's that quantity minus n.
+
+        assert((advancement + head % n) % n == (advancement + head_mod_n - n) % n) by {
+            lemma_mod_sub_multiples_vanish(advancement + head_mod_n, n);
+        }
+
+        // So we know that in either case, `new_head` % n ==
+        // `new_head_mod_log_area_offset` % n.
+
+        assert(new_head as int % n == supposed_new_head_mod_n % n);
+
+        // But what we want to prove is that `new_head` % n ==
+        // `new_head_mod_log_area_offset`. So we need to show
+        // that `new_head_mod_log_area_offset` % n ==
+        // `new_head_mod_log_area_offset`.  We can deduce this
+        // from the fact that 0 <= `new_head_mod_log_area_offset`
+        // < n.
+
+        assert(supposed_new_head_mod_n % n == supposed_new_head_mod_n) by {
+            lemma_small_mod(supposed_new_head_mod_n as nat, n as nat);
+        }
+    }
+
+    // The `advance_head` method advances the head of the log,
+    // thereby making more space for appending but making log
+    // entries before the new head unavailable for reading. Upon
+    // return from this method, the head advancement is durable,
+    // i.e., it will survive crashes. See `README.md` for more
+    // documentation and examples of its use.
+    //
+    // This method is passed a write-restricted persistent memory
+    // region `wrpm_region`. This restricts how it can write
+    // `wrpm_region`. It's only given permission (in `perm`) to
+    // write if it can prove that any crash after initiating the
+    // write is safe. That is, any such crash must put the memory
+    // in a state that recovers as either (1) the current abstract
+    // state with all pending appends dropped, or (2) the state
+    // after advancing the head and then dropping all pending
+    // appends.
+    pub exec fn advance_head<Perm, PM>(
+        &mut self,
+        wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        new_head: u128,
+        log_start_addr: u64,
+        log_size: u64,
+        Ghost(log_id): Ghost<u128>,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<(), LogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires
+            old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+                ||| Self::recover(s, log_start_addr as nat, log_size as nat) ==
+                    Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
+            },
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+        ensures
+            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            wrpm_region.constants() == old(wrpm_region).constants(),
+            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            match result {
+                Ok(()) => {
+                    &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
+                    &&& self@ == old(self)@.advance_head(new_head as int)
+                },
+                Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
+                    &&& self@ == old(self)@
+                    &&& head == self@.head
+                    &&& new_head < head
+                },
+                Err(LogErr::CantAdvanceHeadPositionBeyondTail { tail }) => {
+                    &&& self@ == old(self)@
+                    &&& tail == self@.head + self@.log.len()
+                    &&& new_head > tail
+                },
+                _ => false
+            }
+    {
+        // Even if we return an error code, we still have to prove that
+        // upon return the states we can crash into recover into valid
+        // abstract states.
+
+        proof {
+            lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb,
+                                                        self.info, self.state@);
+        }
+
+        // Handle error cases due to improper parameters passed to the
+        // function.
+        if new_head < self.info.head {
+            return Err(LogErr::CantAdvanceHeadPositionBeforeHead{ head: self.info.head })
+        }
+        if new_head - self.info.head > self.info.log_length as u128 {
+            return Err(LogErr::CantAdvanceHeadPositionBeyondTail{
+                tail: self.info.head + self.info.log_length as u128
+            })
+        }
+
+        // To compute the new head mod n (where n is the log area
+        // length), take the old head mod n, add the amount by
+        // which the head is advancing, then subtract n if
+        // necessary.
+
+        let amount_of_advancement: u64 = (new_head - self.info.head) as u64;
+        let new_head_log_area_offset =
+            if amount_of_advancement < self.info.log_area_len - self.info.head_log_area_offset {
+                amount_of_advancement + self.info.head_log_area_offset
+            }
+            else {
+                // To compute `self.info.head_log_area_offset` [the old
+                // head] plus `amount_of_advancement` [the amount
+                // by which the head is advancing] minus
+                // `self.info.log_area_len` [the log area length], we
+                // do it in the following order that guarantees no
+                // overflow/underflow.
+                amount_of_advancement - (self.info.log_area_len - self.info.head_log_area_offset)
+            };
+
+        assert(new_head_log_area_offset == new_head as int % self.info.log_area_len as int) by {
+            Self::lemma_check_fast_way_to_compute_head_mod_log_area_len(self.info, self.state@, new_head);
+        }
+
+        // Update `self.self.info` to reflect the change to the head
+        // position. This necessitates updating all the fields
+        // except the log area length.
+
+        let ghost prev_info = self.info;
+        self.info.head = new_head;
+        self.info.head_log_area_offset = new_head_log_area_offset;
+        self.info.log_length = self.info.log_length - amount_of_advancement;
+        self.info.log_plus_pending_length = self.info.log_plus_pending_length - amount_of_advancement;
+
+        // Update the abstract `self.state` to reflect the head update.
+
+        let ghost prev_state = self.state@;
+        self.state = Ghost(self.state@.advance_head(new_head as int));
+
+        // To prove that the log area for log number `which_log` is
+        // compatible with the new `self.infos` and `self.state`, we
+        // need to reason about how addresses in the log area
+        // correspond to relative log positions. That's because the
+        // invariants we know about the log area talk about log
+        // positions relative to the old head, but we want to know
+        // things about log positions relative to the new head. What
+        // connects those together is that they both talk about the
+        // same addresses in the log area.
+
+        assert (info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@)) by {
+            lemma_addresses_in_log_area_correspond_to_relative_log_positions(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info);
+        }
+
+        // Update the inactive metadata on all regions and flush, then
+        // swap the CDB to its opposite. We have to update the metadata
+        // on all regions, even though we're only advancing the head on
+        // one, for the following reason. The only way available to us
+        // to update the active metadata is to flip the CDB, but this
+        // flips which metadata is active on *all* regions. So we have
+        // to update the inactive metadata on all regions.
+
+        self.update_log_metadata(wrpm_region, log_start_addr, log_size, Ghost(prev_info), Ghost(prev_state),
+                                    Tracked(perm));
+
+        /*
+        assume(self.inv(wrpm_region, log_id));
+        assume(wrpm_region.constants() == old(wrpm_region).constants());
+        assume(can_only_crash_as_state(wrpm_region@, log_id, self@.drop_pending_appends()));
+        assume(old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len());
+        assume(self@ == old(self)@.advance_head(new_head as int));
+        */
+
+        Ok(())
     }
 
     // The `read` method reads part of the log, returning a vector

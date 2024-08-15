@@ -26,14 +26,14 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentatively_append_log_entry` *
         - [ ] `commit_log` *
         - [ ] `clear_log` *
-        - [ ] Port single log operations to `log2` module - hayleyleblanc
+        - [x] Port single log operations to `log2` module - hayleyleblanc
             - [x] `setup`
             - [x] `start` 
             - [x] `read`
             - [x] `get_head_tail_and_capacity`
             - [x] `tentative_append`
             - [x] `commit`
-            - [ ] `advance_head`
+            - [x] `advance_head`
             - [x] `update_inactive_log_metadata`
             - [x] `update_log_metadata`
     - Main table 
