@@ -224,6 +224,18 @@ verus! {
         }
     }
 
+    pub proof fn lemma_metadata_fits<K>(k: int, num_keys: int, metadata_node_size: int)
+        requires
+            0 <= k < num_keys,
+            0 <= metadata_node_size,
+        ensures
+            k * metadata_node_size + metadata_node_size <= num_keys * metadata_node_size
+    {
+        vstd::arithmetic::mul::lemma_mul_inequality(k + 1, num_keys, metadata_node_size);
+        vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size, k, 1);
+    }
+
     pub proof fn lemma_if_table_parseable_then_all_entries_parseable<K>(mem: Seq<u8>, num_keys: u64, metadata_node_size: u32)
     where 
         K: PmCopy

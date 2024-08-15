@@ -31,6 +31,12 @@ verus! {
         state: Ghost<MetadataTableView<K>>,
     }
 
+    pub closed spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
+    {
+        forall|addr: int| start <= addr < start + bytes.len() ==>
+            #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
+    }
+
     impl<K> MetadataTable<K>
         where 
             K: PmCopy + std::fmt::Debug,
@@ -45,12 +51,46 @@ verus! {
             self.metadata_table_free_list@.to_set()
         }
 
-        pub closed spec fn inv(self, mem: Seq<u8>, overall_metadata: OverallMetadata) -> bool
+        pub closed spec fn outstanding_cdb_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
+                                                                 metadata_node_size: u32) -> bool
+        {
+            let start = i * metadata_node_size;
+            match self.state@.outstanding_cdb_writes[i] {
+                None => pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of()),
+                Some(b) => {
+                    let cdb = if b { CDB_TRUE } else { CDB_FALSE };
+                    let cdb_bytes = u64::spec_to_bytes(cdb);
+                    outstanding_bytes_match(pm, start, cdb_bytes)
+                },
+            }
+        }
+
+        pub closed spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
+                                                                   metadata_node_size: u32) -> bool
+        {
+            let start = i * metadata_node_size;
+            match self.state@.outstanding_entry_writes[i] {
+                None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + metadata_node_size),
+                Some(e) => {
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), u64::spec_to_bytes(e.crc))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
+                                              ListEntryMetadata::spec_to_bytes(e.entry))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                                              K::spec_to_bytes(e.key))
+                },
+            }
+        }
+
+        pub closed spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.entry_slot_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self.state@) ==
-                parse_metadata_table::<K>(mem, overall_metadata.num_keys, overall_metadata.metadata_node_size)
+                parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
+                self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
+            &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
+                self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self.state@.inv()
             &&& self.allocator_view() == self@.free_indices()
         }
@@ -205,10 +245,7 @@ verus! {
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
                         assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
-                            vstd::arithmetic::mul::lemma_mul_inequality(k + 1int, index as int, metadata_node_size as int);
-                            vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
-                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
-                                                                                           k as int, 1);
+                            lemma_metadata_fits::<K>(k as int, index as int, metadata_node_size as int);
                         }
                         assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
                                extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
@@ -230,10 +267,7 @@ verus! {
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
                         assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
-                            vstd::arithmetic::mul::lemma_mul_inequality(k + 1int, index as int, metadata_node_size as int);
-                            vstd::arithmetic::mul::lemma_mul_basics(metadata_node_size as int);
-                            vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(metadata_node_size as int,
-                                                                                        k as int, 1);
+                            lemma_metadata_fits::<K>(k as int, index as int, metadata_node_size as int);
                         }
                         assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
                             extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
@@ -333,7 +367,7 @@ verus! {
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2 as int);
 
-                        &&& main_table.inv(subregion.view(pm_region).committed(), overall_metadata)
+                        &&& main_table.inv(subregion.view(pm_region), overall_metadata)
                         // main table states match
                         &&& table == main_table@
                         // the entry list corresponds to the table
@@ -696,6 +730,19 @@ verus! {
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
             }
 
+            assert forall |i| 0 <= i < main_table.state@.durable_metadata_table.len() implies {
+                &&& main_table.outstanding_cdb_write_matches_pm_view(subregion.view(pm_region), i,
+                                                                    overall_metadata.metadata_node_size)
+                &&& main_table.outstanding_entry_write_matches_pm_view(subregion.view(pm_region), i,
+                                                                    overall_metadata.metadata_node_size)
+            } by {
+                let pm_view = subregion.view(pm_region);
+                let metadata_node_size = overall_metadata.metadata_node_size;
+                lemma_metadata_fits::<K>(i as int, num_keys as int, metadata_node_size as int);
+                assert(pm_view.no_outstanding_writes_in_range(i * metadata_node_size,
+                                                              i * metadata_node_size + u64::spec_size_of()));
+            }
+
             Ok((main_table, key_index_pairs))
         }
 
@@ -710,7 +757,7 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 subregion.inv(pm_region),
-                self.inv(subregion.view(pm_region).flush().committed(), *overall_metadata),
+                self.inv(subregion.view(pm_region), *overall_metadata),
                 // TODO
             ensures 
                 // TODO

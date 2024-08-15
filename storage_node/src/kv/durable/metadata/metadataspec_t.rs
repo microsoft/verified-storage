@@ -12,9 +12,7 @@ use crate::kv::durable::util_v::*;
 verus! {
     pub struct MetadataTableViewEntry<K> {
         pub crc: u64,
-        pub list_head_index: u64,
-        pub item_index: u64,
-        pub list_len: u64,
+        pub entry: ListEntryMetadata,
         pub key: K,
     }
 
@@ -22,9 +20,7 @@ verus! {
         pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
                 crc,
-                list_head_index: entry.head,
-                item_index: entry.item_index,
-                list_len: entry.length,
+                entry,
                 key,
             }
         }
@@ -34,16 +30,16 @@ verus! {
         }
 
         pub closed spec fn list_head_index(self) -> u64 {
-            self.list_head_index
+            self.entry.head
         }
 
         pub open spec fn item_index(self) -> u64 {
-            self.item_index
+            self.entry.item_index
         }
 
         pub closed spec fn len(self) -> u64 
         {
-            self.list_len
+            self.entry.length
         }
 
         pub open spec fn key(self) -> K {
