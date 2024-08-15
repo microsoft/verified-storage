@@ -445,7 +445,7 @@ impl WriteRestrictedPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(wrpm, perm),
-            relative_addr < relative_addr + S::spec_size_of() <= self.len(),
+            relative_addr + S::spec_size_of() <= self.len(),
             self.view(wrpm).no_outstanding_writes_in_range(
                 relative_addr as int,
                 relative_addr + S::spec_size_of(),
@@ -485,7 +485,7 @@ impl WriteRestrictedPersistentMemorySubregion
         requires
             self.inv(wrpm, perm),
             self.start() <= absolute_addr,
-            absolute_addr < absolute_addr + S::spec_size_of() <= self.end(),
+            absolute_addr + S::spec_size_of() <= self.end(),
             self.view(wrpm).no_outstanding_writes_in_range(
                 absolute_addr - self.start(),
                 absolute_addr + S::spec_size_of() - self.start(),
@@ -895,7 +895,7 @@ impl PersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             self.inv(pm),
-            relative_addr < relative_addr + S::spec_size_of() <= self.len(),
+            relative_addr + S::spec_size_of() <= self.len(),
             self.view(pm).no_outstanding_writes_in_range(
                 relative_addr as int,
                 relative_addr + S::spec_size_of(),
@@ -939,7 +939,7 @@ impl PersistentMemorySubregion
         requires
             self.inv(pm),
             self.start() <= absolute_addr,
-            absolute_addr < absolute_addr + S::spec_size_of() <= self.end(),
+            absolute_addr + S::spec_size_of() <= self.end(),
             self.view(pm).no_outstanding_writes_in_range(
                 absolute_addr - self.start(),
                 absolute_addr + S::spec_size_of() - self.start(),

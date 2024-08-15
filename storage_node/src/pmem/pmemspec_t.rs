@@ -426,7 +426,7 @@ verus! {
                 S: PmCopy + Sized,
             requires
                 self.inv(),
-                0 <= addr < addr + S::spec_size_of() <= self@.len(),
+                addr + S::spec_size_of() <= self@.len(),
                 self@.no_outstanding_writes_in_range(addr as int, addr + S::spec_size_of()),
                 // We must have previously written a serialized S to this addr
                 S::bytes_parseable(self@.committed().subrange(addr as int, addr + S::spec_size_of()))
