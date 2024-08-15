@@ -4,9 +4,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
-use crate::log2::logimpl_v::*;
-use crate::log2::logspec_t::*;
-use crate::log2::layout_v::*;
+use crate::log2::{logimpl_v::*, logspec_t::*, layout_v::*, inv_v::*};
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::kvimpl_t::*;
@@ -28,6 +26,8 @@ verus! {
             L: PmCopy + std::fmt::Debug + Copy,
     {
         log: UntrustedLogImpl,
+        log_start_addr: u64,
+        log_size: u64,
         state: Ghost<AbstractOpLogState>,
         current_transaction_crc: CrcDigest,
         _phantom: Option<(K, L)>
@@ -39,13 +39,36 @@ verus! {
             K: std::fmt::Debug,
     {
 
+        pub closed spec fn log_start_addr(self) -> u64 {
+            self.log_start_addr
+        }
+
+        pub closed spec fn log_size(self) -> u64 {
+            self.log_size
+        }
+
+        pub closed spec fn base_log_capacity(self) -> int {
+            self.log@.capacity
+        }
+
+        pub closed spec fn base_log_view(self) -> AbstractLogState {
+            self.log@
+        }
+
+        pub closed spec fn log_entry_valid(self, pm_region: PersistentMemoryRegionView, op: AbstractPhysicalOpLogEntry) -> bool {
+            // all addrs are within the bounds of the device
+            &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region.len() <= u64::MAX
+            // no logged ops change bytes belonging to the log itself
+            &&& (op.absolute_addr + op.len < self.log_start_addr || self.log_start_addr + self.log_size <= op.absolute_addr)
+        }
+
         // TODO: should this take overall metadata and say that recovery is successful?
-        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) -> bool
+        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>) -> bool
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
-            &&& self.log.inv(pm_region, log_start_addr, log_size)
+            &&& self.log.inv(pm_region, self.log_start_addr as nat, self.log_size as nat)
             &&& ({
                     // either the log is empty or it has valid matching logical and physical op logs
                     ||| self.log@.log.len() == 0
@@ -53,11 +76,11 @@ verus! {
                 })
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
-                    // all addrs are within the bounds of the device
-                    &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region@.len() <= u64::MAX
-                    // no logged ops change bytes belonging to the log itself
-                    &&& (op.absolute_addr + op.len < log_start_addr || log_start_addr + log_size <= op.absolute_addr)
+                    self.log_entry_valid(pm_region@, op)
             } 
+            &&& self.log_start_addr + self.log_size <= pm_region@.len()
+            &&& self.log_start_addr as int % const_persistence_chunk_size() == 0
+            &&& no_outstanding_writes_to_metadata(pm_region@, self.log_start_addr as nat)
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -76,11 +99,7 @@ verus! {
                                             overall_metadata.log_area_size as nat) {
                 Some(log) => {
                     if log.log.len() == 0 {
-                        Some(AbstractOpLogState {
-                            // logical_op_list: Seq::empty(),
-                            physical_op_list: Seq::empty(),
-                            op_list_committed: true
-                        })
+                        Some(AbstractOpLogState::initialize())
                     } else {
                         if let Some(log_contents) = Self::get_log_contents(log) {
                             // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
@@ -537,6 +556,8 @@ verus! {
             return Ok((
                 Self {
                     log,
+                    log_start_addr, 
+                    log_size,
                     state: Ghost(op_log_state.unwrap()),
                     current_transaction_crc: CrcDigest::new(),
                     _phantom: None
@@ -568,6 +589,8 @@ verus! {
 
         let op_log_impl = Self {
             log,
+            log_start_addr,
+            log_size,
             state: Ghost(op_log_state.unwrap()),
             current_transaction_crc: CrcDigest::new(),
             _phantom: None
@@ -579,82 +602,67 @@ verus! {
         ))
     }
 
-        // // This function tentatively appends a log entry and its CRC to the op log.
-        // pub exec fn tentatively_append_log_entry<PM>(
-        //     &mut self,
-        //     log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        //     log_entry: &OpLogEntryType<L>,
-        //     Tracked(perm): Tracked<&TrustedPermission>,
-        // ) -> (result: Result<(), KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         // TODO
-        //     ensures 
-        //         // TODO 
-        //         // match statement on the log entry types
-        // {
-        //     assume(false);
-        //     match log_entry {
-        //         OpLogEntryType::ItemTableEntryCommit { item_index } => {
-        //             let log_entry = log_entry.to_commit_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-        //         }
-        //         OpLogEntryType::ItemTableEntryInvalidate { item_index } => {
-        //             let log_entry = log_entry.to_invalidate_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-        //         }
-        //         OpLogEntryType::AppendListNode { metadata_index, old_tail, new_tail } => {
-        //             let log_entry = log_entry.to_append_list_node_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-        //         }
-        //         OpLogEntryType::InsertListElement { node_offset, index_in_node, list_element } => {
-        //             let log_entry = log_entry.to_insert_list_element_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
-        //             self.append_to_oplog(log_wrpm, log_id, list_element, Tracked(perm))
-        //         }
-        //         OpLogEntryType::CommitMetadataEntry { metadata_index } => {
-        //             let log_entry = log_entry.to_commit_metadata_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-        //         }
-        //         OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
-        //             let log_entry = log_entry.to_invalidate_metadata_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))
-        //         }
-        //         OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc } => {
-        //             let log_entry = log_entry.to_update_metadata_entry().unwrap();
-        //             self.append_to_oplog(log_wrpm, log_id, &log_entry, Tracked(perm))?;
-        //             self.append_to_oplog(log_wrpm, log_id, new_metadata, Tracked(perm))
-        //         }
-        //         OpLogEntryType::NodeDeallocInMemory { old_head, new_head } => return Err(KvError::InvalidLogEntryType)
-        //     }
-        // }
+    pub exec fn tentatively_append_log_entry<Perm, PM>(
+        &mut self,
+        log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_entry: PhysicalOpLogEntry,
+        overall_metadata: OverallMetadata,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<(), KvError<K>>)
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            old(self).inv(*old(log_wrpm)),
+            overall_metadata.log_area_addr == old(self).log_start_addr(),
+            overall_metadata.log_area_size == old(self).log_size(),
+            old(self).log_entry_valid(old(log_wrpm)@, log_entry@),
+            // TODO: it would be better to only refer to op log state in this precondition,
+            // but the op log state is more abstract than the base log state, and we need to be 
+            // specific about the legal base log states here. If this becomes an issue, maybe we could
+            // keep more info about the base log state in the op log so that we can refer to it more easily here
+            forall |s| #[trigger] perm.check_permission(s) <==>
+                UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == Some(old(self).base_log_view().drop_pending_appends()),
+        ensures 
+            self.inv(*log_wrpm),
+            match result {
+                Ok(()) => {
+                    self@ == old(self)@.tentatively_append_log_entry(log_entry@)
+                }
+                Err(KvError::LogErr { log_err: e }) => true, // TODO
+                Err(_) => true // TODO
+            }
+    {
+        // this assert is sufficient to hit the triggers we need to prove that the log entries
+        // are all valid after appending the new one
+        assert(forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
+            let op = #[trigger] self@.physical_op_list[i];
+            self.log_entry_valid(log_wrpm@, op)
+        });
 
-        // exec fn append_to_oplog<PM, S>(
-        //     &mut self,
-        //     log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        //     to_write: &S,
-        //     Tracked(perm): Tracked<&TrustedPermission>,
-        // ) -> (result: Result<(), KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //         S: PmCopy + PmSafe
-        // {
-        //     assume(false);
-        //     // Because the log may need to wrap around, it cannot easily serialize the object to write
-        //     // for us the way serialize_and_write does. We need to convert it to a byte-level 
-        //     // representation first, then append that to the log.
-        //     let bytes = to_write.as_byte_slice();
-        //     match self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm)) {
-        //         Ok(_) => {}
-        //         Err(e) => return Err(KvError::LogErr { log_err: e })
-        //     }
-        //     self.current_transaction_crc.write(to_write);
-        //     Ok(())
-        // }
+        let bytes = log_entry.bytes.as_slice();
+        let result = self.log.tentatively_append(
+            log_wrpm, 
+            self.log_start_addr, 
+            self.log_size, 
+            bytes,
+            Tracked(perm)
+        );
 
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                return Err(KvError::LogErr { log_err: e });
+            }
+        }
+
+        // update the ghost state to reflect the new entry
+        let ghost new_state = self.state@.tentatively_append_log_entry(log_entry@);
+        self.state = Ghost(new_state);
+        
+        Ok(())
+    }
 
         // pub exec fn commit_log<PM>(
         //     &mut self, 

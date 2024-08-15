@@ -314,6 +314,7 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
             wrpm_region.constants() == old(wrpm_region).constants(),
+            wrpm_region@.len() == old(wrpm_region)@.len(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             match result {
                 Ok(offset) => {
@@ -505,7 +506,6 @@ impl UntrustedLogImpl {
         log_start_addr: u64,
         log_size: u64,
         bytes_to_append: &[u8],
-        Ghost(log_id): Ghost<u128>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<u128, LogErr>)
         where
@@ -518,8 +518,10 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
