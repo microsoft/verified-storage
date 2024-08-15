@@ -23,7 +23,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_trim_list` *
     - Operation log
         - [x] `start`
-        - [ ] `tentatively_append_log_entry` *
+        - [ ] `tentatively_append_log_entry` * - hayleyleblanc
         - [ ] `commit_log` *
         - [ ] `clear_log` *
         - [x] Port single log operations to `log2` module - hayleyleblanc
