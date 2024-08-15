@@ -27,7 +27,6 @@ use crate::pmem::wrpm_t::*;
 verus! {
     pub struct MetadataTable<K> {
         metadata_table_free_list: Vec<u64>,
-        entry_slot_size: u64,
         state: Ghost<MetadataTableView<K>>,
     }
 
@@ -83,7 +82,7 @@ verus! {
 
         pub closed spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
-            &&& self.entry_slot_size ==
+            &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self.state@) ==
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
@@ -95,6 +94,49 @@ verus! {
             &&& self.state@.outstanding_entry_writes.len() == self.state@.durable_metadata_table.len()
             &&& self.state@.inv()
             &&& self.allocator_view() == self@.free_indices()
+        }
+
+        pub proof fn lemma_establish_bytes_parseable_for_valid_entry(
+            self,
+            pm: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            index: u64,
+        )
+            requires
+                self.inv(pm, overall_metadata),
+                0 <= index < self@.durable_metadata_table.len(),
+                self@.durable_metadata_table[index as int] is Valid,
+            ensures
+                u64::bytes_parseable(extract_bytes(
+                    pm.committed(),
+                    (index * overall_metadata.metadata_node_size as u64) as nat,
+                    u64::spec_size_of() as nat,
+                )),
+                u64::bytes_parseable(extract_bytes(
+                    pm.committed(),
+                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
+                    u64::spec_size_of() as nat,
+                )),
+                ListEntryMetadata::bytes_parseable(extract_bytes(
+                    pm.committed(),
+                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
+                    ListEntryMetadata::spec_size_of() as nat,
+                )),
+        {
+            let metadata_node_size = overall_metadata.metadata_node_size;
+            lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
+            let entry_bytes = extract_bytes(pm.committed(), (index * metadata_node_size) as nat, metadata_node_size as nat);
+            assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
+                   extract_bytes(pm.committed(), (index * overall_metadata.metadata_node_size as u64) as nat,
+                                 u64::spec_size_of()));
+            assert(extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of()) =~=
+                   extract_bytes(pm.committed(),
+                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
+                                 u64::spec_size_of()));
+            assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) =~=
+                   extract_bytes(pm.committed(),
+                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
+                                 ListEntryMetadata::spec_size_of()));
         }
 
         pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
@@ -392,14 +434,14 @@ verus! {
                 }
         {
             let num_keys = overall_metadata.num_keys;
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + K::size_of()) as u64;
+            let metadata_node_size = overall_metadata.metadata_node_size;
 
             // Since we've already replayed the log, we just need to construct 
             // the allocator and determine which item indices are valid. 
 
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
             let mut key_index_pairs: Vec<(Box<K>, u64, u64)> = Vec::new();
-            let max_index = overall_metadata.main_table_size / entry_slot_size;
+            let max_index = overall_metadata.main_table_size / (metadata_node_size as u64);
             let ghost mem = subregion.view(pm_region).committed();
             let mut index = 0;
             let ghost table = parse_metadata_table::<K>(
@@ -410,11 +452,11 @@ verus! {
             let ghost old_pm_constants = pm_region.constants();
 
             proof {
-                // proves that max_index * entry_slot_size <= overall_metadata.main_table_size
-                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int);
-                // This helps Verus prove that we don't go out of bounds when reading the entry at index * entry_slot_size
-                assert(entry_slot_size * max_index == max_index * entry_slot_size) by {
-                    vstd::arithmetic::mul::lemma_mul_is_commutative(entry_slot_size as int, max_index as int);
+                // proves that max_index * metadata_node_size <= overall_metadata.main_table_size
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(overall_metadata.main_table_size as int, metadata_node_size as int);
+                // This helps Verus prove that we don't go out of bounds when reading the entry at index * metadata_node_size
+                assert(metadata_node_size * max_index == max_index * metadata_node_size) by {
+                    vstd::arithmetic::mul::lemma_mul_is_commutative(metadata_node_size as int, max_index as int);
                 }
             }
 
@@ -422,12 +464,12 @@ verus! {
                 invariant
                     subregion.inv(pm_region),
                     index <= num_keys,
-                    index * entry_slot_size <= overall_metadata.main_table_size <= u64::MAX,
-                    max_index == overall_metadata.main_table_size / entry_slot_size,
-                    max_index * entry_slot_size <= overall_metadata.main_table_size,
-                    entry_slot_size * max_index == max_index * entry_slot_size, 
+                    index * metadata_node_size <= overall_metadata.main_table_size <= u64::MAX,
+                    max_index == overall_metadata.main_table_size / (metadata_node_size as u64),
+                    max_index * metadata_node_size <= overall_metadata.main_table_size,
+                    metadata_node_size * max_index == max_index * metadata_node_size, 
                     index <= max_index,
-                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == entry_slot_size,
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == metadata_node_size,
                     num_keys == overall_metadata.num_keys,
                     subregion.len() == overall_metadata.main_table_size,
                     subregion.view(pm_region).no_outstanding_writes(),
@@ -443,7 +485,7 @@ verus! {
                         overall_metadata.num_keys, 
                         overall_metadata.metadata_node_size 
                     ).unwrap(),
-                    entry_slot_size == overall_metadata.metadata_node_size,
+                    metadata_node_size == overall_metadata.metadata_node_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
                         entry matches DurableEntry::Invalid <==> 
@@ -478,25 +520,25 @@ verus! {
                 let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
                 if index < max_index {
-                    // This case proves that index * entry_slot_size will not overflow or go out of bounds (here or at the end
+                    // This case proves that index * metadata_node_size will not overflow or go out of bounds (here or at the end
                     // of the loop) if index < max_index
                     proof {
-                        lemma_mul_strict_inequality(index as int, max_index as int, entry_slot_size as int);
+                        lemma_mul_strict_inequality(index as int, max_index as int, metadata_node_size as int);
                         if index + 1 < max_index {
-                            lemma_mul_strict_inequality(index + 1, max_index as int, entry_slot_size as int);
+                            lemma_mul_strict_inequality(index + 1, max_index as int, metadata_node_size as int);
                         }
                         // also prove that we can read the next entry at this index without going out of bounds
-                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(entry_slot_size as int, index as int, 1int);
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add(metadata_node_size as int, index as int, 1int);
                         // asserting these here seems to help stabilize some arithmetic assertions later
-                        assert(entry_slot_size * (index + 1) == entry_slot_size * index + entry_slot_size);
-                        assert(entry_slot_size * (index + 1) <= entry_slot_size * max_index);
+                        assert(metadata_node_size * (index + 1) == metadata_node_size * index + metadata_node_size);
+                        assert(metadata_node_size * (index + 1) <= metadata_node_size * max_index);
                     }
                 } else {
-                    proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, entry_slot_size as int); }
+                    proof { lemma_fundamental_div_mod(overall_metadata.main_table_size as int, metadata_node_size as int); }
                     return Err(KvError::IndexOutOfRange);
                 }
 
-                let entry_offset = index * entry_slot_size;
+                let entry_offset = index * (metadata_node_size as u64);
 
                 // Read the CDB at this slot. If it's valid, we need to read the rest of the 
                 // entry to get the key and check its CRC
@@ -510,7 +552,7 @@ verus! {
                     // trigger for CDB bytes parseable
                     assert(u64::bytes_parseable(extract_bytes(
                         subregion.view(pm_region).committed(),
-                        index_to_offset(index as nat, entry_slot_size as nat),
+                        index_to_offset(index as nat, metadata_node_size as nat),
                         u64::spec_size_of()
                     )));
                 }
@@ -540,7 +582,7 @@ verus! {
                             assert(metadata_allocator@.subrange(0, metadata_allocator@.len() - 1) == old_metadata_allocator);
                             assert(metadata_allocator@[metadata_allocator@.len() - 1] == index);
                             // Invoking this lemma here proves that the CDB we just read is the same one checked by parse_metadata_entry
-                            lemma_subrange_of_extract_bytes_equal(mem, relative_cdb_addr as nat, relative_cdb_addr as nat, entry_slot_size as nat, u64::spec_size_of());
+                            lemma_subrange_of_extract_bytes_equal(mem, relative_cdb_addr as nat, relative_cdb_addr as nat, metadata_node_size as nat, u64::spec_size_of());
                         }
                     }, 
                     Some(true) => {
@@ -565,18 +607,18 @@ verus! {
                         let ghost true_key = K::spec_from_bytes(true_key_bytes);
 
                         proof {
-                            assert(index * entry_slot_size + u64::spec_size_of() * 2 < subregion.len());
+                            assert(index * metadata_node_size + u64::spec_size_of() * 2 < subregion.len());
 
                             assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_crc_addr as nat, u64::spec_size_of()));
                             assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
                             assert(true_entry_bytes == extract_bytes(
-                                extract_bytes(mem, (index * entry_slot_size) as nat, entry_slot_size as nat),
+                                extract_bytes(mem, (index * metadata_node_size) as nat, metadata_node_size as nat),
                                 u64::spec_size_of() * 2,
                                 ListEntryMetadata::spec_size_of()
                             ));
                             assert(true_key_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_key_addr as nat, K::spec_size_of()));
                             assert(true_key_bytes == extract_bytes(
-                                extract_bytes(mem, (index * entry_slot_size) as nat, entry_slot_size as nat),
+                                extract_bytes(mem, (index * metadata_node_size) as nat, metadata_node_size as nat),
                                 u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
                                 K::spec_size_of()
                             ));
@@ -709,7 +751,6 @@ verus! {
 
             let main_table = MetadataTable {
                 metadata_table_free_list: metadata_allocator,
-                entry_slot_size,
                 state: Ghost(parse_metadata_table::<K>(
                     subregion.view(pm_region).committed(),
                     overall_metadata.num_keys, 
@@ -761,17 +802,33 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 self.inv(subregion.view(pm_region), *overall_metadata),
-                // TODO
-            ensures 
-                // TODO
+                0 <= metadata_index < self@.durable_metadata_table.len(),
+                self@.durable_metadata_table[metadata_index as int] is Valid,
+                self@.outstanding_cdb_writes[metadata_index as int] is None,
+                self@.outstanding_entry_writes[metadata_index as int] is None,
+            ensures
+                ({
+                    match result {
+                        Ok((key, entry)) => {
+                            let meta = self@.durable_metadata_table[metadata_index as int]->Valid_0;
+                            &&& meta.key == key
+                            &&& meta.entry == entry
+                        },
+                        Err(_) => true,
+                    }
+                }),
         {
             // TODO: why is the CRC between the key and the entry? they should be consecutive to make things a little
             // bit easier.
 
+            let ghost num_keys = overall_metadata.num_keys;
+            let ghost pm_view = subregion.view(pm_region);
+            let metadata_node_size = overall_metadata.metadata_node_size;
+            proof {
+                lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
+            }
             // TODO: store this so we don't have to recalculate it every time
-            let entry_slot_size = self.entry_slot_size;
-            assume(false);
-            let slot_addr = metadata_index * entry_slot_size;
+            let slot_addr = metadata_index * (metadata_node_size as u64);
             let cdb_addr = slot_addr;
             let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
@@ -796,10 +853,15 @@ verus! {
             let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
 
             // 2. Check the CDB to determine whether the entry is valid
-            let cdb = match pm_region.read_aligned::<u64>(cdb_addr) {
+            proof {
+                assert(self.outstanding_cdb_write_matches_pm_view(pm_view, metadata_index as int, metadata_node_size));
+                self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, *overall_metadata, metadata_index);
+            }
+            let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                 Ok(cdb) => cdb,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
+            assume(false);
             let cdb_result = check_cdb(cdb, Ghost(mem), 
                 Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
             match cdb_result {
@@ -883,7 +945,7 @@ verus! {
             {
                 assume(false);
                 // CDB + CDC + metadata + key
-                let entry_slot_size = (traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + 
+                let metadata_node_size = (traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + 
                     traits_t::size_of::<ListEntryMetadata>() + K::size_of()) as u64;
 
                 let log_entry = &log_entries[i];
@@ -891,18 +953,18 @@ verus! {
                     OpLogEntryType::CommitMetadataEntry { metadata_index } => {
                         // commit metadata just sets the CDB -- the metadata fields have already been filled in.
                         // We also have to commit the item, but we'll do that in item table recovery
-                        let cdb_addr = metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * metadata_node_size;
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
                     }
                     OpLogEntryType::InvalidateMetadataEntry { metadata_index } => {
                         // invalidate metadata just writes CDB_FALSE to the entry's CDB
-                        let cdb_addr = metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * metadata_node_size;
                         
                         wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
                     }
                     OpLogEntryType::UpdateMetadataEntry { metadata_index, new_metadata, new_crc } => {
-                        let cdb_addr = metadata_index * entry_slot_size;
+                        let cdb_addr = metadata_index * metadata_node_size;
                         let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
                         let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
@@ -955,8 +1017,8 @@ verus! {
             let crc = digest.sum64();
 
             // 4. write CRC and entry 
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = free_index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = free_index * metadata_node_size;
             // CDB is at slot addr -- we aren't setting that one yet
             let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
@@ -1000,8 +1062,8 @@ verus! {
             let crc = digest.sum64();
 
             // 2. Write the CRC and entry (but not the key)
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = metadata_index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = metadata_index * metadata_node_size;
             let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
@@ -1031,8 +1093,8 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = index * metadata_node_size;
             let cdb_addr = slot_addr;
 
             wrpm_region.serialize_and_write(cdb_addr, &CDB_TRUE, Tracked(perm));
@@ -1059,8 +1121,8 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = index * metadata_node_size;
             let cdb_addr = slot_addr + RELATIVE_POS_OF_VALID_CDB;
 
             wrpm_region.serialize_and_write(cdb_addr, &CDB_FALSE, Tracked(perm));
@@ -1090,8 +1152,8 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = index * metadata_node_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
 
@@ -1123,8 +1185,8 @@ verus! {
         {
             assume(false);
 
-            let entry_slot_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = index * entry_slot_size;
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = index * metadata_node_size;
             let crc_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_CRC;
             let head_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_HEAD;
             let len_addr = slot_addr + RELATIVE_POS_OF_ENTRY_METADATA_LENGTH;
