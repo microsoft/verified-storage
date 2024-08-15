@@ -127,18 +127,24 @@ verus! {
                         (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
                         ListEntryMetadata::spec_size_of() as nat,
                     );
+                    let entry = ListEntryMetadata::spec_from_bytes(entry_bytes);
                     let key_bytes = extract_bytes(
                         pm.committed(),
                         (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2 +
                             ListEntryMetadata::spec_size_of(),
                         K::spec_size_of() as nat,
                     );
+                    let key = K::spec_from_bytes(key_bytes);
+                    let meta = self@.durable_metadata_table[index as int]->Valid_0;
                     &&& u64::bytes_parseable(cdb_bytes)
                     &&& u64::bytes_parseable(crc_bytes)
                     &&& ListEntryMetadata::bytes_parseable(entry_bytes)
                     &&& K::bytes_parseable(key_bytes)
                     &&& cdb == CDB_TRUE || cdb == CDB_FALSE
                     &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+                    &&& crc == meta.crc
+                    &&& entry == meta.entry
+                    &&& key == meta.key
                 }),
         {
             let metadata_node_size = overall_metadata.metadata_node_size;
@@ -931,12 +937,8 @@ verus! {
             }
 
             // 4. Return the metadata entry and key
-            assert(pm_region.constants().impervious_to_corruption ==> metadata_entry@ == true_entry_bytes);
-            let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes),
-                Ghost(pm_region.constants().impervious_to_corruption));
-            let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
-                Ghost(pm_region.constants().impervious_to_corruption));
-            assume(false);
+            let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry));
+            let key = key.extract_init_val(Ghost(true_key));
             Ok((key, metadata_entry))
         }
 
