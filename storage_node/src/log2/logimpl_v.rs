@@ -107,7 +107,7 @@ impl UntrustedLogImpl {
         &&& pm.inv()
         &&& self@.capacity >= self@.log.len()
         // &&& no_outstanding_writes_to_metadata(pm@)
-        // &&& memory_matches_deserialized_cdb(pm@, self.cdb)
+        &&& memory_matches_deserialized_cdb(pm@, log_start_addr, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
         &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
         &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
@@ -307,7 +307,12 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
             forall |s| #[trigger] perm.check_permission(s) <==>
                     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
+            // spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat) is Some,
+            // spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat).unwrap() == self.cdb,
+            // memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat).unwrap())
         ensures
+            // self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
             wrpm_region.inv(),
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
             wrpm_region.constants() == old(wrpm_region).constants(),
@@ -353,6 +358,7 @@ impl UntrustedLogImpl {
                                                         info.log_area_len as nat,
                                                         is_writable_absolute_addr)
         } implies perm.check_permission(crash_state) by {
+            broadcast use pmcopy_axioms;
             lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                 wrpm_region@, alt_region_view, crash_state, log_start_addr as nat, log_size as nat, self.cdb, 
                 self.info, self.state@, is_writable_absolute_addr
