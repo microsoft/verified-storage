@@ -91,6 +91,8 @@ verus! {
                 self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
+            &&& self.state@.outstanding_cdb_writes.len() == self.state@.durable_metadata_table.len()
+            &&& self.state@.outstanding_entry_writes.len() == self.state@.durable_metadata_table.len()
             &&& self.state@.inv()
             &&& self.allocator_view() == self@.free_indices()
         }
@@ -368,6 +370,7 @@ verus! {
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2 as int);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
+                        &&& main_table@.no_outstanding_writes()
                         // main table states match
                         &&& table == main_table@
                         // the entry list corresponds to the table

@@ -72,6 +72,22 @@ verus! {
             }
         }
 
+        pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
+        {
+            &&& self.outstanding_cdb_writes[idx] is None
+            &&& self.outstanding_entry_writes[idx] is None
+        }
+
+        pub open spec fn no_outstanding_writes(self) -> bool
+        {
+            forall|i| 0 <= i < self.durable_metadata_table.len() ==> self.no_outstanding_writes_to_index(i)
+        }
+
+        pub open spec fn no_outstanding_writes_except_to_index(self, idx: int) -> bool
+        {
+            forall|i| 0 <= i < self.durable_metadata_table.len() && i != idx ==> self.no_outstanding_writes_to_index(i)
+        }
+
         pub open spec fn new(
             metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
         ) -> Self {
