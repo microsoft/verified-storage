@@ -70,9 +70,10 @@ verus! {
         {
             &&& self.log.inv(pm_region, self.log_start_addr as nat, self.log_size as nat)
             &&& ({
-                    // either the log is empty or it has valid matching logical and physical op logs
-                    ||| self.log@.log.len() == 0
-                    // ||| logical_and_physical_logs_correspond(self@.logical_op_list, self@.physical_op_list)
+                    // either the op log and base log are empty, or they are not and there are 
+                    // bytes in the current transaction's CRC digest
+                    ||| (self.log@.log.len() == 0 && self@.physical_op_list.len() == 0)
+                    ||| (self.current_transaction_crc.bytes_in_digest().len() > 0)
                 })
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -660,36 +661,62 @@ verus! {
         // update the ghost state to reflect the new entry
         let ghost new_state = self.state@.tentatively_append_log_entry(log_entry@);
         self.state = Ghost(new_state);
+
+        // update the op log's CRC digest
+        self.current_transaction_crc.write_bytes(bytes);
         
         Ok(())
     }
 
-        // pub exec fn commit_log<PM>(
-        //     &mut self, 
-        //     log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        //     Tracked(perm): Tracked<&TrustedPermission>,
-        // ) -> (result: Result<(), KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         // TODO
-        //     ensures 
-        //         // TODO
-        // {
-        //     assume(false);
-        //     let transaction_crc = self.current_transaction_crc.sum64();
-        //     let bytes = transaction_crc.as_byte_slice();
-        //     match self.log.tentatively_append(log_wrpm, bytes, Ghost(log_id), Tracked(perm)) {
-        //         Ok(_) => {}
-        //         Err(e) => return Err(KvError::LogErr { log_err: e })
-        //     }
-        //     match self.log.commit(log_wrpm, Ghost(log_id), Tracked(perm)) {
-        //         Ok(_) => {}
-        //         Err(e) => return Err(KvError::LogErr { log_err: e })
-        //     }
-        //     Ok(())
-        // }
+        pub exec fn commit_log<Perm, PM>(
+            &mut self, 
+            log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            Tracked(perm): Tracked<&Perm>,
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires 
+                old(self).inv(*old(log_wrpm)),
+                old(self)@.physical_op_list.len() > 0,
+                // TODO: like with tentatively_append above, it might be better to find a way to 
+                // express this precondition on the level of the op log rather than the base log
+                forall |s| #[trigger] perm.check_permission(s) <==> {
+                    ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
+                            Some(old(self).base_log_view().drop_pending_appends())
+                    ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
+                            Some(old(self).base_log_view().commit().drop_pending_appends())
+                }
+            ensures 
+                self.inv(*log_wrpm),
+                match result {
+                    Ok(()) => {
+                        self@ == old(self)@.commit_op_log()
+                    }
+                    Err(_) => true // TODO
+                }
+        {
+            let transaction_crc = self.current_transaction_crc.sum64();
+            let bytes = transaction_crc.as_byte_slice();
+
+            // since tentatively_append requires a stronger permissions argument than we have here,
+            // we'll construct a stronger one and prove that any crash state satisfying the stronger one
+            // allso satisfies the weaker one
+
+            match self.log.tentatively_append(log_wrpm, self.log_start_addr, self.log_size, bytes, Tracked(perm)) {
+                Ok(_) => {}
+                Err(e) => {
+                    assert(old(self)@.physical_op_list == self@.physical_op_list);
+                    return Err(KvError::LogErr { log_err: e });
+                }
+            }
+            assume(false);
+            match self.log.commit(log_wrpm, self.log_start_addr, self.log_size, Tracked(perm)) {
+                Ok(_) => {}
+                Err(e) => return Err(KvError::LogErr { log_err: e })
+            }
+            Ok(())
+        }
 
         // pub exec fn clear_log<PM>(
         //     &mut self, 
