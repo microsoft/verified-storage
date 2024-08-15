@@ -488,7 +488,8 @@ verus! {
                 &&& abstract_op_log matches Some(abstract_log)
                 &&& 0 < abstract_log.len() <= u64::MAX
             }),
-            overall_metadata.log_area_addr + overall_metadata.log_area_size <= u64::MAX
+            overall_metadata.log_area_addr + overall_metadata.log_area_size <= u64::MAX,
+            overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {

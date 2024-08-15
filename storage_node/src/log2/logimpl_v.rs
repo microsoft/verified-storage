@@ -307,11 +307,7 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
             forall |s| #[trigger] perm.check_permission(s) <==>
                     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
-            // spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat) is Some,
-            // spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat).unwrap() == self.cdb,
-            // memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat).unwrap())
         ensures
-            // self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
             wrpm_region.inv(),
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
@@ -1168,7 +1164,7 @@ impl UntrustedLogImpl {
             info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@),
             metadata_consistent_with_info(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, !self.cdb, self.info),
     {
-        broadcast use pmcopy_axioms;
+        // broadcast use pmcopy_axioms;
 
         // Encode the log metadata as bytes, and compute the CRC of those bytes
         let info = &self.info;
@@ -1181,6 +1177,7 @@ impl UntrustedLogImpl {
         let inactive_metadata_pos = get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
 
         proof {
+            broadcast use pmcopy_axioms;
             // To prove that there are no outstanding updates to inactive metadata, we have to prove that it doesn't run into the log area.
             // We have to do this by compute; since there are two possible inactive metadata positions, we have to do case analysis
             assert(spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_false() || spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_true());
