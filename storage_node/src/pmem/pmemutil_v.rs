@@ -219,6 +219,7 @@ verus! {
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes)
                 &&& if impervious_to_corruption {
                         &&& data_c@ == true_data_bytes
                         &&& crc_c@ == true_crc_bytes
@@ -232,14 +233,12 @@ verus! {
             ({
                 let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                true_crc_bytes == spec_crc_bytes(true_data_bytes) ==> {
-                    if b {
-                        &&& data_c@ == true_data_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        !impervious_to_corruption
-                    }
+                if b {
+                    &&& data_c@ == true_data_bytes
+                    &&& crc_c@ == true_crc_bytes
+                }
+                else {
+                    !impervious_to_corruption
                 }
             })
     {
@@ -260,11 +259,9 @@ verus! {
             // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
             // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
             // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
-            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
-            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
-            // detected corruption.
+            // because we don't need it. #1 is a requirement to call this lemma. If #2 is false,
+            // then no corruption has happened. If #3 is false, then we've detected corruption.
             if {
-                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes)
                 &&& !impervious_to_corruption
                 &&& crcs_match
             } {
@@ -294,6 +291,7 @@ verus! {
                 let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
                 let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
                 &&& if impervious_to_corruption {
                         &&& data1_c@ == true_data1_bytes
                         &&& data2_c@ == true_data2_bytes
@@ -310,15 +308,13 @@ verus! {
                 let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
                 let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes) ==> {
-                    if b {
-                        &&& data1_c@ == true_data1_bytes
-                        &&& data2_c@ == true_data2_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        !impervious_to_corruption
-                    }
+                if b {
+                    &&& data1_c@ == true_data1_bytes
+                    &&& data2_c@ == true_data2_bytes
+                    &&& crc_c@ == true_crc_bytes
+                }
+                else {
+                    !impervious_to_corruption
                 }
             })
     {
@@ -349,9 +345,8 @@ verus! {
             // the CRC of the last-written data; (2) the persistent memory regions aren't impervious
             // to corruption; and (3) the CRC read from disk matches the computed CRC. If any of
             // these three is false, we can't invoke `axiom_bytes_uncorrupted`, but that's OK
-            // because we don't need it. If #1 is false, then this lemma isn't expected to prove
-            // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
-            // detected corruption.
+            // because we don't need it. #1 is a precondition for calling this lemma. If #2 is false,
+            // then no corruption has happened. If #3 is false, then we've detected corruption.
             if {
                 &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
                 &&& !impervious_to_corruption
@@ -404,6 +399,7 @@ verus! {
                 let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data1_addrs[i] as int]);
                 let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data2_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
+                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
                 &&& if impervious_to_corruption {
                         &&& data1_c@ == true_data1_bytes
                         &&& data2_c@ == true_data2_bytes
@@ -420,15 +416,13 @@ verus! {
                 let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data1_addrs[i] as int]);
                 let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data2_addrs[i] as int]);
                 let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes) ==> {
-                    if b {
-                        &&& data1_c@ == true_data1_bytes
-                        &&& data2_c@ == true_data2_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        !impervious_to_corruption
-                    }
+                if b {
+                    &&& data1_c@ == true_data1_bytes
+                    &&& data2_c@ == true_data2_bytes
+                    &&& crc_c@ == true_crc_bytes
+                }
+                else {
+                    !impervious_to_corruption
                 }
             })
     {
