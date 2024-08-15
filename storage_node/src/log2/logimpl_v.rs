@@ -306,7 +306,7 @@ impl UntrustedLogImpl {
                 },
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==>
+            forall |s| #[trigger] perm.check_permission(s) <==
                     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
         ensures
             spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
@@ -424,6 +424,12 @@ impl UntrustedLogImpl {
 
             proof {
                 lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+
+                let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append@);
+                lemma_append_crash_states_do_not_modify_reachable_state(
+                    wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
+                    self.info, self.state@, self.cdb, is_writable_absolute_addr
+                );
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
         }
@@ -457,6 +463,12 @@ impl UntrustedLogImpl {
                 // If there's room for all the bytes we need to write, we just need one write.
                 proof {
                     lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+
+                    let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append@);
+                    lemma_append_crash_states_do_not_modify_reachable_state(
+                        wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
+                        self.info, self.state@, self.cdb, is_writable_absolute_addr
+                    );
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
             }
@@ -473,6 +485,14 @@ impl UntrustedLogImpl {
 
                 proof {
                     lemma_tentatively_append_wrapping(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
+
+                    let new_pm = wrpm_region@
+                        .write(log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat))
+                        .write(log_area_start_addr as int, extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
+                    lemma_append_crash_states_do_not_modify_reachable_state(
+                        wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
+                        self.info, self.state@, self.cdb, is_writable_absolute_addr
+                    );
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize), Tracked(perm));
                 wrpm_region.write(log_area_start_addr, slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()), Tracked(perm));
@@ -513,7 +533,7 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==>
+            forall |s| #[trigger] perm.check_permission(s) <==
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
         ensures
@@ -1402,8 +1422,6 @@ impl UntrustedLogImpl {
             info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@),
             metadata_consistent_with_info(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, !self.cdb, self.info),
     {
-        // broadcast use pmcopy_axioms;
-
         // Encode the log metadata as bytes, and compute the CRC of those bytes
         let info = &self.info;
         let log_metadata = LogMetadata {
@@ -1426,8 +1444,6 @@ impl UntrustedLogImpl {
             }
             assert(spec_get_inactive_log_metadata_pos(self.cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos());
             assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos());
-
-            assert(wrpm_region@.no_outstanding_writes_in_range(inactive_metadata_pos as int, inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
         } 
 
         // Prove that all crash states are legal by invoking the lemma that proves that if we only

@@ -710,11 +710,12 @@ verus! {
                     return Err(KvError::LogErr { log_err: e });
                 }
             }
-            assume(false);
+            
             match self.log.commit(log_wrpm, self.log_start_addr, self.log_size, Tracked(perm)) {
                 Ok(_) => {}
                 Err(e) => return Err(KvError::LogErr { log_err: e })
             }
+            assume(false);
             Ok(())
         }
 
