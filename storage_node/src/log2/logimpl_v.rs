@@ -106,7 +106,7 @@ impl UntrustedLogImpl {
     {
         &&& pm.inv()
         &&& self@.capacity >= self@.log.len()
-        // &&& no_outstanding_writes_to_metadata(pm@)
+        &&& no_outstanding_writes_to_metadata(pm@, log_start_addr)
         &&& memory_matches_deserialized_cdb(pm@, log_start_addr, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
         &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
@@ -310,6 +310,7 @@ impl UntrustedLogImpl {
         ensures
             spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
             wrpm_region.inv(),
+            no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
@@ -928,7 +929,7 @@ impl UntrustedLogImpl {
                         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self).state@.drop_pending_appends())
                     } ==> #[trigger] perm.check_permission(s),
             metadata_types_set(old(wrpm_region)@.committed(), log_start_addr as nat),
-            log_start_addr < log_start_addr + log_size < old(wrpm_region)@.len() <= u64::MAX,
+            log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX,
             log_start_addr as int % const_persistence_chunk_size() == 0,
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
@@ -1230,61 +1231,63 @@ impl UntrustedLogImpl {
         }
     }
 
-    // // The `commit` method commits all tentative appends that have been
-    // // performed since the last one. See `README.md` for more
-    // // documentation and examples of its use.
-    // //
-    // // This method is passed a write-restricted persistent memory
-    // // region `wrpm_region`. This restricts how it can write
-    // // `wrpm_region`. It's only given permission (in `perm`) to
-    // // write if it can prove that any crash after initiating the
-    // // write is safe. That is, any such crash must put the memory
-    // // in a state that recovers as either (1) the current abstract
-    // // state with all pending appends dropped, or (2) the abstract
-    // // state after all pending appends are committed.
-    // pub exec fn commit<Perm, PM>(
-    //     &mut self,
-    //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-    //     log_start_addr: u64,
-    //     log_size: u64,
-    //     Tracked(perm): Tracked<&Perm>,
-    // ) -> (result: Result<(), LogErr>)
-    //     where
-    //         Perm: CheckPermission<Seq<u8>>,
-    //         PM: PersistentMemoryRegion
-    //     requires
-    //         old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-    //         forall |s| #[trigger] perm.check_permission(s) <==> {
-    //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
-    //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
-    //         },
-    //     ensures
-    //         self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
-    //         wrpm_region.constants() == old(wrpm_region).constants(),
-    //         Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
-    //         result is Ok,
-    //         self@ == old(self)@.commit(),
-    // {
-    //     let ghost prev_info = self.info;
-    //     let ghost prev_state = self.state@;
+    // The `commit` method commits all tentative appends that have been
+    // performed since the last one. See `README.md` for more
+    // documentation and examples of its use.
+    //
+    // This method is passed a write-restricted persistent memory
+    // region `wrpm_region`. This restricts how it can write
+    // `wrpm_region`. It's only given permission (in `perm`) to
+    // write if it can prove that any crash after initiating the
+    // write is safe. That is, any such crash must put the memory
+    // in a state that recovers as either (1) the current abstract
+    // state with all pending appends dropped, or (2) the abstract
+    // state after all pending appends are committed.
+    pub exec fn commit<Perm, PM>(
+        &mut self,
+        wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: u64,
+        log_size: u64,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<(), LogErr>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion
+        requires
+            old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+                ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
+            },
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX
+        ensures
+            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            wrpm_region.constants() == old(wrpm_region).constants(),
+            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            result is Ok,
+            self@ == old(self)@.commit(),
+    {
+        let ghost prev_info = self.info;
+        let ghost prev_state = self.state@;
 
-    //     self.state = Ghost(self.state@.commit());
+        self.state = Ghost(self.state@.commit());
 
-    //     self.info.log_length = self.info.log_plus_pending_length;
+        self.info.log_length = self.info.log_plus_pending_length;
 
-    //     assert(memory_matches_deserialized_cdb(wrpm_region@, log_start_addr as nat, self.cdb));
-    //     assert(metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info));
-    //     assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state));
-    //     assert(self.state@ == prev_state.commit());
-    //     assert(info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@));
+        assert(memory_matches_deserialized_cdb(wrpm_region@, log_start_addr as nat, self.cdb));
+        assert(metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info));
+        assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state));
+        assert(self.state@ == prev_state.commit());
+        assert(info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@));
 
-    //     // Update the inactive metadata on all regions and flush, then
-    //     // swap the CDB to its opposite.
+        // Update the inactive metadata on all regions and flush, then
+        // swap the CDB to its opposite.
 
-    //     self.update_log_metadata(wrpm_region, Ghost(prev_info), Ghost(prev_state), Tracked(perm));
+        self.update_log_metadata(wrpm_region, log_start_addr, log_size, Ghost(prev_info), Ghost(prev_state), Tracked(perm));
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     // The `get_head_tail_and_capacity` method returns the head,
     // tail, and capacity of the log. See `README.md` for more

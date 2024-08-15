@@ -793,7 +793,7 @@ pub proof fn lemma_metadata_consistent_with_info_after_cdb_update(
         new_cdb_bytes.len() == u64::spec_size_of(),
         old_pm_region_view.no_outstanding_writes(),
         new_pm_region_view.no_outstanding_writes(),
-        old_pm_region_view.len() > log_start_addr + log_size,
+        log_start_addr + log_size <= old_pm_region_view.len(),
         log_size > u64::spec_size_of(),
         log_start_addr + spec_get_active_log_crc_end(new_cdb) <= old_pm_region_view.len(),
         new_pm_region_view =~= old_pm_region_view.write(log_start_addr as int, new_cdb_bytes).flush(),
