@@ -912,14 +912,16 @@ verus! {
                 Ok(key) => key,
                 Err(e) => return Err(KvError::PmemErr {pmem_err: e })
             };
-            assume(false);
 
             // 3. Check for corruption
-            if !check_crc_for_two_reads(metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(mem),
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs), Ghost(crc_addrs)) 
+            if !check_crc_for_two_reads(
+                metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
+                Ghost(crc_addrs)) 
             {
                 return Err(KvError::CRCMismatch);
             }
+            assume(false);
 
             // 4. Return the metadata entry and key
             let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes),
