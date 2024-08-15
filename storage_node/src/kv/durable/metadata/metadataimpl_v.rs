@@ -116,24 +116,30 @@ verus! {
                         u64::spec_size_of() as nat,
                     );
                     let cdb = u64::spec_from_bytes(cdb_bytes);
+                    let crc_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
+                        u64::spec_size_of() as nat,
+                    );
+                    let crc = u64::spec_from_bytes(crc_bytes);
+                    let entry_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
+                        ListEntryMetadata::spec_size_of() as nat,
+                    );
+                    let key_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2 +
+                            ListEntryMetadata::spec_size_of(),
+                        K::spec_size_of() as nat,
+                    );
                     &&& u64::bytes_parseable(cdb_bytes)
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& ListEntryMetadata::bytes_parseable(entry_bytes)
+                    &&& K::bytes_parseable(key_bytes)
                     &&& cdb == CDB_TRUE || cdb == CDB_FALSE
+                    &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
                 }),
-                u64::bytes_parseable(extract_bytes(
-                    pm.committed(),
-                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
-                    u64::spec_size_of() as nat,
-                )),
-                ListEntryMetadata::bytes_parseable(extract_bytes(
-                    pm.committed(),
-                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
-                    ListEntryMetadata::spec_size_of() as nat,
-                )),
-                K::bytes_parseable(extract_bytes(
-                    pm.committed(),
-                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
-                    K::spec_size_of() as nat,
-                )),
         {
             let metadata_node_size = overall_metadata.metadata_node_size;
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
@@ -648,24 +654,29 @@ verus! {
                             );
                         }
                         
-                        let crc = match subregion.read_relative_aligned::<u64, _>(pm_region, relative_crc_addr) {
+                        let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, relative_crc_addr) {
                             Ok(crc) => crc,
                             Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                         };
-                        let entry = match subregion.read_relative_aligned::<ListEntryMetadata, _>(pm_region, relative_entry_addr) {
+                        let entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region,
+                                                                                                   relative_entry_addr) {
                             Ok(entry) => entry,
                             Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                         };
-                        let key = match subregion.read_relative_aligned::<K, _>(pm_region, relative_key_addr) {
+                        let key = match subregion.read_relative_aligned::<K, PM>(pm_region, relative_key_addr) {
                             Ok(key) => key,
                             Err(e) => return Err(KvError::PmemErr { pmem_err: e })
                         };
                         
-                        if !check_crc_for_two_reads_in_subregion(entry.as_slice(), key.as_slice(), crc.as_slice(), subregion, pm_region, 
-                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_entry_addrs), Ghost(relative_key_addrs), Ghost(relative_crc_addrs)) {
-                                assert(!pm_region.constants().impervious_to_corruption);
-                                return Err(KvError::CRCMismatch);
+                        if !check_crc_for_two_reads_in_subregion(
+                            entry.as_slice(), key.as_slice(), crc.as_slice(), subregion, pm_region, 
+                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_entry_addrs),
+                            Ghost(relative_key_addrs), Ghost(relative_crc_addrs)) {
+                            assert(!pm_region.constants().impervious_to_corruption);
+                            return Err(KvError::CRCMismatch);
                         }
+
+                        assume(false);
 
                         let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
@@ -856,13 +867,13 @@ verus! {
             let ghost mem = pm_view.committed();
 
             let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
-            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
             let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
             let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
 
             let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-            let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
             let ghost true_key = K::spec_from_bytes(true_key_bytes);
 
             let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
@@ -921,13 +932,14 @@ verus! {
             {
                 return Err(KvError::CRCMismatch);
             }
-            assume(false);
 
             // 4. Return the metadata entry and key
+            assert(pm_region.constants().impervious_to_corruption ==> metadata_entry@ == true_entry_bytes);
             let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes),
                 Ghost(pm_region.constants().impervious_to_corruption));
             let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
                 Ghost(pm_region.constants().impervious_to_corruption));
+            assume(false);
             Ok((key, metadata_entry))
         }
 
