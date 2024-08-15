@@ -132,11 +132,7 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             return Err(LogErr::CRCMismatch);
         }
 
-        let log_metadata = log_metadata.extract_init_val(
-            Ghost(true_log_metadata), 
-            Ghost(true_bytes),
-            Ghost(pm_region.constants().impervious_to_corruption)
-        );
+        let log_metadata = log_metadata.extract_init_val(Ghost(true_log_metadata));
 
         // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area

@@ -561,12 +561,9 @@ verus! {
 
                         let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
-                        let crc = crc.extract_init_val(Ghost(true_crc), Ghost(true_crc_bytes),
-                            Ghost(pm_region.constants().impervious_to_corruption));
-                        let key = key.extract_init_val(Ghost(true_key), Ghost(true_key_bytes), 
-                            Ghost(pm_region.constants().impervious_to_corruption));
-                        let metadata = entry.extract_init_val(Ghost(true_entry), Ghost(true_entry_bytes), 
-                            Ghost(pm_region.constants().impervious_to_corruption));
+                        let crc = crc.extract_init_val(Ghost(true_crc));
+                        let key = key.extract_init_val(Ghost(true_key));
+                        let metadata = entry.extract_init_val(Ghost(true_entry));
                         
                         let ghost old_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
                         assert(old_item_index_view.to_set().subset_of(table.valid_item_indices()));

@@ -200,11 +200,7 @@ verus! {
             return Err(LogErr::CRCMismatch);
         }
 
-        let global_metadata = global_metadata.extract_init_val(
-            Ghost(true_global_metadata), 
-            Ghost(true_bytes), 
-            Ghost(pm_region.constants().impervious_to_corruption)
-        );
+        let global_metadata = global_metadata.extract_init_val(Ghost(true_global_metadata));
 
         // Check the global metadata for validity. If it isn't valid,
         // e.g., due to the program GUID not matching, then return an
@@ -264,11 +260,7 @@ verus! {
         }
 
         assert(true_region_metadata.spec_to_bytes() == true_bytes);
-        let region_metadata = region_metadata.extract_init_val(
-            Ghost(true_region_metadata),
-            Ghost(true_bytes),
-            Ghost(pm_region.constants().impervious_to_corruption)
-        );
+        let region_metadata = region_metadata.extract_init_val(Ghost(true_region_metadata));
 
         // Check the region metadata for validity. If it isn't valid,
         // e.g., due to the encoded region size not matching the
@@ -346,11 +338,7 @@ verus! {
             return Err(LogErr::CRCMismatch);
         }
 
-        let log_metadata = log_metadata.extract_init_val(
-            Ghost(true_log_metadata), 
-            Ghost(true_bytes),
-            Ghost(pm_region.constants().impervious_to_corruption)
-        );
+        let log_metadata = log_metadata.extract_init_val(Ghost(true_log_metadata));
 
         // Check the log metadata for validity. If it isn't valid,
         // e.g., due to the log length being greater than the log area
