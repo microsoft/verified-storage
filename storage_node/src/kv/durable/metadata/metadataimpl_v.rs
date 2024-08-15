@@ -82,16 +82,18 @@ verus! {
 
         pub closed spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
+            &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
+            &&& pm.len() >= overall_metadata.main_table_size
             &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self.state@) ==
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& self@.durable_metadata_table.len() == self.state@.outstanding_cdb_writes.len() ==
+                self.state@.outstanding_entry_writes.len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
                 self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-            &&& self.state@.outstanding_cdb_writes.len() == self.state@.durable_metadata_table.len()
-            &&& self.state@.outstanding_entry_writes.len() == self.state@.durable_metadata_table.len()
             &&& self.state@.inv()
             &&& self.allocator_view() == self@.free_indices()
         }
@@ -107,11 +109,16 @@ verus! {
                 0 <= index < self@.durable_metadata_table.len(),
                 self@.durable_metadata_table[index as int] is Valid,
             ensures
-                u64::bytes_parseable(extract_bytes(
-                    pm.committed(),
-                    (index * overall_metadata.metadata_node_size as u64) as nat,
-                    u64::spec_size_of() as nat,
-                )),
+                ({
+                    let cdb_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * overall_metadata.metadata_node_size as u64) as nat,
+                        u64::spec_size_of() as nat,
+                    );
+                    let cdb = u64::spec_from_bytes(cdb_bytes);
+                    &&& u64::bytes_parseable(cdb_bytes)
+                    &&& cdb == CDB_TRUE || cdb == CDB_FALSE
+                }),
                 u64::bytes_parseable(extract_bytes(
                     pm.committed(),
                     (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
@@ -802,7 +809,7 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 self.inv(subregion.view(pm_region), *overall_metadata),
-                0 <= metadata_index < self@.durable_metadata_table.len(),
+                0 <= metadata_index < overall_metadata.num_keys,
                 self@.durable_metadata_table[metadata_index as int] is Valid,
                 self@.outstanding_cdb_writes[metadata_index as int] is None,
                 self@.outstanding_entry_writes[metadata_index as int] is None,
@@ -835,7 +842,7 @@ verus! {
             let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
             // 1. Read the CDB, metadata entry, key, and CRC at the index
-            let ghost mem = pm_region@.committed();
+            let ghost mem = pm_view.committed();
 
             let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
             let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
@@ -847,7 +854,7 @@ verus! {
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
             let ghost true_key = K::spec_from_bytes(true_key_bytes);
 
-            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
+            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
             let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| entry_addr + i);
             let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
             let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
@@ -856,19 +863,21 @@ verus! {
             proof {
                 assert(self.outstanding_cdb_write_matches_pm_view(pm_view, metadata_index as int, metadata_node_size));
                 self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, *overall_metadata, metadata_index);
+                assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
+                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
             }
             let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                 Ok(cdb) => cdb,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            assume(false);
-            let cdb_result = check_cdb(cdb, Ghost(mem), 
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
+            let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
+                                       Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
             match cdb_result {
                 Some(true) => {} // continue 
                 Some(false) => return Err(KvError::EntryIsNotValid),
                 None => return Err(KvError::CRCMismatch)
             }
+            assume(false);
 
             // TODO: error handling
             let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr) {

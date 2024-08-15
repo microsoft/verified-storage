@@ -283,7 +283,7 @@ impl WriteRestrictedPersistentMemorySubregion
         get_subregion_view(self.initial_region_view(), self.start(), self.len())
     }
 
-    pub closed spec fn view<Perm, PMRegion>(
+    pub open spec fn view<Perm, PMRegion>(
         self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     ) -> PersistentMemoryRegionView
@@ -763,7 +763,7 @@ impl PersistentMemorySubregion
         self.start() + self.len()
     }
 
-    pub closed spec fn view<PMRegion: PersistentMemoryRegion>(
+    pub open spec fn view<PMRegion: PersistentMemoryRegion>(
         self,
         pm: &PMRegion,
     ) -> PersistentMemoryRegionView
@@ -1070,7 +1070,7 @@ impl WritablePersistentMemorySubregion
         get_subregion_view(self.initial_region_view(), self.start(), self.len())
     }
 
-    pub closed spec fn view<PMRegion: PersistentMemoryRegion>(
+    pub open spec fn view<PMRegion: PersistentMemoryRegion>(
         self,
         pm: &PMRegion,
     ) -> PersistentMemoryRegionView
