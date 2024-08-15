@@ -106,7 +106,7 @@ verus! {
         )
             requires
                 self.inv(pm, overall_metadata),
-                0 <= index < self@.durable_metadata_table.len(),
+                0 <= index < overall_metadata.num_keys,
                 self@.durable_metadata_table[index as int] is Valid,
             ensures
                 ({
@@ -129,6 +129,11 @@ verus! {
                     (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
                     ListEntryMetadata::spec_size_of() as nat,
                 )),
+                K::bytes_parseable(extract_bytes(
+                    pm.committed(),
+                    (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                    K::spec_size_of() as nat,
+                )),
         {
             let metadata_node_size = overall_metadata.metadata_node_size;
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
@@ -144,6 +149,12 @@ verus! {
                    extract_bytes(pm.committed(),
                                  (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
                                  ListEntryMetadata::spec_size_of()));
+            assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                                 K::spec_size_of()) =~=
+                   extract_bytes(pm.committed(),
+                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2
+                                 + ListEntryMetadata::spec_size_of(),
+                                 K::spec_size_of()));
         }
 
         pub open spec fn spec_replay_log_metadata_table<L>(mem: Seq<u8>, op_log: Seq<LogicalOpLogEntry<L>>) -> Seq<u8>
@@ -837,9 +848,9 @@ verus! {
             // TODO: store this so we don't have to recalculate it every time
             let slot_addr = metadata_index * (metadata_node_size as u64);
             let cdb_addr = slot_addr;
-            let entry_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-            let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+            let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+            let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+            let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
             // 1. Read the CDB, metadata entry, key, and CRC at the index
             let ghost mem = pm_view.committed();
@@ -855,9 +866,10 @@ verus! {
             let ghost true_key = K::spec_from_bytes(true_key_bytes);
 
             let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
-            let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| entry_addr + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
-            let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + i);
+            let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
+                                             |i: int| entry_addr + subregion.start() + i);
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
+            let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
 
             // 2. Check the CDB to determine whether the entry is valid
             proof {
@@ -877,21 +889,30 @@ verus! {
                 Some(false) => return Err(KvError::EntryIsNotValid),
                 None => return Err(KvError::CRCMismatch)
             }
-            assume(false);
 
             // TODO: error handling
-            let metadata_entry = match pm_region.read_aligned::<ListEntryMetadata>(entry_addr) {
-                Ok(metadata_entry) => metadata_entry,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-            };
-            let crc = match pm_region.read_aligned::<u64>(crc_addr) {
+            proof {
+                assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index as int, metadata_node_size));
+                assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
+                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
+                assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
+                       Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
+                assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
+                       Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
+            }
+            let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                 Ok(crc) => crc,
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
-            let key = match pm_region.read_aligned::<K>(key_addr) {
+            let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
+                Ok(metadata_entry) => metadata_entry,
+                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+            };
+            let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
                 Ok(key) => key,
                 Err(e) => return Err(KvError::PmemErr {pmem_err: e })
             };
+            assume(false);
 
             // 3. Check for corruption
             if !check_crc_for_two_reads(metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(mem),
