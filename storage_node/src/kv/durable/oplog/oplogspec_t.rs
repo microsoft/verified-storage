@@ -12,14 +12,16 @@ use crate::pmem::pmcopy_t::*;
 verus! {
 
     #[verifier::ext_equal]
-    pub struct AbstractPhysicalOpLogEntry {
+    pub struct AbstractPhysicalOpLogEntry
+    {
         pub offset: nat, // offset of this log entry relative to the beginning of the log
         pub absolute_addr: nat,
         pub len: nat,
         pub bytes: Seq<u8>,
     }
 
-    impl AbstractPhysicalOpLogEntry {
+    impl AbstractPhysicalOpLogEntry
+    {
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
             &&& self.len > 0
             &&& 0 <= self.absolute_addr < self.absolute_addr + self.len <= overall_metadata.region_size
@@ -41,22 +43,18 @@ verus! {
     // the head pointer to the tail. Once the log has been committed
     // it is illegal to perform any additional appends until it has
     // been cleared.
-    pub struct AbstractOpLogState<L>
-        where
-            L: PmCopy
+    pub struct AbstractOpLogState
     {
-        pub logical_op_list: Seq<LogicalOpLogEntry<L>>,
+        // pub logical_op_list: Seq<LogicalOpLogEntry<L>>,
         pub physical_op_list: Seq<AbstractPhysicalOpLogEntry>,
         pub op_list_committed: bool,
     }
 
-    impl<L> AbstractOpLogState<L>
-        where
-            L: PmCopy
+    impl AbstractOpLogState
     {
         pub open spec fn initialize() -> Self {
             Self {
-                logical_op_list: Seq::empty(),
+                // logical_op_list: Seq::empty(),
                 physical_op_list: Seq::empty(),
                 op_list_committed: false,
             }
@@ -64,11 +62,11 @@ verus! {
 
         pub open spec fn tentatively_append_log_entry(
             self,
-            logical_log_entry: LogicalOpLogEntry<L>,
+            // logical_log_entry: LogicalOpLogEntry<L>,
             physical_log_entry: AbstractPhysicalOpLogEntry,
         ) -> Self {
             Self {
-                logical_op_list: self.logical_op_list.push(logical_log_entry),
+                // logical_op_list: self.logical_op_list.push(logical_log_entry),
                 physical_op_list: self.physical_op_list.push(physical_log_entry),
                 op_list_committed: false
             }
@@ -77,7 +75,7 @@ verus! {
         pub open spec fn commit_op_log(self) -> Self
         {
             Self {
-                logical_op_list: self.logical_op_list,
+                // logical_op_list: self.logical_op_list,
                 physical_op_list: self.physical_op_list,
                 op_list_committed: true,
             }
@@ -90,7 +88,7 @@ verus! {
                 Err(())
             } else {
                 Ok(Self {
-                    logical_op_list: Seq::empty(),
+                    // logical_op_list: Seq::empty(),
                     physical_op_list: Seq::empty(),
                     op_list_committed: false,
                 })

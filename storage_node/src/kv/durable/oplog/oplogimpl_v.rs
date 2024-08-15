@@ -25,17 +25,17 @@ use super::inv_v::*;
 verus! {
     pub struct UntrustedOpLog<K, L>
         where 
-            L: PmCopy
+            L: PmCopy + std::fmt::Debug + Copy,
     {
         log: UntrustedLogImpl,
-        state: Ghost<AbstractOpLogState<L>>,
+        state: Ghost<AbstractOpLogState>,
         current_transaction_crc: CrcDigest,
-        _phantom: Option<K>
+        _phantom: Option<(K, L)>
     }
 
     impl<K, L> UntrustedOpLog<K, L>
         where 
-            L: PmCopy + Copy,
+            L: PmCopy + std::fmt::Debug + Copy,
             K: std::fmt::Debug,
     {
 
@@ -49,7 +49,7 @@ verus! {
             &&& ({
                     // either the log is empty or it has valid matching logical and physical op logs
                     ||| self.log@.log.len() == 0
-                    ||| logical_and_physical_logs_correspond(self@.logical_op_list, self@.physical_op_list)
+                    // ||| logical_and_physical_logs_correspond(self@.logical_op_list, self@.physical_op_list)
                 })
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -60,7 +60,7 @@ verus! {
             } 
         }
 
-        pub closed spec fn view(self) -> AbstractOpLogState<L>
+        pub closed spec fn view(self) -> AbstractOpLogState
         {
             self.state@
         }
@@ -69,7 +69,7 @@ verus! {
             self.log@.log.len()
         }
 
-        pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState<L>>
+        pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState>
         {
             // use log's recover method to recover the log state, then parse it into operations
             match UntrustedLogImpl::recover(mem, overall_metadata.log_area_addr as nat,
@@ -77,7 +77,7 @@ verus! {
                 Some(log) => {
                     if log.log.len() == 0 {
                         Some(AbstractOpLogState {
-                            logical_op_list: Seq::empty(),
+                            // logical_op_list: Seq::empty(),
                             physical_op_list: Seq::empty(),
                             op_list_committed: true
                         })
@@ -91,16 +91,16 @@ verus! {
                                 overall_metadata.log_area_size as nat,
                                 overall_metadata.region_size as nat
                             ) {
-                                if exists |logical_log: Seq<LogicalOpLogEntry<_>>| logical_and_physical_logs_correspond::<L>(logical_log, physical_log_entries) {
-                                    let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
+                                // if exists |logical_log: Seq<LogicalOpLogEntry<_>>| logical_and_physical_logs_correspond::<L>(logical_log, physical_log_entries) {
+                                //     let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
                                     Some(AbstractOpLogState {
-                                        logical_op_list: logical_log_entries,
+                                        // logical_op_list: logical_log_entries,
                                         physical_op_list: physical_log_entries,
                                         op_list_committed: true
                                     })
-                                } else {
-                                    None
-                                }
+                                // } else {
+                                //     None
+                                // }
                             } else {
                                 None
                             }
