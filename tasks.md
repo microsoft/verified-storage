@@ -31,11 +31,11 @@ Starred functions * have an unverified implementation (which may be out of date 
             - [x] `start` 
             - [x] `read`
             - [x] `get_head_tail_and_capacity`
-            - [ ] `tentative_append`
-            - [ ] `commit`
+            - [x] `tentative_append`
+            - [x] `commit`
             - [ ] `advance_head`
-            - [ ] `update_inactive_log_metadata`
-            - [ ] `update_log_metadata`
+            - [x] `update_inactive_log_metadata`
+            - [x] `update_log_metadata`
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
