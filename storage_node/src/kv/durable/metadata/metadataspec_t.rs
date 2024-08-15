@@ -54,21 +54,17 @@ verus! {
     #[verifier::ext_equal]
     pub struct MetadataTableView<K> {
         pub durable_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
-        pub tentative_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+        pub outstanding_cdb_writes: Seq<Option<bool>>,
+        pub outstanding_entry_writes: Seq<Option<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
     {
         pub open spec fn init(num_keys: u64) -> Self {
             Self {
-                durable_metadata_table: Seq::new(
-                    num_keys as nat,
-                    |i: int| DurableEntry::Invalid
-                ),
-                tentative_metadata_table: Seq::new(
-                    num_keys as nat,
-                    |i: int| DurableEntry::Invalid
-                ),
+                durable_metadata_table: Seq::new(num_keys as nat, |i: int| DurableEntry::Invalid),
+                outstanding_cdb_writes: Seq::new(num_keys as nat, |i: int| None),
+                outstanding_entry_writes: Seq::new(num_keys as nat, |i: int| None),
             }
         }
 
@@ -85,18 +81,14 @@ verus! {
         ) -> Self {
             Self {
                 durable_metadata_table: metadata_table,
-                tentative_metadata_table: metadata_table
+                outstanding_cdb_writes: Seq::new(metadata_table.len() as nat, |i: int| None),
+                outstanding_entry_writes: Seq::new(metadata_table.len() as nat, |i: int| None),
             }
         }
 
         pub open spec fn get_durable_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
         {
             self.durable_metadata_table
-        }
-
-        pub open spec fn get_tentative_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
-        {
-            self.tentative_metadata_table
         }
 
         // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
@@ -119,14 +111,13 @@ verus! {
         // We return the free indices as a set, not a seq, because the order they are listed in
         // doesn't actually matter, and then we don't have to worry about matching the order
         // they are kept in in executable code.
-        // An index is only considered free if it is free in BOTH the tentative and durable views
-        // of the table. If it's free in the tentative but not the durable, we haven't completed
-        // the deallocation yet and the index should not be reallocated. If it's free in durable
-        // but not tentative, we have a pending creation op at that index, so it's not free.
+        // An index is only considered free if it is free in the durable view of the table and
+        // if it has no outstanding writes.
         pub open spec fn free_indices(self) -> Set<u64> {
             Set::new(|i: u64| {
-                &&& 0 <= i < self.tentative_metadata_table.len() 
-                &&& self.tentative_metadata_table[i as int] matches DurableEntry::Invalid 
+                &&& 0 <= i < self.durable_metadata_table.len() 
+                &&& self.outstanding_cdb_writes[i as int] is None
+                &&& self.outstanding_entry_writes[i as int] is None
                 &&& self.durable_metadata_table[i as int] matches DurableEntry::Invalid
             })
         }
