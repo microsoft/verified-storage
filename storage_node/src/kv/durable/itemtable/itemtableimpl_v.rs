@@ -58,12 +58,17 @@ verus! {
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> !self.free_list@.contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.free_list.len() && 0 <= j < self.free_list.len() && i != j ==>
                 self.free_list@[i] != self.free_list@[j]
-            &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==>
-                self.state@.durable_item_table[idx as int] is Some
             &&& forall|i: int| 0 <= i < self.free_list.len() ==>
                 self@.outstanding_item_table[#[trigger] self.free_list@[i] as int] is None
             &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self@.outstanding_item_table[idx as int] is None ==>
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
+            &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
+                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                &&& idx < overall_metadata.num_keys
+                &&& validate_item_table_entry::<I, K>(entry_bytes)
+                &&& self@.durable_item_table[idx as int] is Some
+                &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
+            }
         }
 
         pub closed spec fn spec_item_size(self) -> u64
