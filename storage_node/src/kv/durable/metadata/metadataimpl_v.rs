@@ -80,21 +80,21 @@ verus! {
             }
         }
 
-        pub closed spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
             &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
-            &&& Some(self.state@) ==
+            &&& Some(self@) ==
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
-            &&& self@.durable_metadata_table.len() == self.state@.outstanding_cdb_writes.len() ==
-                self.state@.outstanding_entry_writes.len() == overall_metadata.num_keys
-            &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
+            &&& self@.durable_metadata_table.len() == self@.outstanding_cdb_writes.len() ==
+                self@.outstanding_entry_writes.len() == overall_metadata.num_keys
+            &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                 self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-            &&& forall |i| 0 <= i < self.state@.durable_metadata_table.len() ==>
+            &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-            &&& self.state@.inv()
+            &&& self@.inv()
             &&& self.allocator_view() == self@.free_indices()
         }
 

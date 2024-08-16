@@ -50,22 +50,28 @@ verus! {
             self.state@
         }
 
-        pub closed spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub closed spec fn opaque_inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
-            &&& self@.inv()
-            &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& self.item_size == overall_metadata.item_size
             &&& self.entry_size == entry_size
+        }
+
+        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            &&& self.opaque_inv(pm_view, overall_metadata)
+            &&& self@.inv()
+            &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> !self.free_list@.contains(idx)
-            &&& forall|i: int, j: int| 0 <= i < self.free_list.len() && 0 <= j < self.free_list.len() && i != j ==>
-                self.free_list@[i] != self.free_list@[j]
-            &&& forall|i: int| 0 <= i < self.free_list.len() ==>
-                self@.outstanding_item_table[#[trigger] self.free_list@[i] as int] is None
+            &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx)
+            &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
+                self.spec_free_list()[i] != self.spec_free_list()[j]
+            &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==>
+                self@.outstanding_item_table[#[trigger] self.spec_free_list()[i] as int] is None
             &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self@.outstanding_item_table[idx as int] is None ==>
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
-            &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
+            &&& forall|idx: u64| self.spec_valid_indices().contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
@@ -98,7 +104,7 @@ verus! {
             requires
                 self.inv(pm, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
-                self.valid_indices@.contains(index),
+                self.spec_valid_indices().contains(index),
                 self@.durable_item_table[index as int] is Some,
             ensures
                 ({

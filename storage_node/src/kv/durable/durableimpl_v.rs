@@ -72,9 +72,14 @@ verus! {
             I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug + Copy,
     {
-        pub closed spec fn view(&self) -> Option<DurableKvStoreView<K, I, L>>
+        pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>
         {
-            Some(Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@))
+            Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@)
+        }
+
+        pub closed spec fn constants(self) -> PersistentMemoryConstants
+        {
+            self.wrpm.constants()
         }
 
         pub closed spec fn inv(self) -> bool 
@@ -86,6 +91,9 @@ verus! {
             &&& self.wrpm.inv()
             &&& self.version_metadata == deserialize_version_metadata(mem)
             &&& self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr)
+            &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
+                                                self.overall_metadata.kvstore_id)
+            &&& self.wrpm@.len() == self.overall_metadata.region_size
             &&& physical_recovery_state matches Some(physical_recovery_state)
             &&& logical_recovery_state matches Some(logical_recovery_state)
             &&& physical_recovery_state == logical_recovery_state
@@ -95,6 +103,8 @@ verus! {
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata)
+//            &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
+                                                               
             // TODO: more component invariants
         }
 
@@ -481,7 +491,7 @@ verus! {
                 overall_metadata.region_size == old(pm_region)@.len(),
                 memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.committed(), kvstore_id),
                 overall_metadata_valid::<K, I, L>(overall_metadata, overall_metadata_addr, kvstore_id),
-            ensures 
+           ensures 
                 pm_region.inv(),
                 match result {
                     Ok(()) => {
@@ -620,9 +630,10 @@ verus! {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
                     Ok(kvstore) => {
-                        &&& kvstore@ == Some(state)
+                        &&& kvstore@ == state
                         &&& kvstore.inv()
                         &&& kvstore.wrpm@.no_outstanding_writes()
+                        &&& kvstore.constants() == wrpm_region.constants()
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -701,9 +712,8 @@ verus! {
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
                 assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
 
-                assert(durable_kv_store@ is Some);
-                assert(durable_kv_store@.unwrap() == Self::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
-                assert(durable_kv_store@.unwrap() == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
+                assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
+                assert(durable_kv_store@ == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
             }
 
             let ghost physical_recovery_state = Self::physical_recover(wrpm_region@.committed(), overall_metadata);
@@ -880,33 +890,58 @@ verus! {
             }
         }
 
-        /*
         // This function takes an offset into the main table, looks up the corresponding item,
         // and returns it if it exists.
         pub fn read_item(
             &self,
-            kvstore_id: u128,
             metadata_index: u64
         ) -> (result: Result<Box<I>, KvError<K>>)
             requires
-                self.valid(),
+                self.inv(),
+                self@.contains_key(metadata_index as int),
             ensures
                 match result {
                     Ok(item) => {
                         match self@[metadata_index as int] {
                             Some(entry) => entry.item() == item,
-                            None => false
+                            None => false,
                         }
-                    }
-                    Err(_) => self@[metadata_index as int].is_None()
+                    },
+                    Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                    Err(_) => false,
                 }
         {
-            let (key, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
-                self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
-            let item_index = metadata.item_index;
-            self.item_table.read_item(self.item_table_wrpm.get_pm_region_ref(), kvstore_id, item_index)
+            assert(metadata_index < self.overall_metadata.num_keys);
+
+            let pm = self.wrpm.get_pm_region_ref();
+            let metadata_table_subregion = PersistentMemorySubregion::new(
+                pm,
+                self.overall_metadata.main_table_addr,
+                Ghost(self.overall_metadata.main_table_size as nat)
+            );
+            let (key, metadata) = match self.metadata_table.get_key_and_metadata_entry_at_index(
+                &metadata_table_subregion,
+                pm,
+                &self.overall_metadata,
+                metadata_index
+            ) {
+                Ok((key, metadata)) => (key, metadata),
+                Err(e) => { assert(e is CRCMismatch); return Err(e); },
+            };
+
+            let item_table_index = metadata.item_index;
+            let item_table_subregion = PersistentMemorySubregion::new(
+                pm,
+                self.overall_metadata.item_table_addr,
+                Ghost(self.overall_metadata.item_table_size as nat));
+            assume(false);
+            self.item_table.read_item(
+                &item_table_subregion,
+                pm,
+                item_table_index,
+                Ghost(self.overall_metadata)
+            )
         }
-        */
 
 
 /*
@@ -919,7 +954,8 @@ verus! {
         ) -> (result: Result<(), KvError<K>>)
             requires 
                 // TODO 
-            ensures 
+            ensures
+                self.constants() == old(self).constants(),
                 // TODO 
         {
             // 1. Commit the log
@@ -964,6 +1000,7 @@ verus! {
                 old(self).valid(),
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 ({
                     match result {
                         Ok((offset, head_node)) => {
@@ -1089,6 +1126,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
                         match (old(self)@[metadata_index as int], self@[metadata_index as int]) {
@@ -1161,6 +1199,7 @@ verus! {
                 old(self).valid()
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
                         self@[metadata_index as int].is_None()
@@ -1214,6 +1253,7 @@ verus! {
                 // and that the given node is in fact the tail
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
                         let old_record = old(self)@.contents[metadata_index as int];
@@ -1262,6 +1302,7 @@ verus! {
             requires 
                 // TODO 
             ensures 
+                self.constants() == old(self).constants(),
                 // TODO 
         {
             assume(false);
@@ -1308,6 +1349,7 @@ verus! {
                 old(self).valid(),
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 // TODO
                 // match result {
                 //     Ok(()) => {
@@ -1355,6 +1397,7 @@ verus! {
                 // when trimming `trim_len` entries
             ensures
                 self.valid(),
+                self.constants() == old(self).constants(),
                 match result {
                     Ok(()) => {
                         let old_record = old(self)@.contents[metadata_index as int];
