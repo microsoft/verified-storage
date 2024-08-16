@@ -23,38 +23,11 @@ verus! {
         }
     }
 
-    pub struct DurableItemTableViewEntry<I>
-    {
-        crc: u64, // TODO: do we need this?
-        item: I,
-    }
-
-    impl<I> DurableItemTableViewEntry<I>
-    {
-        pub closed spec fn new(crc: u64, item: I) -> Self
-        {
-            Self {
-                crc,
-                item,
-            }
-        }
-
-        pub closed spec fn get_crc(self) -> u64
-        {
-            self.crc
-        }
-
-        pub closed spec fn get_item(self) -> I
-        {
-            self.item
-        }
-    }
-
     #[verifier::ext_equal]
     pub struct DurableItemTableView<I>
     {
-        pub durable_item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>,
-        pub tentative_item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>,
+        pub durable_item_table: Seq<Option<I>>,
+        pub outstanding_item_table: Seq<Option<I>>,
     }
 
     impl<I> DurableItemTableView<I>
@@ -62,22 +35,16 @@ verus! {
         pub open spec fn init(num_keys: int) -> Self
         {
             Self {
-                durable_item_table: Seq::new(
-                    num_keys as nat,
-                    |i: int| DurableEntry::Invalid
-                ),
-                tentative_item_table: Seq::new(
-                    num_keys as nat,
-                    |i: int| DurableEntry::Invalid
-                ),
+                durable_item_table: Seq::new(num_keys as nat, |i: int| None),
+                outstanding_item_table: Seq::new(num_keys as nat, |i: int| None),
             }
         }
 
-        pub open spec fn new(item_table: Seq<DurableEntry<DurableItemTableViewEntry<I>>>) -> Self
+        pub open spec fn new(item_table: Seq<Option<I>>) -> Self
         {
             Self {
                 durable_item_table: item_table,
-                tentative_item_table: item_table
+                outstanding_item_table: Seq::new(item_table.len(), |i: int| None),
             }
         }
 

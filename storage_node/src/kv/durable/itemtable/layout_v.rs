@@ -37,7 +37,6 @@ use vstd::prelude::*;
 use vstd::ptr::*;
 
 use super::itemtablespec_t::DurableItemTableView;
-use super::itemtablespec_t::DurableItemTableViewEntry;
 
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
@@ -101,8 +100,8 @@ verus! {
     {
         let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
         let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
-        let crc = u64::spec_from_bytes(crc_bytes);
-        crc == spec_crc_u64(item_bytes)
+        &&& I::bytes_parseable(item_bytes)
+        &&& crc_bytes == spec_crc_bytes(item_bytes)
     }
 
     pub open spec fn validate_item_table_entries<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<int>) -> bool 
@@ -119,7 +118,7 @@ verus! {
 
     // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.
     // We do not require that any other entries have valid CRCs
-    pub open spec fn parse_metadata_entry<I, K>(bytes: Seq<u8>) -> DurableItemTableViewEntry<I>
+    pub open spec fn parse_metadata_entry<I, K>(bytes: Seq<u8>) -> Option<I>
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -130,10 +129,12 @@ verus! {
         let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
         let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
         
-        let crc = u64::spec_from_bytes(crc_bytes);
-        let item = I::spec_from_bytes(item_bytes);
-        
-        DurableItemTableViewEntry::new(crc, item)
+        if I::bytes_parseable(item_bytes) && crc_bytes == spec_crc_bytes(item_bytes) {
+            Some(I::spec_from_bytes(item_bytes))
+        }
+        else {
+            None
+        }
     }
 
 
@@ -159,17 +160,9 @@ verus! {
                         // TODO: probably can't have if {} in here
                         if valid_indices.contains(i) {
                             let bytes = extract_bytes(mem, (i * item_entry_size) as nat, item_entry_size as nat);
-                            // let cdb_bytes = bytes.subrange(RELATIVE_POS_OF_VALID_CDB as int, RELATIVE_POS_OF_VALID_CDB + u64::spec_size_of());
-                            let crc_bytes = extract_bytes(mem, (i * item_entry_size + RELATIVE_POS_OF_ITEM_CRC) as nat, u64::spec_size_of());
-                            let item_bytes = extract_bytes(mem, (i * item_entry_size + RELATIVE_POS_OF_ITEM) as nat, I::spec_size_of());
-                            
-                            // let cdb = u64::spec_from_bytes(cdb_bytes);
-                            let crc = u64::spec_from_bytes(crc_bytes);
-                            let item = I::spec_from_bytes(item_bytes);
-                            
-                            DurableEntry::Valid(DurableItemTableViewEntry::new(crc, item))
+                            parse_metadata_entry::<I, K>(bytes)
                         } else {
-                            DurableEntry::Invalid
+                            None
                         }
                     }
                 );

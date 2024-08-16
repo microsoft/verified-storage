@@ -434,7 +434,7 @@ verus! {
                     let list_head_index = main_table_entry.list_head_index();
                     let key = main_table_entry.key();
                     
-                    let item = recovered_item_table.durable_item_table[item_index as int].unwrap_valid().get_item();
+                    let item = recovered_item_table.durable_item_table[item_index as int].unwrap();
                     let list_view = recovered_lists.durable_lists[key];
                     let list = DurableKvStoreList {
                             list: Seq::new(
