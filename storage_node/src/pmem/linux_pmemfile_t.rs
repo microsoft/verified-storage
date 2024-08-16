@@ -142,7 +142,7 @@ verus! {
         // TODO: detailed information for error returns
         #[verifier::external_body]
         #[allow(dead_code)]
-        pub fn new<'a>(file_to_map: StrSlice<'a>, size: usize) -> (result: Result<Self, PmemError>)
+        pub fn new<'a>(file_to_map: &str, size: usize) -> (result: Result<Self, PmemError>)
             ensures
                 match result {
                     Ok(device) => {
@@ -155,7 +155,7 @@ verus! {
         {
             let mut mapped_len = 0;
             let mut is_pm = 0;
-            let file = CString::new(file_to_map.into_rust_str()).map_err(|_| PmemError::InvalidFileName )?;
+            let file = CString::new(file_to_map).map_err(|_| PmemError::InvalidFileName )?;
             let file = file.as_c_str();
 
             let addr = unsafe {
@@ -207,6 +207,7 @@ verus! {
         #[verifier::external_body]
         fn drop(&mut self)
             opens_invariants none
+            no_unwind
         {
             unsafe { pmem_unmap(self.virt_addr.virt_addr as *mut c_void, self.mapped_len.try_into().unwrap()) };
         }
