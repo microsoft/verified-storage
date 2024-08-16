@@ -14,7 +14,7 @@ verus! {
     #[verifier::ext_equal]
     pub struct AbstractPhysicalOpLogEntry
     {
-        pub offset: nat, // offset of this log entry relative to the beginning of the log
+        // pub offset: nat, // offset of this log entry relative to the beginning of the log
         pub absolute_addr: nat,
         pub len: nat,
         pub bytes: Seq<u8>,
