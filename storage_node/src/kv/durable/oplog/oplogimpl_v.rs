@@ -198,7 +198,7 @@ verus! {
             ({
                 let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
                 &&& last_op matches Some(last_op)
-                &&& end == mid + u64::spec_size_of() * 2 + last_op.len
+                &&& end == mid + PhysicalLogEntryHeader::spec_size_of() + last_op.len
                 // &&& end == last_op.offset + u64::spec_size_of() * 2 + last_op.len
             })
         ensures 
@@ -803,16 +803,8 @@ verus! {
             self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat).unwrap();
 
         // parsing just the new operation's bytes succeeds
-        // let new_op = Self::parse_log_op(0, header_bytes + bytes, log_start_addr, log_size, region_size);
         let new_op = Self::parse_log_op(pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
-        assert(new_op is Some) by {
-            // let read_bytes = extract_bytes(header_bytes + bytes, 0, PhysicalLogEntryHeader::spec_size_of());
-            let read_bytes = extract_bytes(new_pending_bytes, pending_bytes.len(), PhysicalLogEntryHeader::spec_size_of());
-            let read_header = PhysicalLogEntryHeader::spec_from_bytes(read_bytes);
-            assert(read_bytes == header_bytes);
-            assert(read_header == header);
-        }
-        assert(new_op.unwrap() == log_entry@) by {
+        assert(new_op is Some && new_op.unwrap() == log_entry@) by {
             let read_header_bytes = extract_bytes(new_pending_bytes, pending_bytes.len(), PhysicalLogEntryHeader::spec_size_of());
             let read_header = PhysicalLogEntryHeader::spec_from_bytes(read_header_bytes);
             let read_entry_bytes = extract_bytes(new_pending_bytes, pending_bytes.len() + PhysicalLogEntryHeader::spec_size_of(), read_header.len as nat);
@@ -821,18 +813,14 @@ verus! {
             assert(read_entry_bytes == bytes);
         }
         
+        // Parsing the pending_bytes prefix of new_pending_bytes gives the same op log as parsing pending_bytes
         assert(extract_bytes(new_pending_bytes, 0, pending_bytes.len()) == pending_bytes);
-        // assert(Self::parse_log_ops_helper(0, pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size) ==
-        //     Self::parse_log_ops_helper(0, pending_bytes.len(), pending_bytes, log_start_addr, log_size, region_size));
         Self::lemma_parsing_same_range_equal(pending_bytes, new_pending_bytes, log_start_addr, log_size, region_size);
-        assert(Some(old_log_ops) == Self::parse_log_ops_helper(0, pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size));
 
+        // Appending the new op to the pending_bytes op log is equivalent to parsing all of new_pending_bytes
         Self::lemma_op_log_parse_equal(0, pending_bytes.len(), new_pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
         let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
             self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
-        assert(new_log_ops is Some);
-
-        assume(false);
         
         assert(new_log_ops.unwrap() == old_log_ops.push(new_op.unwrap()));
     }
