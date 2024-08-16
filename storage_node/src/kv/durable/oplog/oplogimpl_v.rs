@@ -67,7 +67,7 @@ verus! {
         }
 
         pub closed spec fn crc_invariant(self) -> bool {
-            &&& self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
+            !self@.op_list_committed ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
         }
 
         // TODO: should this take overall metadata and say that recovery is successful?
@@ -77,12 +77,12 @@ verus! {
                 PM: PersistentMemoryRegion,
         {
             &&& self.log.inv(pm_region, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-            &&& ({
-                    // either the op log and base log are empty, or they are not and there are 
-                    // bytes in the current transaction's CRC digest
-                    ||| self@.physical_op_list.len() == 0
-                    ||| self.current_transaction_crc.bytes_in_digest().len() > 0
-                })
+            // &&& ({
+            //         // either the op log and base log are empty, or they are not and there are 
+            //         // bytes in the current transaction's CRC digest
+            //         ||| self@.physical_op_list.len() == 0
+            //         ||| self.current_transaction_crc.bytes_in_digest().len() > 0
+            //     })
             &&& ({
                     // either the base log is empty or the op log is committed and non-empty
                     ||| self.log@.log.len() == 0
@@ -1028,18 +1028,16 @@ verus! {
                 old(self).inv(*old(log_wrpm)),
                 old(self)@.physical_op_list.len() > 0,
                 !old(self)@.op_list_committed,
-                // TODO: like with tentatively_append above, it might be better to find a way to 
-                // express this precondition on the level of the op log rather than the base log
+                old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
                 forall |s| #[trigger] perm.check_permission(s) <==> {
                     ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                     ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-                    // ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
-                    //         Some(old(self).base_log_view().drop_pending_appends())
-                    // ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
-                    //         Some(old(self).base_log_view().commit().drop_pending_appends())
                 }
             ensures 
                 self.inv(*log_wrpm),
+                log_wrpm@.len() == old(log_wrpm)@.len(),
+                log_wrpm.constants() == old(log_wrpm).constants(),
+                self.overall_metadata() == old(self).overall_metadata(),
                 match result {
                     Ok(()) => {
                         self@ == old(self)@.commit_op_log()
@@ -1117,7 +1115,6 @@ verus! {
                     assert(base_log_contents is Some);
                     let parsed_log_ops = Self::parse_log_ops(base_log_contents.unwrap(), self.log_start_addr() as nat, self.log_size() as nat, self.overall_metadata.region_size as nat);
                     
-                    
                     assert(parsed_log_ops is Some);
                     assert(parsed_log_ops.unwrap() == self@.physical_op_list);
                 }
@@ -1127,7 +1124,12 @@ verus! {
                 Ok(_) => {}
                 Err(e) => return Err(KvError::LogErr { log_err: e })
             }
-            assume(false);
+
+            // update the op log's ghost state to indicate that it has been committed
+            self.state = Ghost(self.state@.commit_op_log());
+            // and clear its CRC digest
+            self.current_transaction_crc = CrcDigest::new();
+
             Ok(())
         }
 

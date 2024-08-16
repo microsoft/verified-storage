@@ -1191,6 +1191,7 @@ impl UntrustedLogImpl {
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
             self.state == old(self).state,
+            wrpm_region@.no_outstanding_writes(),
     {
         broadcast use pmcopy_axioms;
 
@@ -1516,6 +1517,8 @@ impl UntrustedLogImpl {
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
+            wrpm_region@.len() == old(wrpm_region)@.len(),
+            wrpm_region@.no_outstanding_writes(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             result is Ok,
             self@ == old(self)@.commit(),
