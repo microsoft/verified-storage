@@ -851,13 +851,12 @@ verus! {
                     }
                 }),
         {
-            let ghost num_keys = overall_metadata.num_keys;
             let ghost pm_view = subregion.view(pm_region);
             let metadata_node_size = overall_metadata.metadata_node_size;
             proof {
                 lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
             }
-            // TODO: store this so we don't have to recalculate it every time
+
             let slot_addr = metadata_index * (metadata_node_size as u64);
             let cdb_addr = slot_addr;
             let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
