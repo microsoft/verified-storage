@@ -1190,6 +1190,7 @@ impl UntrustedLogImpl {
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
+            wrpm_region@.len() == old(wrpm_region)@.len(),
             self.state == old(self).state,
             wrpm_region@.no_outstanding_writes(),
     {
