@@ -26,8 +26,7 @@ verus! {
             L: PmCopy + std::fmt::Debug + Copy,
     {
         log: UntrustedLogImpl,
-        log_start_addr: u64,
-        log_size: u64,
+        overall_metadata: OverallMetadata,
         state: Ghost<AbstractOpLogState>,
         current_transaction_crc: CrcDigest,
         _phantom: Option<(K, L)>
@@ -40,11 +39,15 @@ verus! {
     {
 
         pub closed spec fn log_start_addr(self) -> u64 {
-            self.log_start_addr
+            self.overall_metadata.log_area_addr
         }
 
         pub closed spec fn log_size(self) -> u64 {
-            self.log_size
+            self.overall_metadata.log_area_size
+        }
+
+        pub closed spec fn overall_metadata(self) -> OverallMetadata {
+            self.overall_metadata
         }
 
         pub closed spec fn base_log_capacity(self) -> int {
@@ -59,7 +62,11 @@ verus! {
             // all addrs are within the bounds of the device
             &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region.len() <= u64::MAX
             // no logged ops change bytes belonging to the log itself
-            &&& (op.absolute_addr + op.len < self.log_start_addr || self.log_start_addr + self.log_size <= op.absolute_addr)
+            &&& (op.absolute_addr + op.len < self.overall_metadata.log_area_addr || self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= op.absolute_addr)
+        }
+
+        pub closed spec fn crc_invariant(self) -> bool {
+            self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
         }
 
         // TODO: should this take overall metadata and say that recovery is successful?
@@ -68,20 +75,46 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
-            &&& self.log.inv(pm_region, self.log_start_addr as nat, self.log_size as nat)
+            &&& self.log.inv(pm_region, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
             &&& ({
                     // either the op log and base log are empty, or they are not and there are 
                     // bytes in the current transaction's CRC digest
-                    ||| (self.log@.log.len() == 0 && self@.physical_op_list.len() == 0)
-                    ||| (self.current_transaction_crc.bytes_in_digest().len() > 0)
+                    ||| self@.physical_op_list.len() == 0
+                    ||| self.current_transaction_crc.bytes_in_digest().len() > 0
                 })
+            &&& ({
+                    // either the base log is empty or the op log is committed and non-empty
+                    ||| self.log@.log.len() == 0
+                    ||| (self@.op_list_committed && self@.physical_op_list.len() > 0)
+                })
+            &&& self.crc_invariant()
+            // &&& ({
+            //         // if we are currently not committed, and if we were to append the current crc digest
+            //         // and commit, then the base log would recover us to the expected op log state
+            //         !self@.op_list_committed ==> {
+            //                 let all_bytes_seq = self.current_transaction_crc.bytes_in_digest().flatten();
+            //                 let crc = spec_crc_bytes(all_bytes_seq);
+            //                 let base_log_with_crc = self.log@.tentatively_append(crc);
+            //                 let base_log_with_crc_committed = base_log_with_crc.commit();
+            //                 let log_contents = Self::get_log_contents(base_log_with_crc_committed);
+            //                 let phys_log = Self::parse_log_ops(log_contents.unwrap(), self.overall_metadata.log_area_addr as nat, 
+            //                         self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+            //                 let committed_op_log_state = AbstractOpLogState {
+            //                     physical_op_list: phys_log.unwrap(),
+            //                     op_list_committed: true
+            //                 };
+            //                 &&& log_contents is Some
+            //                 &&& phys_log is Some
+            //                 &&& committed_op_log_state == self@.commit_op_log()
+            //             }
+            //     })
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
                     self.log_entry_valid(pm_region@, op)
             } 
-            &&& self.log_start_addr + self.log_size <= pm_region@.len()
-            &&& self.log_start_addr as int % const_persistence_chunk_size() == 0
-            &&& no_outstanding_writes_to_metadata(pm_region@, self.log_start_addr as nat)
+            &&& self.overall_metadata.log_area_addr < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
+            &&& self.overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
+            &&& no_outstanding_writes_to_metadata(pm_region@, self.overall_metadata.log_area_addr as nat)
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -557,8 +590,7 @@ verus! {
             return Ok((
                 Self {
                     log,
-                    log_start_addr, 
-                    log_size,
+                    overall_metadata,
                     state: Ghost(op_log_state.unwrap()),
                     current_transaction_crc: CrcDigest::new(),
                     _phantom: None
@@ -590,8 +622,7 @@ verus! {
 
         let op_log_impl = Self {
             log,
-            log_start_addr,
-            log_size,
+            overall_metadata,
             state: Ghost(op_log_state.unwrap()),
             current_transaction_crc: CrcDigest::new(),
             _phantom: None
@@ -601,6 +632,65 @@ verus! {
             op_log_impl,
             phys_op_log
         ))
+    }
+
+    proof fn lemma_seqs_flatten_equal_prefix(s: Seq<Seq<u8>>)
+        requires 
+            s.len() >= 1
+        ensures 
+            ({
+                let first = s[0];
+                let suffix = s.drop_first();
+                s.flatten() == first + suffix.flatten()
+            })
+        decreases s.len()
+    {
+        if s.len() == 1 {
+            let first = s[0];
+            seq![first].lemma_flatten_one_element();
+        } else {
+            let first = s[0];
+            let prefix = s.subrange(0, s.len() - 1);
+            let middle = prefix.drop_first(); 
+            let suffix = s.drop_first();
+
+            assert(prefix == seq![first] + middle);
+            assert(prefix.flatten() == (seq![first] + middle).flatten());
+
+            Self::lemma_seqs_flatten_equal_prefix(prefix);
+            assert(s.flatten() == first + suffix.flatten());
+        }
+    }
+
+    proof fn lemma_seqs_flatten_equal_suffix(s: Seq<Seq<u8>>)
+        requires
+            s.len() >= 1
+        ensures 
+            ({
+                let last = s[s.len() - 1];
+                let prefix = s.subrange(0, s.len() - 1);
+                s.flatten() == prefix.flatten() + last
+            })
+        decreases s.len()
+    {
+        if s.len() == 1 {
+            let last = s[0];
+            assert(s == seq![last]);
+            seq![last].lemma_flatten_one_element();
+            assert(seq![last].flatten() == last);
+        }
+        else {
+            let first = s[0];
+            let last = s[s.len() - 1];
+            let middle = s.subrange(0, s.len() - 1).drop_first();
+            let suffix = s.drop_first();
+
+            assert(middle == suffix.subrange(0, suffix.len() - 1));
+
+            Self::lemma_seqs_flatten_equal_suffix(suffix);
+            assert(suffix.flatten() == middle.flatten() + last);
+            assert(first + suffix.flatten() == first + middle.flatten() + last);
+        }
     }
 
     pub exec fn tentatively_append_log_entry<Perm, PM>(
@@ -618,6 +708,7 @@ verus! {
             overall_metadata.log_area_addr == old(self).log_start_addr(),
             overall_metadata.log_area_size == old(self).log_size(),
             old(self).log_entry_valid(old(log_wrpm)@, log_entry@),
+            !old(self)@.op_list_committed,
             // TODO: it would be better to only refer to op log state in this precondition,
             // but the op log state is more abstract than the base log state, and we need to be 
             // specific about the legal base log states here. If this becomes an issue, maybe we could
@@ -641,15 +732,21 @@ verus! {
             self.log_entry_valid(log_wrpm@, op)
         });
 
-        let bytes = log_entry.bytes.as_slice();
+        let log_entry_header = PhysicalLogEntryHeader {
+            absolute_addr: log_entry.absolute_addr,
+            len: log_entry.bytes.len() as u64
+        };
+
+        let ghost old_digest = self.current_transaction_crc.bytes_in_digest();
+        let ghost old_pending = self.log@.pending;
+
         let result = self.log.tentatively_append(
-            log_wrpm, 
-            self.log_start_addr, 
-            self.log_size, 
-            bytes,
+            log_wrpm,
+            self.overall_metadata.log_area_addr, 
+            self.overall_metadata.log_area_size, 
+            log_entry_header.as_byte_slice(),
             Tracked(perm)
         );
-
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -657,13 +754,58 @@ verus! {
                 return Err(KvError::LogErr { log_err: e });
             }
         }
+        self.current_transaction_crc.write_bytes(log_entry_header.as_byte_slice());
+
+        proof {
+            let current_digest = self.current_transaction_crc.bytes_in_digest();
+            let bytes = log_entry_header.spec_to_bytes();
+            assert(current_digest == old_digest.push(bytes));
+            assert(self.log@.pending == old_pending + bytes);
+            assert(old_digest.flatten() == old_pending);
+            Self::lemma_seqs_flatten_equal_suffix(current_digest);
+            assert(current_digest[current_digest.len() - 1] == bytes);
+            assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
+            assert(current_digest.flatten() == old_digest.flatten() + bytes);
+        }
+        
+        assert(self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending);
+
+        let ghost old_digest = self.current_transaction_crc.bytes_in_digest();
+        let ghost old_pending = self.log@.pending;
+
+        let bytes = log_entry.bytes.as_slice();
+        let result = self.log.tentatively_append(
+            log_wrpm, 
+            self.overall_metadata.log_area_addr, 
+            self.overall_metadata.log_area_size, 
+            bytes,
+            Tracked(perm)
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                return Err(KvError::LogErr { log_err: e });
+            }
+        }
+        // update the op log's CRC digest
+        self.current_transaction_crc.write_bytes(bytes);
+
+        proof {
+            let current_digest = self.current_transaction_crc.bytes_in_digest();
+            let bytes = bytes@;
+            assert(current_digest == old_digest.push(bytes));
+            assert(self.log@.pending == old_pending + bytes);
+            assert(old_digest.flatten() == old_pending);
+            Self::lemma_seqs_flatten_equal_suffix(current_digest);
+            assert(current_digest[current_digest.len() - 1] == bytes);
+            assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
+            assert(current_digest.flatten() == old_digest.flatten() + bytes);
+        }
 
         // update the ghost state to reflect the new entry
         let ghost new_state = self.state@.tentatively_append_log_entry(log_entry@);
         self.state = Ghost(new_state);
-
-        // update the op log's CRC digest
-        self.current_transaction_crc.write_bytes(bytes);
         
         Ok(())
     }
@@ -679,13 +821,16 @@ verus! {
             requires 
                 old(self).inv(*old(log_wrpm)),
                 old(self)@.physical_op_list.len() > 0,
+                !old(self)@.op_list_committed,
                 // TODO: like with tentatively_append above, it might be better to find a way to 
                 // express this precondition on the level of the op log rather than the base log
                 forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
-                            Some(old(self).base_log_view().drop_pending_appends())
-                    ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
-                            Some(old(self).base_log_view().commit().drop_pending_appends())
+                    ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                    ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
+                    // ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
+                    //         Some(old(self).base_log_view().drop_pending_appends())
+                    // ||| UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == 
+                    //         Some(old(self).base_log_view().commit().drop_pending_appends())
                 }
             ensures 
                 self.inv(*log_wrpm),
@@ -699,19 +844,50 @@ verus! {
             let transaction_crc = self.current_transaction_crc.sum64();
             let bytes = transaction_crc.as_byte_slice();
 
-            // since tentatively_append requires a stronger permissions argument than we have here,
-            // we'll construct a stronger one and prove that any crash state satisfying the stronger one
-            // allso satisfies the weaker one
+            proof {
+                // All base log crash states that result in self.base_log_view.drop_pending_appends() will result in 
+                // an op log state that is allowed by `perm`. The base log's `tentatively_append` requires that perm
+                // allow base log states that recover to self.base_log_view.drop_pending_appends(), so this 
+                // assertion tells us that all crash states considered legal in the base log's `tentatively_append` 
+                // also recover to a legal op log state
+                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                        Some(self.base_log_view().drop_pending_appends())
+                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
+                by {
+                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                    assert(base_log_recovery_state is Some);
+                    assert(base_log_recovery_state.unwrap().log.len() == 0);
+                }
+            }
 
-            match self.log.tentatively_append(log_wrpm, self.log_start_addr, self.log_size, bytes, Tracked(perm)) {
+            match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
                 Ok(_) => {}
                 Err(e) => {
                     assert(old(self)@.physical_op_list == self@.physical_op_list);
                     return Err(KvError::LogErr { log_err: e });
                 }
             }
+
+            proof {
+                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                        Some(self.base_log_view().drop_pending_appends())
+                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
+                by {
+                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                    assert(base_log_recovery_state is Some);
+                    assert(base_log_recovery_state.unwrap().log.len() == 0);
+                }
+
+                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                        Some(self.base_log_view().commit().drop_pending_appends())
+                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
+                by {
+                    assume(false);
+                }
+            }
+
             
-            match self.log.commit(log_wrpm, self.log_start_addr, self.log_size, Tracked(perm)) {
+            match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
                 Ok(_) => {}
                 Err(e) => return Err(KvError::LogErr { log_err: e })
             }

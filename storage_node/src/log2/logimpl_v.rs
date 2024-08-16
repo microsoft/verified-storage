@@ -306,8 +306,7 @@ impl UntrustedLogImpl {
                 },
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==
-                    Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
+            forall |s| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()) ==> #[trigger] perm.check_permission(s),
         ensures
             spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
             wrpm_region.inv(),
@@ -1508,10 +1507,10 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+            forall |s| {
                 ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
                 ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
-            },
+            } ==> #[trigger] perm.check_permission(s),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX
         ensures

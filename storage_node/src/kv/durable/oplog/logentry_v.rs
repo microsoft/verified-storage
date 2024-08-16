@@ -34,7 +34,7 @@ verus! {
 
     #[repr(C)]
     #[derive(PmSized, PmSafe, Copy, Clone)]
-    struct PhysicalLogEntryHeader {
+    pub struct PhysicalLogEntryHeader {
         pub absolute_addr: u64,
         pub len: u64
     }

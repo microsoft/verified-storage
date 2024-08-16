@@ -9,6 +9,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 
 verus! {
+
 // pub closed spec fn logical_and_physical_logs_correspond<L>(
 //     logical_log: Seq<LogicalOpLogEntry<L>>,
 //     physical_log: Seq<AbstractPhysicalOpLogEntry>
