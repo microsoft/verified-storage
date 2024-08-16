@@ -88,26 +88,20 @@ verus! {
                     ||| (self@.op_list_committed && self@.physical_op_list.len() > 0)
                 })
             &&& self.crc_invariant()
-            // &&& ({
-            //         // if we are currently not committed, and if we were to append the current crc digest
-            //         // and commit, then the base log would recover us to the expected op log state
-            //         !self@.op_list_committed ==> {
-            //                 let all_bytes_seq = self.current_transaction_crc.bytes_in_digest().flatten();
-            //                 let crc = spec_crc_bytes(all_bytes_seq);
-            //                 let base_log_with_crc = self.log@.tentatively_append(crc);
-            //                 let base_log_with_crc_committed = base_log_with_crc.commit();
-            //                 let log_contents = Self::get_log_contents(base_log_with_crc_committed);
-            //                 let phys_log = Self::parse_log_ops(log_contents.unwrap(), self.overall_metadata.log_area_addr as nat, 
-            //                         self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
-            //                 let committed_op_log_state = AbstractOpLogState {
-            //                     physical_op_list: phys_log.unwrap(),
-            //                     op_list_committed: true
-            //                 };
-            //                 &&& log_contents is Some
-            //                 &&& phys_log is Some
-            //                 &&& committed_op_log_state == self@.commit_op_log()
-            //             }
-            //     })
+            &&& !self@.op_list_committed ==> {
+                // if we aren't committed, then parsing the pending bytes (ignoring crc check,
+                // since we haven't written the CRC yet) should give us the current abstract log op list
+                let pending_bytes = self.log@.pending;
+                let log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
+                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+                ||| {
+                        &&& log_ops is Some 
+                        &&& log_ops.unwrap() == self@.physical_op_list
+                    }
+                // tentatively appending requires two base log appends, so if the op log append fails,
+                // we could end up with pending bytes that cannot be parsed. 
+                ||| log_ops is None
+            }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
                     self.log_entry_valid(pm_region@, op)
@@ -709,6 +703,8 @@ verus! {
             overall_metadata.log_area_size == old(self).log_size(),
             old(self).log_entry_valid(old(log_wrpm)@, log_entry@),
             !old(self)@.op_list_committed,
+            Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
+                old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
             // TODO: it would be better to only refer to op log state in this precondition,
             // but the op log state is more abstract than the base log state, and we need to be 
             // specific about the legal base log states here. If this becomes an issue, maybe we could
@@ -757,6 +753,8 @@ verus! {
         self.current_transaction_crc.write_bytes(log_entry_header.as_byte_slice());
 
         proof {
+            // TODO: Refactor into a proof
+            // This proves that the CRC digest bytes and log pending bytes are the same
             let current_digest = self.current_transaction_crc.bytes_in_digest();
             let bytes = log_entry_header.spec_to_bytes();
             assert(current_digest == old_digest.push(bytes));
@@ -785,6 +783,12 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 assert(old(self)@.physical_op_list == self@.physical_op_list);
+                assert(self.log@.pending == old(self).log@.pending + log_entry_header.spec_to_bytes());
+                assume(false); // TODO TODO TODO
+                // WE HAVE TO PROVE THIS -- IT WILL PROBABLY BE TRICKY
+                assert(Self::parse_log_ops(self.log@.pending, self.overall_metadata.log_area_addr as nat, 
+                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is None);
+                
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -806,6 +810,28 @@ verus! {
         // update the ghost state to reflect the new entry
         let ghost new_state = self.state@.tentatively_append_log_entry(log_entry@);
         self.state = Ghost(new_state);
+
+        proof {
+            // We need to prove that we maintain the invariatn that parsing the pending log bytes
+            // gives us the current abstract op log
+            let old_pending_bytes = old(self).log@.pending;
+            let new_pending_bytes = self.log@.pending;
+
+            assert(new_pending_bytes == old_pending_bytes + log_entry_header.spec_to_bytes() + bytes@);
+
+            let old_log_ops = Self::parse_log_ops(old_pending_bytes, self.overall_metadata.log_area_addr as nat, 
+                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+            let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
+                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+
+            // TODO: figure out how to use the existing parsing lemma, or write a new one,
+            // to prove that appending a new valid op performs the operation we want
+        
+            assert(old_log_ops is Some);
+            assert(new_log_ops is Some);
+
+            assert(new_log_ops.unwrap() == self@.physical_op_list);
+        }
         
         Ok(())
     }
@@ -845,6 +871,7 @@ verus! {
             let bytes = transaction_crc.as_byte_slice();
 
             proof {
+                broadcast use pmcopy_axioms;
                 // All base log crash states that result in self.base_log_view.drop_pending_appends() will result in 
                 // an op log state that is allowed by `perm`. The base log's `tentatively_append` requires that perm
                 // allow base log states that recover to self.base_log_view.drop_pending_appends(), so this 
@@ -858,6 +885,7 @@ verus! {
                     assert(base_log_recovery_state is Some);
                     assert(base_log_recovery_state.unwrap().log.len() == 0);
                 }
+                assert(bytes.len() > 0);
             }
 
             match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
@@ -882,6 +910,14 @@ verus! {
                         Some(self.base_log_view().commit().drop_pending_appends())
                     implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
                 by {
+                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                    assert(base_log_recovery_state == Some(self.base_log_view().commit().drop_pending_appends()));
+                    
+                    assert(self.base_log_view().pending.len() > 0);
+                    assert(base_log_recovery_state.unwrap().log.len() > 0);
+                    assert(self.base_log_view().commit().pending.len() == 0); // no pending appends to drop
+
+                    // so we need to establish what base_log_view().commit() is
                     assume(false);
                 }
             }
