@@ -198,7 +198,7 @@ verus! {
             ({
                 let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
                 &&& last_op matches Some(last_op)
-                &&& end == mid + PhysicalLogEntryHeader::spec_size_of() + last_op.len
+                &&& end == mid + u64::spec_size_of() * 2 + last_op.len
                 // &&& end == last_op.offset + u64::spec_size_of() * 2 + last_op.len
             })
         ensures 
@@ -277,7 +277,7 @@ verus! {
             } else {
                 lemma_establish_extract_bytes_equivalence(mem1, mem2);
                 let mem1_op = Self::parse_log_op(current_offset, mem1, log_start_addr, log_size, region_size);
-                let entry_size = PhysicalLogEntryHeader::spec_size_of() + mem1_op.unwrap().len;
+                let entry_size = u64::spec_size_of() * 2 + mem1_op.unwrap().len;
                 let next_offset = current_offset + entry_size;
                 Self::lemma_inductive_parsing_same_range_equal(
                     next_offset,
@@ -300,28 +300,27 @@ verus! {
         ) -> Option<AbstractPhysicalOpLogEntry>
         {
             // 1. Read the absolute addr and log entry size
-            let entry_header = PhysicalLogEntryHeader::spec_from_bytes(extract_bytes(log_contents, offset, PhysicalLogEntryHeader::spec_size_of()));
-            // let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of()));
-            // let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of()));
+            let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of()));
+            let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of()));
             if {
-                ||| entry_header.absolute_addr + entry_header.len > region_size
-                ||| offset + PhysicalLogEntryHeader::spec_size_of()+ entry_header.len > log_contents.len()
+                ||| absolute_addr + len > region_size
+                ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
                 ||| !({
-                    ||| entry_header.absolute_addr < entry_header.absolute_addr + entry_header.len <= log_start_addr // region end before log area
-                    ||| log_start_addr + log_size <= entry_header.absolute_addr < entry_header.absolute_addr + entry_header.len // region ends after log area
+                    ||| absolute_addr < absolute_addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= absolute_addr < absolute_addr + len // region ends after log area
                 })
-                ||| entry_header.len == 0
-                ||| log_contents.len() - PhysicalLogEntryHeader::spec_size_of() < entry_header.len
+                ||| len == 0
+                ||| log_contents.len() - u64::spec_size_of() * 2 < len
             } {
                 // if the entry contains invalid values, recovery fails
                 None 
             } else {
                 // 2. Read the log entry contents
-                let log_entry_contents = extract_bytes(log_contents, offset + PhysicalLogEntryHeader::spec_size_of(), entry_header.len as nat);
+                let log_entry_contents = extract_bytes(log_contents, offset + u64::spec_size_of() * 2, len as nat);
 
                 // 3. Construct the physical log entry
                 // let new_op = AbstractPhysicalOpLogEntry { offset, absolute_addr: entry_header.absolute_addr as nat, len: entry_header.len as nat, bytes: log_entry_contents };
-                let new_op = AbstractPhysicalOpLogEntry { absolute_addr: entry_header.absolute_addr as nat, len: entry_header.len as nat, bytes: log_entry_contents };
+                let new_op = AbstractPhysicalOpLogEntry { absolute_addr: absolute_addr as nat, len: len as nat, bytes: log_entry_contents };
 
                 Some(new_op)
             }
@@ -353,7 +352,7 @@ verus! {
                 // parse the log entry at the current offset
                 let op = Self::parse_log_op(current_offset, log_contents, log_start_addr, log_size, region_size);
                 if let Some(op) = op {
-                    let entry_size = PhysicalLogEntryHeader::spec_size_of() + op.len;
+                    let entry_size = u64::spec_size_of() * 2 + op.len;
                     if target_offset < current_offset + entry_size {
                         None
                     } else {
@@ -485,9 +484,6 @@ verus! {
             assert(Some(phys_log_view) == Self::parse_log_ops_helper(0, 0, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat))
         }
 
-        // let ghost old_log_start_addr = log_start_addr;
-        // let ghost old_log_size = log_size;
-        // let ghost old_region_size = region_size;
         let ghost old_overall_metadata = overall_metadata;
 
         while offset < log_bytes.len()
@@ -531,7 +527,7 @@ verus! {
             if {
                 ||| len == 0
                 ||| traits_t::size_of::<u64>() * 2 >= (u64::MAX - len) as usize
-                ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
+                ||| log_bytes.len() < traits_t::size_of::<u64>() * 2+ len as usize
                 ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
                 ||| addr >= u64::MAX - len
                 ||| addr + len > region_size 
@@ -772,12 +768,8 @@ verus! {
         ensures 
             ({
                 let pending_bytes = self.log@.pending;
-                let header_bytes = PhysicalLogEntryHeader {
-                    absolute_addr: log_entry.absolute_addr,
-                    len: log_entry.bytes@.len() as u64,
-                }.spec_to_bytes();
                 let bytes = log_entry.bytes@;
-                let new_pending_bytes = pending_bytes + header_bytes + bytes;
+                let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
                 let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
                     self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
                 &&& new_log_ops is Some 
@@ -792,24 +784,26 @@ verus! {
         let region_size = self.overall_metadata.region_size as nat;
 
         let pending_bytes = self.log@.pending;
-        let header = PhysicalLogEntryHeader {
-            absolute_addr: log_entry.absolute_addr,
-            len: log_entry.bytes@.len() as u64,
-        }; 
-        let header_bytes = header.spec_to_bytes();
+        // let header = PhysicalLogEntryHeader {
+        //     absolute_addr: log_entry.absolute_addr,
+        //     len: log_entry.bytes@.len() as u64,
+        // }; 
+        // let header_bytes = header.spec_to_bytes();
         let bytes = log_entry.bytes@;
-        let new_pending_bytes = pending_bytes + header_bytes + bytes;
+        let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
         let old_log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
             self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat).unwrap();
 
         // parsing just the new operation's bytes succeeds
         let new_op = Self::parse_log_op(pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
         assert(new_op is Some && new_op.unwrap() == log_entry@) by {
-            let read_header_bytes = extract_bytes(new_pending_bytes, pending_bytes.len(), PhysicalLogEntryHeader::spec_size_of());
-            let read_header = PhysicalLogEntryHeader::spec_from_bytes(read_header_bytes);
-            let read_entry_bytes = extract_bytes(new_pending_bytes, pending_bytes.len() + PhysicalLogEntryHeader::spec_size_of(), read_header.len as nat);
-            assert(read_header_bytes == header_bytes);
-            assert(read_header == header);
+            let addr_bytes = extract_bytes(new_pending_bytes, pending_bytes.len(), u64::spec_size_of());
+            let len_bytes = extract_bytes(new_pending_bytes, pending_bytes.len() + u64::spec_size_of(), u64::spec_size_of());
+            let addr = u64::spec_from_bytes(addr_bytes);
+            let len = u64::spec_from_bytes(len_bytes);
+            assert(log_entry.absolute_addr.spec_to_bytes() == addr_bytes);
+            assert((log_entry.bytes.len() as u64).spec_to_bytes() == len_bytes);
+            let read_entry_bytes = extract_bytes(new_pending_bytes, pending_bytes.len() + u64::spec_size_of() * 2, len as nat);
             assert(read_entry_bytes == bytes);
         }
         
@@ -829,7 +823,6 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_entry: PhysicalOpLogEntry,
-        overall_metadata: OverallMetadata,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where 
@@ -837,8 +830,6 @@ verus! {
             PM: PersistentMemoryRegion,
         requires 
             old(self).inv(*old(log_wrpm)),
-            overall_metadata.log_area_addr == old(self).log_start_addr(),
-            overall_metadata.log_area_size == old(self).log_size(),
             old(self).log_entry_valid(old(log_wrpm)@, log_entry@),
             !old(self)@.op_list_committed,
             Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
@@ -849,7 +840,8 @@ verus! {
             // keep more info about the base log state in the op log so that we can refer to it more easily here
             forall |s| #[trigger] perm.check_permission(s) <==>
                 UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == Some(old(self).base_log_view().drop_pending_appends()),
-        
+            log_entry.len == log_entry.bytes@.len(),
+            log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
         ensures 
             self.inv(*log_wrpm),
             match result {
@@ -872,10 +864,7 @@ verus! {
             self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry);
         }
 
-        let log_entry_header = PhysicalLogEntryHeader {
-            absolute_addr: log_entry.absolute_addr,
-            len: log_entry.bytes.len() as u64
-        };
+        let absolute_addr = log_entry.absolute_addr;
 
         let ghost old_digest = self.current_transaction_crc.bytes_in_digest();
         let ghost old_pending = self.log@.pending;
@@ -884,7 +873,7 @@ verus! {
             log_wrpm,
             self.overall_metadata.log_area_addr, 
             self.overall_metadata.log_area_size, 
-            log_entry_header.as_byte_slice(),
+            absolute_addr.as_byte_slice(),
             Tracked(perm)
         );
         match result {
@@ -894,13 +883,52 @@ verus! {
                 return Err(KvError::LogErr { log_err: e });
             }
         }
-        self.current_transaction_crc.write_bytes(log_entry_header.as_byte_slice());
+        self.current_transaction_crc.write_bytes(absolute_addr.as_byte_slice());
 
         proof {
             // TODO: Refactor into a proof
             // This proves that the CRC digest bytes and log pending bytes are the same
             let current_digest = self.current_transaction_crc.bytes_in_digest();
-            let bytes = log_entry_header.spec_to_bytes();
+            let bytes = absolute_addr.spec_to_bytes();
+            assert(current_digest == old_digest.push(bytes));
+            assert(self.log@.pending == old_pending + bytes);
+            assert(old_digest.flatten() == old_pending);
+            Self::lemma_seqs_flatten_equal_suffix(current_digest);
+            assert(current_digest[current_digest.len() - 1] == bytes);
+            assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
+            assert(current_digest.flatten() == old_digest.flatten() + bytes);
+        }
+
+        let len = log_entry.bytes.len() as u64;
+
+        let ghost old_digest = self.current_transaction_crc.bytes_in_digest();
+        let ghost old_pending = self.log@.pending;
+
+        let result = self.log.tentatively_append(
+            log_wrpm,
+            self.overall_metadata.log_area_addr, 
+            self.overall_metadata.log_area_size, 
+            len.as_byte_slice(),
+            Tracked(perm)
+        );
+        match result {
+            Ok(_) => {}
+            Err(e) => {
+                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                assume(false); // TODO TODO TODO
+                // WE HAVE TO PROVE THIS -- IT WILL PROBABLY BE TRICKY
+                assert(Self::parse_log_ops(self.log@.pending, self.overall_metadata.log_area_addr as nat, 
+                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is None);
+                return Err(KvError::LogErr { log_err: e });
+            }
+        }
+        self.current_transaction_crc.write_bytes(len.as_byte_slice());
+
+        proof {
+            // TODO: Refactor into a proof
+            // This proves that the CRC digest bytes and log pending bytes are the same
+            let current_digest = self.current_transaction_crc.bytes_in_digest();
+            let bytes = len.spec_to_bytes();
             assert(current_digest == old_digest.push(bytes));
             assert(self.log@.pending == old_pending + bytes);
             assert(old_digest.flatten() == old_pending);
@@ -927,7 +955,7 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 assert(old(self)@.physical_op_list == self@.physical_op_list);
-                assert(self.log@.pending == old(self).log@.pending + log_entry_header.spec_to_bytes());
+                assert(self.log@.pending == old(self).log@.pending + absolute_addr.spec_to_bytes() + len.spec_to_bytes());
                 assume(false); // TODO TODO TODO
                 // WE HAVE TO PROVE THIS -- IT WILL PROBABLY BE TRICKY
                 assert(Self::parse_log_ops(self.log@.pending, self.overall_metadata.log_area_addr as nat, 
@@ -961,7 +989,7 @@ verus! {
             let old_pending_bytes = old(self).log@.pending;
             let new_pending_bytes = self.log@.pending;
 
-            assert(new_pending_bytes == old_pending_bytes + log_entry_header.spec_to_bytes() + bytes@);
+            assert(new_pending_bytes == old_pending_bytes + absolute_addr.spec_to_bytes() + len.spec_to_bytes() + bytes@);
 
             let old_log_ops = Self::parse_log_ops(old_pending_bytes, self.overall_metadata.log_area_addr as nat, 
                 self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
