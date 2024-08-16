@@ -32,7 +32,7 @@ verus! {
             I: PmCopy + Sized + std::fmt::Debug,
     {
         item_size: u64,
-        item_slot_size: u64,
+        entry_size: u64,
         num_keys: u64,
         free_list: Vec<u64>,
         valid_indices: Ghost<Set<u64>>,
@@ -54,7 +54,10 @@ verus! {
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self@.inv()
-            &&& self@.len() == overall_metadata.num_keys
+            &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
+            &&& self.item_size == overall_metadata.item_size
+            &&& self.entry_size == entry_size
+            &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> !self.free_list@.contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.free_list.len() && 0 <= j < self.free_list.len() && i != j ==>
                 self.free_list@[i] != self.free_list@[j]
@@ -71,11 +74,6 @@ verus! {
             }
         }
 
-        pub closed spec fn spec_item_size(self) -> u64
-        {
-            self.item_size
-        }
-
         pub closed spec fn spec_num_keys(self) -> u64
         {
             self.num_keys
@@ -89,6 +87,121 @@ verus! {
         pub closed spec fn spec_valid_indices(self) -> Set<u64>
         {
             self.valid_indices@
+        }
+
+        proof fn lemma_establish_bytes_parseable_for_valid_item(
+            self,
+            pm: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            index: u64,
+        )
+            requires
+                self.inv(pm, overall_metadata),
+                0 <= index < overall_metadata.num_keys,
+                self.valid_indices@.contains(index),
+                self@.durable_item_table[index as int] is Some,
+            ensures
+                ({
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    let crc_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * entry_size as u64) as nat,
+                        u64::spec_size_of() as nat,
+                    );
+                    let item_bytes = extract_bytes(
+                        pm.committed(),
+                        (index * entry_size as u64) as nat + u64::spec_size_of(),
+                        I::spec_size_of() as nat,
+                    );
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& I::bytes_parseable(item_bytes)
+                    &&& crc_bytes == spec_crc_bytes(item_bytes)
+                }),
+        {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+            let entry_bytes = extract_bytes(pm.committed(), (index * entry_size) as nat, entry_size as nat);
+            assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
+                   extract_bytes(pm.committed(), (index * entry_size as u64) as nat, u64::spec_size_of()));
+            assert(extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()) =~=
+                   extract_bytes(pm.committed(),
+                                 (index * entry_size as u64) as nat + u64::spec_size_of(),
+                                 I::spec_size_of()));
+            assert(validate_item_table_entry::<I, K>(entry_bytes));
+        }
+
+        // Read an item from the item table given an index. Returns `None` if the index is 
+        // does not contain a valid, uncorrupted item. 
+        // TODO: should probably return result, not option
+        pub exec fn read_item<PM>(
+            &self,
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            item_table_index: u64,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) -> (result: Result<Box<I>, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), overall_metadata),
+                item_table_index < self.spec_num_keys(),
+                self.spec_valid_indices().contains(item_table_index),
+                self@.outstanding_item_table[item_table_index as int] is None,
+            ensures
+                match result {
+                    Ok(item) => item == self@.durable_item_table[item_table_index as int].unwrap(),
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    _ => false,
+                },
+        {
+            let ghost pm_view = subregion.view(pm_region);
+            let entry_size = self.entry_size;
+            proof {
+                lemma_valid_entry_index(item_table_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+            }
+            let crc_addr = item_table_index * (entry_size as u64);
+            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+            // Read the item and CRC at this slot
+            let ghost mem = pm_view.committed();
+            let ghost entry_bytes = extract_bytes(mem, (item_table_index * entry_size) as nat, entry_size as nat);
+            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+            let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
+
+            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+            let ghost true_item = I::spec_from_bytes(true_item_bytes);
+
+            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
+            let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
+
+            proof {
+                self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index);
+                assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
+                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
+                assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
+                       Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.committed()[item_addrs[i]]));
+                assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
+                assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
+                assert(self@.durable_item_table[item_table_index as int] == parse_metadata_entry::<I, K>(entry_bytes));
+            }
+
+            let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
+                Ok(val) => val,
+                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); }
+            };
+            let item = match subregion.read_relative_aligned::<I, PM>(pm_region, item_addr) {
+                Ok(val) => val,
+                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+            };
+            
+            if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                          Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) {
+                return Err(KvError::CRCMismatch);
+            }
+
+            let item = item.extract_init_val(Ghost(true_item));
+            Ok(item)
         }
 
         // pub open spec fn recover<L>(
@@ -164,10 +277,6 @@ verus! {
         //     // }
         // }
 
-        pub exec fn item_slot_size(&self) -> u64 {
-            self.item_slot_size
-        }
-
         pub proof fn lemma_table_is_empty_at_setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &PM,
@@ -223,6 +332,7 @@ verus! {
                     let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
                     table is Some
                 }),
+                overall_metadata.item_size == I::spec_size_of(),
                 forall |j: int| 0 <= j < key_index_info.len() ==> 
                     0 <= (#[trigger] key_index_info[j]).2 < overall_metadata.num_keys,
                 overall_metadata.item_size + u64::spec_size_of() <= u64::MAX,
@@ -335,7 +445,7 @@ verus! {
                                                 key_index_info_contains_index(key_index_info@, i));
             let item_table = Self {
                 item_size: overall_metadata.item_size,
-                item_slot_size: overall_metadata.item_size + traits_t::size_of::<u64>() as u64, // item + CRC
+                entry_size: overall_metadata.item_size + traits_t::size_of::<u64>() as u64, // item + CRC
                 num_keys: overall_metadata.num_keys,
                 free_list: item_table_allocator,
                 valid_indices: Ghost(in_use_indices),
@@ -532,79 +642,6 @@ verus! {
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
             Ok(())
-        }
-
-        // Read an item from the item table given an index. Returns `None` if the index is 
-        // does not contain a valid, uncorrupted item. 
-        // TODO: should probably return result, not option
-        pub exec fn read_item<PM>(
-            &self,
-            pm_region: &PM,
-            item_table_id: u128,
-            item_table_index: u64,
-        ) -> (result: Result<Box<I>, KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-            requires 
-                // TODO 
-            ensures 
-                // TODO 
-        {
-            assume(false);
-            let ghost impervious_to_corruption = pm_region.constants().impervious_to_corruption;
-            // TODO: store slot size so we don't have to calculate it each time
-            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
-            let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
-
-            let cdb_addr = item_slot_offset;
-            let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64; 
-            // Read the item and CRC at this slot
-            let ghost mem = pm_region@.committed();
-
-            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
-            let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
-
-            let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-            let ghost true_item = I::spec_from_bytes(true_item_bytes);
-
-            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
-            let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + i);
-
-            let cdb = match pm_region.read_aligned::<u64>(cdb_addr) {
-                Ok(val) => val,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-            };
-            let crc = match pm_region.read_aligned::<u64>(crc_addr) {
-                Ok(val) => val,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-            };
-            let item = match pm_region.read_aligned::<I>(item_addr) {
-                Ok(val) => val,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
-            };
-            // Check that the CDB is uncorrupted and indicates that the item is valid
-            match check_cdb(cdb, Ghost(mem), Ghost(impervious_to_corruption), Ghost(cdb_addrs)) {
-                Some(true) => {
-                    // The CDB is valid. Check the item's CRC 
-                    if !check_crc(item.as_slice(), crc.as_slice(), Ghost(mem), 
-                        Ghost(impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) 
-                    {
-                        Err(KvError::CRCMismatch)
-                    } else {
-                        let item = item.extract_init_val(Ghost(true_item), Ghost(true_item_bytes), Ghost(impervious_to_corruption));
-                        Ok(item)
-                    }
-                }
-                Some(false) => Err(KvError::EntryIsNotValid),
-                _ => {
-                    Err(KvError::CRCMismatch) // the CDB has been corrupted
-                }
-
-            }
         }
 
         // clears the valid bit for an entry. this should also

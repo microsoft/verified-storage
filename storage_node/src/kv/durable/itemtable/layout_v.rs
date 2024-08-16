@@ -100,6 +100,7 @@ verus! {
     {
         let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
         let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
+        &&& u64::bytes_parseable(crc_bytes)
         &&& I::bytes_parseable(item_bytes)
         &&& crc_bytes == spec_crc_bytes(item_bytes)
     }
@@ -129,7 +130,7 @@ verus! {
         let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
         let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
         
-        if I::bytes_parseable(item_bytes) && crc_bytes == spec_crc_bytes(item_bytes) {
+        if u64::bytes_parseable(crc_bytes) && I::bytes_parseable(item_bytes) && crc_bytes == spec_crc_bytes(item_bytes) {
             Some(I::spec_from_bytes(item_bytes))
         }
         else {

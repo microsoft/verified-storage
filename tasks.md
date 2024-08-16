@@ -49,7 +49,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [x] Prove that table is empty at setup
         - [x] `start` * - hayley-leblanc
         - [ ] `tentatively_write_item` *
-        - [ ] `read_item` * jaylorch
+        - [x] `read_item` *
         - [ ] Deallocate item table slot
     - Lists
         - [x] Prove that lists are empty at setup
