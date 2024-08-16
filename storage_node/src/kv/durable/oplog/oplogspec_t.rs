@@ -84,7 +84,7 @@ verus! {
         // TODO: use a more informative error code?
         pub open spec fn clear_log(self) -> Result<Self, ()>
         {
-            if self.op_list_committed {
+            if !self.op_list_committed {
                 Err(())
             } else {
                 Ok(Self {

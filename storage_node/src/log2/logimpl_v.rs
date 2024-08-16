@@ -776,7 +776,6 @@ impl UntrustedLogImpl {
         new_head: u128,
         log_start_addr: u64,
         log_size: u64,
-        Ghost(log_id): Ghost<u128>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), LogErr>)
         where
@@ -784,7 +783,7 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+            forall |s| #[trigger] perm.check_permission(s) <== {
                 ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
                 ||| Self::recover(s, log_start_addr as nat, log_size as nat) ==
                     Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
@@ -792,6 +791,7 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             match result {

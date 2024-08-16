@@ -105,6 +105,15 @@ verus! {
                 // Maybe we just don't maintain the invariant if this fails? we'll need to abort the transaction
                 // anyway, since we can't deal with a partial write
             }
+            &&& self@.op_list_committed ==> {
+                let log_contents = Self::get_log_contents(self.log@);
+                let log_ops = Self::parse_log_ops(log_contents.unwrap(), self.log_start_addr() as nat, 
+                    self.log_size() as nat, self.overall_metadata.region_size as nat);
+                &&& log_contents is Some
+                &&& log_ops is Some
+                &&& log_ops.unwrap() == self@.physical_op_list
+                &&& self.log@.log.len() > 0
+            }
             // &&& self@.op_list_committed ==> {
             //     let log_bytes = self.log@.log;
             //     let log_contents = extract_bytes(log_bytes, 0, (log_bytes.len() - u64::spec_size_of()) as nat);
@@ -1120,34 +1129,70 @@ verus! {
         // and clear its CRC digest
         self.current_transaction_crc = CrcDigest::new();
 
+        // TODO
+        assert(Self::get_log_contents(self.log@) is Some);
+
         Ok(())
     }
 
-        // pub exec fn clear_log<PM>(
-        //     &mut self, 
-        //     log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<TrustedPermission, PM>,
-        //     log_id: u128,
-        //     Tracked(perm): Tracked<&TrustedPermission>,
-        // ) -> (result: Result<(), KvError<K>>)
-        //     where 
-        //         PM: PersistentMemoryRegion,
-        //     requires 
-        //         // TODO
-        //     ensures 
-        //         // TODO
-        // {
-        //     assume(false);
-        //     // look up the tail of the log, then advance the head to that point
-        //     let (head, tail, capacity) = match self.log.get_head_tail_and_capacity(log_wrpm, Ghost(log_id)) {
-        //         Ok((head, tail, capacity)) => (head, tail, capacity),
-        //         Err(e) => return Err(KvError::LogErr { log_err: e })
-        //     };
-        //     match self.log.advance_head(log_wrpm, tail, Ghost(log_id), Tracked(perm)) {
-        //         Ok(()) => Ok(()),
-        //         Err(e) => Err(KvError::LogErr { log_err: e })
-        //     }
-        // }
+    pub exec fn clear_log<Perm, PM>(
+        &mut self,
+        log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<(), KvError<K>>)
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            old(self).inv(*old(log_wrpm)),
+            old(self)@.op_list_committed,
+            old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
+            old(self).base_log_view().pending.len() == 0,
+            // legal crash states are the current op log state, or a cleared op log state
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@)
+                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.clear_log().unwrap())
+            }
+        ensures 
+            self.inv(*log_wrpm),
+            log_wrpm@.len() == old(log_wrpm)@.len(),
+            log_wrpm.constants() == old(log_wrpm).constants(),
+            self.overall_metadata() == old(self).overall_metadata(),
+            match result {
+                Ok(()) => {
+                    Ok::<_, ()>(self@) == old(self)@.clear_log()
+                }
+                Err(_) => true // TODO
+            }
+    {
+        let log_start_addr = self.overall_metadata.log_area_addr;
+        let log_size = self.overall_metadata.log_area_size;
 
+        // To clear the log, we'll look up its head and tail, then advance the head to the tail
+        let (head, tail, capacity) = match self.log.get_head_tail_and_capacity(log_wrpm, log_start_addr, log_size) {
+            Ok((head, tail, capacity)) => (head, tail, capacity),
+            Err(e) => {
+                assert(false);
+                return Err(KvError::LogErr{log_err: e});
+            }
+        };
 
+        // Now, advance the head to the tail. Verus is able to prove the required crash preconditions on its own
+        match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Tracked(perm)) {
+            Ok(()) => {}
+            Err(e) => {
+                return Err(KvError::LogErr{log_err: e});
+            }
+        }
+
+        // update the op log's state -- it is now empty and is not committed
+        self.state = Ghost(self.state@.clear_log().unwrap());
+        
+        // TODO: handle postconditions
+        assert(self.inv(*log_wrpm));
+        assert(self@ == old(self)@.clear_log().unwrap());
+
+        Ok(())
     }
+}
 }
