@@ -140,7 +140,7 @@ verus! {
                     &&& u64::bytes_parseable(crc_bytes)
                     &&& ListEntryMetadata::bytes_parseable(entry_bytes)
                     &&& K::bytes_parseable(key_bytes)
-                    &&& cdb == CDB_TRUE || cdb == CDB_FALSE
+                    &&& cdb == CDB_TRUE
                     &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
                     &&& crc == meta.crc
                     &&& entry == meta.entry
@@ -846,13 +846,11 @@ verus! {
                             &&& meta.key == key
                             &&& meta.entry == entry
                         },
-                        Err(_) => true,
+                        Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                        _ => false,
                     }
                 }),
         {
-            // TODO: why is the CRC between the key and the entry? they should be consecutive to make things a little
-            // bit easier.
-
             let ghost num_keys = overall_metadata.num_keys;
             let ghost pm_view = subregion.view(pm_region);
             let metadata_node_size = overall_metadata.metadata_node_size;
@@ -894,17 +892,19 @@ verus! {
             }
             let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                 Ok(cdb) => cdb,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                Err(_) => {
+                    assert(false);
+                    return Err(KvError::EntryIsNotValid);
+                }
             };
             let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
                                        Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
             match cdb_result {
-                Some(true) => {} // continue 
-                Some(false) => return Err(KvError::EntryIsNotValid),
-                None => return Err(KvError::CRCMismatch)
+                Some(true) => {}, // continue 
+                Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
+                None => { return Err(KvError::CRCMismatch); },
             }
 
-            // TODO: error handling
             proof {
                 assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index as int, metadata_node_size));
                 assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
@@ -916,15 +916,15 @@ verus! {
             }
             let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                 Ok(crc) => crc,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
             };
             let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
                 Ok(metadata_entry) => metadata_entry,
-                Err(e) => return Err(KvError::PmemErr { pmem_err: e })
+                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
             };
             let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
                 Ok(key) => key,
-                Err(e) => return Err(KvError::PmemErr {pmem_err: e })
+                Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
             };
 
             // 3. Check for corruption

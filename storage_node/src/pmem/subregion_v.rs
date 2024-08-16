@@ -365,8 +365,8 @@ impl WriteRestrictedPersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_unaligned(wrpm, relative_addr + self.start_, num_bytes, Tracked(perm))
@@ -411,8 +411,8 @@ impl WriteRestrictedPersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(wrpm).committed().subrange(
@@ -464,8 +464,8 @@ impl WriteRestrictedPersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_aligned(wrpm, relative_addr + self.start_, Ghost(true_val), Tracked(perm))
@@ -504,8 +504,8 @@ impl WriteRestrictedPersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(wrpm).committed().subrange(
@@ -820,8 +820,8 @@ impl PersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_unaligned(pm, relative_addr + self.start_, num_bytes)
@@ -864,8 +864,8 @@ impl PersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(pm).committed().subrange(
@@ -921,8 +921,8 @@ impl PersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_aligned(pm, relative_addr + self.start_)
@@ -961,8 +961,8 @@ impl PersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(pm).committed().subrange(
@@ -1130,8 +1130,8 @@ impl WritablePersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_unaligned(pm, relative_addr + self.start_, num_bytes)
@@ -1172,8 +1172,8 @@ impl WritablePersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(num_bytes as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(pm).committed().subrange(
@@ -1225,8 +1225,8 @@ impl WritablePersistentMemorySubregion
                                                            |i: int| relative_addr + self.start() + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         self.read_absolute_aligned(pm, relative_addr + self.start_)
@@ -1265,8 +1265,8 @@ impl WritablePersistentMemorySubregion
                         let absolute_addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| absolute_addr + i);
                         maybe_corrupted(bytes@, true_bytes, absolute_addrs)
                     }
-                }
-                Err(e) => e == PmemError::AccessOutOfRange
+                },
+                Err(_) => false,
             }
     {
         let ghost true_bytes1 = self.view(pm).committed().subrange(
