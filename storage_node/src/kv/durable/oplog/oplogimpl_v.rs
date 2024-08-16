@@ -842,19 +842,19 @@ verus! {
             !old(self)@.op_list_committed,
             Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
                 old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
-            // TODO: it would be better to only refer to op log state in this precondition,
-            // but the op log state is more abstract than the base log state, and we need to be 
-            // specific about the legal base log states here. If this becomes an issue, maybe we could
-            // keep more info about the base log state in the op log so that we can refer to it more easily here
-            forall |s| #[trigger] perm.check_permission(s) <==>
-                UntrustedLogImpl::recover(s, old(self).log_start_addr() as nat, old(self).log_size() as nat) == Some(old(self).base_log_view().drop_pending_appends()),
+            forall |s| #[trigger] perm.check_permission(s) <==> 
+                Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
         ensures 
-            self.inv(*log_wrpm),
             match result {
                 Ok(()) => {
-                    self@ == old(self)@.tentatively_append_log_entry(log_entry@)
+                    // We only maintain the invariant in the success case because an error appending to 
+                    // the log should abort the transaction, since we may not have appended a full log entry
+                    // and even if we did (or did not append anything), the error likely indicates we won't 
+                    // be able to commit it later anyway.
+                    &&& self.inv(*log_wrpm)
+                    &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                 }
                 Err(KvError::LogErr { log_err: e }) => true, // TODO
                 Err(_) => true // TODO
@@ -922,11 +922,6 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                assert(old(self)@.physical_op_list == self@.physical_op_list);
-                assume(false); // TODO TODO TODO
-                // WE HAVE TO PROVE THIS -- IT WILL PROBABLY BE TRICKY
-                assert(Self::parse_log_ops(self.log@.pending, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is None);
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -962,13 +957,6 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                assert(old(self)@.physical_op_list == self@.physical_op_list);
-                assert(self.log@.pending == old(self).log@.pending + absolute_addr.spec_to_bytes() + len.spec_to_bytes());
-                assume(false); // TODO TODO TODO
-                // WE HAVE TO PROVE THIS -- IT WILL PROBABLY BE TRICKY
-                assert(Self::parse_log_ops(self.log@.pending, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is None);
-                
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1016,122 +1004,124 @@ verus! {
         Ok(())
     }
 
-        pub exec fn commit_log<Perm, PM>(
-            &mut self, 
-            log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-            Tracked(perm): Tracked<&Perm>,
-        ) -> (result: Result<(), KvError<K>>)
-            where 
-                Perm: CheckPermission<Seq<u8>>,
-                PM: PersistentMemoryRegion,
-            requires 
-                old(self).inv(*old(log_wrpm)),
-                old(self)@.physical_op_list.len() > 0,
-                !old(self)@.op_list_committed,
-                old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
-                forall |s| #[trigger] perm.check_permission(s) <==> {
-                    ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-                    ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-                }
-            ensures 
-                self.inv(*log_wrpm),
-                log_wrpm@.len() == old(log_wrpm)@.len(),
-                log_wrpm.constants() == old(log_wrpm).constants(),
-                self.overall_metadata() == old(self).overall_metadata(),
-                match result {
-                    Ok(()) => {
-                        self@ == old(self)@.commit_op_log()
-                    }
-                    Err(_) => true // TODO
-                }
-        {
-            let transaction_crc = self.current_transaction_crc.sum64();
-            let bytes = transaction_crc.as_byte_slice();
-
-            proof {
-                broadcast use pmcopy_axioms;
-                // All base log crash states that result in self.base_log_view.drop_pending_appends() will result in 
-                // an op log state that is allowed by `perm`. The base log's `tentatively_append` requires that perm
-                // allow base log states that recover to self.base_log_view.drop_pending_appends(), so this 
-                // assertion tells us that all crash states considered legal in the base log's `tentatively_append` 
-                // also recover to a legal op log state
-                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                        Some(self.base_log_view().drop_pending_appends())
-                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
-                by {
-                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
-                    assert(base_log_recovery_state is Some);
-                    assert(base_log_recovery_state.unwrap().log.len() == 0);
-                }
-                assert(bytes.len() > 0);
+    pub exec fn commit_log<Perm, PM>(
+        &mut self, 
+        log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        Tracked(perm): Tracked<&Perm>,
+    ) -> (result: Result<(), KvError<K>>)
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            old(self).inv(*old(log_wrpm)),
+            old(self)@.physical_op_list.len() > 0,
+            !old(self)@.op_list_committed,
+            old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
             }
-
-            let ghost old_pending_bytes = self.log@.pending;
-
-            match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
-                Ok(_) => {}
-                Err(e) => {
-                    assert(old(self)@.physical_op_list == self@.physical_op_list);
-                    return Err(KvError::LogErr { log_err: e });
-                }
-            }
-
-            // The u64 we just appended is the CRC of all of the other bytes in the pending log. This should be obvious, but including 
-            // these assertions here helps Verus prove that the commit operation is crash consistent later
-            assert(bytes@ == spec_crc_bytes(old_pending_bytes));
-            assert(old_pending_bytes == extract_bytes(self.log@.pending, 0, (self.log@.pending.len() - u64::spec_size_of()) as nat));
-
-            proof {
-                // To prove that committing the base log is crash safe, we need to prove that all possible base log crash states
-                // imply a legal op log crash state. The crash state in which the base log loses all pending appends corresponds 
-                // to the crash state in which the op log is empty, and the crash state in which the base log commits is equivalent
-                // to the crash state in which the op log is also committed.
-                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                        Some(self.base_log_view().drop_pending_appends())
-                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
-                by {
-                    // In this crash state, the base log is empty, so the op log is also empty
-                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
-                    assert(base_log_recovery_state is Some);
-                    assert(base_log_recovery_state.unwrap().log.len() == 0);
-                }
-
-                assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                        Some(self.base_log_view().commit().drop_pending_appends())
-                    implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
-                by {
-                    let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat).unwrap();
-                    
-                    // Prove that recovering the op log from this base log -- getting its log contents, checking their CRC, and parsing it -- 
-                    // results in the current abstract op log state.
-                    let log_contents = extract_bytes(base_log_recovery_state.log, 0, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat);
-                    let crc_bytes = extract_bytes(base_log_recovery_state.log, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-                    assert(crc_bytes == bytes@); // the CRC is the one we appended earlier
-                    assert(u64::bytes_parseable(crc_bytes));
-                    assert(crc_bytes == spec_crc_bytes(log_contents));
-
-                    // if we get the log contents and parse them, we will get the desired op log
-                    let base_log_contents = Self::get_log_contents(base_log_recovery_state);
-                    assert(base_log_contents is Some);
-                    let parsed_log_ops = Self::parse_log_ops(base_log_contents.unwrap(), self.log_start_addr() as nat, self.log_size() as nat, self.overall_metadata.region_size as nat);
-                    
-                    assert(parsed_log_ops is Some);
-                    assert(parsed_log_ops.unwrap() == self@.physical_op_list);
-                }
-            }
+        ensures 
             
-            match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
-                Ok(_) => {}
-                Err(e) => return Err(KvError::LogErr { log_err: e })
+            log_wrpm@.len() == old(log_wrpm)@.len(),
+            log_wrpm.constants() == old(log_wrpm).constants(),
+            self.overall_metadata() == old(self).overall_metadata(),
+            match result {
+                Ok(()) => {
+                    &&& self.inv(*log_wrpm)
+                    &&& self@ == old(self)@.commit_op_log()
+                }
+                Err(_) => true // TODO
+            }
+    {
+        let transaction_crc = self.current_transaction_crc.sum64();
+        let bytes = transaction_crc.as_byte_slice();
+
+        proof {
+            broadcast use pmcopy_axioms;
+            // All base log crash states that result in self.base_log_view.drop_pending_appends() will result in 
+            // an op log state that is allowed by `perm`. The base log's `tentatively_append` requires that perm
+            // allow base log states that recover to self.base_log_view.drop_pending_appends(), so this 
+            // assertion tells us that all crash states considered legal in the base log's `tentatively_append` 
+            // also recover to a legal op log state
+            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                    Some(self.base_log_view().drop_pending_appends())
+                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
+            by {
+                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                assert(base_log_recovery_state is Some);
+                assert(base_log_recovery_state.unwrap().log.len() == 0);
+            }
+            assert(bytes.len() > 0);
+        }
+
+        let ghost old_pending_bytes = self.log@.pending;
+
+        match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
+            Ok(_) => {}
+            Err(e) => {
+                // TODO: abort transaction
+                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                return Err(KvError::LogErr { log_err: e });
+            }
+        }
+
+        // The u64 we just appended is the CRC of all of the other bytes in the pending log. This should be obvious, but including 
+        // these assertions here helps Verus prove that the commit operation is crash consistent later
+        assert(bytes@ == spec_crc_bytes(old_pending_bytes));
+        assert(old_pending_bytes == extract_bytes(self.log@.pending, 0, (self.log@.pending.len() - u64::spec_size_of()) as nat));
+
+        proof {
+            // To prove that committing the base log is crash safe, we need to prove that all possible base log crash states
+            // imply a legal op log crash state. The crash state in which the base log loses all pending appends corresponds 
+            // to the crash state in which the op log is empty, and the crash state in which the base log commits is equivalent
+            // to the crash state in which the op log is also committed.
+            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                    Some(self.base_log_view().drop_pending_appends())
+                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
+            by {
+                // In this crash state, the base log is empty, so the op log is also empty
+                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                assert(base_log_recovery_state is Some);
+                assert(base_log_recovery_state.unwrap().log.len() == 0);
             }
 
-            // update the op log's ghost state to indicate that it has been committed
-            self.state = Ghost(self.state@.commit_op_log());
-            // and clear its CRC digest
-            self.current_transaction_crc = CrcDigest::new();
+            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+                    Some(self.base_log_view().commit().drop_pending_appends())
+                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
+            by {
+                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat).unwrap();
+                
+                // Prove that recovering the op log from this base log -- getting its log contents, checking their CRC, and parsing it -- 
+                // results in the current abstract op log state.
+                let log_contents = extract_bytes(base_log_recovery_state.log, 0, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat);
+                let crc_bytes = extract_bytes(base_log_recovery_state.log, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+                assert(crc_bytes == bytes@); // the CRC is the one we appended earlier
+                assert(u64::bytes_parseable(crc_bytes));
+                assert(crc_bytes == spec_crc_bytes(log_contents));
 
-            Ok(())
+                // if we get the log contents and parse them, we will get the desired op log
+                let base_log_contents = Self::get_log_contents(base_log_recovery_state);
+                assert(base_log_contents is Some);
+                let parsed_log_ops = Self::parse_log_ops(base_log_contents.unwrap(), self.log_start_addr() as nat, self.log_size() as nat, self.overall_metadata.region_size as nat);
+                
+                assert(parsed_log_ops is Some);
+                assert(parsed_log_ops.unwrap() == self@.physical_op_list);
+            }
         }
+        
+        match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
+            Ok(_) => {}
+            Err(e) => return Err(KvError::LogErr { log_err: e })
+        }
+
+        // update the op log's ghost state to indicate that it has been committed
+        self.state = Ghost(self.state@.commit_op_log());
+        // and clear its CRC digest
+        self.current_transaction_crc = CrcDigest::new();
+
+        Ok(())
+    }
 
         // pub exec fn clear_log<PM>(
         //     &mut self, 
