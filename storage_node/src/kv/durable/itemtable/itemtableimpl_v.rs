@@ -53,16 +53,17 @@ verus! {
         pub closed spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
+            &&& self@.inv()
+            &&& self@.len() == overall_metadata.num_keys
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> !self.free_list@.contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.free_list.len() && 0 <= j < self.free_list.len() && i != j ==>
                 self.free_list@[i] != self.free_list@[j]
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==>
                 self.state@.durable_item_table[idx as int] is Some
-            &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==>
-                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
             &&& forall|i: int| 0 <= i < self.free_list.len() ==>
-                pm_view.no_outstanding_writes_in_range(self.free_list@[i] * entry_size,
-                                                       self.free_list@[i] * entry_size + entry_size)
+                self@.outstanding_item_table[#[trigger] self.free_list@[i] as int] is None
+            &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self@.outstanding_item_table[idx as int] is None ==>
+                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
         }
 
         pub closed spec fn spec_item_size(self) -> u64
@@ -359,16 +360,10 @@ verus! {
                                                                            (idx * entry_size) as nat, entry_size as nat)));
                 }
 
-                assert forall|idx: u64| #[trigger] item_table.valid_indices@.contains(idx) implies
+                assert forall|idx: u64| idx < num_keys &&
+                           #[trigger] item_table@.outstanding_item_table[idx as int] is None implies
                     pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                }
-
-                assert forall|i: int| 0 <= i < item_table.free_list.len() implies
-                    pm_view.no_outstanding_writes_in_range(item_table.free_list@[i] * entry_size,
-                                                           item_table.free_list@[i] * entry_size + entry_size) by {
-                    lemma_valid_entry_index(item_table.free_list@[i] as nat, overall_metadata.num_keys as nat,
-                                            entry_size as nat);
                 }
             }
 

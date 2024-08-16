@@ -48,6 +48,11 @@ verus! {
             }
         }
 
+        pub open spec fn inv(self) -> bool
+        {
+            self.durable_item_table.len() == self.outstanding_item_table.len()
+        }
+
         // pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
         // {
         //     if index < 0 || index >= self.len() 
