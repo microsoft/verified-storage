@@ -50,13 +50,19 @@ verus! {
             self.state@
         }
 
-        pub closed spec fn inv(self) -> bool
+        pub closed spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> !self.free_list@.contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.free_list.len() && 0 <= j < self.free_list.len() && i != j ==>
                 self.free_list@[i] != self.free_list@[j]
             &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==>
                 self.state@.durable_item_table[idx as int] is Some
+            &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==>
+                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
+            &&& forall|i: int| 0 <= i < self.free_list.len() ==>
+                pm_view.no_outstanding_writes_in_range(self.free_list@[i] * entry_size,
+                                                       self.free_list@[i] * entry_size + entry_size)
         }
 
         pub closed spec fn spec_item_size(self) -> u64
@@ -219,7 +225,7 @@ verus! {
                     Ok(item_table) => {
                         let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
                         let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
-                        &&& item_table.inv()
+                        &&& item_table.inv(subregion.view(pm_region), overall_metadata)
                         // table view is correct
                         &&& table == item_table@
                         &&& forall |i: int| 0 <= i < key_index_info.len() ==> {
@@ -246,10 +252,10 @@ verus! {
             // prove that the allocator is correct
 
             let num_keys = overall_metadata.num_keys;
-            let ghost mem = pm_region@.committed();
+            let ghost pm_view = subregion.view(pm_region);
 
             let ghost valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
-            let ghost table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
+            let ghost table = parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
 
             // TODO: we could make this a bit more efficient by making the boolean vector a bitmap
             let mut free_vec: Vec<bool> = Vec::with_capacity(num_keys as usize);
@@ -339,20 +345,33 @@ verus! {
 
                 let all_possible_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys);
                 let free_indices = all_possible_indices - in_use_indices;
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
 
                 assert forall|idx: u64| #[trigger] item_table.valid_indices@.contains(idx) implies
                     !item_table.free_list@.contains(idx) && item_table.state@.durable_item_table[idx as int] is Some by {
                     let j: int = choose|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx;
                     assert(valid_indices_view[j] == idx);
                     assert(valid_indices_view.to_set().contains(idx as int));
-                    let entry_size = I::spec_size_of() + u64::spec_size_of();
                     assert(idx * entry_size + entry_size <= overall_metadata.num_keys * entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                     }
-                    assert(validate_item_table_entry::<I, K>(extract_bytes(subregion.view(pm_region).committed(),
+                    assert(validate_item_table_entry::<I, K>(extract_bytes(pm_view.committed(),
                                                                            (idx * entry_size) as nat, entry_size as nat)));
                 }
+
+                assert forall|idx: u64| #[trigger] item_table.valid_indices@.contains(idx) implies
+                    pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
+                        lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                }
+
+                assert forall|i: int| 0 <= i < item_table.free_list.len() implies
+                    pm_view.no_outstanding_writes_in_range(item_table.free_list@[i] * entry_size,
+                                                           item_table.free_list@[i] * entry_size + entry_size) by {
+                    lemma_valid_entry_index(item_table.free_list@[i] as nat, overall_metadata.num_keys as nat,
+                                            entry_size as nat);
+                }
             }
+
             Ok(item_table)
         }
 
