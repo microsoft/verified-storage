@@ -108,6 +108,18 @@ verus! {
             // TODO: more component invariants
         }
 
+        pub closed spec fn valid(self) -> bool 
+        {
+            let pm_view = self.wrpm@;
+            &&& self.inv()
+            &&& self.metadata_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+                                                           self.overall_metadata.main_table_size as nat),
+                                        self.overall_metadata)
+            &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
+                                                       self.overall_metadata.item_table_size as nat),
+                                    self.overall_metadata)
+        }
+
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
@@ -467,12 +479,6 @@ verus! {
             DurableKvStoreView { contents }
         }
 
-        pub closed spec fn valid(self) -> bool
-        {
-            // TODO
-            true
-        }
-
         pub exec fn get_elements_per_node(&self) -> u64 {
             self.durable_list.get_elements_per_node()
         }
@@ -631,7 +637,7 @@ verus! {
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
                     Ok(kvstore) => {
                         &&& kvstore@ == state
-                        &&& kvstore.inv()
+                        &&& kvstore.valid()
                         &&& kvstore.wrpm@.no_outstanding_writes()
                         &&& kvstore.constants() == wrpm_region.constants()
                     }
@@ -899,7 +905,7 @@ verus! {
             metadata_index: u64
         ) -> (result: Result<Box<I>, KvError<K>>)
             requires
-                self.inv(),
+                self.valid(),
                 self@.contains_key(metadata_index as int),
             ensures
                 match result {

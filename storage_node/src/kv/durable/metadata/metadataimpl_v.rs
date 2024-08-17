@@ -80,7 +80,7 @@ verus! {
             }
         }
 
-        pub open spec fn inv_mid_operation(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
@@ -98,9 +98,9 @@ verus! {
             &&& self.allocator_view() == self@.free_indices()
         }
 
-        pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
-            &&& self.inv_mid_operation(pm, overall_metadata)
+            &&& self.inv(pm, overall_metadata)
             &&& forall |i| 0 <= i < self@.outstanding_cdb_writes.len() ==> self@.outstanding_cdb_writes[i] is None
             &&& forall |i| 0 <= i < self@.outstanding_entry_writes.len() ==> self@.outstanding_entry_writes[i] is None
         }

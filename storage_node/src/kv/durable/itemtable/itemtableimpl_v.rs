@@ -57,8 +57,7 @@ verus! {
             &&& self.entry_size == entry_size
         }
 
-        pub open spec fn inv_mid_operation(self, pm_view: PersistentMemoryRegionView,
-                                           overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.opaque_inv(pm_view, overall_metadata)
@@ -81,11 +80,10 @@ verus! {
             }
         }
 
-        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
-            &&& self.inv_mid_operation(pm_view, overall_metadata)
-            &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
-                #[trigger] self@.outstanding_item_table[idx as int] is None
+            &&& self.inv(pm_view, overall_metadata)
+            &&& forall|idx: u64| idx < overall_metadata.num_keys ==> #[trigger] self@.outstanding_item_table[idx as int] is None
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -110,7 +108,7 @@ verus! {
             index: u64,
         )
             requires
-                self.inv(pm, overall_metadata),
+                self.valid(pm, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
                 self.spec_valid_indices().contains(index),
                 self@.durable_item_table[index as int] is Some,
@@ -158,7 +156,7 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 subregion.inv(pm_region),
-                self.inv(subregion.view(pm_region), overall_metadata),
+                self.valid(subregion.view(pm_region), overall_metadata),
                 item_table_index < self.spec_num_keys(),
                 self.spec_valid_indices().contains(item_table_index),
                 self@.outstanding_item_table[item_table_index as int] is None,
