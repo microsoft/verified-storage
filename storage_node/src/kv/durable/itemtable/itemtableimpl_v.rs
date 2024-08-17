@@ -57,7 +57,8 @@ verus! {
             &&& self.entry_size == entry_size
         }
 
-        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv_mid_operation(self, pm_view: PersistentMemoryRegionView,
+                                           overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.opaque_inv(pm_view, overall_metadata)
@@ -78,6 +79,13 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
             }
+        }
+
+        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        {
+            &&& self.inv_mid_operation(pm_view, overall_metadata)
+            &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
+                #[trigger] self@.outstanding_item_table[idx as int] is None
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -286,14 +294,14 @@ verus! {
         pub proof fn lemma_table_is_empty_at_setup<PM, L>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &PM,
-            valid_indices: Set<int>,
+            valid_indices: Set<u64>,
             num_keys: u64,
         )
             where 
                 PM: PersistentMemoryRegion,
                 L: PmCopy,
             requires 
-                valid_indices == Set::<int>::empty(),
+                valid_indices == Set::<u64>::empty(),
                 ({ 
                     let mem = subregion.view(pm_region).committed();
                     let item_entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -334,7 +342,7 @@ verus! {
                 subregion.len() == overall_metadata.item_table_size,
                 subregion.view(pm_region).no_outstanding_writes(),
                 ({
-                    let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
+                    let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
                     let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
                     table is Some
                 }),
@@ -345,7 +353,7 @@ verus! {
             ensures 
                 match result {
                     Ok(item_table) => {
-                        let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
+                        let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
                         let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
                         &&& item_table.inv(subregion.view(pm_region), overall_metadata)
                         // table view is correct
@@ -376,7 +384,7 @@ verus! {
             let num_keys = overall_metadata.num_keys;
             let ghost pm_view = subregion.view(pm_region);
 
-            let ghost valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2 as int);
+            let ghost valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
             let ghost table = parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
 
             // TODO: we could make this a bit more efficient by making the boolean vector a bitmap
@@ -473,7 +481,7 @@ verus! {
                     !item_table.free_list@.contains(idx) && item_table.state@.durable_item_table[idx as int] is Some by {
                     let j: int = choose|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx;
                     assert(valid_indices_view[j] == idx);
-                    assert(valid_indices_view.to_set().contains(idx as int));
+                    assert(valid_indices_view.to_set().contains(idx));
                     assert(idx * entry_size + entry_size <= overall_metadata.num_keys * entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                     }

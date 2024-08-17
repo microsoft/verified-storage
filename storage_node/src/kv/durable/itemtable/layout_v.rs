@@ -105,7 +105,7 @@ verus! {
         &&& crc_bytes == spec_crc_bytes(item_bytes)
     }
 
-    pub open spec fn validate_item_table_entries<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<int>) -> bool 
+    pub open spec fn validate_item_table_entries<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<u64>) -> bool 
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -113,8 +113,8 @@ verus! {
             mem.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of())
     {
         let entry_size = I::spec_size_of() + u64::spec_size_of();
-        forall |i: nat| i < num_keys && valid_indices.contains(i as int) ==> 
-            validate_item_table_entry::<I, K>(#[trigger] extract_bytes(mem, i * entry_size, entry_size))
+        forall |i: u64| i < num_keys && valid_indices.contains(i) ==> 
+            validate_item_table_entry::<I, K>(#[trigger] extract_bytes(mem, (i * entry_size) as nat, entry_size))
     }
 
     // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.
@@ -140,7 +140,7 @@ verus! {
 
 
     // The set of valid indices comes from the main table; an item is valid if a valid main table entry points to it
-    pub open spec fn parse_item_table<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<int>) -> Option<DurableItemTableView<I>>
+    pub open spec fn parse_item_table<I, K>(mem: Seq<u8>, num_keys: nat, valid_indices: Set<u64>) -> Option<DurableItemTableView<I>>
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -159,7 +159,7 @@ verus! {
                     num_keys as nat,
                     |i: int| {
                         // TODO: probably can't have if {} in here
-                        if valid_indices.contains(i) {
+                        if i <= u64::MAX && valid_indices.contains(i as u64) {
                             let bytes = extract_bytes(mem, (i * item_entry_size) as nat, item_entry_size as nat);
                             parse_metadata_entry::<I, K>(bytes)
                         } else {

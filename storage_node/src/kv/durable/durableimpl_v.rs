@@ -103,7 +103,7 @@ verus! {
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata)
-//            &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
+            &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
                                                                
             // TODO: more component invariants
         }
@@ -714,6 +714,8 @@ verus! {
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), overall_metadata).unwrap());
                 assert(durable_kv_store@ == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
+                assert(durable_kv_store.item_table.spec_valid_indices() =~=
+                       durable_kv_store.metadata_table@.valid_item_indices());
             }
 
             let ghost physical_recovery_state = Self::physical_recover(wrpm_region@.committed(), overall_metadata);
@@ -934,7 +936,6 @@ verus! {
                 pm,
                 self.overall_metadata.item_table_addr,
                 Ghost(self.overall_metadata.item_table_size as nat));
-            assume(false);
             self.item_table.read_item(
                 &item_table_subregion,
                 pm,

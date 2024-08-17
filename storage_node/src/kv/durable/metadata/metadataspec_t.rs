@@ -111,8 +111,8 @@ verus! {
         //     }
         // }
 
-        pub open spec fn valid_item_indices(self) -> Set<int> {
-            Set::new(|i: int| exists |j: int| {
+        pub open spec fn valid_item_indices(self) -> Set<u64> {
+            Set::new(|i: u64| exists |j: int| {
                     &&& 0 <= j < self.durable_metadata_table.len() 
                     &&& #[trigger] self.durable_metadata_table[j] matches DurableEntry::Valid(entry)
                     &&& entry.item_index() == i

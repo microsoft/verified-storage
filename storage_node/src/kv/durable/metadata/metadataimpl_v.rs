@@ -80,7 +80,7 @@ verus! {
             }
         }
 
-        pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv_mid_operation(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
@@ -96,6 +96,13 @@ verus! {
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self@.inv()
             &&& self.allocator_view() == self@.free_indices()
+        }
+
+        pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        {
+            &&& self.inv_mid_operation(pm, overall_metadata)
+            &&& forall |i| 0 <= i < self@.outstanding_cdb_writes.len() ==> self@.outstanding_cdb_writes[i] is None
+            &&& forall |i| 0 <= i < self@.outstanding_entry_writes.len() ==> self@.outstanding_entry_writes[i] is None
         }
 
         pub proof fn lemma_establish_bytes_parseable_for_valid_entry(
@@ -439,7 +446,7 @@ verus! {
                                     &&& val == (entry.key(), j, entry.item_index())
                         }});
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
-                        let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2 as int);
+                        let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
                         &&& main_table@.no_outstanding_writes()
@@ -524,7 +531,7 @@ verus! {
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     ({
                         let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
-                        let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                        let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
                         &&& forall |i: u64| 0 <= i < index ==> {
                                 let entry = #[trigger] table.durable_metadata_table[i as int];
                                 entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
@@ -536,8 +543,8 @@ verus! {
                                 &&& valid_entry.key() == #[trigger] entry_list_view[i].0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
-                                &&& table.valid_item_indices().contains(item_index as int)
-                                &&& item_index_view.contains(item_index as int)
+                                &&& table.valid_item_indices().contains(item_index)
+                                &&& item_index_view.contains(item_index)
                             }
                         &&& item_index_view.to_set().subset_of(table.valid_item_indices())
                     }),
@@ -690,7 +697,7 @@ verus! {
                         let key = key.extract_init_val(Ghost(true_key));
                         let metadata = entry.extract_init_val(Ghost(true_entry));
                         
-                        let ghost old_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                        let ghost old_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
                         assert(old_item_index_view.to_set().subset_of(table.valid_item_indices()));
                         let ghost old_key_index_pairs = key_index_pairs;
 
@@ -709,7 +716,7 @@ verus! {
                         assert(key_index_pairs@[key_index_pairs.len() - 1] == (key, index, metadata.item_index));
                         
                         proof {
-                            let new_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                            let new_item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
                             let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                             
                             assert(entry_list_view.subrange(0, entry_list_view.len() - 1) == old_entry_list_view);
@@ -722,8 +729,8 @@ verus! {
                                 &&& valid_entry.key() == entry.0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
-                                &&& table.valid_item_indices().contains(item_index as int)
-                                &&& new_item_index_view.contains(item_index as int)
+                                &&& table.valid_item_indices().contains(item_index)
+                                &&& new_item_index_view.contains(item_index)
                             } by {
                                 let entry = entry_list_view[i];
                                 let table_index = entry.1;
@@ -750,8 +757,8 @@ verus! {
                                 &&& #[trigger] table.durable_metadata_table[j] matches DurableEntry::Valid(valid_entry) 
                                 &&& valid_entry.item_index() == metadata.item_index
                             }); 
-                            assert(table.valid_item_indices().contains(metadata.item_index as int));
-                            assert(new_item_index_view == old_item_index_view.push(metadata.item_index as int));
+                            assert(table.valid_item_indices().contains(metadata.item_index));
+                            assert(new_item_index_view == old_item_index_view.push(metadata.item_index));
                             assert(new_item_index_view.to_set().subset_of(table.valid_item_indices()));
                         }
                     }
@@ -799,7 +806,7 @@ verus! {
                             &&& val == (entry.key(), j, entry.item_index())
                 }});
                 let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
-                let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2 as int);
+                let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
 
                 assert(main_table.allocator_view() == main_table@.free_indices());
                 assert(entry_list_view.to_set() == key_entry_list_view);
