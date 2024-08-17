@@ -67,7 +67,8 @@ verus! {
         }
 
         pub closed spec fn crc_invariant(self) -> bool {
-            !self@.op_list_committed ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
+            &&& !self@.op_list_committed && self.log@.pending.len() > 0 ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
+            &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
         }
 
         // TODO: should this take overall metadata and say that recovery is successful?
@@ -909,10 +910,18 @@ verus! {
             let bytes = absolute_addr.spec_to_bytes();
             assert(current_digest == old_digest.push(bytes));
             assert(self.log@.pending == old_pending + bytes);
-            assert(old_digest.flatten() == old_pending);
-            Self::lemma_seqs_flatten_equal_suffix(current_digest);
-            assert(current_digest[current_digest.len() - 1] == bytes);
-            assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
+            // The proof is slightly different if the log was empty before this operation.
+            // The other proofs about CRC digest bytes for the other appends don't need 
+            // to consider this because we will have appended to the log by then.
+            if old_pending.len() > 0 {
+                assert(old_digest.flatten() == old_pending);
+                Self::lemma_seqs_flatten_equal_suffix(current_digest);
+                assert(current_digest[current_digest.len() - 1] == bytes);
+                assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
+            } else {
+                assert(current_digest.len() == 1);
+                current_digest.lemma_flatten_one_element();
+            }
             assert(current_digest.flatten() == old_digest.flatten() + bytes);
         }
 
@@ -1075,10 +1084,18 @@ verus! {
             }
         }
 
-        // The u64 we just appended is the CRC of all of the other bytes in the pending log. This should be obvious, but including 
-        // these assertions here helps Verus prove that the commit operation is crash consistent later
-        assert(bytes@ == spec_crc_bytes(old_pending_bytes));
-        assert(old_pending_bytes == extract_bytes(self.log@.pending, 0, (self.log@.pending.len() - u64::spec_size_of()) as nat));
+        proof {
+            // The u64 we just appended is the CRC of all of the other bytes in the pending log. This should be obvious, but including 
+            // these assertions here helps Verus prove that the commit operation is crash consistent later
+            let current_pending_bytes = self.log@.pending;
+            let log_contents = extract_bytes(current_pending_bytes, 0, (current_pending_bytes.len() - u64::spec_size_of()) as nat);
+            let crc_bytes = extract_bytes(current_pending_bytes, (current_pending_bytes.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+            let crc = u64::spec_from_bytes(crc_bytes);
+            assert(log_contents == old_pending_bytes);
+            assert(crc_bytes == bytes@);
+            assert(crc == spec_crc_u64(log_contents));
+            assert(u64::bytes_parseable(crc_bytes));
+        }
 
         proof {
             // To prove that committing the base log is crash safe, we need to prove that all possible base log crash states
@@ -1128,9 +1145,6 @@ verus! {
         self.state = Ghost(self.state@.commit_op_log());
         // and clear its CRC digest
         self.current_transaction_crc = CrcDigest::new();
-
-        // TODO
-        assert(Self::get_log_contents(self.log@) is Some);
 
         Ok(())
     }
@@ -1187,10 +1201,9 @@ verus! {
 
         // update the op log's state -- it is now empty and is not committed
         self.state = Ghost(self.state@.clear_log().unwrap());
-        
-        // TODO: handle postconditions
-        assert(self.inv(*log_wrpm));
-        assert(self@ == old(self)@.clear_log().unwrap());
+
+        assert(self.log@.pending.len() == 0);
+        assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
 
         Ok(())
     }

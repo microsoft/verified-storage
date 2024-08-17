@@ -794,6 +794,7 @@ impl UntrustedLogImpl {
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             match result {
                 Ok(()) => {
                     &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
