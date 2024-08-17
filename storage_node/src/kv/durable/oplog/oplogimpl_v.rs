@@ -1,21 +1,12 @@
-use std::fmt::Write;
-
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
-use crate::log2::{logimpl_v::*, logspec_t::*, layout_v::*, inv_v::*};
-use crate::kv::durable::oplog::logentry_v::*;
-use crate::kv::durable::oplog::oplogspec_t::*;
-use crate::kv::kvimpl_t::*;
-use crate::kv::layout_v::*;
-use crate::pmem::pmemspec_t::*;
-use crate::pmem::wrpm_t::*;
-use crate::pmem::pmemutil_v::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t;
-use crate::pmem::traits_t::PmSafe;
-use crate::pmem::crc_t::*;
+use crate::{
+    kv::{durable::{metadata::layout_v::*, oplog::{logentry_v::*, oplogspec_t::*}},
+            kvimpl_t::*, layout_v::*},
+    log2::{logimpl_v::*, logspec_t::*, layout_v::*, inv_v::*},
+    pmem::{pmemspec_t::*, wrpm_t::*, pmemutil_v::*, pmcopy_t::*, traits_t, crc_t::*},
+};
 use vstd::bytes::*;
 
 use super::inv_v::*;
@@ -71,19 +62,12 @@ verus! {
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
         }
 
-        // TODO: should this take overall metadata and say that recovery is successful?
         pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>) -> bool
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
             &&& self.log.inv(pm_region, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-            // &&& ({
-            //         // either the op log and base log are empty, or they are not and there are 
-            //         // bytes in the current transaction's CRC digest
-            //         ||| self@.physical_op_list.len() == 0
-            //         ||| self.current_transaction_crc.bytes_in_digest().len() > 0
-            //     })
             &&& ({
                     // either the base log is empty or the op log is committed and non-empty
                     ||| self.log@.log.len() == 0
@@ -100,11 +84,6 @@ verus! {
                         &&& log_ops is Some 
                         &&& log_ops.unwrap() == self@.physical_op_list
                     }
-                // tentatively appending requires two base log appends, so if the op log append fails,
-                // we could end up with pending bytes that cannot be parsed. 
-                // ||| log_ops is None
-                // Maybe we just don't maintain the invariant if this fails? we'll need to abort the transaction
-                // anyway, since we can't deal with a partial write
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
@@ -115,12 +94,6 @@ verus! {
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
             }
-            // &&& self@.op_list_committed ==> {
-            //     let log_bytes = self.log@.log;
-            //     let log_contents = extract_bytes(log_bytes, 0, (log_bytes.len() - u64::spec_size_of()) as nat);
-            //     let crc_bytes = extract_bytes(log_bytes, (log_bytes.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-            //     crc_bytes == spec_crc_bytes(log_contents)
-            // }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
                     self.log_entry_valid(pm_region@, op)
@@ -157,16 +130,10 @@ verus! {
                                 overall_metadata.log_area_size as nat,
                                 overall_metadata.region_size as nat
                             ) {
-                                // if exists |logical_log: Seq<LogicalOpLogEntry<_>>| logical_and_physical_logs_correspond::<L>(logical_log, physical_log_entries) {
-                                //     let logical_log_entries = choose |logical_log| logical_and_physical_logs_correspond(logical_log, physical_log_entries);
                                     Some(AbstractOpLogState {
-                                        // logical_op_list: logical_log_entries,
                                         physical_op_list: physical_log_entries,
                                         op_list_committed: true
                                     })
-                                // } else {
-                                //     None
-                                // }
                             } else {
                                 None
                             }
@@ -179,6 +146,8 @@ verus! {
             }
         }
 
+        // This helper function obtains committed contents of the op log as bytes, reads the CRC, and checks
+        // that the CRC matches the rest of the log 
         pub open spec fn get_log_contents(log: AbstractLogState) -> Option<Seq<u8>>
         {
             let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
@@ -217,7 +186,6 @@ verus! {
                 let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
                 &&& last_op matches Some(last_op)
                 &&& end == mid + u64::spec_size_of() * 2 + last_op.len
-                // &&& end == last_op.offset + u64::spec_size_of() * 2 + last_op.len
             })
         ensures 
             Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is Some,
@@ -250,6 +218,10 @@ verus! {
             Self::lemma_op_log_parse_equal(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);  
         }
 
+        // This lemma proves that if one sequence is a prefix of another sequence and the shorter sequence
+        // can be successfully parsed as an operation log, then the matching subrange/prefix of the longer
+        // sequence can also be parsed as an operation log. This lemma is a wrapper around an an inductive
+        // proof function that does all of the actual work.
         proof fn lemma_parsing_same_range_equal(
             mem1: Seq<u8>,
             mem2: Seq<u8>,
@@ -271,6 +243,9 @@ verus! {
             Self::lemma_inductive_parsing_same_range_equal(0, mem1.len(), mem1, mem2, log_start_addr, log_size, region_size);
         }
 
+        // This helper lemma does the key work to prove lemma_parsing_same_range_equal.
+        // It inductively proves that each parsed operation in the longer sequence's prefix
+        // is equivalent to the corresponding parsed operation in the shorter sequence.
         proof fn lemma_inductive_parsing_same_range_equal(
             current_offset: nat,
             target_offset: nat,
@@ -309,6 +284,9 @@ verus! {
             }
         }
 
+        // This spec function parses an individual op log entry at the given offset. It returns None
+        // if the log entry is invalid, i.e., its address and length don't fit within the log area or 
+        // if the length is 0.
         pub open spec fn parse_log_op(
             offset: nat,
             log_contents: Seq<u8>,
@@ -394,6 +372,9 @@ verus! {
             }
         }
 
+        // This lemma proves that if we can parse the given log area from `current_offset`
+        // to `target_offset` as a valid operation log, then certain invariants hold
+        // about the resulting parsed log.
         pub proof fn lemma_successful_log_ops_parse_implies_inv(
             current_offset: nat,
             target_offset: nat,
@@ -424,6 +405,10 @@ verus! {
             }
         }
 
+        // This executable function parses the entire operation log iteratively
+        // and returns a vector of `PhysicalOpLogEntry`. This operation will fail 
+        // if the CRC for the op log does not match the rest of the log body or 
+        // if any of the log entries themselves are invalid.
         pub exec fn parse_phys_op_log<Perm, PM>(
             pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             log_bytes: Vec<u8>,
@@ -562,7 +547,6 @@ verus! {
             let bytes = slice_range_to_vec(&log_bytes, offset + traits_t::size_of::<u64>() * 2, len as usize);
 
             let phys_log_entry = PhysicalOpLogEntry {
-                // offset: offset as u64,
                 absolute_addr: addr,
                 len,
                 bytes
@@ -588,7 +572,11 @@ verus! {
         Ok(ops)
     }
     
-    // Note that the op log is given the entire PM device but only deals with the log region
+    // This function starts the operation log, given a WRPM region that already has a base log
+    // set up at the address specified in the `overall_metadata` argument.
+    // If log is not empty, it parses it and returns the contents so that they can be used
+    // to recover other regions.
+    // Note that the op log is given the entire PM device, but only deals with the log region.
     pub exec fn start<Perm, PM>(
         pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         overall_metadata: OverallMetadata
@@ -703,34 +691,11 @@ verus! {
         ))
     }
 
-    proof fn lemma_seqs_flatten_equal_prefix(s: Seq<Seq<u8>>)
-        requires 
-            s.len() >= 1
-        ensures 
-            ({
-                let first = s[0];
-                let suffix = s.drop_first();
-                s.flatten() == first + suffix.flatten()
-            })
-        decreases s.len()
-    {
-        if s.len() == 1 {
-            let first = s[0];
-            seq![first].lemma_flatten_one_element();
-        } else {
-            let first = s[0];
-            let prefix = s.subrange(0, s.len() - 1);
-            let middle = prefix.drop_first(); 
-            let suffix = s.drop_first();
-
-            assert(prefix == seq![first] + middle);
-            assert(prefix.flatten() == (seq![first] + middle).flatten());
-
-            Self::lemma_seqs_flatten_equal_prefix(prefix);
-            assert(s.flatten() == first + suffix.flatten());
-        }
-    }
-
+    // This helper lemma helps us prove that flattening a 2D sequence
+    // is equivalent to concatenating the last sequence to all prior
+    // sequences after flattening them. We use this to prove that 
+    // the op log's CRC digest (which is a sequence of sequences) is 
+    // equivalent to the base log's pending bytes (which is a sequence).
     proof fn lemma_seqs_flatten_equal_suffix(s: Seq<Seq<u8>>)
         requires
             s.len() >= 1
@@ -762,6 +727,10 @@ verus! {
         }
     }
 
+    // This lemma proves that if we append a log entry to the current op log,
+    // and append the same log entry as a sequence of bytes to the current 
+    // base log, then parsing the log in the base log will return the 
+    // current op log.
     proof fn lemma_appending_log_entry_bytes_appends_op_to_list(
         self,
         pm_region: PersistentMemoryRegionView,
@@ -802,11 +771,6 @@ verus! {
         let region_size = self.overall_metadata.region_size as nat;
 
         let pending_bytes = self.log@.pending;
-        // let header = PhysicalLogEntryHeader {
-        //     absolute_addr: log_entry.absolute_addr,
-        //     len: log_entry.bytes@.len() as u64,
-        // }; 
-        // let header_bytes = header.spec_to_bytes();
         let bytes = log_entry.bytes@;
         let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
         let old_log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
@@ -837,6 +801,13 @@ verus! {
         assert(new_log_ops.unwrap() == old_log_ops.push(new_op.unwrap()));
     }
 
+    // This function tentatively appends a log entry to the operation log. It does so 
+    // by casting the log entry to byte slices and tentatively appending them to the 
+    // base log, then updating the op log's current CRC digest to include these new bytes.
+    // We perform three separate tentative appends to the underlying base log in this 
+    // function, as it is easier to treat each part of the log entry (absolute address, 
+    // len, and bytes) as separate updates when it comes to proving correctness. If 
+    // any of these three appends returns an error, the transaction is aborted.
     pub exec fn tentatively_append_log_entry<Perm, PM>(
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -998,7 +969,7 @@ verus! {
         self.state = Ghost(new_state);
 
         proof {
-            // We need to prove that we maintain the invariatn that parsing the pending log bytes
+            // We need to prove that we maintain the invariant that parsing the pending log bytes
             // gives us the current abstract op log
             let old_pending_bytes = old(self).log@.pending;
             let new_pending_bytes = self.log@.pending;
@@ -1009,19 +980,17 @@ verus! {
                 self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
             let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
                 self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
-
-            // TODO: figure out how to use the existing parsing lemma, or write a new one,
-            // to prove that appending a new valid op performs the operation we want
-        
             assert(old_log_ops is Some);
             assert(new_log_ops is Some);
-
             assert(new_log_ops.unwrap() == self@.physical_op_list);
         }
         
         Ok(())
     }
 
+    // This function commits the operation log. It first appends the CRC of the current
+    // digest, then commits the base log. If either the append or the base log commit 
+    // operation fail, then the transaction is aborted.
     pub exec fn commit_log<Perm, PM>(
         &mut self, 
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -1149,6 +1118,11 @@ verus! {
         Ok(())
     }
 
+    // This function clears the operation log by advancing the base log's 
+    // head to its tail position. Failing this operation does not have to 
+    // abort the transaction, since a failure cannot put the op log in 
+    // an inconsistent state, but it does prevent any further transactions 
+    // from taking place.
     pub exec fn clear_log<Perm, PM>(
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
