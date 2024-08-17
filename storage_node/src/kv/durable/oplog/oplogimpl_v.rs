@@ -163,6 +163,66 @@ verus! {
             }
         }
 
+        proof fn lemma_parse_up_to_offset_succeeds(
+            offset: nat,
+            pm_region: PersistentMemoryRegionView,
+            log_contents: Seq<u8>,
+            overall_metadata: OverallMetadata,
+        )
+            requires 
+                UntrustedOpLog::<K, L>::recover(pm_region.committed(), overall_metadata) is Some,
+                ({
+                    let base_log = UntrustedLogImpl::recover(pm_region.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    &&& base_log matches Some(base_log)
+                    &&& base_log.log.len() > 0
+                    &&& log_contents == extract_bytes(base_log.log, 0, (base_log.log.len() - u64::spec_size_of()) as nat)
+                }),
+                Self::parse_log_ops_helper(0, offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
+                offset < log_contents.len(),
+                u64::spec_size_of() < log_contents.len(),
+            ensures 
+                Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some
+        {
+            // Proof by contradiction: if the op at offset cannot be parsed, then the whole op log cannot be parsed;
+            // but the precondition says it can, so the op log must be valid/parseable.
+            if Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is None {
+                assert(Self::parse_log_ops_helper(offset, log_contents.len(), log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is None);
+                Self::lemma_partial_parse_fails_implies_full_parse_fails(0, offset, log_contents.len(), log_contents, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                assert(false);
+            }
+        }
+
+        // This inductive lemma proves that if a prefix of the log can be parsed successfully
+        // but the rest of the log cannot be parsed, attempting to parse the entire log will fail.
+        // We use this in a proof by contradiction in `lemma_parse_up_to_offset_succeeds`
+        proof fn lemma_partial_parse_fails_implies_full_parse_fails(
+            start: nat,
+            mid: nat,
+            end: nat,
+            log_contents: Seq<u8>,
+            log_start_addr: nat, 
+            log_size: nat,
+            region_size: nat,
+        )
+            requires 
+                start <= mid <= end <= log_contents.len(),
+                Self::parse_log_ops_helper(mid, end, log_contents, log_start_addr, log_size, region_size) is None,
+                Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size) is Some,
+                end == log_contents.len(),
+            ensures 
+                Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is None,
+            decreases end - start
+        {
+            if start == mid {
+                // trivial 
+            } else {
+                let next_op = Self::parse_log_op(start, log_contents, log_start_addr, log_size, region_size).unwrap();
+                let next_start = start + u64::spec_size_of() * 2 + next_op.len;
+                Self::lemma_partial_parse_fails_implies_full_parse_fails(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);
+            }
+        }
+
         // This lemma helps us prove that recursively parsing the physical log (which, due to the 
         // structure of the log, can only be specified in one direction, which happens to 
         // be opposite of the direction we want) is equivalent to iteratively parsing it. We invoke
@@ -299,7 +359,11 @@ verus! {
             let absolute_addr = u64::spec_from_bytes(extract_bytes(log_contents, offset, u64::spec_size_of()));
             let len = u64::spec_from_bytes(extract_bytes(log_contents, offset + u64::spec_size_of(), u64::spec_size_of()));
             if {
+                ||| offset + u64::spec_size_of() * 2 > u64::MAX
+                ||| offset + u64::spec_size_of() * 2 + len > u64::MAX
+                ||| absolute_addr + len > u64::MAX
                 ||| absolute_addr + len > region_size
+                ||| offset + u64::spec_size_of() * 2 > log_contents.len()
                 ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
                 ||| !({
                     ||| absolute_addr < absolute_addr + len <= log_start_addr // region end before log area
@@ -463,9 +527,10 @@ verus! {
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
-                    Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
-                    Err(KvError::PmemErr { pmem_err }) => true,
-                    Err(KvError::InternalError) => true,
+                    Err(KvError::LogErr{log_err}) => {
+                        &&& log_err matches LogErr::PmemErr{err}
+                        &&& err matches PmemError::AccessOutOfRange
+                    }
                     Err(_) => false
                 }
     {
@@ -507,6 +572,11 @@ verus! {
                     &&& parsed_ops matches Some(parsed_ops)
                     &&& recovered_log.physical_op_list == parsed_ops
                 }),
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    &&& base_log_state matches Some(base_log_state)
+                    &&& log_bytes@ == extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat)
+                }),
                 log_start_addr + log_size <= u64::MAX,
                 offset <= log_bytes.len(),
                 old_overall_metadata == overall_metadata,
@@ -516,7 +586,26 @@ verus! {
         {
             broadcast use pmcopy_axioms;
 
+            proof {
+                assert(Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) is Some);
+                assert(UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata) is Some);
+                let recovered_base_log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+
+                let log_contents = Self::get_log_contents(recovered_base_log).unwrap();
+                assert(log_contents == extract_bytes(recovered_base_log.log, 0, (recovered_base_log.log.len() - u64::spec_size_of()) as nat));
+                assert(log_contents == log_bytes@);
+                // the full op log, as well as the op log up to offset, both recover correctly.
+                // this should imply that there is either a valid entry at offset, or that offset is 
+                // is at the end 
+                Self::lemma_parse_up_to_offset_succeeds(offset as nat, pm_region@, log_contents, overall_metadata);
+
+                assert(offset <= log_contents.len());
+                let current_op = Self::parse_log_op(offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                assert(current_op is Some);
+            }
+
             if offset > log_bytes.len() - traits_t::size_of::<u64>() * 2 {
+                assert(false);
                 return Err(KvError::InternalError);
             }
 
@@ -528,17 +617,21 @@ verus! {
 
             // Check that the log entry is valid. 
             if {
-                ||| len == 0
-                ||| traits_t::size_of::<u64>() * 2 >= (u64::MAX - len) as usize
-                ||| log_bytes.len() < traits_t::size_of::<u64>() * 2+ len as usize
-                ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
-                ||| addr >= u64::MAX - len
+                ||| offset + traits_t::size_of::<u64>() * 2 > u64::MAX as usize
+                ||| offset + traits_t::size_of::<u64>() * 2 > (u64::MAX - len) as usize
+                ||| addr > u64::MAX - len
                 ||| addr + len > region_size 
+                ||| offset + traits_t::size_of::<u64>() * 2 > log_bytes.len()
+                ||| offset + traits_t::size_of::<u64>() * 2 + len as usize > log_bytes.len()
                 ||| !({
                     ||| addr + len <= log_start_addr // region end before log area
                     ||| log_start_addr + log_size <= addr // region ends after log area
                 })
+                ||| len == 0
+                ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
+                ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
             } {
+                assert(false);
                 return Err(KvError::InternalError);
             }
 
@@ -618,9 +711,16 @@ verus! {
                     }
                 }
                 Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
-                Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
-                Err(KvError::PmemErr { pmem_err }) => true,
-                Err(KvError::InternalError) => true,
+                Err(KvError::LogErr{log_err}) => {
+                    &&& log_err matches LogErr::PmemErr{err}
+                    &&& err matches PmemError::AccessOutOfRange
+                }
+                Err(KvError::InternalError) => {
+                    let log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let tail = log.head + log.log.len();
+                    ||| tail - log.head < u64::spec_size_of() as u128
+                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata) is None
+                }
                 Err(_) => false
             }
     {
@@ -632,7 +732,9 @@ verus! {
         let log = match UntrustedLogImpl::start(pm_region, log_start_addr, log_size, Ghost(base_log_state)) {
             Ok(log) => log,
             Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
-            Err(e) => return Err(KvError::LogErr { log_err: e })
+            Err(e) => {
+                return Err(KvError::LogErr { log_err: e });
+            }
         };
         let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
 
@@ -654,19 +756,31 @@ verus! {
                 },
                 Vec::new(),
             ));
-        } else if tail < traits_t::size_of::<u64>() as u128 || tail - head < traits_t::size_of::<u64>() as u128 {
+        } else if tail < head || tail - head < traits_t::size_of::<u64>() as u128 {
+            // Tail must be greater than head, and the log must be at least 8 bytes long
+            // to avoid underflow later.
             return Err(KvError::InternalError); 
         }
-
         let len = (tail - head) as u64 - traits_t::size_of::<u64>() as u64;
         
         let (log_bytes, log_addrs) = match log.read(pm_region, log_start_addr, log_size, head, len) {
             Ok(bytes) => bytes,
-            Err(e) => return Err(KvError::LogErr { log_err: e }),
+            Err(e) => {
+                assert(head == log@.head);
+                assert(head + len < log@.head + log@.log.len());
+                return Err(KvError::LogErr { log_err: e });
+            }
         };
         let (crc_bytes, crc_addrs) = match log.read(pm_region, log_start_addr, log_size, tail - traits_t::size_of::<u64>() as u128, traits_t::size_of::<u64>() as u64) {
             Ok(bytes) => bytes,
-            Err(e) => return Err(KvError::LogErr { log_err: e }),
+            Err(e) => {
+                proof {
+                    let log_tail = log@.head + log@.log.len() as int;
+                    assert(tail - u64::spec_size_of() >= log@.head);
+                    assert(tail == log_tail);
+                }
+                return Err(KvError::LogErr { log_err: e });
+            }
         };
 
         if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
@@ -743,9 +857,10 @@ verus! {
                     self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
+                &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
+                &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
             }),
             // log entry is valid
-            // TODO: include these in the log entry validity invariant?
             0 <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < pm_region.len() <= u64::MAX,
             log_entry.absolute_addr + log_entry.len < self.overall_metadata.log_area_addr || self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= log_entry.absolute_addr,
             log_entry.bytes@.len() <= u64::MAX,
@@ -827,6 +942,15 @@ verus! {
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
+            ({
+                let pending_bytes = old(self).base_log_view().pending;
+                let log_ops = Self::parse_log_ops(pending_bytes, old(self).log_start_addr() as nat, 
+                    old(self).log_size() as nat, old(self).overall_metadata().region_size as nat);
+                &&& log_ops is Some 
+                &&& log_ops.unwrap() == old(self)@.physical_op_list
+                &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
+                &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
+            }),
         ensures 
             match result {
                 Ok(()) => {
@@ -837,8 +961,8 @@ verus! {
                     &&& self.inv(*log_wrpm)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                 }
-                Err(KvError::LogErr { log_err: e }) => true, // TODO
-                Err(_) => true // TODO
+                Err(KvError::LogErr { log_err: e }) => true, // TODO -- abort transaction
+                Err(_) => false 
             }
     {
         // this assert is sufficient to hit the triggers we need to prove that the log entries
@@ -875,7 +999,6 @@ verus! {
         self.current_transaction_crc.write_bytes(absolute_addr.as_byte_slice());
 
         proof {
-            // TODO: Refactor into a proof
             // This proves that the CRC digest bytes and log pending bytes are the same
             let current_digest = self.current_transaction_crc.bytes_in_digest();
             let bytes = absolute_addr.spec_to_bytes();
@@ -917,7 +1040,6 @@ verus! {
         self.current_transaction_crc.write_bytes(len.as_byte_slice());
 
         proof {
-            // TODO: Refactor into a proof
             // This proves that the CRC digest bytes and log pending bytes are the same
             let current_digest = self.current_transaction_crc.bytes_in_digest();
             let bytes = len.spec_to_bytes();
@@ -1018,7 +1140,8 @@ verus! {
                     &&& self.inv(*log_wrpm)
                     &&& self@ == old(self)@.commit_op_log()
                 }
-                Err(_) => true // TODO
+                Err(KvError::LogErr{log_err}) => true, // TODO -- abort transaction
+                Err(_) => false 
             }
     {
         let transaction_crc = self.current_transaction_crc.sum64();
@@ -1150,7 +1273,7 @@ verus! {
                 Ok(()) => {
                     Ok::<_, ()>(self@) == old(self)@.clear_log()
                 }
-                Err(_) => true // TODO
+                Err(_) => false 
             }
     {
         let log_start_addr = self.overall_metadata.log_area_addr;
@@ -1169,6 +1292,7 @@ verus! {
         match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Tracked(perm)) {
             Ok(()) => {}
             Err(e) => {
+                assert(false);
                 return Err(KvError::LogErr{log_err: e});
             }
         }
@@ -1178,7 +1302,6 @@ verus! {
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
-
         Ok(())
     }
 }
