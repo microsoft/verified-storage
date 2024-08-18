@@ -9,13 +9,14 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 
 verus! {
-pub closed spec fn logical_and_physical_logs_correspond<L>(
-    logical_log: Seq<LogicalOpLogEntry<L>>,
-    physical_log: Seq<AbstractPhysicalOpLogEntry>
-) -> bool 
-    where 
-        L: PmCopy
-;
+
+// pub closed spec fn logical_and_physical_logs_correspond<L>(
+//     logical_log: Seq<LogicalOpLogEntry<L>>,
+//     physical_log: Seq<AbstractPhysicalOpLogEntry>
+// ) -> bool 
+//     where 
+//         L: PmCopy + std::fmt::Debug + Copy,
+// ;
 
 // // This function indicates whether the CRC is correctly set at the end of 
 // // a non-empty op log. It takes the abstract log state of the base log

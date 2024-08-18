@@ -54,7 +54,7 @@ verus! {
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
-            op_log: AbstractOpLogState<L>,
+            op_log: AbstractOpLogState,
             metadata_table_view: MetadataTableView<K>,
         ) -> Option<DurableListView<K, L>>
         {
@@ -279,7 +279,7 @@ verus! {
         pub proof fn lemma_list_is_empty_at_setup<PM>(
             subregion: &WritablePersistentMemorySubregion,
             pm_region: &PM,
-            op_log: AbstractOpLogState<L>,
+            op_log: AbstractOpLogState,
             num_keys: u64,
             node_size: u64,
             list_entries_per_node: u32,

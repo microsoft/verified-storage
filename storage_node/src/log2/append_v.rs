@@ -5,8 +5,7 @@
 //! of the system's correctness.
 
 use crate::log2::{inv_v::*, layout_v::*, logimpl_v::*, logspec_t::*};
-use crate::pmem::pmemspec_t::PersistentMemoryRegionView;
-use crate::pmem::subregion_v::*;
+use crate::pmem::{pmemutil_v::*, subregion_v::*, pmemspec_t::*, pmcopy_t::*};
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -208,5 +207,59 @@ verus! {
 
         lemma_tentatively_append(pm_region_view, bytes_to_append_part1, log_start_addr, log_size, prev_info, prev_state);
         lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size, intermediate_info, intermediate_state);
+    }
+
+    // This lemma proves that tentative appends do not modify reachable state and thus do not change
+    // the possible recovery states. We have to prove this explicitly because `tentative_append` has a 
+    // somewhat weak precondition about the states allowed by `perm` to make it easier to use in the op log
+    pub proof fn lemma_append_crash_states_do_not_modify_reachable_state(
+        old_pm: PersistentMemoryRegionView,
+        new_pm: PersistentMemoryRegionView,
+        log_start_addr: nat,
+        log_size: nat,
+        info: LogInfo,
+        state: AbstractLogState,
+        cdb: bool,
+        is_writable_absolute_addr: spec_fn(int) -> bool
+    )
+        requires 
+            no_outstanding_writes_to_metadata(old_pm, log_start_addr),
+            memory_matches_deserialized_cdb(old_pm, log_start_addr, cdb),
+            metadata_consistent_with_info(old_pm, log_start_addr, log_size, cdb, info),
+            info_consistent_with_log_area(old_pm, log_start_addr, log_size, info, state),
+            metadata_types_set(old_pm.committed(), log_start_addr),
+            old_pm.len() == new_pm.len(),
+            log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= old_pm.len(),
+            forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
+                &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
+                &&& log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
+                        info.log_area_len as int,
+                        info.log_length as int,
+                        addr - (log_start_addr + spec_log_area_pos()))
+            },
+            views_differ_only_where_subregion_allows(old_pm, new_pm, log_start_addr + spec_log_area_pos(),
+                                                        info.log_area_len as nat, is_writable_absolute_addr),
+            forall |s| #[trigger] old_pm.can_crash_as(s) ==> 
+                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+        ensures 
+            forall |s| #[trigger] new_pm.can_crash_as(s) ==> 
+                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+    {
+        assert forall |s| #[trigger] new_pm.can_crash_as(s) implies 
+            UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+        by {
+            lemma_establish_extract_bytes_equivalence(old_pm.committed(), new_pm.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm);
+            
+            assert(extract_bytes(s, log_start_addr as nat, spec_log_area_pos()) == 
+                extract_bytes(new_pm.committed(), log_start_addr as nat, spec_log_area_pos()));
+            assert(extract_bytes(s, log_start_addr as nat, u64::spec_size_of()) == 
+                extract_bytes(new_pm.committed(), log_start_addr as nat, u64::spec_size_of()));
+            lemma_header_bytes_equal_implies_active_metadata_bytes_equal(new_pm.committed(), s, log_start_addr as nat, log_size as nat);
+            lemma_active_metadata_bytes_equal_implies_metadata_types_set(new_pm.committed(), s, log_start_addr as nat, cdb);
+
+            lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
+                old_pm, new_pm, s, log_start_addr as nat, log_size as nat, cdb, info, state, is_writable_absolute_addr);
+        }   
     }
 }
