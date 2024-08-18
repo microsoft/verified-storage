@@ -6,7 +6,7 @@ Starred functions * have an unverified implementation (which may be out of date 
 - Durable
     - General durable operations
         - [x] `setup`
-        - [ ] `start` * - hayley-leblanc
+        - [ ] `start` * 
           - [x] `start` for op log, item table, and main table
           - [ ] `start` with list area
         - [x] `install_log`
@@ -23,10 +23,10 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_trim_list` *
     - Operation log
         - [x] `start`
-        - [x] `tentatively_append_log_entry` * - hayley-leblanc
-        - [ ] `commit_log` * - hayley-leblanc
-        - [ ] `clear_log` *
-        - [x] Port single log operations to `log2` module - hayley-leblanc
+        - [x] `tentatively_append_log_entry` *
+        - [x] `commit_log` * 
+        - [x] `clear_log` * 
+        - [x] Port single log operations to `log2` module 
             - [x] `setup`
             - [x] `start` 
             - [x] `read`
@@ -36,6 +36,7 @@ Starred functions * have an unverified implementation (which may be out of date 
             - [x] `advance_head`
             - [x] `update_inactive_log_metadata`
             - [x] `update_log_metadata`
+            - [x] Add `abort_pending_appends` function
     - Main table 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
@@ -47,7 +48,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
-        - [x] `start` * - hayley-leblanc
+        - [x] `start` *
         - [ ] `tentatively_write_item` *
         - [x] `read_item` *
         - [ ] Deallocate item table slot
