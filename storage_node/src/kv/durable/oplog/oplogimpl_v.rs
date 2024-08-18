@@ -961,7 +961,14 @@ verus! {
                     &&& self.inv(*log_wrpm)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                 }
-                Err(KvError::LogErr { log_err: e }) => true, // TODO -- abort transaction
+                Err(KvError::LogErr { log_err: e }) => {
+                    &&& self.base_log_view().pending.len() == 0
+                    &&& self.base_log_view().log == old(self).base_log_view().log
+                    &&& self.base_log_view().head == old(self).base_log_view().head
+                    &&& self.base_log_view().capacity == old(self).base_log_view().capacity
+                    &&& log_wrpm@.no_outstanding_writes()
+                    &&& self@.physical_op_list.len() == 0
+                }
                 Err(_) => false 
             }
     {
@@ -992,7 +999,12 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.current_transaction_crc = CrcDigest::new();
+                self.state = Ghost(AbstractOpLogState {
+                    physical_op_list: Seq::empty(),
+                    op_list_committed: false
+                });
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1034,6 +1046,12 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
+                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.current_transaction_crc = CrcDigest::new();
+                self.state = Ghost(AbstractOpLogState {
+                    physical_op_list: Seq::empty(),
+                    op_list_committed: false
+                });
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1068,6 +1086,12 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
+                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.current_transaction_crc = CrcDigest::new();
+                self.state = Ghost(AbstractOpLogState {
+                    physical_op_list: Seq::empty(),
+                    op_list_committed: false
+                });
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1138,7 +1162,6 @@ verus! {
             self.overall_metadata() == old(self).overall_metadata(),
             match result {
                 Ok(()) => {
-                    // &&& self.inv(*log_wrpm)
                     &&& self@ == old(self)@.commit_op_log()
                 }
                 Err(KvError::LogErr{log_err}) => {
@@ -1180,17 +1203,10 @@ verus! {
             Err(e) => {
                 self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
                 self.current_transaction_crc = CrcDigest::new();
-                assert(self.log@.log.len() == 0);
-                assert(self.log@.pending.len() == 0);
-                assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
-
                 self.state = Ghost(AbstractOpLogState {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                assume(false);
-
-                assert(self.inv(*log_wrpm));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1249,7 +1265,10 @@ verus! {
         
         match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
             Ok(_) => {}
-            Err(e) => return Err(KvError::LogErr { log_err: e })
+            Err(e) => {
+                assert(false);
+                return Err(KvError::LogErr { log_err: e });
+            } 
         }
 
         // update the op log's ghost state to indicate that it has been committed

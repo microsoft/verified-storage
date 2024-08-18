@@ -908,14 +908,6 @@ impl UntrustedLogImpl {
         self.update_log_metadata(wrpm_region, log_start_addr, log_size, Ghost(prev_info), Ghost(prev_state),
                                     Tracked(perm));
 
-        /*
-        assume(self.inv(wrpm_region, log_id));
-        assume(wrpm_region.constants() == old(wrpm_region).constants());
-        assume(can_only_crash_as_state(wrpm_region@, log_id, self@.drop_pending_appends()));
-        assume(old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len());
-        assume(self@ == old(self)@.advance_head(new_head as int));
-        */
-
         Ok(())
     }
 
