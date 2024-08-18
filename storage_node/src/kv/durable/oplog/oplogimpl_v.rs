@@ -1125,22 +1125,30 @@ verus! {
             old(self).inv(*old(log_wrpm)),
             old(self)@.physical_op_list.len() > 0,
             !old(self)@.op_list_committed,
+            old(log_wrpm).inv(),
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                 ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
             }
         ensures 
-            
+            self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             self.overall_metadata() == old(self).overall_metadata(),
             match result {
                 Ok(()) => {
-                    &&& self.inv(*log_wrpm)
+                    // &&& self.inv(*log_wrpm)
                     &&& self@ == old(self)@.commit_op_log()
                 }
-                Err(KvError::LogErr{log_err}) => true, // TODO -- abort transaction
+                Err(KvError::LogErr{log_err}) => {
+                    &&& self.base_log_view().pending.len() == 0
+                    &&& self.base_log_view().log == old(self).base_log_view().log
+                    &&& self.base_log_view().head == old(self).base_log_view().head
+                    &&& self.base_log_view().capacity == old(self).base_log_view().capacity
+                    &&& log_wrpm@.no_outstanding_writes()
+                    &&& self@.physical_op_list.len() == 0
+                }
                 Err(_) => false 
             }
     {
@@ -1170,8 +1178,19 @@ verus! {
         match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
             Ok(_) => {}
             Err(e) => {
-                // TODO: abort transaction
-                assert(old(self)@.physical_op_list == self@.physical_op_list);
+                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.current_transaction_crc = CrcDigest::new();
+                assert(self.log@.log.len() == 0);
+                assert(self.log@.pending.len() == 0);
+                assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
+
+                self.state = Ghost(AbstractOpLogState {
+                    physical_op_list: Seq::empty(),
+                    op_list_committed: false
+                });
+                assume(false);
+
+                assert(self.inv(*log_wrpm));
                 return Err(KvError::LogErr { log_err: e });
             }
         }

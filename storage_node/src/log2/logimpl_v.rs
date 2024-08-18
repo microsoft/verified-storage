@@ -70,6 +70,16 @@ pub struct UntrustedLogImpl {
 }
 
 impl UntrustedLogImpl {
+    pub closed spec fn spec_cdb(self) -> bool 
+    {
+        self.cdb
+    }
+
+    pub closed spec fn spec_info(self) -> LogInfo 
+    {
+        self.info
+    }
+
     pub open spec fn recover(mem: Seq<u8>, log_start_addr: nat, log_size: nat) -> Option<AbstractLogState> 
     {
         if !metadata_types_set(mem, log_start_addr) {
@@ -539,6 +549,7 @@ impl UntrustedLogImpl {
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
+            wrpm_region.inv(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             match result {
@@ -1581,6 +1592,64 @@ impl UntrustedLogImpl {
 
         let info = &self.info;
         Ok((info.head, info.head + info.log_length as u128, info.log_area_len))
+    }
+
+    // This function aborts a transaction by removing all pending appends.
+    // It also flushes the PM device in order to ensure that the bytes beyond the 
+    // end of the log are writable the next time we want to append.
+    pub exec fn abort_pending_appends<Perm, PM>(
+        &mut self,
+        pm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: u64,
+        log_size: u64, 
+    ) 
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            old(self).inv(*old(pm_region), log_start_addr as nat, log_size as nat),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            no_outstanding_writes_to_metadata(old(pm_region)@, log_start_addr as nat),
+        ensures
+            self.inv(*pm_region, log_start_addr as nat, log_size as nat),
+            pm_region@.no_outstanding_writes(),
+            pm_region@.len() == old(pm_region)@.len(),
+            pm_region.constants() == old(pm_region).constants(),
+            self@.pending == Seq::<u8>::empty(),
+            self@.log == old(self)@.log,
+            self@.head == old(self)@.head,
+            self@.capacity == old(self)@.capacity,
+    {
+        // remove pending bytes from the log length in the concrete state
+        self.info.log_plus_pending_length = self.info.log_length;
+        assert(self.state@.log == self.state@.drop_pending_appends().log);
+
+        // and remove them from the abstract state as well
+        self.state = Ghost(self.state@.drop_pending_appends());
+
+        // We have to flush before we return in order to maintain the invariant that each 
+        // byte has at most one outstanding write at a time. Otherwise, the next time we try to append, 
+        // there will already be outstanding writes where we want to write.
+        // TODO: could we somehow just drop these outstanding writes, rather than flushing them,
+        // since we know they don't matter? This would also benefit from a more relaxed write model
+        pm_region.flush();
+
+        proof {
+            broadcast use pmcopy_axioms;
+
+            lemma_establish_extract_bytes_equivalence(old(pm_region)@.committed(), pm_region@.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+
+            assert forall |s| #[trigger] pm_region@.can_crash_as(s) implies {
+                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@)
+            } by {
+                let recovery_state = UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat);
+                let regular_state = UntrustedLogImpl::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat);
+                assert(pm_region@.no_outstanding_writes());
+                assert(s == pm_region@.committed());
+                assert(regular_state.unwrap() == self.state@.drop_pending_appends());
+            }
+        }  
     }
 }
     
