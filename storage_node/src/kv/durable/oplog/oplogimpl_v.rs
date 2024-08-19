@@ -942,8 +942,6 @@ verus! {
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
 
-            // forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
-
             // forall |v2: PersistentMemoryRegionView, s2| {
             //     &&& old(log_wrpm)@.len() == v2.len() 
             //     &&& forall |addr: int|{
@@ -1220,35 +1218,6 @@ verus! {
                     } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
                 &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
             } ==> perm.check_permission(s2),
-
-            // forall |s2: Seq<u8>| {
-            //     let flushed_state = old(log_wrpm)@.flush().committed();
-            //     &&& flushed_state.len() == s2.len() 
-            //     &&& forall |addr: int|{
-            //             &&& 0 <= addr < flushed_state.len() 
-            //             &&& flushed_state[addr] != s2[addr] 
-            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-            // } ==> perm.check_permission(s2),
-
-            // forall |s1, s2| {
-            //     &&& old(log_wrpm)@.can_crash_as(s1)
-            //     &&& 
-            // }
-
-            // forall |v2: PersistentMemoryRegionView, s2| {
-            //     &&& forall |addr: int|{
-            //             &&& 0 <= addr < old(log_wrpm)@.len() 
-            //             &&& old(log_wrpm)@.len() == v2.len() 
-            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
-            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-            //     &&& v2.can_crash_as(s2)
-            //     &&& {
-            //         ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-            //         ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-            //     }
-            // } ==> perm.check_permission(s2),
-
         ensures 
             self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),
