@@ -11,7 +11,7 @@ Starred functions * have an unverified implementation (which may be out of date 
           - [ ] `start` with list area
         - [x] `install_log`
         - [ ] `commit` *
-        - [ ] `tentative_create` * 
+        - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
         - [ ] `get_list_len` *
         - [ ] `read_list_entry_at_index` *
@@ -41,7 +41,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
         - [x] `start` *
-        - [ ] `tentative_create` *
+        - [ ] `tentative_create` * jaylorch
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
         - [x] `get_key_and_metadata_entry_at_index`
@@ -49,7 +49,7 @@ Starred functions * have an unverified implementation (which may be out of date 
     - Item table
         - [x] Prove that table is empty at setup
         - [x] `start` *
-        - [ ] `tentatively_write_item` *
+        - [ ] `tentatively_write_item` * jaylorch
         - [x] `read_item` *
         - [ ] Deallocate item table slot
     - Lists
