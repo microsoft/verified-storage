@@ -22,13 +22,9 @@ use deps_hack::{
 };
 
 verus! {
-
-    // #[verus::trusted]
-
-    // $line_count$Trusted{$
-
     // This executable method can be called to compute a random GUID.
     // It uses the external `rand` crate.
+    #[verus::trusted]
     #[verifier::external_body]
     pub exec fn generate_fresh_device_id() -> (out: u128)
     {
@@ -38,10 +34,12 @@ verus! {
 
     // Must be external body because Verus does not currently support raw pointers
     // TODO: is there a better/safer way to handle this? UnsafeCell maybe?
+    #[verus::trusted]
     #[verifier::external_body]
     #[derive(Clone, Copy)]
     struct PmPointer { virt_addr: *mut u8 }
 
+    #[verus::trusted]
     pub struct MappedPmDesc {
         virt_addr: PmPointer,
         len: u64,
@@ -49,6 +47,7 @@ verus! {
         timestamp: Ghost<PmTimestamp>,
     }
 
+    #[verus::trusted]
     impl RegionDescriptor for MappedPmDesc {
         closed spec fn view(&self) -> RegionDescriptorView {
             RegionDescriptorView {
@@ -69,6 +68,7 @@ verus! {
 
     // TODO: is this actually how we should represent this? Maybe
     // multiple separate mmap'ings?
+    #[verus::trusted]
     pub struct MappedPmDevice {
         virt_addr: PmPointer,
         len: u64,
@@ -76,6 +76,7 @@ verus! {
         cursor: u64
     }
 
+    #[verus::trusted]
     impl PmDevice for MappedPmDevice {
         type RegionDesc = MappedPmDesc;
 
@@ -145,6 +146,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     impl MappedPmDevice {
         // TODO: detailed information for error returns
         #[verifier::external_body]
@@ -203,6 +205,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     #[allow(dead_code)]
     pub struct MappedPM {
         virt_addr: PmPointer,
@@ -212,6 +215,7 @@ verus! {
         timestamp: Ghost<PmTimestamp>,
     }
 
+    #[verus::trusted]
     impl Drop for MappedPM {
         #[verifier::external_body]
         fn drop(&mut self)
@@ -224,6 +228,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegion for MappedPM {
         type RegionDesc = MappedPmDesc;
 
@@ -443,11 +448,13 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     pub struct MappedPmRegions {
         pms: Vec<MappedPM>,
         device_id: u128,
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegions for MappedPmRegions {
         closed spec fn view(&self) -> PersistentMemoryRegionsView
         {
@@ -548,6 +555,7 @@ verus! {
     }
 
     // TODO: make this a trait method of PersistentMemoryRegions
+    #[verus::trusted]
     impl MappedPmRegions {
         pub fn combine_regions(regions: Vec<MappedPM>) -> (result: Self)
             requires
@@ -579,6 +587,4 @@ verus! {
             }
         }
     }
-
-    // $line_count$}$
 }

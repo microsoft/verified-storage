@@ -25,11 +25,6 @@ use core::arch::x86_64::_mm_clflush;
 use core::arch::x86_64::_mm_sfence;
 
 verus! {
-
-    // #[verus::trusted]
-
-    // $line_count$Trusted{$
-
     // The `MemoryMappedFileMediaType` enum represents a type of media
     // from which a file can be memory-mapped.
 
@@ -231,6 +226,7 @@ verus! {
     // persistent-memory region backed by a memory-mapped file.
 
     #[allow(dead_code)]
+    #[verus::trusted]
     pub struct FileBackedPersistentMemoryRegion
     {
         mmf: MemoryMappedFile,                                    // the memory-mapped file
@@ -238,6 +234,7 @@ verus! {
         persistent_memory_view: Ghost<PersistentMemoryRegionView> // an abstract view of the contents
     }
 
+    #[verus::trusted]
     impl FileBackedPersistentMemoryRegion {
         // The static function `new` creates the file with the given path,
         // maps it into memory, and returns a `FileBackedPersistentMemoryRegion`.
@@ -305,6 +302,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     {
         closed spec fn view(self) -> PersistentMemoryRegionView
@@ -349,12 +347,14 @@ verus! {
     // vector of volatile memory regions. It implements the trait
     // `PersistentMemoryRegions` so that it can be used by a multilog.
 
+    #[verus::trusted]
     pub struct FileBackedPersistentMemoryRegions
     {
         media_type: MemoryMappedFileMediaType,       // common media file type used
         pms: Vec<FileBackedPersistentMemoryRegion>,  // all regions
     }
 
+    #[verus::trusted]
     impl FileBackedPersistentMemoryRegions {
 
         // The static function `new` creates a
@@ -438,6 +438,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegions for FileBackedPersistentMemoryRegions {
         closed spec fn view(&self) -> PersistentMemoryRegionsView
         {
@@ -501,7 +502,4 @@ verus! {
             }
         }
     }
-
-    // $line_count$}$
-
 }

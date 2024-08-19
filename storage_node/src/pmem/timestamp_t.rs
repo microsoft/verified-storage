@@ -4,10 +4,8 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    // #[verus::trusted]
 
-    // $line_count$Trusted${$
-
+    #[verus::trusted]
     #[derive(Eq, PartialEq)]
     #[verifier::ext_equal]
     pub struct PmTimestamp {
@@ -15,6 +13,7 @@ verus! {
         device_id: int
     }
 
+    #[verus::trusted]
     impl PmTimestamp {
         pub closed spec fn new(device_id: int) -> Self
         {
@@ -66,6 +65,7 @@ verus! {
     /// Higher-level storage component modules (e.g., multilog) should implement this
     /// in order to be able to update their ghost timestamp when other components on
     /// the same device perform a global flush/fence.
+    #[verus::trusted]
     pub trait TimestampedModule : Sized {
         type RegionsView;
 
@@ -86,6 +86,4 @@ verus! {
                 self.inv(),
                 self.get_timestamp() == new_timestamp;
     }
-
-    // $line_count$}$
 }

@@ -41,9 +41,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-
-    // #[verus::trusted]
-    // $line_count$Trusted${$
     
     // An `AbstractLogState` is an abstraction of a single log, of
     // which an abstract multilog is composed. Its fields are:
@@ -59,6 +56,7 @@ verus! {
     // and which will be discarded on a crash
     //
     // `capacity` -- the maximum length of the `log` field
+    #[verus::trusted]
     #[verifier::ext_equal]
     pub struct AbstractLogState {
         pub head: int,
@@ -67,6 +65,7 @@ verus! {
         pub capacity: int,
     }
 
+    #[verus::trusted]
     impl AbstractLogState {
 
         // This is the specification for the initial state of an
@@ -123,11 +122,13 @@ verus! {
     // logs that can be atomically collectively appended to. It
     // consists of a sequence of logs of type `AbstractLogState`.
     #[verifier::ext_equal]
+    #[verus::trusted]
     pub struct AbstractMultiLogState {
         pub states: Seq<AbstractLogState>
     }
 
     #[verifier::ext_equal]
+    #[verus::trusted]
     impl AbstractMultiLogState {
 
         // This is the specification for the number of logs in a
@@ -194,7 +195,4 @@ verus! {
             }
         }
     }
-
-    // $line_count$}$
-
 }

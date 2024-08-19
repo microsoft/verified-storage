@@ -13,9 +13,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-    // #[verus::trusted]
-    // $line_count$Trusted${$
-
+    #[verus::trusted]
     pub trait PmDevice {
         type RegionDesc : RegionDescriptor;
 
@@ -89,6 +87,7 @@ verus! {
             ;
     }
 
+    #[verus::trusted]
     pub trait RegionDescriptor {
         spec fn view(&self) -> RegionDescriptorView;
 
@@ -101,11 +100,10 @@ verus! {
                 result == self@.len;
     }
 
+    #[verus::trusted]
     pub struct RegionDescriptorView {
         pub len: u64,
         pub timestamp: PmTimestamp,
         pub device_id: u128,
     }
-
-    // $line_count$}$
 }

@@ -44,10 +44,7 @@ use deps_hack::crc64fast::Digest;
 
 verus! {
 
-    // #![verus::trusted]
-    
-    // $line_count$Trusted${$
-
+    #[verus::trusted]
     #[derive(Debug)]
     pub enum PmemError {
         InvalidFileName,
@@ -69,8 +66,10 @@ verus! {
     // A byte `byte` read from address `addr` is a possible corruption
     // of the actual last-written byte `true_byte` to that address if
     // they're related by `maybe_corrupted_byte`.
+    #[verus::trusted]
     pub closed spec fn maybe_corrupted_byte(byte: u8, true_byte: u8, addr: int) -> bool;
 
+    #[verus::trusted]
     pub open spec fn all_elements_unique(seq: Seq<int>) -> bool {
         forall |i: int, j: int| 0 <= i < j < seq.len() ==> seq[i] != seq[j]
     }
@@ -80,17 +79,21 @@ verus! {
     // `true_bytes` to those addresses if those addresses are all
     // distinct and if each corresponding byte pair is related by
     // `maybe_corrupted_byte`.
+    #[verus::trusted]
     pub open spec fn maybe_corrupted(bytes: Seq<u8>, true_bytes: Seq<u8>, addrs: Seq<int>) -> bool {
         &&& bytes.len() == true_bytes.len() == addrs.len()
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
+    #[verus::trusted]
     pub const CRC_SIZE: u64 = 8;
 
+    #[verus::trusted]
     pub closed spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8>;
 
     // This executable method can be called to compute the CRC of a
     // sequence of bytes. It uses the `crc` crate.
+    #[verus::trusted]
     #[verifier::external_body]
     pub exec fn bytes_crc(bytes: &[u8]) -> (out: Vec<u8>)
         ensures
@@ -115,6 +118,7 @@ verus! {
     /// corrupted, i.e., that `x_c == x`.
 
     #[verifier(external_body)]
+    #[verus::trusted]
     pub proof fn axiom_bytes_uncorrupted(x_c: Seq<u8>, x: Seq<u8>, x_addrs: Seq<int>,
                                          y_c: Seq<u8>, y: Seq<u8>, y_addrs: Seq<int>)
         requires
@@ -139,9 +143,12 @@ verus! {
     /// that `CDB_FALSE` and `CDB_TRUE` are different from each other,
     /// we set them to CRC(b"0") and CRC(b"1"), respectively.
 
+    #[verus::trusted]
     pub const CDB_FALSE: u64 = 0xa32842d19001605e; // CRC(b"0")
+    #[verus::trusted]
     pub const CDB_TRUE: u64  = 0xab21aa73069531b7; // CRC(b"1")
 
+    #[verus::trusted]
     #[verifier(external_body)]
     pub proof fn axiom_corruption_detecting_boolean(cdb_c: Seq<u8>, cdb: Seq<u8>, addrs: Seq<int>)
         requires
@@ -159,6 +166,7 @@ verus! {
     /// to chunk number `c` as the set of addresses `addr` such that
     /// `addr / PERSISTENCE_CHUNK_SIZE == c`.
 
+    #[verus::trusted]
     pub spec const PERSISTENCE_CHUNK_SIZE: int = 8;
 
     /// We model the state of each byte of persistent memory as
@@ -170,12 +178,14 @@ verus! {
     /// we restrict reads and writes to not be allowed at locations
     /// with currently outstanding writes.
 
+    #[verus::trusted]
     #[verifier::ext_equal]
     pub struct PersistentMemoryByte {
         pub state_at_last_flush: u8,
         pub outstanding_write: Option<u8>,
     }
 
+    #[verus::trusted]
     impl PersistentMemoryByte {
         pub open spec fn write(self, byte: u8) -> Self
         {
@@ -206,6 +216,7 @@ verus! {
     /// `PersistentMemoryRegionView`, which is essentially just a sequence
     /// of `PersistentMemoryByte` values.
 
+    #[verus::trusted]
     #[verifier::ext_equal]
     pub struct PersistentMemoryRegionView
     {
@@ -214,6 +225,7 @@ verus! {
         pub timestamp: PmTimestamp
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegionView
     {
         pub open spec fn len(self) -> nat
@@ -327,6 +339,7 @@ verus! {
     /// memory as a `PersistentMemoryRegionsView`, which is essentially
     /// just a sequence of `PersistentMemoryRegionView` values.
 
+    #[verus::trusted]
     #[verifier::ext_equal]
     pub struct PersistentMemoryRegionsView {
         pub regions: Seq<PersistentMemoryRegionView>,
@@ -334,6 +347,7 @@ verus! {
         pub device_id: u128,
     }
 
+    #[verus::trusted]
     impl PersistentMemoryRegionsView {
         pub open spec fn len(self) -> nat
         {
@@ -430,10 +444,12 @@ verus! {
     // The struct `PersistentMemoryConstants` contains fields that
     // remain the same across all operations on persistent memory.
 
+    #[verus::trusted]
     pub struct PersistentMemoryConstants {
         pub impervious_to_corruption: bool
     }
 
+    #[verus::trusted]
     pub trait PersistentMemoryRegion : Sized
     {
         type RegionDesc : RegionDescriptor;
@@ -542,6 +558,7 @@ verus! {
     /// The `PersistentMemoryRegions` trait represents an ordered list
     /// of one or more persistent memory regions.
 
+    #[verus::trusted]
     pub trait PersistentMemoryRegions : Sized
     {
         spec fn view(&self) -> PersistentMemoryRegionsView;
@@ -687,11 +704,9 @@ verus! {
             ;
     }
 
+    #[verus::trusted]
     pub trait CheckPermission<State>
     {
         spec fn check_permission(&self, state: State) -> bool;
     }
-
-    // $line_count$}$
-
 }

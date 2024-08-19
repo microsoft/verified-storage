@@ -52,12 +52,11 @@ use deps_hack::rand::Rng;
 
 verus! {
 
-    // $line_count$Trusted${$
-
     // This is the specification that `MultiLogImpl` provides for data
     // bytes it reads. It says that those bytes are correct unless
     // there was corruption on the persistent memory between the last
     // write and this read.
+    #[verus::trusted]
     pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
                                                     impervious_to_corruption: bool) -> bool
     {
@@ -86,6 +85,7 @@ verus! {
     // This specification function indicates whether a given view of
     // memory can only crash in a way that, after recovery, leads to a
     // certain abstract state.
+    #[verus::trusted]
     pub open spec fn can_only_crash_as_state(
         pm_regions_view: PersistentMemoryRegionsView,
         multilog_id: u128,
@@ -106,16 +106,19 @@ verus! {
     // So untrusted code in other files can't create one, and we can
     // rely on it to restrict access to persistent memory.
     #[allow(dead_code)]
+    #[verus::trusted]
     pub struct TrustedPermission {
         ghost is_state_allowable: spec_fn(Seq<Seq<u8>>) -> bool
     }
 
+    #[verus::trusted]
     impl CheckPermission<Seq<Seq<u8>>> for TrustedPermission {
         closed spec fn check_permission(&self, state: Seq<Seq<u8>>) -> bool {
             (self.is_state_allowable)(state)
         }
     }
 
+    #[verus::trusted]
     impl TrustedPermission {
 
         // This is one of two constructors for `TrustedPermission`.
@@ -160,6 +163,7 @@ verus! {
     // This enumeration represents the various errors that can be
     // returned from multilog operations. They're self-explanatory.
     // TODO: make PmemErr and MultiLogErr handling cleaner
+    #[verus::trusted]
     #[derive(Debug)]
     pub enum MultiLogErr {
         CantSetupWithFewerThanOneRegion { },
@@ -182,6 +186,7 @@ verus! {
     // This executable method can be called to compute a random GUID.
     // It uses the external `rand` crate.
     #[verifier::external_body]
+    #[verus::trusted]
     pub exec fn generate_fresh_multilog_id() -> (out: u128)
     {
         deps_hack::rand::thread_rng().gen::<u128>()
@@ -204,12 +209,14 @@ verus! {
     /// untrusted method, along with a restricting
     /// `TrustedPermission`, to limit what it's allowed to do.
 
+    #[verus::trusted]
     pub struct MultiLogImpl<PMRegions: PersistentMemoryRegions> {
         untrusted_log_impl: UntrustedMultiLogImpl,
         multilog_id: Ghost<u128>,
         wrpm_regions: WriteRestrictedPersistentMemoryRegions<TrustedPermission, PMRegions>
     }
 
+    #[verus::trusted]
     impl<PMRegions: PersistentMemoryRegions> TimestampedModule for MultiLogImpl<PMRegions> {
         type RegionsView = PersistentMemoryRegionsView;
 
@@ -229,6 +236,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     impl <PMRegions: PersistentMemoryRegions> MultiLogImpl<PMRegions> {
         // The view of a `MultiLogImpl` is whatever the
         // `UntrustedMultiLogImpl` it wraps says it is.
@@ -601,7 +609,4 @@ verus! {
             self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.multilog_id)
         }
     }
-
-    // $line_count$}$
-
 }

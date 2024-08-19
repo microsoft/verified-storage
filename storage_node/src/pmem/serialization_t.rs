@@ -8,13 +8,10 @@ use deps_hack::crc64fast::Digest;
 use std::convert::TryInto;
 
 verus! {
-    // #[verus::trusted]
-
-    // $line_count$Trusted${$
-
     // TODO: is this enough to prevent someone from creating an
     // S from different data and passing it off as one that was
     // read normally?
+    #[verus::trusted]
     pub open spec fn maybe_corrupted_serialized<S>(
         read_val: S,
         true_val: S,
@@ -30,6 +27,7 @@ verus! {
         )
     }
 
+    #[verus::trusted]
     #[verifier::external_body]
     pub proof fn axiom_serialized_val_uncorrupted<S>(
         read_val: S,
@@ -52,6 +50,7 @@ verus! {
             read_val == true_val
     {}
 
+    #[verus::trusted]
     pub trait Serializable : Sized {
         spec fn spec_serialize(self) -> Seq<u8>;
 
@@ -81,6 +80,7 @@ verus! {
         ;
     }
 
+    #[verus::trusted]
     impl Serializable for u64 {
         open spec fn spec_serialize(self) -> Seq<u8>
         {
@@ -120,6 +120,7 @@ verus! {
         }
     }
 
+    #[verus::trusted]
     #[verifier::external_body]
     pub fn calculate_crc<S>(val: &S) -> (out: u64)
         where
@@ -141,6 +142,4 @@ verus! {
         digest.write(bytes);
         digest.sum64()
     }
-
-    // $line_count$}$
 }
