@@ -11,6 +11,6 @@ qemu-system-x86_64 \
   -net nic \
   -net user,hostfwd=tcp::2222-:22 \
   -cpu host \
-  -smp 16 \
+  -smp 4 \
   -nographic
 ;
