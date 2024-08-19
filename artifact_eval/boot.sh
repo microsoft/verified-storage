@@ -13,4 +13,3 @@ qemu-system-x86_64 \
   -cpu host \
   -smp 4 \
   -nographic
-;
