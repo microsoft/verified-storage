@@ -1,0 +1,18 @@
+[package]
+name = "verif-storage-eval"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+sys-mount = "2.1.0"
+nix = "0.27.1"
+pmemlog = { path = "/mnt/local_ssd/home/hayley/verified-storage/pmemlog" }
+storage_node = { path = "/mnt/local_ssd/home/hayley/verified-storage/storage_node" }
+#builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="50d07b5fe4465fed8b76f4d050c945ba5dd17141" }
+#builtin = { git = "https://github.com/verus-lang/verus.git", rev="50d07b5fe4465fed8b76f4d050c945ba5dd17141" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="50d07b5fe4465fed8b76f4d050c945ba5dd17141" }
+
+[build-dependencies]
+bindgen = "0.69.1"

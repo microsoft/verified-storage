@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-img=ubuntu-22.04-server-cloudimg-amd64.img
+img=jammy-server-cloudimg-amd64.img
 user_data=user-data.img
 
 qemu-system-x86_64 \
