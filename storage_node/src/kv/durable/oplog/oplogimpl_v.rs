@@ -938,8 +938,33 @@ verus! {
             !old(self)@.op_list_committed,
             Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
                 old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
-            forall |s| #[trigger] perm.check_permission(s) <==> 
+
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
+
+            // forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
+
+            // forall |v2: PersistentMemoryRegionView, s2| {
+            //     &&& old(log_wrpm)@.len() == v2.len() 
+            //     &&& forall |addr: int|{
+            //             &&& 0 <= addr < old(log_wrpm)@.len() 
+            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
+            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+            //     &&& v2.can_crash_as(s2)
+            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            // } ==> perm.check_permission(s2),
+
+            forall |s1, s2| {
+                &&& s1.len() == s2.len() 
+                &&& old(log_wrpm)@.can_crash_as(s1)
+                // TODO: write a spec fn for this
+                &&& forall |addr: int|{
+                        &&& 0 <= addr < s1.len() 
+                        &&& s1[addr] != s2[addr] 
+                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            } ==> perm.check_permission(s2),
+                
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
             ({
@@ -1151,10 +1176,79 @@ verus! {
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
+
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
+
+            forall |s| #[trigger] perm.check_permission(s) ==> {
                 ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                 ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-            }
+            },
+
+            forall |s2: Seq<u8>| {
+                let flushed_state = old(log_wrpm)@.flush().committed();
+                &&& flushed_state.len() == s2.len() 
+                &&& forall |addr: int|{
+                        &&& 0 <= addr < flushed_state.len()
+                        &&& flushed_state[addr] != s2[addr] 
+                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& {
+                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
+                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                }
+            } ==> perm.check_permission(s2),
+
+            // forall |v2: PersistentMemoryRegionView, s2| {
+            //     &&& old(log_wrpm)@.len() == v2.len() 
+            //     // TODO: write a spec fn for this
+            //     // could use s1, s2 -- would need an additional lemma
+            //     &&& forall |addr: int|{
+            //             &&& 0 <= addr < old(log_wrpm)@.len() 
+            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
+            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+            //     &&& v2.can_crash_as(s2)
+            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            // } ==> perm.check_permission(s2),
+
+            forall |s1, s2| {
+                &&& s1.len() == s2.len() 
+                &&& old(log_wrpm)@.can_crash_as(s1)
+                // TODO: write a spec fn for this
+                &&& forall |addr: int|{
+                        &&& 0 <= addr < s1.len() 
+                        &&& s1[addr] != s2[addr] 
+                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            } ==> perm.check_permission(s2),
+
+            // forall |s2: Seq<u8>| {
+            //     let flushed_state = old(log_wrpm)@.flush().committed();
+            //     &&& flushed_state.len() == s2.len() 
+            //     &&& forall |addr: int|{
+            //             &&& 0 <= addr < flushed_state.len() 
+            //             &&& flushed_state[addr] != s2[addr] 
+            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            // } ==> perm.check_permission(s2),
+
+            // forall |s1, s2| {
+            //     &&& old(log_wrpm)@.can_crash_as(s1)
+            //     &&& 
+            // }
+
+            // forall |v2: PersistentMemoryRegionView, s2| {
+            //     &&& forall |addr: int|{
+            //             &&& 0 <= addr < old(log_wrpm)@.len() 
+            //             &&& old(log_wrpm)@.len() == v2.len() 
+            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
+            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+            //     &&& v2.can_crash_as(s2)
+            //     &&& {
+            //         ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+            //         ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
+            //     }
+            // } ==> perm.check_permission(s2),
+
         ensures 
             self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1297,11 +1391,22 @@ verus! {
             old(self)@.op_list_committed,
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
-            // legal crash states are the current op log state, or a cleared op log state
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@)
-                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.clear_log().unwrap())
-            }
+            old(log_wrpm)@.no_outstanding_writes(),
+
+            forall |s2: Seq<u8>| {
+                let current_state = old(log_wrpm)@.committed();
+                &&& current_state.len() == s2.len() 
+                // TODO: spec fns for states/views only differ within the log area
+                &&& forall |addr: int|{
+                        &&& 0 <= addr < current_state.len()
+                        &&& current_state[addr] != s2[addr] 
+                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& {
+                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
+                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                    }
+            } ==> perm.check_permission(s2),
+
         ensures 
             self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),

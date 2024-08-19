@@ -81,7 +81,6 @@ verus! {
     // log installation.
     pub struct PhysicalOpLogEntry 
     {
-        // pub offset: u64,
         pub absolute_addr: u64,
         pub len: u64,
         pub bytes: Vec<u8>,
@@ -91,7 +90,6 @@ verus! {
     {
         pub open spec fn view(self) -> AbstractPhysicalOpLogEntry {
             AbstractPhysicalOpLogEntry {
-                // offset: self.offset as nat,
                 absolute_addr: self.absolute_addr as nat,
                 len: self.len as nat,
                 bytes: self.bytes@,
