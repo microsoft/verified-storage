@@ -9,7 +9,7 @@ use crate::multilog::append_v::*;
 use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;
 use crate::multilog::multilogimpl_t::*;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::multilog::multilogspec_t::*;
 use crate::multilog::setup_v::{
     check_for_required_space, compute_log_capacities, write_setup_metadata_to_all_regions,
 };
@@ -18,6 +18,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
+use crate::pmem::wrpm_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::*;

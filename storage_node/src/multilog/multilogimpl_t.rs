@@ -37,12 +37,12 @@
 //! across invocations of its functions. This implementation will then
 //! guarantee that `inv` holds on any call to an `UntrustedLogImpl`
 //! method, and demand that the method preserve that invariant.
-
 use std::fmt::Write;
 
 use crate::multilog::multilogimpl_v::UntrustedMultiLogImpl;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::multilog::multilogspec_t::*;
 use crate::pmem::pmemspec_t::*;
+use crate::pmem::wrpm_v::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
 use builtin_macros::*;
@@ -51,6 +51,8 @@ use vstd::prelude::*;
 use deps_hack::rand::Rng;
 
 verus! {
+
+    // $line_count$Trusted${$
 
     // This is the specification that `MultiLogImpl` provides for data
     // bytes it reads. It says that those bytes are correct unless
@@ -220,10 +222,10 @@ verus! {
             self.valid()
         }
 
-        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) {
-            proof { self.lemma_valid_implies_wrpm_inv(); }
-            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp);
-            proof { self.lemma_untrusted_log_inv_implies_valid(); }
+        fn update_timestamp(&mut self, new_timestamp: Ghost<PmTimestamp>) { // $line_count$Exec$
+            proof { self.lemma_valid_implies_wrpm_inv(); } // $line_count$Proof$
+            self.untrusted_log_impl.update_timestamps(&mut self.wrpm_regions, self.multilog_id, new_timestamp); // $line_count$Exec$
+            proof { self.lemma_untrusted_log_inv_implies_valid(); } // $line_count$Proof$
         }
     }
 
@@ -265,6 +267,7 @@ verus! {
             &&& can_only_crash_as_state(self.wrpm_regions@, self.multilog_id@, self@.drop_pending_appends())
         }
 
+        // $line_count$Proof${$
         proof fn lemma_valid_implies_wrpm_inv(self)
             requires
                 self.valid()
@@ -273,7 +276,9 @@ verus! {
         {
             self.untrusted_log_impl.lemma_inv_implies_wrpm_inv(&self.wrpm_regions, self.multilog_id@);
         }
+        // $line_count$}$
 
+        // $line_count$Proof${$
         proof fn lemma_untrusted_log_inv_implies_valid(self)
             requires
                 self.untrusted_log_impl.inv(&self.wrpm_regions, self.multilog_id@)
@@ -282,6 +287,7 @@ verus! {
         {
             self.untrusted_log_impl.lemma_inv_implies_can_only_crash_as(&self.wrpm_regions, self.multilog_id@);
         }
+        // $line_count$}$
 
         // The `setup` method sets up persistent memory regions `pm_regions`
         // to store an initial empty multilog. It returns a vector
@@ -595,5 +601,7 @@ verus! {
             self.untrusted_log_impl.get_head_tail_and_capacity(&self.wrpm_regions, which_log, self.multilog_id)
         }
     }
+
+    // $line_count$}$
 
 }

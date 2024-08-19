@@ -8,6 +8,10 @@ use deps_hack::crc64fast::Digest;
 use std::convert::TryInto;
 
 verus! {
+    // #[verus::trusted]
+
+    // $line_count$Trusted${$
+
     // TODO: is this enough to prevent someone from creating an
     // S from different data and passing it off as one that was
     // read normally?
@@ -53,6 +57,7 @@ verus! {
 
         spec fn spec_deserialize(bytes: Seq<u8>) -> Self;
 
+        // $line_count$Proof${$
         proof fn lemma_auto_serialize_deserialize()
             ensures
                 forall |s: Self| #![auto] s == Self::spec_deserialize(s.spec_serialize())
@@ -62,6 +67,7 @@ verus! {
             ensures
                 forall |s: Self| #![auto] s.spec_serialize().len() == Self::spec_serialized_len()
         ;
+        // $line_count$}$
 
         // TODO: this should really be a constant, but verus doesn't
         // support associated constants right now
@@ -86,6 +92,7 @@ verus! {
             spec_u64_from_le_bytes(bytes)
         }
 
+        // $line_count$Proof${$
         proof fn lemma_auto_serialize_deserialize()
         {
             lemma_auto_spec_u64_to_from_le_bytes();
@@ -98,6 +105,7 @@ verus! {
             assert(forall |s: Self| #![auto] s.spec_serialize().len() == 8);
             assert(Self::spec_serialized_len() == 8);
         }
+        // $line_count$}$
 
         open spec fn spec_serialized_len() -> u64
         {
@@ -133,4 +141,6 @@ verus! {
         digest.write(bytes);
         digest.sum64()
     }
+
+    // $line_count$}$
 }

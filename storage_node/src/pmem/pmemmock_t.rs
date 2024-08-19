@@ -4,13 +4,9 @@
 //! regions by implementing trait `PersistentMemoryRegions`.
 //!
 //! THIS IS ONLY INTENDED FOR USE IN TESTING! In practice, one should
-//! use actually persistent memory to implement persistent memory!
-
+//! use actually persistent memory to implement persistent memory
 use crate::pmem::device_t::*;
-use crate::pmem::pmemspec_t::{
-    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView, PmemError,
-};
+use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
@@ -20,6 +16,10 @@ use std::convert::*;
 use vstd::prelude::*;
 
 verus! {
+
+    // #[verus::trusted]
+
+    // $line_count$Trusted${$
 
     // A `VolatileMemoryMockingPersistentMemoryDevice` is a placeholder;
     // it will let us get PM regions and a timestamp but does not actually
@@ -426,4 +426,6 @@ verus! {
             }
         }
     }
+
+    // $line_count$}$
 }

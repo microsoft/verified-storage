@@ -2,11 +2,7 @@
 //! `FileBackedPersistentMemoryRegions`, a collection of persistent
 //! memory regions backed by files. It implements trait
 //! `PersistentMemoryRegions`.
-
-use crate::pmemspec_t::{
-    PersistentMemoryByte, PersistentMemoryConstants, PersistentMemoryRegion,
-    PersistentMemoryRegionView, PersistentMemoryRegions, PersistentMemoryRegionsView,
-};
+use crate::pmemspec_t::*;
 use builtin::*;
 use builtin_macros::*;
 use deps_hack::winapi::shared::winerror::SUCCEEDED;
@@ -29,6 +25,10 @@ use core::arch::x86_64::_mm_clflush;
 use core::arch::x86_64::_mm_sfence;
 
 verus! {
+
+    // #[verus::trusted]
+
+    // $line_count$Trusted{$
 
     // The `MemoryMappedFileMediaType` enum represents a type of media
     // from which a file can be memory-mapped.
@@ -501,5 +501,7 @@ verus! {
             }
         }
     }
+
+    // $line_count$}$
 
 }

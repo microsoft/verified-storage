@@ -8,11 +8,11 @@
 
 use crate::multilog::inv_v::*;
 use crate::multilog::layout_v::*;
-use crate::multilog::multilogimpl_t::MultiLogErr;
-use crate::multilog::multilogimpl_v::LogInfo;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
-use crate::pmem::pmemspec_t::{PersistentMemoryRegions, CRC_SIZE};
-use crate::pmem::pmemutil_v::{check_cdb, check_crc, check_crc_deserialized};
+use crate::multilog::multilogimpl_t::*;
+use crate::multilog::multilogimpl_v::*;
+use crate::multilog::multilogspec_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::serialization_t::*;
 use builtin::*;
 use builtin_macros::*;

@@ -36,12 +36,14 @@
 //! This method drops all pending appends. It's not meant to be
 //! explicitly invoked by clients; it's a model of what clients should
 //! consider to have happened during a crash.
-
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
+
+    // #[verus::trusted]
+    // $line_count$Trusted${$
     
     // An `AbstractLogState` is an abstraction of a single log, of
     // which an abstract multilog is composed. Its fields are:
@@ -192,5 +194,7 @@ verus! {
             }
         }
     }
+
+    // $line_count$}$
 
 }

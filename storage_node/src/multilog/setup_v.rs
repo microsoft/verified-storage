@@ -6,8 +6,8 @@
 //! of the system's correctness.
 
 use crate::multilog::layout_v::*;
-use crate::multilog::multilogimpl_t::MultiLogErr;
-use crate::multilog::multilogspec_t::AbstractMultiLogState;
+use crate::multilog::multilogimpl_t::*;
+use crate::multilog::multilogspec_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
 use crate::pmem::timestamp_t::*;

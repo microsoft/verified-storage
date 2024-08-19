@@ -6,7 +6,6 @@
 //! into PMRegion(s).
 //! Each `PmDevice` has a single `PmTimestamp`, which also encompasses all
 //! of its regions.
-
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::timestamp_t::*;
 use builtin::*;
@@ -14,6 +13,8 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
+    // #[verus::trusted]
+    // $line_count$Trusted${$
 
     pub trait PmDevice {
         type RegionDesc : RegionDescriptor;
@@ -105,4 +106,6 @@ verus! {
         pub timestamp: PmTimestamp,
         pub device_id: u128,
     }
+
+    // $line_count$}$
 }

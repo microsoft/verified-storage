@@ -4,6 +4,10 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
+    // #[verus::trusted]
+
+    // $line_count$Trusted${$
+
     #[derive(Eq, PartialEq)]
     #[verifier::ext_equal]
     pub struct PmTimestamp {
@@ -46,6 +50,7 @@ verus! {
         }
     }
 
+    // $line_count$Proof${$
     pub proof fn lemma_auto_timestamp_helpers()
         ensures
             forall |ts: PmTimestamp| #[trigger] ts.inc_timestamp().value() == #[trigger] ts.value() + 1,
@@ -56,6 +61,7 @@ verus! {
             forall |t1: PmTimestamp, t2: PmTimestamp, x: int|
                 x > 0 && #[trigger] t1.value() == #[trigger] (t2.value() + x) ==> #[trigger] t1.gt(t2)
     {}
+    // $line_count$Proof$}$
 
     /// Higher-level storage component modules (e.g., multilog) should implement this
     /// in order to be able to update their ghost timestamp when other components on
@@ -80,4 +86,6 @@ verus! {
                 self.inv(),
                 self.get_timestamp() == new_timestamp;
     }
+
+    // $line_count$}$
 }

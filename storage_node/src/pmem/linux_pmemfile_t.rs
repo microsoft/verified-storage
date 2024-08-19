@@ -1,3 +1,4 @@
+
 use crate::pmem::device_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::serialization_t::*;
@@ -22,12 +23,16 @@ use deps_hack::{
 
 verus! {
 
+    // #[verus::trusted]
+
+    // $line_count$Trusted{$
+
     // This executable method can be called to compute a random GUID.
     // It uses the external `rand` crate.
     #[verifier::external_body]
     pub exec fn generate_fresh_device_id() -> (out: u128)
     {
-        deps_hack::rand::thread_rng().gen::<u128>()
+        deps_hack::rand::thread_rng().gen::<u128>() // $line_count$$
     }
 
 
@@ -121,6 +126,7 @@ verus! {
         #[verifier::external_body]
         fn get_new_region(&mut self, len: u64) -> Result<Self::RegionDesc, PmemError>
         {
+            // $line_count$${$
             // the precondition requires that the device has enough space for the
             // region, so we don't have to check on that
             let new_virt_addr = unsafe {
@@ -135,6 +141,7 @@ verus! {
                 timestamp: Ghost(PmTimestamp::new(self.spec_device_id() as int)),
                 device_id: self.device_id()
             })
+            // $line_count$}$
         }
     }
 
@@ -153,6 +160,7 @@ verus! {
                     Err(_) => true // TODO
                 }
         {
+            // $line_count$${$
             let mut mapped_len = 0;
             let mut is_pm = 0;
             let file = CString::new(file_to_map).map_err(|_| PmemError::InvalidFileName )?;
@@ -191,6 +199,7 @@ verus! {
                     cursor: 0,
                 })
             }
+            // $line_count$}$
         }
     }
 
@@ -209,7 +218,9 @@ verus! {
             opens_invariants none
             no_unwind
         {
+            // $line_count$${$
             unsafe { pmem_unmap(self.virt_addr.virt_addr as *mut c_void, self.mapped_len.try_into().unwrap()) };
+            // $line_count$}$
         }
     }
 
@@ -247,6 +258,7 @@ verus! {
         #[verifier::external_body]
         fn new(region_descriptor: Self::RegionDesc) -> Result<Self, PmemError>
         {
+            // $line_count$${$
             // TODO: we don't actually know what the state at last flush was;
             // should this instead be represented by some unknown value?
             let ghost state = Seq::new(
@@ -270,11 +282,13 @@ verus! {
                 persistent_memory_view,
                 timestamp: region_descriptor.timestamp
             })
+            // $line_count$}$
         }
 
         #[verifier::external_body]
         fn read(&self, addr: u64, num_bytes: u64) -> (bytes: Vec<u8>)
         {
+            // $line_count$${$
             let num_bytes_usize: usize = num_bytes.try_into().unwrap();
 
             // SAFETY: The `offset` method is safe as long as both the start
@@ -300,6 +314,7 @@ verus! {
 
             // `to_vec` clones the bytes in `pm_slice`
             pm_slice.to_vec()
+            // $line_count$}$
         }
 
         #[verifier::external_body]
@@ -307,6 +322,7 @@ verus! {
             where
                 S: Serializable + Sized
         {
+            // $line_count$${$
             // SAFETY: The `offset` method is safe as long as both the start
             // and resulting pointer are in bounds and the computed offset does
             // not overflow `isize`. `addr` and `num_bytes` are unsigned and
@@ -328,11 +344,13 @@ verus! {
             // as borrowed from the MappedPM object, preventing mutable borrows of any
             // other part of the object until this one is dropped.
             unsafe { &(*s_pointer) }
+            // $line_count$}$
         }
 
         #[verifier::external_body]
         fn write(&mut self, addr: u64, bytes: &[u8])
         {
+            // $line_count$${$
             // SAFETY: The `offset` method is safe as long as both the start
             // and resulting pointer are in bounds and the computed offset does
             // not overflow `isize`. `addr` and `num_bytes` are unsigned and
@@ -359,6 +377,7 @@ verus! {
                     bytes.len()
                 );
             }
+            // $line_count$}$
         }
 
         #[verifier::external_body]
@@ -367,6 +386,7 @@ verus! {
             where
                 S: Serializable + Sized
         {
+            // $line_count$${$
             let num_bytes: usize = S::serialized_len().try_into().unwrap();
 
             // SAFETY: The `offset` method is safe as long as both the start
@@ -398,11 +418,13 @@ verus! {
                     num_bytes
                 );
             }
+            // line_count$}$
         }
 
         #[verifier::external_body]
         fn flush(&mut self)
         {
+            // $line_count$${$
             self.persistent_memory_view = Ghost(self.persistent_memory_view@.flush());
 
             // `pmem_drain()` invokes an ordering primitive to drain store buffers and
@@ -411,6 +433,7 @@ verus! {
             // `serialize_and_write` since the last `flush` call will be durable before
             // any new updates become durable.
             unsafe { pmem_drain(); }
+            // $line_count$}$
         }
 
         #[allow(unused_variables)]
@@ -475,13 +498,13 @@ verus! {
             where
                 S: Serializable + Sized
         {
-            self.pms[index].read_and_deserialize(addr)
+            self.pms[index].read_and_deserialize(addr) 
         }
 
         #[verifier::external_body]
         fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
         {
-            self.pms[index].write(addr, bytes)
+            self.pms[index].write(addr, bytes) // $line_count$$
         }
 
         #[verifier::external_body]
@@ -489,12 +512,13 @@ verus! {
             where
                 S: Serializable + Sized
         {
-            self.pms[index].serialize_and_write(addr, to_write);
+            self.pms[index].serialize_and_write(addr, to_write); // $line_count$$
         }
 
         #[verifier::external_body]
         fn flush(&mut self)
         {
+            // $line_count$${$
             // we only loop over PM views, since we don't want to invoke one drain for
             // every region, since all of the regions are from the same device
             for which_region in iter: 0..self.pms.len()
@@ -506,17 +530,20 @@ verus! {
                 self.pms[which_region].persistent_memory_view = Ghost(self.pms[which_region as int].persistent_memory_view@.flush())
             }
             unsafe { pmem_drain(); }
+            // $line_count$}$
         }
 
         #[verifier::external_body]
         fn update_timestamps(&mut self, new_timestamp: Ghost<PmTimestamp>)
         {
+            // $line_count$${$
             for i in iter: 0..self.pms.len()
                 invariant
                     iter.end == self.pms.len(),
             {
                 self.pms[i].update_region_timestamp(new_timestamp);
             }
+            // $line_count$}$
         }
     }
 
@@ -552,4 +579,6 @@ verus! {
             }
         }
     }
+
+    // $line_count$}$
 }
