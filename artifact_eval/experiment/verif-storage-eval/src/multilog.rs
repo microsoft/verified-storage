@@ -16,7 +16,7 @@ impl PmemLog for VerifLog {
         Self: Sized,
     {
         let mut device =
-            MappedPmDevice::new(vstd::string::new_strlit(file_name.as_str()), log_size)
+            MappedPmDevice::new(file_name.as_str(), log_size)
                 .map_err(|e| MultiLogErr::PmemErr { err: e })?;
         // obtain the device as a single region and set it up as a multilog with one l og
         let region = device

@@ -6,7 +6,7 @@
   the middle of a write.
 
 */
-
+#![allow(unexpected_cfgs)]
 use crate::sccf::CheckPermission;
 use builtin::*;
 use builtin_macros::*;
