@@ -1095,6 +1095,11 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
             }
         });
 
+        assert(forall |addr: int| {
+            ||| 0 <= addr < log_start_addr
+            ||| log_start_addr + log_size <= addr < v1.len()
+        } ==> s2[addr] == witness[addr]);
+
 
         // assert(states_differ_only_in_log_region(witness, s2, log_start_addr, log_size));
 
@@ -1122,7 +1127,64 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
                 ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
                 ||| v1.chunk_corresponds_after_flush(chunk, witness)
             } by {
-                assume(false);
+
+                
+
+                assert(v2.can_crash_as(s2));
+                // assert ({
+                //     ||| forall |addr: int| {
+                //             &&& 0 <= addr < v1.len()
+                //             &&& addr_in_chunk(chunk, addr)
+                //         } ==> #[trigger] s2[addr] == v2.state[addr].flush_byte()
+                //     ||| forall |addr: int| {
+                //             &&& 0 <= addr < v1.len()
+                //             &&& addr_in_chunk(chunk, addr)
+                //         } ==> #[trigger] s2[addr] == v2.state[addr].state_at_last_flush
+                // }) by {
+                //     assume(false);
+                // }
+
+                // from def of can crash as
+                assert({
+                    ||| v2.chunk_corresponds_after_flush(chunk, s2)
+                    ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
+                });
+
+                // either all addrs for this chunk are flushed or they are all not
+                assert({
+                    ||| forall |addr: int| {
+                            &&& 0 <= addr < v1.len()
+                            &&& addr_in_chunk(chunk, addr)
+                        } ==> #[trigger] s2[addr] == v2.state[addr].flush_byte()
+                    ||| forall |addr: int| {
+                            &&& 0 <= addr < v1.len()
+                            &&& addr_in_chunk(chunk, addr)
+                        } ==> #[trigger] s2[addr] == v2.state[addr].state_at_last_flush
+                });
+
+                // assert ({
+                //     ||| forall |addr: int| {
+                //             &&& 0 <= addr < v1.len()
+                //             &&& addr_in_chunk(chunk, addr)
+                //         } ==> #[trigger] s2[addr] == v1.state[addr].flush_byte()
+                //     ||| forall |addr: int| {
+                //             &&& 0 <= addr < v1.len()
+                //             &&& addr_in_chunk(chunk, addr)
+                //         } ==> #[trigger] s2[addr] == v1.state[addr].state_at_last_flush
+                // }) by {
+                //     // assume(false);
+                    
+                // }
+
+                assert forall |addr: int| {
+                    &&& 0 <= addr < v1.len()
+                    &&& addr_in_chunk(chunk, addr)
+                } implies #[trigger] witness[addr] == s2[addr] by {    
+                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
+                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
+                }
+
+                // assume(false);
         //         // all of the bytes outside the log match s2
         //         assert(forall |addr: int| {
         //             ||| 0 <= addr < log_start_addr 
