@@ -67,6 +67,7 @@ verus! {
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
                 self.spec_free_list()[i] != self.spec_free_list()[j]
+            &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==> self.spec_free_list()[i] < overall_metadata.num_keys
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==>
                 self@.outstanding_item_table[#[trigger] self.spec_free_list()[i] as int] is None
             &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self@.outstanding_item_table[idx as int] is None ==>
@@ -84,6 +85,27 @@ verus! {
         {
             &&& self.inv(pm_view, overall_metadata)
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==> #[trigger] self@.outstanding_item_table[idx as int] is None
+        }
+
+        pub closed spec fn subregion_grants_access_to_entry_slot(
+            self,
+            subregion: WriteRestrictedPersistentMemorySubregion,
+            idx: u64
+        ) -> bool
+        {
+            forall|addr: u64| idx * self.entry_size <= addr < idx * self.entry_size + self.entry_size ==>
+                subregion.is_writable_relative_addr(addr as int)
+        }
+
+        pub open spec fn subregion_grants_access_to_free_slots(
+            self,
+            subregion: WriteRestrictedPersistentMemorySubregion
+        ) -> bool
+        {
+            forall|idx: u64| {
+                &&& idx < self@.len()
+                &&& self.spec_free_list().contains(idx)
+            } ==> self.subregion_grants_access_to_entry_slot(subregion, idx)
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -214,6 +236,98 @@ verus! {
 
             let item = item.extract_init_val(Ghost(true_item));
             Ok(item)
+        }
+
+        // this function can be used to both create new items and do COW updates to existing items.
+        // must always write to an invalid slot
+        // this operation is NOT directly logged
+        // returns the index of the slot that the item was written to
+        pub exec fn tentatively_write_item<PM, Perm>(
+            &mut self,
+            subregion: &WriteRestrictedPersistentMemorySubregion,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            Ghost(item_table_id): Ghost<u128>,
+            item: &I,
+            Tracked(perm): Tracked<&Perm>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) -> (result: Result<u64, KvError<K>>)
+            where
+                PM: PersistentMemoryRegion,
+                Perm: CheckPermission<Seq<u8>>,
+            requires
+                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                subregion.len() >= overall_metadata.item_table_size,
+                old(self).subregion_grants_access_to_free_slots(*subregion),
+            ensures
+                subregion.inv(wrpm_region, perm),
+                self.inv(subregion.view(wrpm_region), overall_metadata),
+                match result {
+                    Ok(index) => {
+                        &&& old(self).spec_free_list().contains(index)
+                        &&& self@.durable_item_table == old(self)@.durable_item_table
+                        &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
+                            #[trigger] self@.outstanding_item_table[i] == old(self)@.outstanding_item_table[i]
+                        &&& self@.outstanding_item_table[index as int] == Some(*item)
+                    }
+                    Err(KvError::OutOfSpace) => {
+                        &&& self@ == old(self)@
+                        &&& self.spec_free_list().len() == 0
+                    }
+                    _ => false,
+                }
+        {
+            let entry_size = self.entry_size;
+            assert(self.valid(subregion.view(wrpm_region), overall_metadata));
+            assert(self.inv(subregion.view(wrpm_region), overall_metadata));
+            assert(entry_size == u64::spec_size_of() + I::spec_size_of());
+            
+            // pop a free index from the free list
+            let free_index = match self.free_list.pop() {
+                Some(index) => index,
+                None => {
+                    assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+                    return Err(KvError::OutOfSpace);
+                }
+            };
+
+            assert(old(self).subregion_grants_access_to_entry_slot(*subregion, free_index));
+            assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+
+            broadcast use pmcopy_axioms;
+            
+            proof {
+                lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                assert(self@.outstanding_item_table[free_index as int] is None);
+            }
+
+            let crc_addr = free_index * (entry_size as u64);
+            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+            // calculate and write the CRC of the provided item
+            let crc: u64 = calculate_crc(item);
+            subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
+            // write the item itself
+            subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
+
+            self.state = Ghost(self.state@.tentatively_create(free_index, *item));
+
+            let ghost pm_view = subregion.view(wrpm_region);
+            assert forall|idx: u64| idx < overall_metadata.num_keys &&
+                   #[trigger] self@.outstanding_item_table[idx as int] is None implies
+                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
+                assume(false);
+            }
+            assert forall|idx: u64| self.spec_valid_indices().contains(idx) implies {
+                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                &&& idx < overall_metadata.num_keys
+                &&& validate_item_table_entry::<I, K>(entry_bytes)
+                &&& self@.durable_item_table[idx as int] is Some
+                &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
+            } by {
+                assume(false);
+            }
+            Ok(free_index)
         }
 
         // pub open spec fn recover<L>(

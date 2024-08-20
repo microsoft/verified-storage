@@ -68,6 +68,14 @@ verus! {
             self.durable_item_table.len()
         }
 
+        pub open spec fn tentatively_create(self, idx: u64, item: I) -> Self
+        {
+            Self {
+                outstanding_item_table: self.outstanding_item_table.update(idx as int, Some(item)),
+                ..self
+            }
+        }
+
         // // Inserting an entry and committing it are two separate operations. Inserted entries
         // // are invalid until they are explicitly committed. Attempting to insert at an index
         // // that already has a valid entry results in an error.
