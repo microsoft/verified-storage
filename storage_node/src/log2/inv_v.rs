@@ -905,4 +905,13 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
     lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, log_start_addr, cdb);
 }
 
+pub proof fn lemma_metadata_fits_in_log_header_area()
+    ensures 
+        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()
+{
+    broadcast use pmcopy_axioms;
+    reveal(spec_padding_needed);
+    assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+}
+
 }
