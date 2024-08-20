@@ -87,13 +87,14 @@ verus! {
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==> #[trigger] self@.outstanding_item_table[idx as int] is None
         }
 
-        pub closed spec fn subregion_grants_access_to_entry_slot(
+        pub open spec fn subregion_grants_access_to_entry_slot(
             self,
             subregion: WriteRestrictedPersistentMemorySubregion,
             idx: u64
         ) -> bool
         {
-            forall|addr: u64| idx * self.entry_size <= addr < idx * self.entry_size + self.entry_size ==>
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
                 subregion.is_writable_relative_addr(addr as int)
         }
 
