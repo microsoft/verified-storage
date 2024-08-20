@@ -316,7 +316,8 @@ verus! {
             assert forall|idx: u64| idx < overall_metadata.num_keys &&
                    #[trigger] self@.outstanding_item_table[idx as int] is None implies
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
-                assume(false);
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
             }
             assert forall|idx: u64| self.spec_valid_indices().contains(idx) implies {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);

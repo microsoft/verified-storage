@@ -30,6 +30,23 @@ verus! {
                                                                         index as int, 1);
     }
 
+    // This lemma proves that an index that is less than num_keys (i.e., within bounds of the table) 
+    // represents a valid table entry that we can read and parse.
+    pub proof fn lemma_entries_dont_overlap_unless_same_index(index1: nat, index2: nat, size: nat)
+        ensures
+            index1 < index2 ==> (index1 + 1) * size <= index2 * size,
+            index1 > index2 ==> (index2 + 1) * size <= index1 * size,
+    {
+        if index1 < index2 {
+            vstd::arithmetic::mul::lemma_mul_inequality(index1 + 1 as int, index2 as int, size as int);
+        }
+        if index1 > index2 {
+            vstd::arithmetic::mul::lemma_mul_inequality(index2 + 1 as int, index1 as int, size as int);
+        }
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, index1 as int, 1);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, index2 as int, 1);
+    }
+
     // This lemma proves that a subrange of a subrange is equal to just obtaining the final subrange using its 
     // absolute start index. This is obvious and requires no body, but having a dedicated lemma helps
     // Z3 establish the equality
