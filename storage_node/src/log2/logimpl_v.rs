@@ -161,6 +161,58 @@ impl UntrustedLogImpl {
             })
     {}
 
+    pub proof fn lemma_all_crash_states_recover_to_drop_pending_appends<Perm, PM>(
+        self,
+        wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: nat,
+        log_size: nat,
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            self.inv(wrpm_region, log_start_addr, log_size)
+        ensures 
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> 
+                UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends())
+    {
+        broadcast use pmcopy_axioms;
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
+        assert forall |s| #[trigger] wrpm_region@.can_crash_as(s) implies 
+            UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends())
+        by {
+            let recover_log_state = UntrustedLogImpl::recover(s, log_start_addr, log_size).unwrap();
+            let current_state = UntrustedLogImpl::recover(wrpm_region@.committed(), log_start_addr, log_size).unwrap();
+    
+            assert(extract_bytes(s, log_start_addr, spec_log_area_pos()) == extract_bytes(wrpm_region@.committed(), log_start_addr, spec_log_area_pos()));
+            assert(extract_bytes(s, log_start_addr, u64::spec_size_of()) == extract_bytes(wrpm_region@.committed(), log_start_addr, u64::spec_size_of()));
+    
+            let current_cdb = recover_cdb(wrpm_region@.committed(), log_start_addr);
+            let recover_cdb = recover_cdb(s, log_start_addr);
+            assert(current_cdb == recover_cdb);
+    
+            let metadata_pos = spec_get_active_log_metadata_pos(current_cdb.unwrap());
+            let crc_pos = spec_get_active_log_crc_pos(current_cdb.unwrap());
+            lemma_metadata_fits_in_log_header_area();
+            lemma_subrange_of_extract_bytes_equal(s, log_start_addr, metadata_pos + log_start_addr, spec_log_area_pos(), LogMetadata::spec_size_of());
+            assert(extract_bytes(s, metadata_pos + log_start_addr, LogMetadata::spec_size_of()) == extract_bytes(wrpm_region@.committed(), metadata_pos + log_start_addr, LogMetadata::spec_size_of()));
+            assert(extract_bytes(s, crc_pos + log_start_addr, u64::spec_size_of()) == extract_bytes(wrpm_region@.committed(), crc_pos + log_start_addr, u64::spec_size_of()));
+    
+            let current_metadata = spec_get_active_log_metadata(wrpm_region@.committed(), log_start_addr, current_cdb.unwrap());
+            let recover_metadata = spec_get_active_log_metadata(s, log_start_addr, current_cdb.unwrap());
+            assert(current_metadata == recover_metadata);
+    
+            let recovered_crash_log = recover_log(s, log_start_addr, log_size, current_metadata.head as int, current_metadata.log_length as int).unwrap();
+            let recovered_current_log = recover_log(wrpm_region@.committed(), log_start_addr, log_size, current_metadata.head as int, current_metadata.log_length as int).unwrap();
+            assert(recovered_crash_log == recovered_current_log);
+            assert(self@.log == recovered_current_log.log);
+    
+            self.lemma_reveal_log_inv(wrpm_region, log_start_addr, log_size);
+    
+            self.lemma_inv_implies_current_and_recovery_metadata_match(wrpm_region, log_start_addr, log_size);
+        }
+    }
+
     pub exec fn setup<PM, K>(
         pm_region: &mut PM,
         log_start_addr: u64,
