@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::arithmetic::div_mod::*;
 use crate::kv::layout_v::OverallMetadata;
 use crate::lemma_establish_extract_bytes_equivalence;
 use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*};
@@ -918,6 +919,35 @@ pub open spec fn states_differ_only_in_log_region(
     } ==> log_start_addr <= addr < log_start_addr + log_size
 }
 
+pub open spec fn views_differ_only_in_log_region(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < v1.len() 
+        &&& v1.state[addr] != #[trigger] v2.state[addr] 
+    } ==> log_start_addr <= addr < log_start_addr + log_size
+}
+
+pub open spec fn states_differ_only_outside_log_region(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < s1.len() 
+        &&& s1[addr] != #[trigger] s2[addr] 
+    } ==> {
+        ||| 0 <= addr < log_start_addr 
+        ||| log_start_addr + log_size <= addr < s1.len()
+    }
+}
+
 pub proof fn lemma_metadata_fits_in_log_header_area()
     ensures 
         forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()
@@ -925,6 +955,268 @@ pub proof fn lemma_metadata_fits_in_log_header_area()
     broadcast use pmcopy_axioms;
     reveal(spec_padding_needed);
     assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+}
+
+// pub proof fn lemma_log_recovery_state_depends_only_on_log_region(
+//     s1: Seq<u8>,
+//     s2: Seq<u8>,
+//     log_start_addr:nat,
+//     log_size: nat
+// )
+//     requires
+//         s1.len() == s2.len(),
+//         s1.len() >= log_start_addr + log_size,
+//         extract_bytes(s1, log_start_addr, log_size) == extract_bytes(s2, log_start_addr, log_size)
+//     ensures 
+//         UntrustedLogImpl::recover(s1, log_start_addr, log_size) == UntrustedLogImpl::recover(s2, log_start_addr, log_size)
+// {}
+
+pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    write_addr: int,
+    write_bytes: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat
+) 
+    requires 
+        0 <= write_addr <= write_addr + write_bytes.len() < v1.len(),
+        v2 == v1.write(write_addr, write_bytes),
+        v1.len() == v2.len(),
+        log_start_addr <= write_addr <= write_addr + write_bytes.len() < log_start_addr + log_size <= v1.len(),
+        // log_size > 0,
+        log_start_addr % const_persistence_chunk_size() as nat == 0,
+        log_size % const_persistence_chunk_size() as nat == 0,
+    ensures 
+        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
+            exists |s1: Seq<u8>| {
+                &&& v1.can_crash_as(s1)
+                &&& #[trigger] s1.len() == s2.len()
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+            }
+{
+    assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
+        exists |s1: Seq<u8>| {
+            &&& v1.can_crash_as(s1)
+            &&& #[trigger] s1.len() == s2.len()
+            &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+        }
+    by {
+        // all bytes outside of the log region match -- prob won't need this in the end
+        assert(views_differ_only_in_log_region(v1, v2, log_start_addr, log_size));
+
+        // s2 matches either the outstanding write or the last write in v1 in each
+        // addr outside of the log area
+        assert(forall |addr: int| {
+            ||| 0 <= addr < log_start_addr
+            ||| log_start_addr + log_size <= addr < v1.len()
+        } ==> {
+            v1.state[addr] == v2.state[addr]
+        });
+
+        assert(forall |chunk| {
+            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
+            ||| v2.chunk_corresponds_after_flush(chunk, s2)
+        });
+
+        assert(forall |chunk| {
+            ||| 0 <= chunk < log_start_addr
+            ||| log_start_addr + log_size <= chunk < v2.len()
+        } ==> {
+            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
+            ||| v2.chunk_corresponds_after_flush(chunk, s2)
+        });
+
+        // // since v1 and v2 are the same outside the log, the same is true 
+        // // for non-log-region addresses of v1. This follows from the previous
+        // // assertion.
+        // assert(forall |addr: int| {
+        //     ||| 0 <= addr < log_start_addr
+        //     ||| log_start_addr + log_size <= addr < v1.len()
+        // } ==> {
+        //     ||| #[trigger] s2[addr] == v1.state[addr].flush_byte()
+        //     ||| s2[addr] == v1.state[addr].state_at_last_flush
+        // });
+
+        // // each byte in s2 matches the current or post-flush state of the same byte in v2
+        // assert forall |addr: int| 0 <= addr < v2.len() implies {
+        //     ||| #[trigger] s2[addr] == v2.state[addr].flush_byte()
+        //     ||| s2[addr] == v2.state[addr].state_at_last_flush
+        // } by {
+        //     assume(false);
+        // }
+
+        // // since v1 and v2 are the same outside the log, the same is true 
+        // // for non-log-region addresses of v1. This follows from the previous
+        // // assertion.
+        // assert(forall |addr: int| {
+        //     ||| 0 <= addr < log_start_addr
+        //     ||| log_start_addr + log_size <= addr < v1.len()
+        // } ==> {
+        //     ||| #[trigger] s2[addr] == v1.state[addr].flush_byte()
+        //     ||| s2[addr] == v1.state[addr].state_at_last_flush
+        // });
+
+
+        // // construct a structure telling us whether to use the committed or outstanding
+        // // version of each chunk
+        // // index in this sequence is the chunk #
+        // // true means use committed version, false means use outstanding byte
+        // let which_chunk_seq = Seq::new(
+        //     v1.len() / const_persistence_chunk_size() as nat, 
+        //     |chunk: int| {
+        //         if log_start_addr <= chunk < log_start_addr + log_size {
+        //             // chunk is in the log -- just use the committed version
+        //             true
+        //         } else {
+        //             // chunk is outside the log
+        //             if v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2) {
+        //                 true
+        //             } else {
+        //                 false
+        //             }
+        //         }
+        //     }
+        // );
+
+
+
+        // Need to construct a state that is a valid crash state of v1, and matches
+        // s2 in all addresses except for the log addrs.
+        // The former is the tricky part, since crash states are represented in terms
+        // of 8 byte chunks rather than byte by byte
+
+        let witness = Seq::new(v1.len(), |addr: int| {
+            if log_start_addr <= addr < log_start_addr + log_size {
+                v1.state[addr].flush_byte()
+            } else {
+                // outside of the log
+                s2[addr]
+            }
+        });
+
+
+        // assert(states_differ_only_in_log_region(witness, s2, log_start_addr, log_size));
+
+        assert(v1.can_crash_as(witness)) by {
+
+        //     // assert(forall |chunk: int| {
+        //     //     ||| forall |addr: int| {
+        //     //         &&& 0 <= addr < v1.len()
+        //     //         &&& addr / const_persistence_chunk_size() == chunk
+        //     //     } ==> witness[addr] == v1.state[addr].flush_byte()
+        //     //     ||| forall |addr: int| {
+        //     //         &&& 0 <= addr < v1.len()
+        //     //         &&& addr / const_persistence_chunk_size() == chunk
+        //     //     } ==> witness[addr] == v1.state[addr].state_at_last_flush
+        //     // });
+
+        //     assume(false);
+
+            // maybe easier to break up into two parts?
+            // bytes outside of the log
+            assert forall |chunk: int| {
+                ||| 0 <= chunk * const_persistence_chunk_size() < log_start_addr 
+                ||| log_start_addr + log_size <= chunk * const_persistence_chunk_size() < v1.len()
+            } implies {
+                ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
+                ||| v1.chunk_corresponds_after_flush(chunk, witness)
+            } by {
+                assume(false);
+        //         // all of the bytes outside the log match s2
+        //         assert(forall |addr: int| {
+        //             ||| 0 <= addr < log_start_addr 
+        //             ||| log_start_addr + log_size <= addr < v1.len()
+        //             // &&& 0 <= addr < v1.len()
+        //             // &&& addr / const_persistence_chunk_size() == chunk
+        //         } ==> s2[addr] == witness[addr]);
+
+        //         // but we need to establish that all of the CHUNKS match
+        //         assert(v2.can_crash_as(s2));
+        //         // all non-log chunks are right in s2
+        //         assert(forall |chunk| {
+        //             ||| 0 <= chunk < log_start_addr 
+        //             ||| log_start_addr + log_size <= chunk < v1.len()
+        //         } ==> {
+        //             ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
+        //             ||| v2.chunk_corresponds_after_flush(chunk, s2)
+        //         });
+
+        //         assert(forall |chunk| {
+        //             ||| 0 <= chunk < log_start_addr 
+        //             ||| log_start_addr + log_size <= chunk < v1.len()
+        //         } ==> {
+        //             v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2) ==> 
+        //                 v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
+        //         });
+
+        //         assert(forall |chunk| {
+        //             ||| 0 <= chunk < log_start_addr 
+        //             ||| log_start_addr + log_size <= chunk < v1.len()
+        //         } ==> {
+        //             v2.chunk_corresponds_after_flush(chunk, s2) ==> 
+        //                 v1.chunk_corresponds_after_flush(chunk, witness)
+        //         });
+            }
+
+            // bytes inside the log
+            assert forall |chunk: int| {
+                0 <= log_start_addr <= chunk * const_persistence_chunk_size() < log_start_addr + log_size < v1.len()
+            } implies {
+                v1.chunk_corresponds_after_flush(chunk, witness)
+            } by {
+                assert(forall |addr: int| log_start_addr <= addr < log_start_addr + log_size < v1.len() ==> 
+                    #[trigger] witness[addr] == v1.state[addr].flush_byte());
+
+                assert forall |addr: int| {
+                    &&& 0 <= addr < v1.len()
+                    &&& addr_in_chunk(chunk, addr)
+                } implies #[trigger] witness[addr] == v1.state[addr].flush_byte() by {
+                    assert(addr / const_persistence_chunk_size() == chunk);
+                    assert(chunk * const_persistence_chunk_size() <= addr < chunk * const_persistence_chunk_size() + const_persistence_chunk_size());
+
+                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
+                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
+
+                    assert((log_start_addr + log_size) % const_persistence_chunk_size() as nat == 0);
+
+                    assert(chunk * const_persistence_chunk_size() + const_persistence_chunk_size() <= log_start_addr + log_size);
+                    assert(log_start_addr <= addr < log_start_addr + log_size);
+                }
+
+                assert(v1.chunk_corresponds_after_flush(chunk, witness));
+            }
+
+            assert(forall |chunk| {
+                ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
+                ||| v1.chunk_corresponds_after_flush(chunk, witness)
+            });
+        }
+
+        // assert(forall |addr: int| {
+        //     ||| 0 <= addr < log_start_addr
+        //     ||| log_start_addr + log_size <= addr < v1.len()
+        // } ==> {
+        //     &&& v1.state[addr].outstanding_write is Some ==> {
+        //             ||| #[trigger] s2[addr] == v1.state[addr].outstanding_write.unwrap()
+        //             ||| s2[addr] == v1.state[addr].state_at_last_flush
+        //         } 
+        //     &&& v1.state[addr].outstanding_write is None ==> 
+        //             s2[addr] == v1.state[addr].state_at_last_flush
+        // });
+
+        // let witness = |s1: Seq<u8>| {
+            
+        // }
+        // let witness = Seq::new(v1.len(), |addr: int| {
+        //     // for addresses outside the log, select the same byte as s2 has for the witness
+        //     if 0 <= addr < log_start_addr || log_start_addr + log_size <= addr < v1.len() {
+        //         if s2[addr] == v1.state[addr].outstanding_write {
+        //             v1.state[addr].outstanding_write 
+        //         } else if 
+        //     }
+        // });
+    }
 }
 
 }
