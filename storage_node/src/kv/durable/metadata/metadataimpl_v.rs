@@ -105,6 +105,28 @@ verus! {
             &&& forall |i| 0 <= i < self@.outstanding_entry_writes.len() ==> self@.outstanding_entry_writes[i] is None
         }
 
+        pub open spec fn subregion_grants_access_to_entry_slot(
+            self,
+            subregion: WriteRestrictedPersistentMemorySubregion,
+            idx: u64
+        ) -> bool
+        {
+            let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+            forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
+                subregion.is_writable_relative_addr(addr as int)
+        }
+
+        pub open spec fn subregion_grants_access_to_free_slots(
+            self,
+            subregion: WriteRestrictedPersistentMemorySubregion
+        ) -> bool
+        {
+            forall|idx: u64| {
+                &&& idx < self@.len()
+                &&& self.allocator_view().contains(idx)
+            } ==> self.subregion_grants_access_to_entry_slot(subregion, idx)
+        }
+
         pub proof fn lemma_establish_bytes_parseable_for_valid_entry(
             self,
             pm: PersistentMemoryRegionView,
@@ -948,6 +970,86 @@ verus! {
             Ok((key, metadata_entry))
         }
 
+        // Since metadata table entries have a valid CDB, we can tentatively write the whole entry and log a commit op for it,
+        // then flip the CDB once the log has been committed
+        pub exec fn tentative_create<PM, Perm>(
+            &mut self,
+            subregion: &WriteRestrictedPersistentMemorySubregion,
+            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            list_node_index: u64,
+            item_table_index: u64,
+            key: &K,
+            Tracked(perm): Tracked<&Perm>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) -> (result: Result<u64, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+                Perm: CheckPermission<Seq<u8>>,
+            requires 
+                subregion.inv(old::<&mut _>(wrpm_region), perm),
+                old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                subregion.len() >= overall_metadata.main_table_size,
+                old(self).subregion_grants_access_to_free_slots(*subregion),
+            ensures
+                subregion.inv(wrpm_region, perm),
+                self.inv(subregion.view(wrpm_region), overall_metadata),
+                match result {
+                    Ok(index) => {
+                        &&& old(self).allocator_view().contains(index)
+                        &&& self@.durable_metadata_table == old(self)@.durable_metadata_table
+                        &&& forall |i: int| 0 <= i < overall_metadata.num_keys ==>
+                            #[trigger] self@.outstanding_cdb_writes[i] == old(self)@.outstanding_cdb_writes[i]
+                        &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
+                            #[trigger] self@.outstanding_entry_writes[i] == old(self)@.outstanding_entry_writes[i]
+                        &&& self@.outstanding_entry_writes[index as int] matches Some(e)
+                        &&& e.key == key
+                        &&& e.entry.head == 0
+                        &&& e.entry.tail == 0
+                        &&& e.entry.length == 0
+                        &&& e.entry.first_entry_offset == list_node_index
+                        &&& e.entry.item_index == item_table_index
+                    },
+                    Err(KvError::OutOfSpace) => {
+                        &&& self@ == old(self)@
+                        &&& self.allocator_view() == old(self).allocator_view()
+                        &&& self.allocator_view().len() == 0
+                    },
+                    _ => false,
+                }
+        {
+            assume(false);
+
+            // 1. pop an index from the free list
+            // since this index is on the free list, its CDB is already false
+            let free_index = match self.metadata_table_free_list.pop(){
+                Some(index) => index,
+                None => return Err(KvError::OutOfSpace),
+            };
+
+            // 2. construct the entry with list metadata and item index
+            let entry = ListEntryMetadata::new(list_node_index, list_node_index, 0, 0, item_table_index);
+
+            // 3. calculate the CRC of the entry + key 
+            let mut digest = CrcDigest::new();
+            digest.write(&entry);
+            digest.write(key);
+            let crc = digest.sum64();
+
+            // 4. write CRC and entry 
+            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
+            let slot_addr = free_index * metadata_node_size;
+            // CDB is at slot addr -- we aren't setting that one yet
+            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
+            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+            let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+
+            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
+            wrpm_region.serialize_and_write(entry_addr, &entry, Tracked(perm));
+            wrpm_region.serialize_and_write(key_addr, key, Tracked(perm));
+
+            Ok(free_index)
+        }
+
 /* Temporarily commented out for subregion work
 
         pub exec fn play_metadata_log<PM, L>(
@@ -1025,59 +1127,6 @@ verus! {
                 
             }
             Ok(())
-        }
-
-        // Since metadata table entries have a valid CDB, we can tentatively write the whole entry and log a commit op for it,
-        // then flip the CDB once the log has been committed
-        pub exec fn tentative_create<PM>(
-            &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedMetadataPermission, PM>,
-            Ghost(table_id): Ghost<u128>,
-            list_node_index: u64,
-            item_table_index: u64,
-            key: &K,
-            Tracked(perm): Tracked<&TrustedMetadataPermission>
-        ) -> (result: Result<u64, KvError<K>>)
-            where 
-                PM: PersistentMemoryRegion,
-            requires 
-                old(wrpm_region).inv(),
-                // TODO
-            ensures 
-                wrpm_region.inv(),
-                // TODO
-        {
-            assume(false);
-
-            // 1. pop an index from the free list
-            // since this index is on the free list, its CDB is already false
-            let free_index = match self.metadata_table_free_list.pop(){
-                Some(index) => index,
-                None => return Err(KvError::OutOfSpace),
-            };
-
-            // 2. construct the entry with list metadata and item index
-            let entry = ListEntryMetadata::new(list_node_index, list_node_index, 0, 0, item_table_index);
-
-            // 3. calculate the CRC of the entry + key 
-            let mut digest = CrcDigest::new();
-            digest.write(&entry);
-            digest.write(key);
-            let crc = digest.sum64();
-
-            // 4. write CRC and entry 
-            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = free_index * metadata_node_size;
-            // CDB is at slot addr -- we aren't setting that one yet
-            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
-            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-            let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
-            wrpm_region.serialize_and_write(entry_addr, &entry, Tracked(perm));
-            wrpm_region.serialize_and_write(key_addr, key, Tracked(perm));
-
-            Ok(free_index)
         }
 
         // Overwrite an existing metadata table entry with a new one. The function does NOT overwrite the key,

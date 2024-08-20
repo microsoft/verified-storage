@@ -72,6 +72,11 @@ verus! {
             }
         }
 
+        pub open spec fn len(self) -> nat
+        {
+            self.durable_metadata_table.len()
+        }
+
         pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
         {
             &&& self.outstanding_cdb_writes[idx] is None
