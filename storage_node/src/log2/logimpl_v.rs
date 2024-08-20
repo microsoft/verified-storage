@@ -340,11 +340,15 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
+                perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                // &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
             } ==> #[trigger] perm.check_permission(s2),
@@ -356,6 +360,7 @@ impl UntrustedLogImpl {
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
             match result {
                 Ok(offset) => {
                     &&& offset == self.info.head + self.info.log_plus_pending_length
@@ -451,6 +456,13 @@ impl UntrustedLogImpl {
                 assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies perm.check_permission(s2) by {
                     lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
                         log_area_start_addr + write_addr, bytes_to_append@,log_start_addr as nat, log_size as nat);
+                    let witness = choose |s1: Seq<u8>| {
+                        &&& wrpm_region@.can_crash_as(s1)
+                        &&& #[trigger] s1.len() == s2.len()
+                        &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                    };
+                    assert(wrpm_region@.can_crash_as(witness));
+                    assert(perm.check_permission(witness));
                 }
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
@@ -583,11 +595,13 @@ impl UntrustedLogImpl {
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                // &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
             } ==> #[trigger] perm.check_permission(s2),
@@ -597,6 +611,7 @@ impl UntrustedLogImpl {
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region.inv(),
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             match result {

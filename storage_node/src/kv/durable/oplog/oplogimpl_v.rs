@@ -939,27 +939,17 @@ verus! {
             !old(self)@.op_list_committed,
             Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
                 old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
-
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
-
-            // forall |v2: PersistentMemoryRegionView, s2| {
-            //     &&& old(log_wrpm)@.len() == v2.len() 
-            //     &&& forall |addr: int|{
-            //             &&& 0 <= addr < old(log_wrpm)@.len() 
-            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
-            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-            //     &&& v2.can_crash_as(s2)
-            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-            // } ==> perm.check_permission(s2),
-
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
+                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
                 &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
-                
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
             ({
@@ -1069,8 +1059,6 @@ verus! {
             }
         }
         self.current_transaction_crc.write_bytes(absolute_addr.as_byte_slice());
-
-        assume(false);
 
         proof {
             // This proves that the CRC digest bytes and log pending bytes are the same
