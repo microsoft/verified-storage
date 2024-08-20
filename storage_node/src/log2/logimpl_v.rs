@@ -338,7 +338,8 @@ impl UntrustedLogImpl {
                 },
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            // forall |s| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()) ==> #[trigger] perm.check_permission(s),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
@@ -469,67 +470,14 @@ impl UntrustedLogImpl {
                     wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
                     self.info, self.state@, self.cdb, is_writable_absolute_addr
                 );
-
-
-
-                // assert(forall |s| #[trigger] new_pm.can_crash_as(s) ==> {
-                //     &&& s.len() == wrpm_region@.len()
-                //     &&& Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
-                //     // &&& states_differ_only_in_log_region(s, wrpm_region@.committed(), log_start_addr as nat, log_size as nat)
-                // }); //==> perm.check_permission(s)
-
-                // assert forall |s| {
-                //     &&& #[trigger] wrpm_region@.can_crash_as(s)
-                //     // &&& states_differ_only_outside_log_region(s, wrpm_region@.committed(), log_start_addr as nat, log_size as nat)
-                // } ==> {
-                //     perm.check_permission(s)
-                // } by {
-                // }
-                
-                 
-
                 assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies perm.check_permission(s2) by {
                     lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
                         log_area_start_addr + write_addr, bytes_to_append@,log_start_addr as nat, log_size as nat);
-                    // assert(exists |s1| {
-                    //     &&& wrpm_region@.can_crash_as(s1) 
-                    //     &&& #[trigger] s1.len() == s2.len()
-                    //     &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat) 
-                    // });
-                    // let s1 = choose |s1| {
-                    //     &&& wrpm_region@.can_crash_as(s1) 
-                    //     &&& #[trigger] s1.len() == s2.len()
-                    //     &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat) 
-                    // };
-                    // assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
-                    // // four ways we can crash:
-                    // // 1. we only differ in the log region
-                    // if states_differ_only_in_log_region(s2, s1, log_start_addr as nat, log_size as nat) {
-                    //     // this one is given by the precondition
-                    //     assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
-                    // } else if states_differ_only_outside_log_region(s2, s1, log_start_addr as nat, log_size as nat) {
-                    //     // assume(false);
-                    //     assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Self::recover(s1, log_start_addr as nat, log_size as nat));
-                    //     assert(perm.check_permission(s1));
-                    //     assert(perm.check_permission(s2));
-                    // } else if s2 == s1 {
-                    //     // trivial -- s2 and s1 recover to the same state, and we know all of s1's crash states are legal
-                    // } else {
-                        
-                    //     assume(false);
-                    // }
-
-                    // // 2. we only differ outside the log region
-
-                    // // 3. crash state is identical to current state
-
-                    // // 4. we differ in both log region and outside it
                 }
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
         }
         else {
-            assume(false);
             // We could compute the address to write to with:
             //
             // `write_addr = old_pending_tail % info.log_area_len`
@@ -565,6 +513,10 @@ impl UntrustedLogImpl {
                         wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
                         self.info, self.state@, self.cdb, is_writable_absolute_addr
                     );
+                    assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies perm.check_permission(s2) by {
+                        lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
+                            log_area_start_addr + write_addr, bytes_to_append@, log_start_addr as nat, log_size as nat);
+                    }
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
             }
@@ -582,13 +534,29 @@ impl UntrustedLogImpl {
                 proof {
                     lemma_tentatively_append_wrapping(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
 
-                    let new_pm = wrpm_region@
-                        .write(log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat))
-                        .write(log_area_start_addr as int, extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
+                    let new_pm1 = wrpm_region@.write(log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 
+                        0, max_len_without_wrapping as nat));
+                    let new_pm2 = new_pm1.write(log_area_start_addr as int, extract_bytes(bytes_to_append@, 
+                        max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
+
+                    // let new_pm = wrpm_region@
+                    //     .write(log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat))
+                    //     .write(log_area_start_addr as int, extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
                     lemma_append_crash_states_do_not_modify_reachable_state(
-                        wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
+                        wrpm_region@, new_pm2, log_start_addr as nat, log_size as nat, 
                         self.info, self.state@, self.cdb, is_writable_absolute_addr
                     );
+                    assert forall |s2| #[trigger] new_pm1.can_crash_as(s2) implies perm.check_permission(s2) by {
+                        lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm1, 
+                            log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat), 
+                            log_start_addr as nat, log_size as nat);
+                    }
+
+                    assert forall |s2| #[trigger] new_pm2.can_crash_as(s2) implies perm.check_permission(s2) by {
+                        lemma_crash_state_differing_only_in_log_region_exists(new_pm1, new_pm2, log_area_start_addr as int, 
+                            extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat), 
+                            log_start_addr as nat, log_size as nat);
+                    }
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize), Tracked(perm));
                 wrpm_region.write(log_area_start_addr, slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()), Tracked(perm));
@@ -629,8 +597,8 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            // forall |s| #[trigger] perm.check_permission(s) <==
-            //     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {

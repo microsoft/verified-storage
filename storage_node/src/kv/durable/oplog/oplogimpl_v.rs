@@ -100,6 +100,7 @@ verus! {
             } 
             &&& self.overall_metadata.log_area_addr < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
             &&& self.overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
+            &&& self.overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region@, self.overall_metadata.log_area_addr as nat)
         }
 

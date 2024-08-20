@@ -970,10 +970,9 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
     log_size: nat
 ) 
     requires 
-        0 <= write_addr <= write_addr + write_bytes.len() < v1.len(),
         v2 == v1.write(write_addr, write_bytes),
         v1.len() == v2.len(),
-        log_start_addr <= write_addr <= write_addr + write_bytes.len() < log_start_addr + log_size <= v1.len(),
+        0 <= log_start_addr <= write_addr <= write_addr + write_bytes.len() <= log_start_addr + log_size <= v1.len(),
         log_start_addr % const_persistence_chunk_size() as nat == 0,
         log_size % const_persistence_chunk_size() as nat == 0,
     ensures 
