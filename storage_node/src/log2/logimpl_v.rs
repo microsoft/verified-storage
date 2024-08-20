@@ -1500,17 +1500,6 @@ impl UntrustedLogImpl {
         let inactive_metadata_pos = get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
 
         proof {
-            broadcast use pmcopy_axioms;
-            // // To prove that there are no outstanding updates to inactive metadata, we have to prove that it doesn't run into the log area.
-            // // We have to do this by compute; since there are two possible inactive metadata positions, we have to do case analysis
-            // assert(spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_false() || spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_true());
-            // if spec_get_inactive_log_metadata_pos(self.cdb) == spec_log_header_pos_cdb_false() {
-            //     assert(spec_log_header_pos_cdb_false() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
-            // } else {
-            //     assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
-            // }
-            // assert(spec_get_inactive_log_metadata_pos(self.cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos());
-            // assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos());
             lemma_metadata_fits_in_log_header_area();
         } 
 
@@ -1532,6 +1521,9 @@ impl UntrustedLogImpl {
             lemma_metadata_set_after_crash(alt_region_view, log_start_addr as nat, self.cdb);
             assert(Self::recover(crash_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
         }
+
+        // bringing in the axioms here seems to help with rlimit issues
+        broadcast use pmcopy_axioms;
 
         // Write the new metadata and CRC
         wrpm_region.serialize_and_write(inactive_metadata_pos, &log_metadata, Tracked(perm));
