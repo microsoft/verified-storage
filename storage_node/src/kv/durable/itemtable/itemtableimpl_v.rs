@@ -247,7 +247,6 @@ verus! {
             &mut self,
             subregion: &WriteRestrictedPersistentMemorySubregion,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-            Ghost(item_table_id): Ghost<u128>,
             item: &I,
             Tracked(perm): Tracked<&Perm>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
@@ -263,6 +262,7 @@ verus! {
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
+                self.spec_valid_indices() == old(self).spec_valid_indices(),
                 match result {
                     Ok(index) => {
                         &&& old(self).spec_free_list().contains(index)
@@ -270,11 +270,14 @@ verus! {
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self@.outstanding_item_table[i] == old(self)@.outstanding_item_table[i]
                         &&& self@.outstanding_item_table[index as int] == Some(*item)
-                    }
+                        &&& forall |other_index: u64| self.spec_free_list().contains(other_index) <==>
+                            old(self).spec_free_list().contains(other_index) && other_index != index
+                    },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
+                        &&& self.spec_free_list() == old(self).spec_free_list()
                         &&& self.spec_free_list().len() == 0
-                    }
+                    },
                     _ => false,
                 }
         {
@@ -333,6 +336,18 @@ verus! {
                 assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).committed(),
                                                      (idx * entry_size) as nat, entry_size as nat));
             }
+
+            assert forall |other_index: u64| self.spec_free_list().contains(other_index) <==>
+                     old(self).spec_free_list().contains(other_index) && other_index != free_index by {
+                if other_index != free_index {
+                    if old(self).spec_free_list().contains(other_index) {
+                        let j = choose|j: int| 0 <= j < old(self).free_list@.len() && old(self).free_list@[j] == other_index;
+                        assert(self.free_list@[j] == other_index);
+                        assert(self.spec_free_list().contains(other_index));
+                    }
+                }
+            }
+
             Ok(free_index)
         }
 
