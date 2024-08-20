@@ -905,4 +905,26 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
     lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, log_start_addr, cdb);
 }
 
+pub open spec fn states_differ_only_in_log_region(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < s1.len() 
+        &&& s1[addr] != #[trigger] s2[addr] 
+    } ==> log_start_addr <= addr < log_start_addr + log_size
+}
+
+pub proof fn lemma_metadata_fits_in_log_header_area()
+    ensures 
+        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()
+{
+    broadcast use pmcopy_axioms;
+    reveal(spec_padding_needed);
+    assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+}
+
 }

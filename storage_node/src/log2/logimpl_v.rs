@@ -117,6 +117,7 @@ impl UntrustedLogImpl {
     {
         &&& pm.inv()
         &&& self@.capacity >= self@.log.len()
+        &&& self@.capacity == log_size - spec_log_area_pos()
         &&& no_outstanding_writes_to_metadata(pm@, log_start_addr)
         &&& memory_matches_deserialized_cdb(pm@, log_start_addr, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
@@ -136,7 +137,28 @@ impl UntrustedLogImpl {
             self.inv(pm, log_start_addr, log_size),
         ensures
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX,
-            metadata_types_set(pm@.committed(), log_start_addr)
+            metadata_types_set(pm@.committed(), log_start_addr),
+            self@.capacity == log_size - spec_log_area_pos()
+    {}
+
+    pub proof fn lemma_inv_implies_current_and_recovery_metadata_match<Perm, PM>(
+        self,
+        wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: nat,
+        log_size: nat
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            self.inv(wrpm_region, log_start_addr, log_size)
+        ensures 
+            ({
+                let recovery_view = Self::recover(wrpm_region@.committed(), log_start_addr, log_size);
+                &&& recovery_view matches Some(recovery_view)
+                &&& recovery_view.head == self@.head
+                &&& recovery_view.capacity == self@.capacity
+            })
     {}
 
     pub exec fn setup<PM, K>(
@@ -316,7 +338,15 @@ impl UntrustedLogImpl {
                 },
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            forall |s| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()) ==> #[trigger] perm.check_permission(s),
+            // forall |s| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()) ==> #[trigger] perm.check_permission(s),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
+            } ==> #[trigger] perm.check_permission(s2),
         ensures
             spec_check_log_cdb(wrpm_region@.committed(), log_start_addr as nat) == spec_check_log_cdb(old(wrpm_region)@.committed(), log_start_addr as nat),
             wrpm_region.inv(),
@@ -542,8 +572,16 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            forall |s| #[trigger] perm.check_permission(s) <==
+            // forall |s| #[trigger] perm.check_permission(s) <==
+            //     Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+            } ==> #[trigger] perm.check_permission(s2),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
