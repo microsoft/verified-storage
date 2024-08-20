@@ -326,7 +326,11 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
             } by {
-                assume(false);
+                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                                                     (idx * entry_size) as nat, entry_size as nat));
             }
             Ok(free_index)
         }
