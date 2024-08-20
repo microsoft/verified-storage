@@ -57,9 +57,12 @@ def plot(results_dir, mb_written):
     plt.legend(test_names, loc="upper left", fontsize=14)
     plt.savefig("results.pdf", format="pdf")
 
+def usage():
+    print("Usage: plot_verify_comparison output_directory mb_written")
+
 def main():
     if len(sys.argv) < 3:
-        print("Too few arguments")
+        usage()
         exit(1)
     
     results = sys.argv[1]
