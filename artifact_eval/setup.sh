@@ -2,7 +2,8 @@
 
 # This script is adapted from https://askubuntu.com/questions/281763/is-there-any-prebuilt-qemu-ubuntu-image32bit-online/1081171#1081171
 
-sudo apt-get install cloud-image-utils qemu
+sudo apt-get update
+sudo apt-get install cloud-image-utils qemu qemu-system
 
 # # This is already in qcow2 format.
 img=jammy-server-cloudimg-amd64.img
