@@ -983,6 +983,38 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
             }
 {
+    // The body of this lemma would be exactly the same as the wrapping case lemma, it just has a different
+    // precondition, so we fake the second write here to use the wrapping proof in the single-write case.
+    assert(v1.write(write_addr, write_bytes).write(log_start_addr as int, Seq::empty()) == v1.write(write_addr, write_bytes));
+    lemma_crash_state_differing_only_in_log_region_exists_wrapping(
+        v1, v2, write_addr, write_bytes, log_start_addr as int, Seq::empty(), log_start_addr, log_size
+    );
+}
+
+pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    write_addr1: int,
+    write_bytes1: Seq<u8>,
+    write_addr2: int,
+    write_bytes2: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat
+) 
+    requires 
+        v2 == v1.write(write_addr1, write_bytes1).write(write_addr2, write_bytes2),
+        v1.len() == v2.len(),
+        0 <= log_start_addr <= write_addr2 <= write_addr2 + write_bytes2.len() <= write_addr1 <= write_addr1 + write_bytes1.len() <= log_start_addr + log_size <= v1.len(),
+        log_start_addr % const_persistence_chunk_size() as nat == 0,
+        log_size % const_persistence_chunk_size() as nat == 0,
+    ensures 
+        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
+            exists |s1: Seq<u8>| {
+                &&& v1.can_crash_as(s1)
+                &&& #[trigger] s1.len() == s2.len()
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+            }
+{
     assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
         exists |s1: Seq<u8>| {
             &&& v1.can_crash_as(s1)

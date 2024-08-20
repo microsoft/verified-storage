@@ -387,28 +387,6 @@ impl UntrustedLogImpl {
         // writable fn should not allow changes to metadata
         assert(forall |i: int| log_start_addr <= i < log_start_addr + spec_log_area_pos() ==> !(#[trigger] is_writable_absolute_addr(i)));
 
-        // // Prove that any write allowed by `is_writable_absolute_addr` does not change the recovery state
-        // // and is thus crash safe
-        // assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
-        //     &&& #[trigger] alt_region_view.can_crash_as(crash_state)
-        //     &&& wrpm_region@.len() == alt_region_view.len()
-        //     &&& views_differ_only_where_subregion_allows(wrpm_region@, alt_region_view,
-        //                                                 (log_start_addr + spec_log_area_pos()) as nat,
-        //                                                 info.log_area_len as nat,
-        //                                                 is_writable_absolute_addr)
-        // } implies perm.check_permission(crash_state) by {
-        //     broadcast use pmcopy_axioms;
-        //     lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-        //         wrpm_region@, alt_region_view, crash_state, log_start_addr as nat, log_size as nat, self.cdb, 
-        //         self.info, self.state@, is_writable_absolute_addr
-        //     );
-        //     lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
-        //     lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.committed(), alt_region_view.committed(), log_start_addr as nat, log_size as nat);
-        //     lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, log_start_addr as nat, self.cdb);
-        //     lemma_metadata_set_after_crash(alt_region_view, log_start_addr as nat, self.cdb);
-        //     assert(Self::recover(crash_state, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
-        // }
-
         // Compute the current logical offset of the end of the
         // log, including any earlier pending appends. This is the
         // offset at which we'll be logically appending, and so is
@@ -539,21 +517,27 @@ impl UntrustedLogImpl {
                     let new_pm2 = new_pm1.write(log_area_start_addr as int, extract_bytes(bytes_to_append@, 
                         max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
 
-                    // let new_pm = wrpm_region@
-                    //     .write(log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat))
-                    //     .write(log_area_start_addr as int, extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
+                    lemma_append_crash_states_do_not_modify_reachable_state(
+                        wrpm_region@, new_pm1, log_start_addr as nat, log_size as nat, 
+                        self.info, self.state@, self.cdb, is_writable_absolute_addr
+                    );
                     lemma_append_crash_states_do_not_modify_reachable_state(
                         wrpm_region@, new_pm2, log_start_addr as nat, log_size as nat, 
                         self.info, self.state@, self.cdb, is_writable_absolute_addr
                     );
+                    
                     assert forall |s2| #[trigger] new_pm1.can_crash_as(s2) implies perm.check_permission(s2) by {
+                        assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
                         lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm1, 
                             log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat), 
                             log_start_addr as nat, log_size as nat);
                     }
 
                     assert forall |s2| #[trigger] new_pm2.can_crash_as(s2) implies perm.check_permission(s2) by {
-                        lemma_crash_state_differing_only_in_log_region_exists(new_pm1, new_pm2, log_area_start_addr as int, 
+                        assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
+                        lemma_crash_state_differing_only_in_log_region_exists_wrapping(wrpm_region@, new_pm2, 
+                            log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat), 
+                            log_area_start_addr as int, 
                             extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat), 
                             log_start_addr as nat, log_size as nat);
                     }
