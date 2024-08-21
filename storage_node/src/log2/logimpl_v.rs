@@ -463,7 +463,6 @@ impl UntrustedLogImpl {
                 perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                // &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
@@ -477,6 +476,7 @@ impl UntrustedLogImpl {
             wrpm_region@.len() == old(wrpm_region)@.len(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
+            states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.flush().committed(), log_start_addr as nat, log_size as nat),
             match result {
                 Ok(offset) => {
                     &&& offset == self.info.head + self.info.log_plus_pending_length
@@ -716,7 +716,6 @@ impl UntrustedLogImpl {
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                // &&& #[trigger] old(wrpm_region)@.can_crash_as(s1)
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
@@ -730,6 +729,7 @@ impl UntrustedLogImpl {
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
+            states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.flush().committed(), log_start_addr as nat, log_size as nat),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
