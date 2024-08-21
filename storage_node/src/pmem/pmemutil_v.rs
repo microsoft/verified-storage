@@ -851,4 +851,28 @@ verus! {
                 #[trigger] extract_bytes(mem1, i, n) == #[trigger] extract_bytes(mem2, i, n)
     {
     }
+
+    // This lemma proves that a subrange of a subrange is equal to the result of a single call to subrange.
+    pub proof fn lemma_subrange_of_subrange_equal(mem: Seq<u8>, pos1: nat, pos2: nat, pos3: nat, pos4: nat)
+        requires
+            pos1 <= pos2 <= pos3 <= pos4 <= mem.len(),
+        ensures
+            mem.subrange(pos2 as int, pos3 as int) ==
+            mem.subrange(pos1 as int, pos4 as int).subrange(pos2 - pos1, pos3 - pos1)
+    {
+        assert(mem.subrange(pos2 as int, pos3 as int) =~=
+               mem.subrange(pos1 as int, pos4 as int).subrange(pos2 - pos1, pos3 - pos1));
+    }
+
+    // This lemma proves that an extract_bytes of an extract_bytes is equal to the result of a single call to
+    // extract_bytes.
+    pub proof fn lemma_extract_bytes_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, start2: nat, len1: nat, len2: nat)
+        requires 
+            start1 <= start2 <= start2 + len2 <= start1 + len1 <= mem.len()
+        ensures 
+            extract_bytes(mem, start2, len2) ==
+            extract_bytes(extract_bytes(mem, start1, len1), (start2 - start1) as nat, len2)
+    {
+        lemma_subrange_of_subrange_equal(mem, start1, start2, start2 + len2, start1 + len1);
+    }
 }

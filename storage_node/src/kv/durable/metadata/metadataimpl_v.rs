@@ -1173,7 +1173,10 @@ verus! {
                     assert(old(self).free_indices().contains(idx));
                 }
                 else {
-                    let j = choose|j: int| 0 <= j < self.metadata_table_free_list@.len() && self.metadata_table_free_list@[j] == idx;
+                    let j = choose|j: int| {
+                        &&& 0 <= j < self.metadata_table_free_list@.len()
+                        &&& self.metadata_table_free_list@[j] == idx
+                    };
                     assert(j == old(self).metadata_table_free_list@.len() - 1);
                     assert(false);
                 }
@@ -1192,64 +1195,7 @@ verus! {
             }
 
             assert(self.allocator_view() =~= self.free_indices());
-            
-            assert forall |idx: nat| idx < overall_metadata.num_keys implies {
-                    &&& validate_metadata_entry::<K>(
-                           #[trigger] extract_bytes(pm_view.committed(), (idx * metadata_node_size) as nat,
-                                                    metadata_node_size as nat),
-                           overall_metadata.num_keys as nat
-                       ) 
-                    &&& parse_metadata_entry::<K>(
-                           #[trigger] extract_bytes(pm_view.committed(), (idx * metadata_node_size) as nat,
-                                                    metadata_node_size as nat),
-                           overall_metadata.num_keys as nat
-                       ) == self.state@.durable_metadata_table[idx as int]
-                } by {
-                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, metadata_node_size as nat);
-                assert(validate_metadata_entry::<K>(
-                           #[trigger] extract_bytes(old_pm_view.committed(), (idx * metadata_node_size) as nat,
-                                                    metadata_node_size as nat),
-                           overall_metadata.num_keys as nat
-                       ));
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * metadata_node_size) as nat,
-                                                metadata_node_size as nat);
-                if idx == free_index {
-                    assume(entry_bytes =~=
-                           extract_bytes(old_pm_view.committed(), (idx * metadata_node_size) as nat, u64::spec_size_of())
-                           + crc.spec_to_bytes() + entry.spec_to_bytes() + key.spec_to_bytes());
-                    assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
-                           extract_bytes(extract_bytes(old_pm_view.committed(),
-                                                       (idx * metadata_node_size) as nat,
-                                                       metadata_node_size as nat),
-                                         0, u64::spec_size_of()));
-                    assert(validate_metadata_entry::<K>(extract_bytes(old_pm_view.committed(),
-                                                                      (idx * metadata_node_size) as nat,
-                                                                      metadata_node_size as nat),
-                                                        overall_metadata.num_keys as nat));
-                    assert(crc.spec_to_bytes() =~=
-                           extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of()));
-                    assert(entry.spec_to_bytes() =~=
-                           extract_bytes(entry_bytes, u64::spec_size_of() + u64::spec_size_of(),
-                                         ListEntryMetadata::spec_size_of()));
-                    assert(key.spec_to_bytes() =~=
-                           extract_bytes(entry_bytes,
-                                         u64::spec_size_of() + u64::spec_size_of() +
-                                         ListEntryMetadata::spec_size_of(),
-                                         K::spec_size_of()));
-                }
-                else {
-                    assert(extract_bytes(pm_view.committed(), (idx * metadata_node_size) as nat,
-                                         metadata_node_size as nat) =~=
-                           extract_bytes(old_pm_view.committed(), (idx * metadata_node_size) as nat,
-                                         metadata_node_size as nat));
-                }
-            }
-            assert(validate_metadata_entries::<K>(pm_view.committed(), overall_metadata.num_keys as nat,
-                                                  metadata_node_size as nat));
-            assert(Some(self@) =~=
-                   parse_metadata_table::<K>(pm_view.committed(), overall_metadata.num_keys,
-                                             overall_metadata.metadata_node_size));
+            assert(pm_view.committed() == old_pm_view.committed());
 
             Ok(free_index)
         }
