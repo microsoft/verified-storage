@@ -3,6 +3,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::kv::kvimpl_t::*;
+use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
@@ -55,6 +56,8 @@ verus! {
     }
 
     impl<K> MetadataTableView<K>
+        where
+            K: PmCopy,
     {
         pub open spec fn init(num_keys: u64) -> Self {
             Self {
@@ -137,6 +140,25 @@ verus! {
                 &&& self.outstanding_entry_writes[i as int] is None
                 &&& self.durable_metadata_table[i as int] matches DurableEntry::Invalid
             })
+        }
+
+        pub open spec fn tentative_create(self, free_index: int, list_node_index: u64,
+                                          item_table_index: u64, key: K) -> Self
+        {
+            let entry = ListEntryMetadata {
+                head: list_node_index,
+                tail: list_node_index,
+                length: 0,
+                first_entry_offset: 0,
+                item_index: item_table_index,
+            };
+            let crc = spec_crc_u64(entry.spec_to_bytes() + key.spec_to_bytes());
+            let metadata_table_view_entry = MetadataTableViewEntry { crc, entry, key };
+            Self {
+                outstanding_entry_writes: self.outstanding_entry_writes.update(free_index,
+                                                                               Some(metadata_table_view_entry)),
+                ..self
+            }
         }
     }
 }

@@ -1091,8 +1091,11 @@ verus! {
                                                                                   &entry, Tracked(perm));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
 
-            assume(false);
+            self.state = Ghost(self.state@.tentative_create(free_index as int, list_node_index, item_table_index, *key));
 
+            assume(Some(self@) ==
+                   parse_metadata_table::<K>(subregion.view(wrpm_region).committed(), overall_metadata.num_keys,
+                                             overall_metadata.metadata_node_size));
             Ok(free_index)
         }
 
