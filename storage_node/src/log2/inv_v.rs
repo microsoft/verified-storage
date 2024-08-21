@@ -950,7 +950,8 @@ pub open spec fn states_differ_only_outside_log_region(
 
 pub proof fn lemma_metadata_fits_in_log_header_area()
     ensures 
-        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()
+        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
+        forall |cdb: bool| spec_get_inactive_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
 {
     broadcast use pmcopy_axioms;
     reveal(spec_padding_needed);
@@ -991,6 +992,8 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
     );
 }
 
+// TODO: rename to reflect the fact that this is general for two-write situations
+// and not just for wrapping appends
 pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
@@ -1004,7 +1007,8 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
     requires 
         v2 == v1.write(write_addr1, write_bytes1).write(write_addr2, write_bytes2),
         v1.len() == v2.len(),
-        0 <= log_start_addr <= write_addr2 <= write_addr2 + write_bytes2.len() <= write_addr1 <= write_addr1 + write_bytes1.len() <= log_start_addr + log_size <= v1.len(),
+        0 <= log_start_addr <= write_addr1 <= write_addr1 + write_bytes1.len() <= log_start_addr + log_size <= v1.len(),
+        0 <= log_start_addr <= write_addr2 <= write_addr2 + write_bytes2.len() <= log_start_addr + log_size <= v1.len(),
         log_start_addr % const_persistence_chunk_size() as nat == 0,
         log_size % const_persistence_chunk_size() as nat == 0,
     ensures 

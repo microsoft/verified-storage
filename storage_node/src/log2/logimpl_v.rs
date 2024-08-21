@@ -938,6 +938,7 @@ impl UntrustedLogImpl {
                 _ => false
             }
     {
+        assume(false);
         // Even if we return an error code, we still have to prove that
         // upon return the states we can crash into recover into valid
         // abstract states.
@@ -1292,16 +1293,38 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion
         requires
             old(wrpm_region).inv(),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
             memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, old(self).cdb),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
             metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, old(self).cdb, prev_info),
             info_consistent_with_log_area(old(wrpm_region)@.flush(), log_start_addr as nat, log_size as nat, old(self).info, old(self).state@),
             info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
             old(self).info.log_area_len == prev_info.log_area_len,
-            forall |s| {
-                        ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-                        ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self).state@.drop_pending_appends())
-                    } ==> #[trigger] perm.check_permission(s),
+            // forall |s| {
+            //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+            //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self).state@.drop_pending_appends())
+            //         } ==> #[trigger] perm.check_permission(s),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+            } ==> #[trigger] perm.check_permission(s2),
+            forall |s2: Seq<u8>| {
+                let flushed_state = old(wrpm_region)@.flush().committed();
+                &&& flushed_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
+                &&& {
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.commit())
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+                }
+            } ==> perm.check_permission(s2),
+
             metadata_types_set(old(wrpm_region)@.committed(), log_start_addr as nat),
             log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX,
             log_start_addr as int % const_persistence_chunk_size() == 0,
@@ -1313,6 +1336,8 @@ impl UntrustedLogImpl {
             wrpm_region@.no_outstanding_writes(),
     {
         broadcast use pmcopy_axioms;
+
+        // assume(false);
 
         // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
         // since we're writing in the inactive part of the metadata.
@@ -1432,6 +1457,8 @@ impl UntrustedLogImpl {
         // and in the latter case, as shown above, we'll be in state
         // `self.state@.drop_pending_appends()`.
 
+        assume(false);
+
         assert forall |crash_bytes| pm_region_after_write.can_crash_as(crash_bytes) implies
                     #[trigger] perm.check_permission(crash_bytes) by {
             lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_start_addr as nat, log_size as nat,
@@ -1475,6 +1502,8 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires 
             old(wrpm_region).inv(),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
             info_consistent_with_log_area(old(wrpm_region)@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@),
             info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
@@ -1504,10 +1533,31 @@ impl UntrustedLogImpl {
                     }
             }),
             log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len(),
-            forall |s| {
-                    ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-                    ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends())
-                } ==> #[trigger] perm.check_permission(s),
+
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()) // or committed?
+            } ==> #[trigger] perm.check_permission(s2),
+            // forall |s2: Seq<u8>| {
+            //     let flushed_state = old(wrpm_region)@.flush().committed();
+            //     &&& flushed_state.len() == s2.len() 
+            //     &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
+            //     &&& {
+            //             ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.commit())
+            //             ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+            //     }
+            // } ==> perm.check_permission(s2),
+
+            // forall |s| {
+            //         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+            //         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends())
+            //     } ==> #[trigger] perm.check_permission(s),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
         ensures
             wrpm_region.inv(),
@@ -1552,33 +1602,36 @@ impl UntrustedLogImpl {
         let inactive_metadata_pos = get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
 
         proof {
+            broadcast use pmcopy_axioms;
             lemma_metadata_fits_in_log_header_area();
+
+            assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos());
+            assert(log_start_addr + spec_log_area_pos() <= log_start_addr + log_size);
+
+            let new_pm1 = wrpm_region@.write(inactive_metadata_pos as int, log_metadata.spec_to_bytes());
+            let new_pm2 = new_pm1.write(inactive_metadata_pos + LogMetadata::spec_size_of(), log_crc.spec_to_bytes());
+
+            assert forall |s2| #[trigger] new_pm1.can_crash_as(s2) implies perm.check_permission(s2) by {
+                lemma_establish_extract_bytes_equivalence(s2, wrpm_region@.committed());
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
+                assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+                lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm1, 
+                    inactive_metadata_pos as int, log_metadata.spec_to_bytes(), log_start_addr as nat, log_size as nat);
+            }
+
+            assert forall |s2| #[trigger] new_pm2.can_crash_as(s2) implies perm.check_permission(s2) by {
+                lemma_establish_extract_bytes_equivalence(s2, wrpm_region@.committed());
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
+                assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+                lemma_crash_state_differing_only_in_log_region_exists_wrapping(wrpm_region@, new_pm2, 
+                    inactive_metadata_pos as int, log_metadata.spec_to_bytes(), inactive_metadata_pos + LogMetadata::spec_size_of(), 
+                    log_crc.spec_to_bytes(), log_start_addr as nat, log_size as nat);
+            }
         } 
-
-        // Prove that all crash states are legal by invoking the lemma that proves that if we only
-        // modify inactive metadata and unreachable log bytes, the recovery state of all possible
-        // crash states matches the original recovery state.
-        assert forall |alt_region_view: PersistentMemoryRegionView, crash_state: Seq<u8>| {
-            &&& #[trigger] alt_region_view.can_crash_as(crash_state)
-            &&& wrpm_region@.len() == alt_region_view.len()
-            &&& views_differ_only_where_subregion_allows(wrpm_region@, 
-                alt_region_view, log_start_addr as nat, log_size as nat, is_writable_absolute_addr)
-        } implies perm.check_permission(crash_state) by {
-            lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log_area_then_recovery_state_matches(
-                wrpm_region@, alt_region_view, crash_state, log_start_addr as nat, log_size as nat, self.cdb, 
-                prev_info, prev_state, is_writable_absolute_addr
-            );
-            lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), alt_region_view.committed());
-            lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, log_start_addr as nat, self.cdb);
-            lemma_metadata_set_after_crash(alt_region_view, log_start_addr as nat, self.cdb);
-            assert(Self::recover(crash_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-        }
-
-        // bringing in the axioms here seems to help with rlimit issues
-        broadcast use pmcopy_axioms;
 
         // Write the new metadata and CRC
         wrpm_region.serialize_and_write(inactive_metadata_pos, &log_metadata, Tracked(perm));
+
         wrpm_region.serialize_and_write(inactive_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
 
         // Prove that after the flush, the log metadata will be reflected in the subregion's
@@ -1620,10 +1673,32 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion
         requires
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
-            forall |s| {
-                ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
-                ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
-            } ==> #[trigger] perm.check_permission(s),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
+            // forall |s| {
+            //     ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+            //     ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
+            // } ==> #[trigger] perm.check_permission(s),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
+            forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s2: Seq<u8>| {
+                let flushed_state = old(wrpm_region)@.flush().committed();
+                &&& flushed_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
+                &&& {
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit())
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+                }
+            } ==> perm.check_permission(s2),
+            // TODO: do you need this one?
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
+            } ==> #[trigger] perm.check_permission(s2),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX
         ensures

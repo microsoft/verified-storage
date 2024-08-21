@@ -1283,42 +1283,7 @@ verus! {
         }
 
         proof {
-            // To prove that committing the base log is crash safe, we need to prove that all possible base log crash states
-            // imply a legal op log crash state. The crash state in which the base log loses all pending appends corresponds 
-            // to the crash state in which the op log is empty, and the crash state in which the base log commits is equivalent
-            // to the crash state in which the op log is also committed.
-            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                    Some(self.base_log_view().drop_pending_appends())
-                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
-            by {
-                // In this crash state, the base log is empty, so the op log is also empty
-                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
-                assert(base_log_recovery_state is Some);
-                assert(base_log_recovery_state.unwrap().log.len() == 0);
-            }
-
-            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                    Some(self.base_log_view().commit().drop_pending_appends())
-                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
-            by {
-                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat).unwrap();
-                
-                // Prove that recovering the op log from this base log -- getting its log contents, checking their CRC, and parsing it -- 
-                // results in the current abstract op log state.
-                let log_contents = extract_bytes(base_log_recovery_state.log, 0, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat);
-                let crc_bytes = extract_bytes(base_log_recovery_state.log, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-                assert(crc_bytes == bytes@); // the CRC is the one we appended earlier
-                assert(u64::bytes_parseable(crc_bytes));
-                assert(crc_bytes == spec_crc_bytes(log_contents));
-
-                // if we get the log contents and parse them, we will get the desired op log
-                let base_log_contents = Self::get_log_contents(base_log_recovery_state);
-                assert(base_log_contents is Some);
-                let parsed_log_ops = Self::parse_log_ops(base_log_contents.unwrap(), self.log_start_addr() as nat, self.log_size() as nat, self.overall_metadata.region_size as nat);
-                
-                assert(parsed_log_ops is Some);
-                assert(parsed_log_ops.unwrap() == self@.physical_op_list);
-            }
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
         assume(false);
