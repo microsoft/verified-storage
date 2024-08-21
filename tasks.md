@@ -16,7 +16,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `get_list_len` *
         - [ ] `read_list_entry_at_index` *
         - [ ] `tentative_update_item` * 
-        - [ ] `tentative_delete` * 
+        - [ ] `tentative_delete` * - hayley-leblanc
         - [ ] `tentative_append` *
         - [ ] `tentative_alloc_list_node` *
         - [ ] `tentative_update_list_entry_at_index` *
@@ -45,13 +45,13 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `overwrite_entry` * 
         - [ ] `commit_entry` *
         - [x] `get_key_and_metadata_entry_at_index`
-        - [ ] `invalidate_entry` *
+        - [ ] `invalidate_entry` * - hayley-leblanc
     - Item table
         - [x] Prove that table is empty at setup
         - [x] `start` *
         - [ ] `tentatively_write_item` * jaylorch
         - [x] `read_item` *
-        - [ ] Deallocate item table slot
+        - [ ] Deallocate item table slot - hayley-leblanc
     - Lists
         - [x] Prove that lists are empty at setup
         - [ ] `start`*
