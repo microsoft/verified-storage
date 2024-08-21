@@ -103,6 +103,7 @@ verus! {
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self@.inv()
             &&& self.allocator_view() == self@.free_indices()
+            &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -1056,6 +1057,10 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 },
             };
+            
+            assert(old(self).allocator_view().contains(free_index)) by {
+                assert(old(self).metadata_table_free_list@.last() == free_index);
+            }
 
             // 2. construct the entry with list metadata and item index
             let entry = ListEntryMetadata::new(list_node_index, list_node_index, 0, 0, item_table_index);
@@ -1066,18 +1071,27 @@ verus! {
             digest.write(key);
             let crc = digest.sum64();
 
+            broadcast use pmcopy_axioms;
+            
             // 4. write CRC and entry 
             let metadata_node_size = self.metadata_node_size;
-            assume(false);
+            proof {
+                lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
+                assert(old(self)@.outstanding_entry_writes[free_index as int] is None);
+                assert(old(self).outstanding_entry_write_matches_pm_view(pm_view, free_index as int, metadata_node_size));
+            }
             let slot_addr = free_index * metadata_node_size as u64;
             // CDB is at slot addr -- we aren't setting that one yet
-            let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
-            let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-            let key_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+            let crc_addr = slot_addr + traits_t::size_of::<u64>() as u64;
+            let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+            let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
-            wrpm_region.serialize_and_write(crc_addr, &crc, Tracked(perm));
-            wrpm_region.serialize_and_write(entry_addr, &entry, Tracked(perm));
-            wrpm_region.serialize_and_write(key_addr, key, Tracked(perm));
+            subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
+            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
+                                                                                  &entry, Tracked(perm));
+            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
+
+            assume(false);
 
             Ok(free_index)
         }
