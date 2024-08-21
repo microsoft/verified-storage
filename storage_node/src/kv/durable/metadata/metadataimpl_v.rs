@@ -538,6 +538,10 @@ verus! {
                             &&& 0 <= entry_list[i].2 < overall_metadata.num_keys
                         }
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
+                        &&& forall|idx: u64| 0 <= idx < main_table.spec_outstanding_cdb_writes().len() ==>
+                            main_table.spec_outstanding_cdb_writes()[idx as int] is None
+                        &&& forall|idx: u64| 0 <= idx < main_table.spec_outstanding_entry_writes().len() ==>
+                            main_table.spec_outstanding_entry_writes()[idx as int] is None
                     }
                     Err(KvError::IndexOutOfRange) => {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
