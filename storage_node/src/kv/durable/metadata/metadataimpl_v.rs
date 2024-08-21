@@ -26,6 +26,7 @@ use crate::pmem::wrpm_t::*;
 
 verus! {
     pub struct MetadataTable<K> {
+        metadata_node_size: u32,
         metadata_table_free_list: Vec<u64>,
         state: Ghost<MetadataTableView<K>>,
     }
@@ -80,8 +81,14 @@ verus! {
             }
         }
 
+        pub closed spec fn opaque_inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        {
+            &&& self.metadata_node_size == overall_metadata.metadata_node_size
+        }
+
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
+            &&& self.opaque_inv(pm, overall_metadata)
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
             &&& overall_metadata.metadata_node_size ==
@@ -811,6 +818,7 @@ verus! {
             }
 
             let main_table = MetadataTable {
+                metadata_node_size,
                 metadata_table_free_list: metadata_allocator,
                 state: Ghost(parse_metadata_table::<K>(
                     subregion.view(pm_region).committed(),
@@ -855,14 +863,14 @@ verus! {
             &self,
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
-            overall_metadata: &OverallMetadata,
             metadata_index: u64,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
         ) -> (result: Result<(Box<K>, Box<ListEntryMetadata>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires
                 subregion.inv(pm_region),
-                self.inv(subregion.view(pm_region), *overall_metadata),
+                self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
                 self@.durable_metadata_table[metadata_index as int] is Valid,
                 self@.outstanding_cdb_writes[metadata_index as int] is None,
@@ -881,7 +889,7 @@ verus! {
                 }),
         {
             let ghost pm_view = subregion.view(pm_region);
-            let metadata_node_size = overall_metadata.metadata_node_size;
+            let metadata_node_size = self.metadata_node_size;
             proof {
                 lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
             }
@@ -914,7 +922,7 @@ verus! {
             // 2. Check the CDB to determine whether the entry is valid
             proof {
                 assert(self.outstanding_cdb_write_matches_pm_view(pm_view, metadata_index as int, metadata_node_size));
-                self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, *overall_metadata, metadata_index);
+                self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
                 assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
             }
@@ -1005,10 +1013,10 @@ verus! {
                             #[trigger] self@.outstanding_entry_writes[i] == old(self)@.outstanding_entry_writes[i]
                         &&& self@.outstanding_entry_writes[index as int] matches Some(e)
                         &&& e.key == key
-                        &&& e.entry.head == 0
-                        &&& e.entry.tail == 0
+                        &&& e.entry.head == list_node_index
+                        &&& e.entry.tail == list_node_index
                         &&& e.entry.length == 0
-                        &&& e.entry.first_entry_offset == list_node_index
+                        &&& e.entry.first_entry_offset == 0
                         &&& e.entry.item_index == item_table_index
                     },
                     Err(KvError::OutOfSpace) => {
@@ -1048,8 +1056,6 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 },
             };
-            
-            assume(false);
 
             // 2. construct the entry with list metadata and item index
             let entry = ListEntryMetadata::new(list_node_index, list_node_index, 0, 0, item_table_index);
@@ -1061,8 +1067,9 @@ verus! {
             let crc = digest.sum64();
 
             // 4. write CRC and entry 
-            let metadata_node_size = (traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() + traits_t::size_of::<u64>() + K::size_of()) as u64;
-            let slot_addr = free_index * metadata_node_size;
+            let metadata_node_size = self.metadata_node_size;
+            assume(false);
+            let slot_addr = free_index * metadata_node_size as u64;
             // CDB is at slot addr -- we aren't setting that one yet
             let entry_addr = slot_addr + traits_t::size_of::<u64>() as u64;
             let crc_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;

@@ -990,8 +990,8 @@ verus! {
             let (key, metadata) = match self.metadata_table.get_key_and_metadata_entry_at_index(
                 &metadata_table_subregion,
                 pm,
-                &self.overall_metadata,
-                metadata_index
+                metadata_index,
+                Ghost(self.overall_metadata),
             ) {
                 Ok((key, metadata)) => (key, metadata),
                 Err(e) => { assert(e is CRCMismatch); return Err(e); },
