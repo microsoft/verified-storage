@@ -93,6 +93,7 @@ verus! {
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
+                &&& UntrustedLogImpl::recover(pm_region@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size  as nat) == Some(self.log@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -100,6 +101,7 @@ verus! {
             } 
             &&& self.overall_metadata.log_area_addr < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
             &&& self.overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
+            &&& self.overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region@, self.overall_metadata.log_area_addr as nat)
         }
 
@@ -938,31 +940,16 @@ verus! {
             !old(self)@.op_list_committed,
             Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
                 old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
-
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
-
-            // forall |v2: PersistentMemoryRegionView, s2| {
-            //     &&& old(log_wrpm)@.len() == v2.len() 
-            //     &&& forall |addr: int|{
-            //             &&& 0 <= addr < old(log_wrpm)@.len() 
-            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
-            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-            //     &&& v2.can_crash_as(s2)
-            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-            // } ==> perm.check_permission(s2),
-
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
-                // TODO: write a spec fn for this
-                &&& forall |addr: int|{
-                        &&& 0 <= addr < s1.len() 
-                        &&& s1[addr] != #[trigger] s2[addr] 
-                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-                &&&  Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
+                &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
-                
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
             ({
@@ -995,7 +982,9 @@ verus! {
                 Err(_) => false 
             }
     {
-        assume(false);
+        let ghost log_start_addr = self.log_start_addr() as nat;
+        let ghost log_size = self.log_size() as nat;
+        
         // this assert is sufficient to hit the triggers we need to prove that the log entries
         // are all valid after appending the new one
         assert(forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
@@ -1006,6 +995,8 @@ verus! {
         proof {
             // before we append anything, prove that appending this entry will maintain the loop invariant
             self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry);
+
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
         let absolute_addr = log_entry.absolute_addr;
@@ -1175,48 +1166,22 @@ verus! {
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
-
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
-
-            forall |s| #[trigger] perm.check_permission(s) ==> {
-                ||| Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-                ||| Self::recover(s, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-            },
-
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.flush().committed();
                 &&& flushed_state.len() == s2.len() 
-                &&& forall |addr: int|{
-                        &&& 0 <= addr < flushed_state.len()
-                        &&& flushed_state[addr] != s2[addr] 
-                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& states_differ_only_in_log_region(flushed_state, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
                 &&& {
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                 }
             } ==> perm.check_permission(s2),
-
-            // forall |v2: PersistentMemoryRegionView, s2| {
-            //     &&& old(log_wrpm)@.len() == v2.len() 
-            //     // TODO: write a spec fn for this
-            //     // could use s1, s2 -- would need an additional lemma
-            //     &&& forall |addr: int|{
-            //             &&& 0 <= addr < old(log_wrpm)@.len() 
-            //             &&& old(log_wrpm)@.state[addr] != v2.state[addr] 
-            //         } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
-            //     &&& v2.can_crash_as(s2)
-            //     &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
-            // } ==> perm.check_permission(s2),
-
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
-                // TODO: write a spec fn for this
-                &&& forall |addr: int|{
-                        &&& 0 <= addr < s1.len() 
-                        &&& #[trigger] s1[addr] != s2[addr] 
-                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
                 &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
         ensures 
@@ -1239,7 +1204,9 @@ verus! {
                 Err(_) => false 
             }
     {
-        assume(false);
+        let ghost log_start_addr = self.log_start_addr() as nat;
+        let ghost log_size = self.log_size() as nat;
+
         let transaction_crc = self.current_transaction_crc.sum64();
         let bytes = transaction_crc.as_byte_slice();
 
@@ -1262,6 +1229,10 @@ verus! {
         }
 
         let ghost old_pending_bytes = self.log@.pending;
+
+        proof {
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
+        }
 
         match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
             Ok(_) => {}
@@ -1290,42 +1261,8 @@ verus! {
         }
 
         proof {
-            // To prove that committing the base log is crash safe, we need to prove that all possible base log crash states
-            // imply a legal op log crash state. The crash state in which the base log loses all pending appends corresponds 
-            // to the crash state in which the op log is empty, and the crash state in which the base log commits is equivalent
-            // to the crash state in which the op log is also committed.
-            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                    Some(self.base_log_view().drop_pending_appends())
-                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
-            by {
-                // In this crash state, the base log is empty, so the op log is also empty
-                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
-                assert(base_log_recovery_state is Some);
-                assert(base_log_recovery_state.unwrap().log.len() == 0);
-            }
-
-            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
-                    Some(self.base_log_view().commit().drop_pending_appends())
-                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(self@.commit_op_log()) 
-            by {
-                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat).unwrap();
-                
-                // Prove that recovering the op log from this base log -- getting its log contents, checking their CRC, and parsing it -- 
-                // results in the current abstract op log state.
-                let log_contents = extract_bytes(base_log_recovery_state.log, 0, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat);
-                let crc_bytes = extract_bytes(base_log_recovery_state.log, (base_log_recovery_state.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-                assert(crc_bytes == bytes@); // the CRC is the one we appended earlier
-                assert(u64::bytes_parseable(crc_bytes));
-                assert(crc_bytes == spec_crc_bytes(log_contents));
-
-                // if we get the log contents and parse them, we will get the desired op log
-                let base_log_contents = Self::get_log_contents(base_log_recovery_state);
-                assert(base_log_contents is Some);
-                let parsed_log_ops = Self::parse_log_ops(base_log_contents.unwrap(), self.log_start_addr() as nat, self.log_size() as nat, self.overall_metadata.region_size as nat);
-                
-                assert(parsed_log_ops is Some);
-                assert(parsed_log_ops.unwrap() == self@.physical_op_list);
-            }
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
+            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
         }
         
         match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
@@ -1363,21 +1300,25 @@ verus! {
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
             old(log_wrpm)@.no_outstanding_writes(),
-
+            Self::recover(old(log_wrpm)@.committed(), old(self).overall_metadata()) == Some(old(self)@),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                Self::recover(s, old(self).overall_metadata()) == Some(old(self)@),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s2: Seq<u8>| {
-                let current_state = old(log_wrpm)@.committed();
+                let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
-                // TODO: spec fns for states/views only differ within the log area
-                &&& forall |addr: int|{
-                        &&& 0 <= addr < current_state.len()
-                        &&& current_state[addr] != s2[addr] 
-                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& states_differ_only_in_log_region(s2, current_state, old(self).log_start_addr() as nat, old(self).log_size() as nat)
                 &&& {
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                     }
             } ==> perm.check_permission(s2),
-
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
+                &&& Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
+            } ==> #[trigger] perm.check_permission(s2),
         ensures 
             self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1390,7 +1331,6 @@ verus! {
                 Err(_) => false 
             }
     {
-        assume(false);
         let log_start_addr = self.overall_metadata.log_area_addr;
         let log_size = self.overall_metadata.log_area_size;
 
@@ -1402,6 +1342,10 @@ verus! {
                 return Err(KvError::LogErr{log_err: e});
             }
         };
+
+        proof {
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr as nat, log_size as nat);
+        }
 
         // Now, advance the head to the tail. Verus is able to prove the required crash preconditions on its own
         match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Tracked(perm)) {

@@ -303,7 +303,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / const_persistence_chunk_size() == chunk
+                &&& addr_in_chunk(chunk, addr)
             } ==> #[trigger] bytes[addr] == self.state[addr].state_at_last_flush
         }
 
@@ -315,7 +315,7 @@ verus! {
         {
             forall |addr: int| {
                 &&& 0 <= addr < self.len()
-                &&& addr / const_persistence_chunk_size() == chunk
+                &&& addr_in_chunk(chunk, addr)
             } ==> #[trigger] bytes[addr] == self.state[addr].flush_byte()
         }
 
@@ -335,6 +335,11 @@ verus! {
                   ||| self.chunk_corresponds_after_flush(chunk, bytes)
               }
         }
+    }
+
+    pub open spec fn addr_in_chunk(chunk: int, addr: int) -> bool 
+    {
+        addr / const_persistence_chunk_size() == chunk
     }
 
     /// We model the state of a sequence of regions of persistent

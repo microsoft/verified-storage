@@ -1,9 +1,10 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::arithmetic::div_mod::*;
 use crate::kv::layout_v::OverallMetadata;
 use crate::lemma_establish_extract_bytes_equivalence;
-use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*};
+use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, wrpm_t::*};
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::logspec_t::*;
@@ -905,4 +906,206 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
     lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, log_start_addr, cdb);
 }
 
+pub open spec fn states_differ_only_in_log_region(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < s1.len() 
+        &&& s1[addr] != #[trigger] s2[addr] 
+    } ==> log_start_addr <= addr < log_start_addr + log_size
+}
+
+pub open spec fn views_differ_only_in_log_region(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < v1.len() 
+        &&& v1.state[addr] != #[trigger] v2.state[addr] 
+    } ==> log_start_addr <= addr < log_start_addr + log_size
+}
+
+pub open spec fn states_differ_only_outside_log_region(
+    s1: Seq<u8>,
+    s2: Seq<u8>,
+    log_start_addr:nat,
+    log_size: nat
+) -> bool 
+{
+    forall |addr: int|{
+        &&& 0 <= addr < s1.len() 
+        &&& s1[addr] != #[trigger] s2[addr] 
+    } ==> {
+        ||| 0 <= addr < log_start_addr 
+        ||| log_start_addr + log_size <= addr < s1.len()
+    }
+}
+
+pub proof fn lemma_metadata_fits_in_log_header_area()
+    ensures 
+        forall |cdb: bool| spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
+        forall |cdb: bool| spec_get_inactive_log_metadata_pos(cdb) + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos(),
+{
+    broadcast use pmcopy_axioms;
+    reveal(spec_padding_needed);
+    assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
+}
+
+// This lemma proves that if we write bytes to the log area, then regardless of whether 
+// there are any outstanding bytes (either in the log or elsewhere), then for 
+// every crash state of the post-write PM state, there exists a crash state of the 
+// pre-write PM state that is equivalent everywhere outside of the log.
+pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    write_addr: int,
+    write_bytes: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat
+) 
+    requires 
+        v2 == v1.write(write_addr, write_bytes),
+        v1.len() == v2.len(),
+        0 <= log_start_addr <= write_addr <= write_addr + write_bytes.len() <= log_start_addr + log_size <= v1.len(),
+        log_start_addr % const_persistence_chunk_size() as nat == 0,
+        log_size % const_persistence_chunk_size() as nat == 0,
+    ensures 
+        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
+            exists |s1: Seq<u8>| {
+                &&& v1.can_crash_as(s1)
+                &&& #[trigger] s1.len() == s2.len()
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+            }
+{
+    // The body of this lemma would be exactly the same as the wrapping case lemma, it just has a different
+    // precondition, so we fake the second write here to use the wrapping proof in the single-write case.
+    assert(v1.write(write_addr, write_bytes).write(log_start_addr as int, Seq::empty()) == v1.write(write_addr, write_bytes));
+    lemma_crash_state_differing_only_in_log_region_exists_wrapping(
+        v1, v2, write_addr, write_bytes, log_start_addr as int, Seq::empty(), log_start_addr, log_size
+    );
+}
+
+// TODO: rename to reflect the fact that this is general for two-write situations
+// and not just for wrapping appends
+pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    write_addr1: int,
+    write_bytes1: Seq<u8>,
+    write_addr2: int,
+    write_bytes2: Seq<u8>,
+    log_start_addr: nat,
+    log_size: nat
+) 
+    requires 
+        v2 == v1.write(write_addr1, write_bytes1).write(write_addr2, write_bytes2),
+        v1.len() == v2.len(),
+        0 <= log_start_addr <= write_addr1 <= write_addr1 + write_bytes1.len() <= log_start_addr + log_size <= v1.len(),
+        0 <= log_start_addr <= write_addr2 <= write_addr2 + write_bytes2.len() <= log_start_addr + log_size <= v1.len(),
+        log_start_addr % const_persistence_chunk_size() as nat == 0,
+        log_size % const_persistence_chunk_size() as nat == 0,
+    ensures 
+        forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
+            exists |s1: Seq<u8>| {
+                &&& v1.can_crash_as(s1)
+                &&& #[trigger] s1.len() == s2.len()
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+            }
+{
+    assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
+        exists |s1: Seq<u8>| {
+            &&& v1.can_crash_as(s1)
+            &&& #[trigger] s1.len() == s2.len()
+            &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+        }
+    by {
+        // We need to construct a state that is a valid crash state of v1, and matches
+        // s2 in all addresses except for the log addrs.
+        // It doesn't really matter what we put in the log, so we'll just use 
+        // the post-flush byte for each of those addresses.
+        // The rest of this proof is focused on proving that v1 can in fact
+        // crash into this witness state.
+        let witness = Seq::new(v1.len(), |addr: int| {
+            if log_start_addr <= addr < log_start_addr + log_size {
+                v1.state[addr].flush_byte()
+            } else {
+                // outside of the log
+                s2[addr]
+            }
+        });
+
+        // Then we have to prove that this witness is, in fact, a crash state of v1. This is not trivial
+        // because we defined the witness in terms of bytes, but crash states are reasoned about in 
+        // terms of 8-byte chunks.
+        assert(v1.can_crash_as(witness)) by {
+            // We'll prove that the chunks outside of the log and the chunks inside the log are valid
+            // separately.
+            
+            // First, prove that the bytes outside the log represent a valid crash state for v1
+            assert forall |chunk: int| {
+                ||| 0 <= chunk * const_persistence_chunk_size() < log_start_addr 
+                ||| log_start_addr + log_size <= chunk * const_persistence_chunk_size() < v1.len()
+            } implies {
+                ||| v1.chunk_corresponds_ignoring_outstanding_writes(chunk, witness)
+                ||| v1.chunk_corresponds_after_flush(chunk, witness)
+            } by {
+                // From definition of `can_crash_as`. We already know this, but asserting it 
+                // here helps Verus with triggers.
+                assert({
+                    ||| v2.chunk_corresponds_after_flush(chunk, s2)
+                    ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, s2)
+                });
+
+                // Either all addrs for this chunk are flushed or they are all not. 
+                // This comes from the definitions of chunk_corresponds_{after_flush, ignoring_outstanding_writes}
+                assert({
+                    ||| forall |addr: int| {
+                            &&& 0 <= addr < v1.len()
+                            &&& addr_in_chunk(chunk, addr)
+                        } ==> #[trigger] s2[addr] == v2.state[addr].flush_byte()
+                    ||| forall |addr: int| {
+                            &&& 0 <= addr < v1.len()
+                            &&& addr_in_chunk(chunk, addr)
+                        } ==> #[trigger] s2[addr] == v2.state[addr].state_at_last_flush
+                });
+
+                // Finally, we have to establish that the addresses in this chunk
+                // correspond to addresses that we already know something about,
+                // which just requires making Verus do some arithmetic.
+                assert forall |addr: int| {
+                    &&& 0 <= addr < v1.len()
+                    &&& addr_in_chunk(chunk, addr)
+                } implies #[trigger] witness[addr] == s2[addr] by {    
+                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
+                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
+                }
+            }
+
+            // Second, prove that the bytes inside the log are also part of a valid crash state.
+            // This one is slightly simpler because there is only one valid state for each chunk.
+            // We just have to do the arithmetic to prove that these bytes corresond to locations that 
+            // we know have been set to v1's flushed bytes
+            assert forall |chunk: int| {
+                0 <= log_start_addr <= chunk * const_persistence_chunk_size() < log_start_addr + log_size < v1.len()
+            } implies {
+                v1.chunk_corresponds_after_flush(chunk, witness)
+            } by {
+                assert forall |addr: int| {
+                    &&& 0 <= addr < v1.len()
+                    &&& addr_in_chunk(chunk, addr)
+                } implies #[trigger] witness[addr] == v1.state[addr].flush_byte() by {
+                    lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
+                    lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
+                }
+            }
+        }
+    }
+}
 }
