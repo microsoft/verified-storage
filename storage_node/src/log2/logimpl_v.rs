@@ -1667,6 +1667,7 @@ impl UntrustedLogImpl {
         let inactive_metadata_pos = get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
 
         proof {
+            broadcast use pmcopy_axioms;
             lemma_metadata_fits_in_log_header_area();
 
             let new_pm1 = wrpm_region@.write(inactive_metadata_pos as int, log_metadata.spec_to_bytes());
@@ -1675,9 +1676,6 @@ impl UntrustedLogImpl {
             self.lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm(wrpm_region@, new_pm1, new_pm2, log_metadata, inactive_metadata_pos as int,
                 log_crc, inactive_metadata_pos + LogMetadata::spec_size_of(), log_start_addr as nat, log_size as nat, prev_info, prev_state, perm);
         } 
-
-        // bringing in the axioms here seems to help with rlimit issues
-        broadcast use pmcopy_axioms;
 
         // Write the new metadata and CRC
         wrpm_region.serialize_and_write(inactive_metadata_pos, &log_metadata, Tracked(perm));
