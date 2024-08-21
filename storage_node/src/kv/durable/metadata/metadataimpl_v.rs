@@ -126,6 +126,12 @@ verus! {
         pub closed spec fn opaque_inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.metadata_node_size == overall_metadata.metadata_node_size
+            &&& forall|i: int, j: int| {
+                 &&& 0 <= i < self.metadata_table_free_list@.len()
+                 &&& 0 <= j < self.metadata_table_free_list@.len()
+                 &&& i != j
+               } ==>
+               self.metadata_table_free_list@[i] != self.metadata_table_free_list@[j]
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -601,6 +607,8 @@ verus! {
                             metadata_allocator@.contains(i)
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
+                    forall |i: int, j: int| 0 <= i < metadata_allocator.len() && 0 <= j < metadata_allocator.len() && i != j ==>
+                        metadata_allocator[i] != metadata_allocator[j],
                     ({
                         let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                         let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
@@ -1053,6 +1061,8 @@ verus! {
                         &&& forall|other_index: u64| self.allocator_view().contains(other_index) <==>
                             old(self).allocator_view().contains(other_index) && other_index != index
                         &&& self@.durable_metadata_table == old(self)@.durable_metadata_table
+                        &&& self.spec_outstanding_cdb_writes().len() == self.spec_outstanding_entry_writes().len() ==
+                            overall_metadata.num_keys
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys ==>
                             #[trigger] self.spec_outstanding_cdb_writes()[i] ==
                             old(self).spec_outstanding_cdb_writes()[i]
@@ -1060,7 +1070,7 @@ verus! {
                             #[trigger] self.spec_outstanding_entry_writes()[i] ==
                             old(self).spec_outstanding_entry_writes()[i]
                         &&& self.spec_outstanding_entry_writes()[index as int] matches Some(e)
-                        &&& e.key == key
+                        &&& e.key == *key
                         &&& e.entry.head == list_node_index
                         &&& e.entry.tail == list_node_index
                         &&& e.entry.length == 0
@@ -1142,14 +1152,46 @@ verus! {
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
+            let ghost old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
             let ghost pm_view = subregion.view(wrpm_region);
+            assert forall |idx: int| 0 <= idx < self@.durable_metadata_table.len() implies {
+                &&& self.outstanding_cdb_write_matches_pm_view(pm_view, idx, metadata_node_size)
+                &&& self.outstanding_entry_write_matches_pm_view(pm_view, idx, metadata_node_size)
+            } by {
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, metadata_node_size as nat);
+                assert(old(self).outstanding_cdb_write_matches_pm_view(old_pm_view, idx, metadata_node_size));
+                assert(old(self).outstanding_entry_write_matches_pm_view(old_pm_view, idx, metadata_node_size));
+            }
+
+            assert forall|idx: u64| self.allocator_view().contains(idx) implies self.free_indices().contains(idx) by {
+                if idx != free_index {
+                    assert(old(self).free_indices().contains(idx));
+                }
+                else {
+                    let j = choose|j: int| 0 <= j < self.metadata_table_free_list@.len() && self.metadata_table_free_list@[j] == idx;
+                    assert(j == old(self).metadata_table_free_list@.len() - 1);
+                    assert(false);
+                }
+            }
+            
+            assert forall|idx: u64| self.free_indices().contains(idx) implies self.allocator_view().contains(idx) by {
+                assert(old(self).free_indices().contains(idx));
+                assert(old(self).allocator_view().contains(idx));
+                assert(idx != free_index);
+                let j = choose|j: int| {
+                    &&& 0 <= j < old(self).metadata_table_free_list@.len()
+                    &&& old(self).metadata_table_free_list@[j] == idx
+                };
+                assert(j < old(self).metadata_table_free_list@.len() - 1);
+                assert(self.metadata_table_free_list@[j] == idx);
+            }
+            
+            assert(self.allocator_view() =~= self.free_indices());
+            
             assume(Some(self@) ==
                 parse_metadata_table::<K>(pm_view.committed(), overall_metadata.num_keys,
                                           overall_metadata.metadata_node_size));
-            assume(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                self.outstanding_cdb_write_matches_pm_view(pm_view, i, overall_metadata.metadata_node_size));
-            assume(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                self.outstanding_entry_write_matches_pm_view(pm_view, i, overall_metadata.metadata_node_size));
 
             Ok(free_index)
         }

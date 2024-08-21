@@ -89,7 +89,7 @@ verus! {
     impl PmCopy for ListEntryMetadata {}
 
     impl ListEntryMetadata {
-        pub closed spec fn spec_new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {
+        pub open spec fn spec_new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {
             Self {head, tail, length, first_entry_offset, item_index}
         }
 
