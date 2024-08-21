@@ -51,8 +51,6 @@ verus! {
     #[verifier::ext_equal]
     pub struct MetadataTableView<K> {
         pub durable_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
-        pub outstanding_cdb_writes: Seq<Option<bool>>,
-        pub outstanding_entry_writes: Seq<Option<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
@@ -62,8 +60,6 @@ verus! {
         pub open spec fn init(num_keys: u64) -> Self {
             Self {
                 durable_metadata_table: Seq::new(num_keys as nat, |i: int| DurableEntry::Invalid),
-                outstanding_cdb_writes: Seq::new(num_keys as nat, |i: int| None),
-                outstanding_entry_writes: Seq::new(num_keys as nat, |i: int| None),
             }
         }
 
@@ -80,29 +76,11 @@ verus! {
             self.durable_metadata_table.len()
         }
 
-        pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
-        {
-            &&& self.outstanding_cdb_writes[idx] is None
-            &&& self.outstanding_entry_writes[idx] is None
-        }
-
-        pub open spec fn no_outstanding_writes(self) -> bool
-        {
-            forall|i| 0 <= i < self.durable_metadata_table.len() ==> self.no_outstanding_writes_to_index(i)
-        }
-
-        pub open spec fn no_outstanding_writes_except_to_index(self, idx: int) -> bool
-        {
-            forall|i| 0 <= i < self.durable_metadata_table.len() && i != idx ==> self.no_outstanding_writes_to_index(i)
-        }
-
         pub open spec fn new(
             metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
         ) -> Self {
             Self {
                 durable_metadata_table: metadata_table,
-                outstanding_cdb_writes: Seq::new(metadata_table.len() as nat, |i: int| None),
-                outstanding_entry_writes: Seq::new(metadata_table.len() as nat, |i: int| None),
             }
         }
 
@@ -126,39 +104,6 @@ verus! {
                     &&& entry.item_index() == i
                 }
             )
-        }
-
-        // We return the free indices as a set, not a seq, because the order they are listed in
-        // doesn't actually matter, and then we don't have to worry about matching the order
-        // they are kept in in executable code.
-        // An index is only considered free if it is free in the durable view of the table and
-        // if it has no outstanding writes.
-        pub open spec fn free_indices(self) -> Set<u64> {
-            Set::new(|i: u64| {
-                &&& 0 <= i < self.durable_metadata_table.len() 
-                &&& self.outstanding_cdb_writes[i as int] is None
-                &&& self.outstanding_entry_writes[i as int] is None
-                &&& self.durable_metadata_table[i as int] matches DurableEntry::Invalid
-            })
-        }
-
-        pub open spec fn tentative_create(self, free_index: int, list_node_index: u64,
-                                          item_table_index: u64, key: K) -> Self
-        {
-            let entry = ListEntryMetadata {
-                head: list_node_index,
-                tail: list_node_index,
-                length: 0,
-                first_entry_offset: 0,
-                item_index: item_table_index,
-            };
-            let crc = spec_crc_u64(entry.spec_to_bytes() + key.spec_to_bytes());
-            let metadata_table_view_entry = MetadataTableViewEntry { crc, entry, key };
-            Self {
-                outstanding_entry_writes: self.outstanding_entry_writes.update(free_index,
-                                                                               Some(metadata_table_view_entry)),
-                ..self
-            }
         }
     }
 }
