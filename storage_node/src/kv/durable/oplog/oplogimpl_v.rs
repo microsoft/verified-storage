@@ -93,6 +93,7 @@ verus! {
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
+                &&& UntrustedLogImpl::recover(pm_region@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size  as nat) == Some(self.log@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -1300,21 +1301,25 @@ verus! {
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
             old(log_wrpm)@.no_outstanding_writes(),
-
+            Self::recover(old(log_wrpm)@.committed(), old(self).overall_metadata()) == Some(old(self)@),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                Self::recover(s, old(self).overall_metadata()) == Some(old(self)@),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s2: Seq<u8>| {
-                let current_state = old(log_wrpm)@.committed();
+                let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
-                // TODO: spec fns for states/views only differ within the log area
-                &&& forall |addr: int|{
-                        &&& 0 <= addr < current_state.len()
-                        &&& current_state[addr] != s2[addr] 
-                    } ==> old(self).log_start_addr() <= addr < old(self).log_start_addr() + old(self).log_size()
+                &&& states_differ_only_in_log_region(s2, current_state, old(self).log_start_addr() as nat, old(self).log_size() as nat)
                 &&& {
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
                         ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
                     }
             } ==> perm.check_permission(s2),
-
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
+                &&& Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
+            } ==> #[trigger] perm.check_permission(s2),
         ensures 
             self.inv(*log_wrpm),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1327,7 +1332,6 @@ verus! {
                 Err(_) => false 
             }
     {
-        assume(false);
         let log_start_addr = self.overall_metadata.log_area_addr;
         let log_size = self.overall_metadata.log_area_size;
 
@@ -1339,6 +1343,10 @@ verus! {
                 return Err(KvError::LogErr{log_err: e});
             }
         };
+
+        proof {
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr as nat, log_size as nat);
+        }
 
         // Now, advance the head to the tail. Verus is able to prove the required crash preconditions on its own
         match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Tracked(perm)) {
