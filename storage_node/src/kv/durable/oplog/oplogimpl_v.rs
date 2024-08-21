@@ -1166,7 +1166,6 @@ verus! {
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
             old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
-
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
