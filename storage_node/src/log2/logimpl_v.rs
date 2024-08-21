@@ -1365,17 +1365,12 @@ impl UntrustedLogImpl {
             info_consistent_with_log_area(old(wrpm_region)@.flush(), log_start_addr as nat, log_size as nat, old(self).info, old(self).state@),
             info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
             old(self).info.log_area_len == prev_info.log_area_len,
-            // forall |s| {
-            //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-            //             ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self).state@.drop_pending_appends())
-            //         } ==> #[trigger] perm.check_permission(s),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
@@ -1454,7 +1449,6 @@ impl UntrustedLogImpl {
         let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
         // Show that after writing and flushing, the CDB will be !self.cdb
-
         let ghost pm_region_after_write = wrpm_region@.write(log_start_addr as int, new_cdb_bytes);
         let ghost flushed_mem_after_write = pm_region_after_write.flush();
         assert(memory_matches_deserialized_cdb(flushed_mem_after_write, log_start_addr as nat, !self.cdb)) by {
@@ -1534,29 +1528,9 @@ impl UntrustedLogImpl {
             lemma_single_write_crash_effect_on_pm_region_view(wrpm_region@, log_start_addr as int,
                                                                 new_cdb_bytes);
             if s == wrpm_region@.committed() {
-                assert(wrpm_region@.can_crash_as(s));
-                assert(Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-                lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, pm_region_after_write, 
-                    log_start_addr as int, new_cdb.spec_to_bytes(), log_start_addr as nat, log_size as nat);
-                assert(Self::recover(s, log_start_addr as nat, log_size as nat) == Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat));
+                // This case is trivial -- we already know that this is a legal crash state
             } else {
                 assert(pm_region_after_flush.can_crash_as(s));
-                assert(s == pm_region_after_flush.committed());
-                assert(s.len() == old(wrpm_region)@.flush().committed().len());
-
-                assert(forall |addr: int| 0 <= addr < log_start_addr || log_start_addr + u64::spec_size_of() <= addr < wrpm_region@.len() ==>
-                    #[trigger] s[addr] == wrpm_region@.flush().committed()[addr]);
-
-                assert(states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), s, log_start_addr as nat, log_size as nat));
-            //     assert(perm.check_permission(old(wrpm_region)@.committed()));
-            //     // assert(states_differ_only_in_log_region(pm_region_after_flush.committed(), s, log_start_addr as nat, log_size as nat));
-
-            //     // assert(perm.check_permission(pm_region_after_flush.committed()));
-                
-            //     // // assert(Self::recover(pm_region_after_flush.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.commit()));
-                assert(self.state@.drop_pending_appends() == prev_state.commit());
-                assert(Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends()));
-                assert(Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.commit()));
             }
         }
 
@@ -1626,25 +1600,10 @@ impl UntrustedLogImpl {
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()) // or committed?
             } ==> #[trigger] perm.check_permission(s2),
-            // forall |s2: Seq<u8>| {
-            //     let flushed_state = old(wrpm_region)@.flush().committed();
-            //     &&& flushed_state.len() == s2.len() 
-            //     &&& states_differ_only_in_log_region(flushed_state, s2, log_start_addr as nat, log_size as nat)
-            //     &&& {
-            //             ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.commit())
-            //             ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-            //     }
-            // } ==> perm.check_permission(s2),
-
-            // forall |s| {
-            //         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-            //         ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends())
-            //     } ==> #[trigger] perm.check_permission(s),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
         ensures
             wrpm_region.inv(),
@@ -1746,10 +1705,6 @@ impl UntrustedLogImpl {
             old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
-            // forall |s| {
-            //     ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
-            //     ||| Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.commit().drop_pending_appends())
-            // } ==> #[trigger] perm.check_permission(s),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
@@ -1763,10 +1718,8 @@ impl UntrustedLogImpl {
                         ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
                 }
             } ==> perm.check_permission(s2),
-            // TODO: do you need this one?
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                // &&& #[trigger] old(log_wrpm)@.can_crash_as(s1)
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
