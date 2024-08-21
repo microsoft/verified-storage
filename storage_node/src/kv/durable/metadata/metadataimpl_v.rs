@@ -996,6 +996,8 @@ verus! {
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
+                        &&& forall|other_index: u64| self.allocator_view().contains(other_index) <==>
+                            old(self).allocator_view().contains(other_index) && other_index != index
                         &&& self@.durable_metadata_table == old(self)@.durable_metadata_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys ==>
                             #[trigger] self@.outstanding_cdb_writes[i] == old(self)@.outstanding_cdb_writes[i]
@@ -1017,14 +1019,37 @@ verus! {
                     _ => false,
                 }
         {
-            assume(false);
+            let ghost pm_view = subregion.view(wrpm_region);
+            assert(self.valid(pm_view, overall_metadata));
+            assert(self.inv(pm_view, overall_metadata));
 
             // 1. pop an index from the free list
             // since this index is on the free list, its CDB is already false
             let free_index = match self.metadata_table_free_list.pop(){
                 Some(index) => index,
-                None => return Err(KvError::OutOfSpace),
+                None => {
+                    assert(self.metadata_table_free_list@.to_set().len() == 0) by {
+                        self.metadata_table_free_list@.lemma_cardinality_of_set();
+                    }
+
+                    assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                        self.outstanding_cdb_write_matches_pm_view(pm_view, i, overall_metadata.metadata_node_size) by {
+                        assert(old(self).outstanding_cdb_write_matches_pm_view(pm_view, i,
+                                                                             overall_metadata.metadata_node_size));
+                    }
+
+                    assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                           self.outstanding_entry_write_matches_pm_view(pm_view, i,
+                                                                        overall_metadata.metadata_node_size) by {
+                        assert(old(self).outstanding_entry_write_matches_pm_view(pm_view, i,
+                                                                               overall_metadata.metadata_node_size));
+                    }
+
+                    return Err(KvError::OutOfSpace);
+                },
             };
+            
+            assume(false);
 
             // 2. construct the entry with list metadata and item index
             let entry = ListEntryMetadata::new(list_node_index, list_node_index, 0, 0, item_table_index);
