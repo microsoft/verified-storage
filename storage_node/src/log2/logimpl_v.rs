@@ -213,6 +213,70 @@ impl UntrustedLogImpl {
         }
     }
 
+    // This lemma proves that updating the inactive metadata and crc is crash safe.
+    proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm<Perm>(
+        self,
+        old_pm: PersistentMemoryRegionView,
+        new_pm1: PersistentMemoryRegionView,
+        new_pm2: PersistentMemoryRegionView,
+        new_metadata: LogMetadata,
+        inactive_metadata_pos: int,
+        new_crc: u64,
+        inactive_crc_pos: int,
+        log_start_addr: nat,
+        log_size: nat,
+        prev_info: LogInfo,
+        prev_state: AbstractLogState,
+        perm: &Perm
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+        requires 
+            new_pm1 == old_pm.write(inactive_metadata_pos, new_metadata.spec_to_bytes()),
+            new_pm2 == old_pm.write(inactive_metadata_pos, new_metadata.spec_to_bytes()).write(inactive_crc_pos, new_crc.spec_to_bytes()),
+
+            forall |s| #[trigger] old_pm.can_crash_as(s) ==> perm.check_permission(s),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
+            info_consistent_with_log_area(old_pm, log_start_addr as nat, log_size as nat, prev_info, prev_state),
+            no_outstanding_writes_to_metadata(old_pm, log_start_addr as nat),
+            metadata_consistent_with_info(old_pm, log_start_addr as nat, log_size as nat, self.cdb, prev_info),
+            memory_matches_deserialized_cdb(old_pm, log_start_addr as nat, self.cdb),
+            metadata_types_set(old_pm.committed(), log_start_addr as nat),
+            inactive_crc_pos == spec_get_inactive_log_crc_pos(self.cdb) + log_start_addr,
+            inactive_metadata_pos == spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr,
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()) // or committed?
+            } ==> #[trigger] perm.check_permission(s2)
+
+        ensures 
+            forall |s| #[trigger] new_pm1.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s| #[trigger] new_pm2.can_crash_as(s) ==> perm.check_permission(s)
+    {
+        broadcast use pmcopy_axioms;
+        lemma_metadata_fits_in_log_header_area();
+
+        assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies perm.check_permission(s) by {
+            lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
+            assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+            lemma_crash_state_differing_only_in_log_region_exists(old_pm, new_pm1, 
+                inactive_metadata_pos as int, new_metadata.spec_to_bytes(), log_start_addr as nat, log_size as nat);
+        }
+
+        assert forall |s| #[trigger] new_pm2.can_crash_as(s) implies perm.check_permission(s) by {
+            lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
+            assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+            lemma_crash_state_differing_only_in_log_region_exists_wrapping(old_pm, new_pm2, 
+                inactive_metadata_pos, new_metadata.spec_to_bytes(), inactive_crc_pos, 
+                new_crc.spec_to_bytes(), log_start_addr as nat, log_size as nat);
+        }
+    }
+
     pub exec fn setup<PM, K>(
         pm_region: &mut PM,
         log_start_addr: u64,
@@ -1337,8 +1401,6 @@ impl UntrustedLogImpl {
     {
         broadcast use pmcopy_axioms;
 
-        // assume(false);
-
         // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
         // since we're writing in the inactive part of the metadata.
 
@@ -1605,33 +1667,15 @@ impl UntrustedLogImpl {
             broadcast use pmcopy_axioms;
             lemma_metadata_fits_in_log_header_area();
 
-            assert(inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of() <= log_start_addr + spec_log_area_pos());
-            assert(log_start_addr + spec_log_area_pos() <= log_start_addr + log_size);
-
             let new_pm1 = wrpm_region@.write(inactive_metadata_pos as int, log_metadata.spec_to_bytes());
             let new_pm2 = new_pm1.write(inactive_metadata_pos + LogMetadata::spec_size_of(), log_crc.spec_to_bytes());
 
-            assert forall |s2| #[trigger] new_pm1.can_crash_as(s2) implies perm.check_permission(s2) by {
-                lemma_establish_extract_bytes_equivalence(s2, wrpm_region@.committed());
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
-                assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-                lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm1, 
-                    inactive_metadata_pos as int, log_metadata.spec_to_bytes(), log_start_addr as nat, log_size as nat);
-            }
-
-            assert forall |s2| #[trigger] new_pm2.can_crash_as(s2) implies perm.check_permission(s2) by {
-                lemma_establish_extract_bytes_equivalence(s2, wrpm_region@.committed());
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
-                assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
-                lemma_crash_state_differing_only_in_log_region_exists_wrapping(wrpm_region@, new_pm2, 
-                    inactive_metadata_pos as int, log_metadata.spec_to_bytes(), inactive_metadata_pos + LogMetadata::spec_size_of(), 
-                    log_crc.spec_to_bytes(), log_start_addr as nat, log_size as nat);
-            }
+            self.lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm(wrpm_region@, new_pm1, new_pm2, log_metadata, inactive_metadata_pos as int,
+                log_crc, inactive_metadata_pos + LogMetadata::spec_size_of(), log_start_addr as nat, log_size as nat, prev_info, prev_state, perm);
         } 
 
         // Write the new metadata and CRC
         wrpm_region.serialize_and_write(inactive_metadata_pos, &log_metadata, Tracked(perm));
-
         wrpm_region.serialize_and_write(inactive_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
 
         // Prove that after the flush, the log metadata will be reflected in the subregion's
