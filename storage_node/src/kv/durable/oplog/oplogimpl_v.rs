@@ -17,7 +17,6 @@ verus! {
             L: PmCopy + std::fmt::Debug + Copy,
     {
         log: UntrustedLogImpl,
-        overall_metadata: OverallMetadata,
         state: Ghost<AbstractOpLogState>,
         current_transaction_crc: CrcDigest,
         _phantom: Option<(K, L)>
@@ -29,18 +28,6 @@ verus! {
             K: std::fmt::Debug,
     {
 
-        pub closed spec fn log_start_addr(self) -> u64 {
-            self.overall_metadata.log_area_addr
-        }
-
-        pub closed spec fn log_size(self) -> u64 {
-            self.overall_metadata.log_area_size
-        }
-
-        pub closed spec fn overall_metadata(self) -> OverallMetadata {
-            self.overall_metadata
-        }
-
         pub closed spec fn base_log_capacity(self) -> int {
             self.log@.capacity
         }
@@ -49,11 +36,11 @@ verus! {
             self.log@
         }
 
-        pub closed spec fn log_entry_valid(self, pm_region: PersistentMemoryRegionView, op: AbstractPhysicalOpLogEntry) -> bool {
+        pub closed spec fn log_entry_valid(self, pm_region: PersistentMemoryRegionView, op: AbstractPhysicalOpLogEntry, overall_metadata: OverallMetadata) -> bool {
             // all addrs are within the bounds of the device
             &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region.len() <= u64::MAX
             // no logged ops change bytes belonging to the log itself
-            &&& (op.absolute_addr + op.len < self.overall_metadata.log_area_addr || self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= op.absolute_addr)
+            &&& (op.absolute_addr + op.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= op.absolute_addr)
             &&& op.bytes.len() <= u64::MAX
         }
 
@@ -62,12 +49,12 @@ verus! {
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
         }
 
-        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>) -> bool
+        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: OverallMetadata) -> bool
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
-            &&& self.log.inv(pm_region, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+            &&& self.log.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
             &&& ({
                     // either the base log is empty or the op log is committed and non-empty
                     ||| self.log@.log.len() == 0
@@ -78,8 +65,8 @@ verus! {
                 // if we aren't committed, then parsing the pending bytes (ignoring crc check,
                 // since we haven't written the CRC yet) should give us the current abstract log op list
                 let pending_bytes = self.log@.pending;
-                let log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+                let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 ||| {
                         &&& log_ops is Some 
                         &&& log_ops.unwrap() == self@.physical_op_list
@@ -87,22 +74,22 @@ verus! {
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
-                let log_ops = Self::parse_log_ops(log_contents.unwrap(), self.log_start_addr() as nat, 
-                    self.log_size() as nat, self.overall_metadata.region_size as nat);
+                let log_ops = Self::parse_log_ops(log_contents.unwrap(), overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_contents is Some
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
-                &&& UntrustedLogImpl::recover(pm_region@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size  as nat) == Some(self.log@)
+                &&& UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size  as nat) == Some(self.log@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
-                    self.log_entry_valid(pm_region@, op)
+                    self.log_entry_valid(pm_region@, op, overall_metadata)
             } 
-            &&& self.overall_metadata.log_area_addr < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
-            &&& self.overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
-            &&& self.overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
-            &&& no_outstanding_writes_to_metadata(pm_region@, self.overall_metadata.log_area_addr as nat)
+            &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
+            &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
+            &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
+            &&& no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat)
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -554,8 +541,6 @@ verus! {
             assert(Some(phys_log_view) == Self::parse_log_ops_helper(0, 0, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat))
         }
 
-        let ghost old_overall_metadata = overall_metadata;
-
         while offset < log_bytes.len()
             invariant
                 u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX,
@@ -581,7 +566,6 @@ verus! {
                 }),
                 log_start_addr + log_size <= u64::MAX,
                 offset <= log_bytes.len(),
-                old_overall_metadata == overall_metadata,
                 log_start_addr == overall_metadata.log_area_addr,
                 log_size == overall_metadata.log_area_size,
                 region_size == overall_metadata.region_size,
@@ -751,7 +735,6 @@ verus! {
             return Ok((
                 Self {
                     log,
-                    overall_metadata,
                     state: Ghost(op_log_state.unwrap()),
                     current_transaction_crc: CrcDigest::new(),
                     _phantom: None
@@ -795,7 +778,6 @@ verus! {
 
         let op_log_impl = Self {
             log,
-            overall_metadata,
             state: Ghost(op_log_state.unwrap()),
             current_transaction_crc: CrcDigest::new(),
             _phantom: None
@@ -851,12 +833,13 @@ verus! {
         self,
         pm_region: PersistentMemoryRegionView,
         log_entry: PhysicalOpLogEntry,
+        overall_metadata: OverallMetadata,
     )
         requires
             ({
                 let pending_bytes = self.log@.pending;
-                let log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+                let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
@@ -864,18 +847,18 @@ verus! {
             }),
             // log entry is valid
             0 <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < pm_region.len() <= u64::MAX,
-            log_entry.absolute_addr + log_entry.len < self.overall_metadata.log_area_addr || self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= log_entry.absolute_addr,
+            log_entry.absolute_addr + log_entry.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= log_entry.absolute_addr,
             log_entry.bytes@.len() <= u64::MAX,
             log_entry.len != 0,
             log_entry.len == log_entry.bytes@.len(),
-            log_entry.absolute_addr + log_entry.len <= self.overall_metadata.region_size,
+            log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
         ensures 
             ({
                 let pending_bytes = self.log@.pending;
                 let bytes = log_entry.bytes@;
                 let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
-                let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+                let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& new_log_ops is Some 
                 &&& new_log_ops.unwrap() == self@.physical_op_list.push(log_entry@)
 
@@ -883,15 +866,15 @@ verus! {
     {
         broadcast use pmcopy_axioms;
 
-        let log_start_addr = self.overall_metadata.log_area_addr as nat;
-        let log_size = self.overall_metadata.log_area_size as nat;
-        let region_size = self.overall_metadata.region_size as nat;
+        let log_start_addr = overall_metadata.log_area_addr as nat;
+        let log_size = overall_metadata.log_area_size as nat;
+        let region_size = overall_metadata.region_size as nat;
 
         let pending_bytes = self.log@.pending;
         let bytes = log_entry.bytes@;
         let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
-        let old_log_ops = Self::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
-            self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat).unwrap();
+        let old_log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
+            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat).unwrap();
 
         // parsing just the new operation's bytes succeeds
         let new_op = Self::parse_log_op(pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
@@ -912,8 +895,8 @@ verus! {
 
         // Appending the new op to the pending_bytes op log is equivalent to parsing all of new_pending_bytes
         Self::lemma_op_log_parse_equal(0, pending_bytes.len(), new_pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
-        let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
-            self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+        let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
+            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
         
         assert(new_log_ops.unwrap() == old_log_ops.push(new_op.unwrap()));
     }
@@ -929,33 +912,34 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_entry: PhysicalOpLogEntry,
+        overall_metadata: OverallMetadata,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where 
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm)),
-            old(self).log_entry_valid(old(log_wrpm)@, log_entry@),
+            old(self).inv(*old(log_wrpm), overall_metadata),
+            old(self).log_entry_valid(old(log_wrpm)@, log_entry@, overall_metadata),
             !old(self)@.op_list_committed,
-            Self::parse_log_ops(old(self).base_log_view().pending, old(self).log_start_addr() as nat, 
-                old(self).log_size() as nat, old(self).overall_metadata().region_size as nat) is Some,
+            Self::parse_log_ops(old(self).base_log_view().pending, overall_metadata.log_area_addr as nat, 
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
+                Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 perm.check_permission(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
-                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
-                &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
             log_entry.len == log_entry.bytes@.len(),
-            log_entry.absolute_addr + log_entry.len <= old(self).overall_metadata().region_size,
+            log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
             ({
                 let pending_bytes = old(self).base_log_view().pending;
-                let log_ops = Self::parse_log_ops(pending_bytes, old(self).log_start_addr() as nat, 
-                    old(self).log_size() as nat, old(self).overall_metadata().region_size as nat);
+                let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
                 &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
@@ -968,7 +952,7 @@ verus! {
                     // the log should abort the transaction, since we may not have appended a full log entry
                     // and even if we did (or did not append anything), the error likely indicates we won't 
                     // be able to commit it later anyway.
-                    &&& self.inv(*log_wrpm)
+                    &&& self.inv(*log_wrpm, overall_metadata)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                 }
                 Err(KvError::LogErr { log_err: e }) => {
@@ -982,19 +966,19 @@ verus! {
                 Err(_) => false 
             }
     {
-        let ghost log_start_addr = self.log_start_addr() as nat;
-        let ghost log_size = self.log_size() as nat;
+        let ghost log_start_addr = overall_metadata.log_area_addr as nat;
+        let ghost log_size = overall_metadata.log_area_size as nat;
         
         // this assert is sufficient to hit the triggers we need to prove that the log entries
         // are all valid after appending the new one
         assert(forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
             let op = #[trigger] self@.physical_op_list[i];
-            self.log_entry_valid(log_wrpm@, op)
+            self.log_entry_valid(log_wrpm@, op, overall_metadata)
         });
 
         proof {
             // before we append anything, prove that appending this entry will maintain the loop invariant
-            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry);
+            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, overall_metadata);
 
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
@@ -1006,15 +990,15 @@ verus! {
 
         let result = self.log.tentatively_append(
             log_wrpm,
-            self.overall_metadata.log_area_addr, 
-            self.overall_metadata.log_area_size, 
+            overall_metadata.log_area_addr, 
+            overall_metadata.log_area_size, 
             absolute_addr.as_byte_slice(),
             Tracked(perm)
         );
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
                 self.current_transaction_crc = CrcDigest::new();
                 self.state = Ghost(AbstractOpLogState {
                     physical_op_list: Seq::empty(),
@@ -1053,15 +1037,15 @@ verus! {
 
         let result = self.log.tentatively_append(
             log_wrpm,
-            self.overall_metadata.log_area_addr, 
-            self.overall_metadata.log_area_size, 
+            overall_metadata.log_area_addr, 
+            overall_metadata.log_area_size, 
             len.as_byte_slice(),
             Tracked(perm)
         );
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
                 self.current_transaction_crc = CrcDigest::new();
                 self.state = Ghost(AbstractOpLogState {
                     physical_op_list: Seq::empty(),
@@ -1093,15 +1077,15 @@ verus! {
         let bytes = log_entry.bytes.as_slice();
         let result = self.log.tentatively_append(
             log_wrpm, 
-            self.overall_metadata.log_area_addr, 
-            self.overall_metadata.log_area_size, 
+            overall_metadata.log_area_addr, 
+            overall_metadata.log_area_size, 
             bytes,
             Tracked(perm)
         );
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
                 self.current_transaction_crc = CrcDigest::new();
                 self.state = Ghost(AbstractOpLogState {
                     physical_op_list: Seq::empty(),
@@ -1137,10 +1121,10 @@ verus! {
 
             assert(new_pending_bytes == old_pending_bytes + absolute_addr.spec_to_bytes() + len.spec_to_bytes() + bytes@);
 
-            let old_log_ops = Self::parse_log_ops(old_pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
-            let new_log_ops = Self::parse_log_ops(new_pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+            let old_log_ops = Self::parse_log_ops(old_pending_bytes, overall_metadata.log_area_addr as nat, 
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+            let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             assert(old_log_ops is Some);
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
@@ -1155,40 +1139,40 @@ verus! {
     pub exec fn commit_log<Perm, PM>(
         &mut self, 
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        overall_metadata: OverallMetadata,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where 
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm)),
+            old(self).inv(*old(log_wrpm), overall_metadata),
             old(self)@.physical_op_list.len() > 0,
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
-            old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
+            overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize()),
+                Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.flush().committed();
                 &&& flushed_state.len() == s2.len() 
-                &&& states_differ_only_in_log_region(flushed_state, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
+                &&& states_differ_only_in_log_region(flushed_state, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
-                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@.commit_op_log())
-                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                        ||| Self::recover(s2, overall_metadata) == Some(old(self)@.commit_op_log())
+                        ||| Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
-                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
-                &&& Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
         ensures 
-            self.inv(*log_wrpm),
+            self.inv(*log_wrpm, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
-            self.overall_metadata() == old(self).overall_metadata(),
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.commit_op_log()
@@ -1204,8 +1188,8 @@ verus! {
                 Err(_) => false 
             }
     {
-        let ghost log_start_addr = self.log_start_addr() as nat;
-        let ghost log_size = self.log_size() as nat;
+        let ghost log_start_addr = overall_metadata.log_area_addr as nat;
+        let ghost log_size = overall_metadata.log_area_size as nat;
 
         let transaction_crc = self.current_transaction_crc.sum64();
         let bytes = transaction_crc.as_byte_slice();
@@ -1217,11 +1201,11 @@ verus! {
             // allow base log states that recover to self.base_log_view.drop_pending_appends(), so this 
             // assertion tells us that all crash states considered legal in the base log's `tentatively_append` 
             // also recover to a legal op log state
-            assert forall |s| UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat) == 
+            assert forall |s| UntrustedLogImpl::recover(s, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
                     Some(self.base_log_view().drop_pending_appends())
-                implies #[trigger] Self::recover(s, self.overall_metadata()) == Some(AbstractOpLogState::initialize()) 
+                implies #[trigger] Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()) 
             by {
-                let base_log_recovery_state = UntrustedLogImpl::recover(s, self.log_start_addr() as nat, self.log_size() as nat);
+                let base_log_recovery_state = UntrustedLogImpl::recover(s, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                 assert(base_log_recovery_state is Some);
                 assert(base_log_recovery_state.unwrap().log.len() == 0);
             }
@@ -1234,10 +1218,10 @@ verus! {
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
-        match self.log.tentatively_append(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, bytes, Tracked(perm)) {
+        match self.log.tentatively_append(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, bytes, Tracked(perm)) {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size);
+                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
                 self.current_transaction_crc = CrcDigest::new();
                 self.state = Ghost(AbstractOpLogState {
                     physical_op_list: Seq::empty(),
@@ -1265,7 +1249,7 @@ verus! {
             assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
         }
         
-        match self.log.commit(log_wrpm, self.overall_metadata.log_area_addr, self.overall_metadata.log_area_size, Tracked(perm)) {
+        match self.log.commit(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, Tracked(perm)) {
             Ok(_) => {}
             Err(e) => {
                 assert(false);
@@ -1289,41 +1273,41 @@ verus! {
     pub exec fn clear_log<Perm, PM>(
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        overall_metadata: OverallMetadata,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm)),
+            old(self).inv(*old(log_wrpm), overall_metadata),
             old(self)@.op_list_committed,
-            old(self).log_start_addr() + spec_log_area_pos() <= old(log_wrpm)@.len(),
+            overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
             old(log_wrpm)@.no_outstanding_writes(),
-            Self::recover(old(log_wrpm)@.committed(), old(self).overall_metadata()) == Some(old(self)@),
+            Self::recover(old(log_wrpm)@.committed(), overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, old(self).overall_metadata()) == Some(old(self)@),
+                Self::recover(s, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s2: Seq<u8>| {
                 let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
-                &&& states_differ_only_in_log_region(s2, current_state, old(self).log_start_addr() as nat, old(self).log_size() as nat)
+                &&& states_differ_only_in_log_region(s2, current_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
-                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
-                        ||| Self::recover(s2, old(self).overall_metadata()) == Some(AbstractOpLogState::initialize())
+                        ||| Self::recover(s2, overall_metadata) == Some(old(self)@)
+                        ||| Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
                     }
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
-                &&& states_differ_only_in_log_region(s1, s2, old(self).log_start_addr() as nat, old(self).log_size() as nat)
-                &&& Self::recover(s2, old(self).overall_metadata()) == Some(old(self)@)
+                &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s2, overall_metadata) == Some(old(self)@)
             } ==> #[trigger] perm.check_permission(s2),
         ensures 
-            self.inv(*log_wrpm),
+            self.inv(*log_wrpm, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
-            self.overall_metadata() == old(self).overall_metadata(),
             match result {
                 Ok(()) => {
                     Ok::<_, ()>(self@) == old(self)@.clear_log()
@@ -1331,8 +1315,8 @@ verus! {
                 Err(_) => false 
             }
     {
-        let log_start_addr = self.overall_metadata.log_area_addr;
-        let log_size = self.overall_metadata.log_area_size;
+        let log_start_addr = overall_metadata.log_area_addr;
+        let log_size = overall_metadata.log_area_size;
 
         // To clear the log, we'll look up its head and tail, then advance the head to the tail
         let (head, tail, capacity) = match self.log.get_head_tail_and_capacity(log_wrpm, log_start_addr, log_size) {
