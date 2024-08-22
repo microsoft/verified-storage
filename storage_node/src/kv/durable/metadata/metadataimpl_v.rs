@@ -1038,7 +1038,7 @@ verus! {
 
         // Since metadata table entries have a valid CDB, we can tentatively write the whole entry and log a commit op for it,
         // then flip the CDB once the log has been committed
-        pub exec fn tentative_create<PM, Perm>(
+        pub exec fn tentative_create<Perm, PM>(
             &mut self,
             subregion: &WriteRestrictedPersistentMemorySubregion,
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -1049,8 +1049,8 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         ) -> (result: Result<u64, KvError<K>>)
             where 
-                PM: PersistentMemoryRegion,
                 Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
             requires 
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
                 old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),

@@ -32,13 +32,14 @@ use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 // use crate::log::logimpl_t::*;
 use crate::log2::logspec_t::*;
+use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
-use crate::pmem::crc_t::*;
+use crate::pmem::wrpm_t::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
 
@@ -48,8 +49,9 @@ use super::oplog::oplogspec_t::AbstractPhysicalOpLogEntry;
 
 verus! {
     #[verifier::reject_recursive_types(K)]
-    pub struct DurableKvStore<PM, K, I, L>
+    pub struct DurableKvStore<Perm, PM, K, I, L>
     where
+        Perm: CheckPermission<Seq<u8>>,
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
@@ -61,13 +63,14 @@ verus! {
         durable_list: DurableList<K, L>,
         log: UntrustedOpLog<K, L>,
         metadata_table: MetadataTable<K>,
-        wrpm: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
+        wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         pending_updates: Vec<LogicalOpLogEntry<L>>,
     }
 
-    impl<PM, K, I, L> DurableKvStore<PM, K, I, L>
+    impl<Perm, PM, K, I, L> DurableKvStore<Perm, PM, K, I, L>
         where
             PM: PersistentMemoryRegion,
+            Perm: CheckPermission<Seq<u8>>,
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug + Copy,
@@ -319,14 +322,14 @@ verus! {
                 forall |i: int| 0 <= i < mem1.len() && mem1[i] != mem2[i] ==> addr_modified_by_recovery(phys_log, i),
             ensures
                 ({
-                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
-                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+                    let replay1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+                    let replay2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
                     replay1 == replay2
                 })
             decreases phys_log.len()
         {
-            let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
-            let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+            let replay1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+            let replay2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
 
             Self::lemma_log_replay_preserves_size(mem1, phys_log);
             Self::lemma_log_replay_preserves_size(mem2, phys_log);
@@ -353,8 +356,8 @@ verus! {
                 0 <= addr < mem1.len(),
             ensures
                 ({
-                    let replay1 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
-                    let replay2 = DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
+                    let replay1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem1, phys_log).unwrap();
+                    let replay2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem2, phys_log).unwrap();
                     replay1[addr] == replay2[addr]
                 })
             decreases phys_log.len()
@@ -365,8 +368,8 @@ verus! {
                 let current_entry = phys_log[0];
                 let remaining_log_entries = phys_log.drop_first();
 
-                let mem1_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
-                let mem2_prime = DurableKvStore::<PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
+                let mem1_prime = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entry(mem1, current_entry).unwrap();
+                let mem2_prime = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entry(mem2, current_entry).unwrap();
 
                 if mem1[addr] != mem2[addr] &&
                     !(current_entry.absolute_addr <= addr < current_entry.absolute_addr + current_entry.len) {
@@ -659,10 +662,10 @@ verus! {
 
 
         fn start(
-            mut wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
+            mut wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+            Tracked(perm): Tracked<&Perm>,
             Ghost(state): Ghost<DurableKvStoreView<K, I, L>>,
         ) -> (result: Result<Self, KvError<K>>)
             where 
@@ -729,7 +732,7 @@ verus! {
                 });
                 let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), overall_metadata).unwrap();
                 let ghost physical_log_entries = recovered_log.physical_op_list;
-                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+                assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
             }
             
             // We can now start the rest of the components. 
@@ -749,7 +752,7 @@ verus! {
                 assert(main_table_region == main_table_subregion.view(pm_region).committed());
                 assert(item_table_region == item_table_subregion.view(pm_region).committed());
                 assert(list_area_region == list_area_subregion.view(pm_region).committed());
-                lemma_physical_recover_succeeds_implies_component_parse_succeeds::<PM, K, I, L>(mem, overall_metadata);
+                lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(mem, overall_metadata);
             }
             
             // start each region
@@ -772,7 +775,7 @@ verus! {
                 let recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), overall_metadata).unwrap();
                 let physical_log_entries = recovered_log.physical_op_list;
                 // we've replayed the physical log entries
-                assert(DurableKvStore::<PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+                assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
                 // each recovered component parses correctly
                 assert(parse_metadata_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap() == main_table@);
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
@@ -795,7 +798,7 @@ verus! {
         // made by this function are crash-safe; if we crash during this operation, replaying the full log on the resulting
         // crash state gets us to the final desired state. This function does not return a Result because it cannot fail
         // as long as the log is well-formed, which is required by the precondition.
-        fn install_log<Perm>(
+        fn install_log(
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
@@ -819,19 +822,19 @@ verus! {
                     &&& abstract_op_log.physical_op_list == phys_log_view
                     &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
                 }),
-                forall |s| DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) == DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) 
+                forall |s| DurableKvStore::<Perm, PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, overall_metadata) 
                     ==> perm.check_permission(s),
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
-                DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
+                DurableKvStore::<Perm, PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata) is Some,
             ensures 
                 wrpm_region.inv(),
                 wrpm_region@.no_outstanding_writes(),
                 wrpm_region@.len() == overall_metadata.region_size,
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 ({
-                    let true_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
-                    let recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
+                    let true_recovery_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
+                    let recovery_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata);
                     &&& recovery_state matches Some(recovery_state)
                     &&& recovery_state == true_recovery_state
                 }),
@@ -849,7 +852,7 @@ verus! {
             let ghost old_wrpm = wrpm_region@.committed();
             let ghost old_wrpm_constants = wrpm_region.constants();
 
-            let ghost final_recovery_state = DurableKvStore::<PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
+            let ghost final_recovery_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(old(wrpm_region)@.committed(), overall_metadata).unwrap();
 
             let mut index = 0;
 
@@ -870,9 +873,9 @@ verus! {
                 invariant
                     old_wrpm.len() == wrpm_region@.len(),
                     PhysicalOpLogEntry::log_inv(phys_log, overall_metadata),
-                    forall |s|  DurableKvStore::<PM, K, I, L>::physical_recover(s, overall_metadata) == 
+                    forall |s|  DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, overall_metadata) == 
                         Some(final_recovery_state) ==> #[trigger] perm.check_permission(s),
-                    DurableKvStore::<PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == 
+                    DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), overall_metadata) == 
                         Some(final_recovery_state),
                     old_phys_log == phys_log,
                     ({
@@ -881,7 +884,7 @@ verus! {
                         let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
                         &&& current_mem is Some 
                         &&& current_mem.unwrap() == wrpm_region@.committed()
-                        &&& recovery_write_region_invariant::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view)
+                        &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(*wrpm_region, overall_metadata, phys_log_view)
                     }),
                     0 <= index <= phys_log.len(),
                     old_wrpm_constants == wrpm_region.constants(),
@@ -904,7 +907,7 @@ verus! {
                         #[trigger] addr_modified_by_recovery(phys_log_view, i));
 
                     // Prove that any write to an address modified by recovery is crash-safe
-                    lemma_safe_recovery_writes::<PM, K, I, L, Perm>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
+                    lemma_safe_recovery_writes::<Perm, PM, K, I, L>(*wrpm_region, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
                 }
 
                 proof {
@@ -1010,46 +1013,6 @@ verus! {
             )
         }
 
-
-/*
-        // Commits all pending updates by committing the log and applying updates to 
-        // each durable component.
-        pub fn commit(
-            &mut self,
-            kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
-        ) -> (result: Result<(), KvError<K>>)
-            requires 
-                // TODO 
-            ensures
-                self.constants() == old(self).constants(),
-                // TODO 
-        {
-            // 1. Commit the log
-            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // 2. Play the log on each durable component
-            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
-            // TODO: handle the ghost states properly here
-            self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
-                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
-            self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
-                &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
-            self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
-                Tracked(&fake_list_perm), Ghost(self.durable_list@))?;
-
-            // 3. Clear the log
-            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // 4. Clear the local pending log updates list
-            self.pending_updates.clear();
-
-            Ok(())
-        }
-
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
         // function does NOT return an error if you attempt to create two records with the same 
@@ -1061,7 +1024,7 @@ verus! {
             key: &K,
             item: &I,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+            Tracked(perm): Tracked<&Perm>,
         ) -> (result: Result<(u64, u64), KvError<K>>)
             requires
                 old(self).valid(),
@@ -1087,6 +1050,7 @@ verus! {
                 })
         {
             assume(false);
+            /*
 
             // 1. find a free slot in the item table and tentatively write the new item there
             let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
@@ -1135,6 +1099,48 @@ verus! {
 
             // 6. Return the index of the metadata entry so it can be used in the volatile index.
             Ok((metadata_index, head_index))
+            */
+            Ok((0, 0))
+        }
+
+
+/*
+        // Commits all pending updates by committing the log and applying updates to 
+        // each durable component.
+        pub fn commit(
+            &mut self,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            requires 
+                // TODO 
+            ensures
+                self.constants() == old(self).constants(),
+                // TODO 
+        {
+            // 1. Commit the log
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 2. Play the log on each durable component
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            // TODO: handle the ghost states properly here
+            self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
+            self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
+            self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
+                Tracked(&fake_list_perm), Ghost(self.durable_list@))?;
+
+            // 3. Clear the log
+            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 4. Clear the local pending log updates list
+            self.pending_updates.clear();
+
+            Ok(())
         }
 
         pub fn get_list_len(
@@ -1260,7 +1266,7 @@ verus! {
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid()
@@ -1312,7 +1318,7 @@ verus! {
             node_location: u64, 
             index_in_node: u64, 
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
@@ -1364,7 +1370,7 @@ verus! {
             &mut self,
             metadata_index: u64,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>,
         ) -> (result: Result<u64, KvError<K>>)
             requires 
                 // TODO 
@@ -1410,7 +1416,7 @@ verus! {
             index_in_node: u64,
             new_entry: L,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
@@ -1456,7 +1462,7 @@ verus! {
             new_skip: u64, // TODO: who is in charge of figuring this out?
             trim_len: u64,
             kvstore_id: u128,
-            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+            Tracked(perm): Tracked<&TrustedKvPermission<Perm, PM, K, I, L>>,
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),

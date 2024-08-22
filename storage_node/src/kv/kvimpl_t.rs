@@ -34,6 +34,7 @@ use super::volatile::volatilespec_t::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::wrpm_t::*;
 use std::hash::Hash;
 
 verus! {
@@ -83,8 +84,9 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
-pub struct KvStore<PM, K, I, L, V>
+pub struct KvStore<Perm, PM, K, I, L, V>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
@@ -92,11 +94,12 @@ where
     V: VolatileKvIndex<K>,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L, V>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<Perm, PM, K, I, L, V>,
 }
 
-impl<PM, K, I, L, V> KvStore<PM, K, I, L, V>
+impl<Perm, PM, K, I, L, V> KvStore<Perm, PM, K, I, L, V>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,

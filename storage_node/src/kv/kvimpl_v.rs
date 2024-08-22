@@ -36,8 +36,9 @@ use std::hash::Hash;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
-pub struct UntrustedKvStoreImpl<PM, K, I, L, V>
+pub struct UntrustedKvStoreImpl<Perm, PM, K, I, L, V>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
@@ -45,13 +46,14 @@ where
     V: VolatileKvIndex<K>,
 {
     id: u128,
-    durable_store: DurableKvStore<PM, K, I, L>,
+    durable_store: DurableKvStore<Perm, PM, K, I, L>,
     volatile_index: V,
     node_size: u32,
 }
 
-impl<PM, K, I, L, V> UntrustedKvStoreImpl<PM, K, I, L, V>
+impl<Perm, PM, K, I, L, V> UntrustedKvStoreImpl<Perm, PM, K, I, L, V>
 where
+    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
