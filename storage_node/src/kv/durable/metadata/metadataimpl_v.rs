@@ -151,18 +151,17 @@ verus! {
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self@.inv()
-            // &&& self.allocator_view() == self.free_indices()
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
             &&& self.allocator_view().len() <= overall_metadata.num_keys 
             &&& self.free_indices().len() <= overall_metadata.num_keys
             &&& self.free_indices().finite()
+            &&& self.allocator_view().subset_of(self.free_indices()) // allocator should be a subset of the actual set of free indices
         }
 
         pub open spec fn allocator_inv(self, overall_metadata: OverallMetadata) -> bool 
         {
             &&& self.allocator_view() == self.free_indices()
-            // &&& forall |idx: u64| self.allocator_view().contains(idx) ==> 0 <= idx < overall_metadata.num_keys
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
