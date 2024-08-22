@@ -47,21 +47,6 @@ verus! {
         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, index2 as int, 1);
     }
 
-    // This lemma proves that a subrange of a subrange is equal to just obtaining the final subrange using its 
-    // absolute start index. This is obvious and requires no body, but having a dedicated lemma helps
-    // Z3 establish the equality
-    // TODO: do this about subranges rather than extract_bytes -- should be equivalent and more useful
-    pub proof fn lemma_subrange_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, start2: nat, len1: nat, len2: nat)
-        requires 
-            start1 <= start2 <= start2 + len2 <= start1 + len1 <= mem.len()
-        ensures 
-            ({
-                let start_offset = start2 - start1;
-                extract_bytes(extract_bytes(mem, start1, len1), start_offset as nat, len2) =~= 
-                    extract_bytes(mem, start2, len2)
-            })
-    {}
-
     pub open spec fn addr_modified_by_recovery(
         log: Seq<AbstractPhysicalOpLogEntry>,
         addr: int,

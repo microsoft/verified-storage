@@ -30,6 +30,7 @@ use crate::kv::setup_v::*;
 use crate::kv::volatile::volatilespec_t::*;
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
+use crate::log2::inv_v::*;
 // use crate::log::logimpl_t::*;
 use crate::log2::logspec_t::*;
 use crate::pmem::crc_t::*;
@@ -40,6 +41,7 @@ use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::wrpm_t::*;
+use crate::util_v::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
 
@@ -122,6 +124,11 @@ verus! {
             &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata)
+        }
+
+        pub closed spec fn transaction_committed(self) -> bool
+        {
+            self.log@.op_list_committed
         }
 
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
@@ -1033,6 +1040,7 @@ verus! {
             requires
                 old(self).valid(),
                 old(self)@.contains_key(index as int),
+                !old(self).transaction_committed(),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -1055,12 +1063,40 @@ verus! {
                 Ghost(self.overall_metadata.main_table_size as nat)
             );
 
-            assume(false);
-
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
             let log_entry = self.metadata_table.get_delete_log_entry(&metadata_table_subregion, 
                 self.wrpm.get_pm_region_ref(), index, self.overall_metadata);
+
+            assert(self.log.inv(self.wrpm, self.overall_metadata));
+
+            // this is all the stuff you have to prove to call append.
+            // some of this may be part of the op log invariant but has to be revealed.
+
+            assume(UntrustedOpLog::<K, L>::parse_log_ops(old(self).log.base_log_view().pending, self.overall_metadata.log_area_addr as nat, 
+                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is Some);
+
+            assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+
+            assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s));
+
+            assume(forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] perm.check_permission(s1)
+                &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata)== Some(AbstractOpLogState::initialize())
+            } ==> #[trigger] perm.check_permission(s2));
+
+            proof {
+                let pending_bytes = self.log.base_log_view().pending;
+                let log_ops = UntrustedOpLog::<K, L>::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
+                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
+                assume(log_ops.unwrap() == self.log@.physical_op_list);
+                assume(pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX);
+                assume(pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
+            }
+
             // then append it to the operation log
             self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
 

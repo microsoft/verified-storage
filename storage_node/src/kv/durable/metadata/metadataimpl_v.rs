@@ -25,6 +25,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::traits_t;
 use crate::pmem::wrpm_t::*;
+use crate::util_v::*;
 
 verus! {
     pub struct MetadataTable<K> {

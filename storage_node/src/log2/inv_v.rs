@@ -9,6 +9,7 @@ use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::logspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::util_v::*;
 
 verus! {
 
@@ -278,21 +279,6 @@ pub proof fn lemma_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>, a
         mem1 == mem2 
     ensures
         extract_bytes(mem1, addr as nat, len as nat) == extract_bytes(mem2, addr as nat, len as nat)
-{}
-
-// This lemma proves that a subrange of a subrange is equal to just obtaining the final subrange using its 
-// absolute start index. This is obvious and requires no body, but having a dedicated lemma helps
-// Z3 establish the equality
-// TODO: do this about subranges rather than extract_bytes -- should be equivalent and more useful
-pub proof fn lemma_subrange_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, start2: nat, len1: nat, len2: nat)
-    requires 
-        start1 <= start2 <= start2 + len2 <= start1 + len1 <= mem.len()
-    ensures 
-        ({
-            let start_offset = start2 - start1;
-            extract_bytes(extract_bytes(mem, start1, len1), start_offset as nat, len2) =~= 
-                extract_bytes(mem, start2, len2)
-        })
 {}
 
 // This lemma proves that two sequences of bytes that may contain valid logs, and their log

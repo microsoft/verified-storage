@@ -5,7 +5,7 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::ptr::*;
-use crate::kv::durable::inv_v::lemma_subrange_of_extract_bytes_equal;
+use crate::kv::durable::inv_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
