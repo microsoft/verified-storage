@@ -302,22 +302,21 @@ pub proof fn lemma_subrange_of_extract_bytes_equal(mem: Seq<u8>, start1: nat, st
 pub proof fn lemma_same_bytes_recover_to_same_state(
     mem1: Seq<u8>,
     mem2: Seq<u8>,
-    overall_metadata: OverallMetadata,
+    log_start_addr: nat,
+    log_size: nat,
+    region_size: nat,
 )
     requires
-        mem1.len() == overall_metadata.region_size,
+        mem1.len() == region_size,
         mem1.len() == mem2.len(),
-        extract_bytes(mem1, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
-            extract_bytes(mem2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
-        0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
-        0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+        extract_bytes(mem1, log_start_addr, log_size) == 
+            extract_bytes(mem2, log_start_addr, log_size),
+        0 <= log_start_addr < log_start_addr + log_size < region_size,
+        0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
     ensures
-        UntrustedLogImpl::recover(mem1, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) ==
-            UntrustedLogImpl::recover(mem2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+        UntrustedLogImpl::recover(mem1, log_start_addr, log_size) ==
+            UntrustedLogImpl::recover(mem2, log_start_addr, log_size)
 {
-    let log_start_addr = overall_metadata.log_area_addr as nat;
-    let log_size = overall_metadata.log_area_size as nat;
-
     lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
     // Proves that the CDBs are the same

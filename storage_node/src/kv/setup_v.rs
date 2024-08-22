@@ -54,6 +54,14 @@ where
     &&& overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE
     &&& overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size
     &&& overall_metadata.region_size <= u64::MAX
+    &&& overall_metadata.main_table_addr as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.main_table_size as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.item_table_addr as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.item_table_size as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.list_area_addr as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.list_area_size as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
+    &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
 }
 
 // This function evaluates whether memory was correctly set up.

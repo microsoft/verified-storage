@@ -1277,6 +1277,7 @@ verus! {
 
         pub exec fn get_delete_log_entry<PM>(
             &self,
+            subregion: &PersistentMemorySubregion,
             pm_region: &PM,
             index: u64,
             overall_metadata: OverallMetadata,
@@ -1284,17 +1285,14 @@ verus! {
             where 
                 PM: PersistentMemoryRegion,
             requires 
-                self.inv(pm_region@, overall_metadata),
-                self.allocator_inv(overall_metadata),
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry
                 self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= pm_region@.len() <= u64::MAX,
                 pm_region@.len() == overall_metadata.region_size,
-                ({
-                    ||| overall_metadata.main_table_addr < overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.log_area_addr
-                    ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.main_table_addr
-                }),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr,
             ensures 
                 log_entry@.inv(overall_metadata),
                 // if we were to install this log entry, it would have the same effect

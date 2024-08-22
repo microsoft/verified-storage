@@ -36,14 +36,6 @@ verus! {
             self.log@
         }
 
-        pub closed spec fn log_entry_valid(self, pm_region: PersistentMemoryRegionView, op: AbstractPhysicalOpLogEntry, overall_metadata: OverallMetadata) -> bool {
-            // all addrs are within the bounds of the device
-            &&& 0 <= op.absolute_addr < op.absolute_addr + op.len < pm_region.len() <= u64::MAX
-            // no logged ops change bytes belonging to the log itself
-            &&& (op.absolute_addr + op.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= op.absolute_addr)
-            &&& op.bytes.len() <= u64::MAX
-        }
-
         pub closed spec fn crc_invariant(self) -> bool {
             &&& !self@.op_list_committed && self.log@.pending.len() > 0 ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
@@ -67,10 +59,8 @@ verus! {
                 let pending_bytes = self.log@.pending;
                 let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
-                ||| {
-                        &&& log_ops is Some 
-                        &&& log_ops.unwrap() == self@.physical_op_list
-                    }
+                &&& log_ops is Some 
+                &&& log_ops.unwrap() == self@.physical_op_list
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
@@ -84,7 +74,7 @@ verus! {
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
-                    self.log_entry_valid(pm_region@, op, overall_metadata)
+                    op.inv(overall_metadata)
             } 
             &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
@@ -351,12 +341,12 @@ verus! {
                 ||| offset + u64::spec_size_of() * 2 > u64::MAX
                 ||| offset + u64::spec_size_of() * 2 + len > u64::MAX
                 ||| absolute_addr + len > u64::MAX
-                ||| absolute_addr + len > region_size
+                ||| absolute_addr + len >= region_size
                 ||| offset + u64::spec_size_of() * 2 > log_contents.len()
                 ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
                 ||| !({
-                    ||| absolute_addr < absolute_addr + len <= log_start_addr // region end before log area
-                    ||| log_start_addr + log_size <= absolute_addr < absolute_addr + len // region ends after log area
+                    ||| absolute_addr < absolute_addr + len < log_start_addr // region end before log area
+                    ||| log_start_addr + log_size < absolute_addr < absolute_addr + len // region ends after log area
                 })
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len
@@ -458,6 +448,41 @@ verus! {
             }
         }
 
+        pub proof fn lemma_same_bytes_preserve_op_log_invariant<Perm, PM>(
+            self,
+            wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            wrpm2: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            overall_metadata: OverallMetadata
+        )
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires 
+                wrpm1@.len() == overall_metadata.region_size,
+                wrpm1@.len() == wrpm2@.len(),
+                wrpm1.inv(),
+                wrpm2.inv(),
+                self.inv(wrpm1, overall_metadata),
+                self.base_log_view() == self.base_log_view().drop_pending_appends(),
+                wrpm1@.no_outstanding_writes(),
+                wrpm2@.no_outstanding_writes(),
+                extract_bytes(wrpm1@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(wrpm2@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
+            ensures 
+                self.inv(wrpm2, overall_metadata),
+        {
+            let mem1 = wrpm1@.committed();
+            let mem2 = wrpm2@.committed();
+            lemma_same_bytes_recover_to_same_state(mem1, mem2, overall_metadata.log_area_addr as nat,
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+            self.log.lemma_same_bytes_preserve_log_invariant(wrpm1, wrpm2, 
+                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat,
+                overall_metadata.region_size as nat);
+        }
+
+
         // This executable function parses the entire operation log iteratively
         // and returns a vector of `PhysicalOpLogEntry`. This operation will fail 
         // if the CRC for the op log does not match the rest of the log body or 
@@ -513,6 +538,7 @@ verus! {
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log.physical_op_list == phys_log_view
                             &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                            &&& forall |i: int| 0 <= i < phys_log_view.len() ==> #[trigger] (phys_log_view[i]).inv(overall_metadata)
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
@@ -569,6 +595,7 @@ verus! {
                 log_start_addr == overall_metadata.log_area_addr,
                 log_size == overall_metadata.log_area_size,
                 region_size == overall_metadata.region_size,
+                forall |i: int| 0 <= i < ops.len() ==> #[trigger] (ops[i]).inv(overall_metadata)
         {
             broadcast use pmcopy_axioms;
 
@@ -610,8 +637,8 @@ verus! {
                 ||| offset + traits_t::size_of::<u64>() * 2 > log_bytes.len()
                 ||| offset + traits_t::size_of::<u64>() * 2 + len as usize > log_bytes.len()
                 ||| !({
-                    ||| addr + len <= log_start_addr // region end before log area
-                    ||| log_start_addr + log_size <= addr // region ends after log area
+                    ||| addr + len < log_start_addr // region end before log area
+                    ||| log_start_addr + log_size < addr // region ends after log area
                 })
                 ||| len == 0
                 ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
@@ -630,6 +657,7 @@ verus! {
                 len,
                 bytes
             };
+
             ops.push(phys_log_entry);
 
             let ghost old_offset = offset;
@@ -679,21 +707,27 @@ verus! {
             }),
             overall_metadata.log_area_addr + overall_metadata.log_area_size <= u64::MAX,
             overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
+            overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
+            overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {
-                    ||| {
-                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
-                        &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& phys_log.len() == 0
-                        &&& abstract_op_log.physical_op_list.len() == 0
-                    }
-                    ||| {
-                        let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
-                        let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                        &&& abstract_op_log matches Some(abstract_op_log)
-                        &&& abstract_op_log.physical_op_list == phys_log_view
-                        &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                    &&& op_log_impl.inv(*pm_region, overall_metadata)
+                    &&& op_log_impl.base_log_view() == op_log_impl.base_log_view().drop_pending_appends()
+                    &&& {
+                        ||| {
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& phys_log.len() == 0
+                            &&& abstract_op_log.physical_op_list.len() == 0
+                        }
+                        ||| {
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                            &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& abstract_op_log.physical_op_list == phys_log_view
+                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                        }
                     }
                 }
                 Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
@@ -847,11 +881,12 @@ verus! {
             }),
             // log entry is valid
             0 <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < pm_region.len() <= u64::MAX,
-            log_entry.absolute_addr + log_entry.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= log_entry.absolute_addr,
+            log_entry.absolute_addr + log_entry.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size < log_entry.absolute_addr,
             log_entry.bytes@.len() <= u64::MAX,
             log_entry.len != 0,
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
+            overall_metadata.region_size == pm_region.len(),
         ensures 
             ({
                 let pending_bytes = self.log@.pending;
@@ -920,8 +955,9 @@ verus! {
             PM: PersistentMemoryRegion,
         requires 
             old(self).inv(*old(log_wrpm), overall_metadata),
-            old(self).log_entry_valid(old(log_wrpm)@, log_entry@, overall_metadata),
+            log_entry@.inv(overall_metadata),
             !old(self)@.op_list_committed,
+            overall_metadata.region_size == old(log_wrpm)@.len(),
             Self::parse_log_ops(old(self).base_log_view().pending, overall_metadata.log_area_addr as nat, 
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
@@ -973,10 +1009,11 @@ verus! {
         // are all valid after appending the new one
         assert(forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
             let op = #[trigger] self@.physical_op_list[i];
-            self.log_entry_valid(log_wrpm@, op, overall_metadata)
+            op.inv(overall_metadata)
         });
 
         proof {
+            assert(log_entry.inv(overall_metadata));
             // before we append anything, prove that appending this entry will maintain the loop invariant
             self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, overall_metadata);
 

@@ -128,6 +128,101 @@ impl UntrustedLogImpl {
         &&& metadata_types_set(pm@.committed(), log_start_addr)
     }
 
+    pub proof fn lemma_same_bytes_preserve_log_invariant<Perm, PM>(
+        self,
+        wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        wrpm2: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: nat,
+        log_size: nat,
+        region_size: nat,
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            wrpm1@.len() == region_size,
+            wrpm1@.len() == wrpm2@.len(),
+            wrpm1.inv(),
+            wrpm2.inv(),
+            self.inv(wrpm1, log_start_addr, log_size),
+            wrpm1@.no_outstanding_writes(),
+            wrpm2@.no_outstanding_writes(),
+            self@ == self@.drop_pending_appends(),
+            extract_bytes(wrpm1@.committed(), log_start_addr, log_size) == 
+                extract_bytes(wrpm2@.committed(), log_start_addr, log_size),
+            0 <= log_start_addr < log_start_addr + log_size < region_size,
+            0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
+
+        ensures 
+            self.inv(wrpm2, log_start_addr, log_size)
+    {
+        broadcast use pmcopy_axioms;
+
+        let mem1 = wrpm1@.committed();
+        let mem2 = wrpm2@.committed();
+        lemma_establish_extract_bytes_equivalence(mem1, mem2);
+
+        lemma_same_bytes_recover_to_same_state(mem1, mem2, log_start_addr, log_size, region_size);
+
+        // TODO: lemma_same_bytes_recover_to_same_state also uses this same code -- refactor into its own proof
+        lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
+        let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
+        if let Some(cdb1) = cdb1 {
+            let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
+                let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
+            let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
+            let crc_pos = metadata_pos + LogMetadata::spec_size_of();
+            // Proves that metadata, CRC, and log area are the same
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
+            lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
+        } else {
+            // both are None
+        }
+
+        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
+
+        assert(forall |s| wrpm2@.can_crash_as(s) ==> s == wrpm2@.committed());
+        
+        let recover1 = UntrustedLogImpl::recover(wrpm1@.committed(), log_start_addr, log_size).unwrap();
+        let recover2 = UntrustedLogImpl::recover(wrpm2@.committed(), log_start_addr, log_size).unwrap();
+        assert(recover1 == recover2);
+        assert(recover1.log == self.state@.drop_pending_appends().log);
+        assert(recover1.log == recover2.log);
+
+        assert(Self::can_only_crash_as_state(wrpm2@, log_start_addr, log_size, self.state@.drop_pending_appends()));
+        
+        assert(forall |pos_relative_to_head: int| {
+            let log_area_offset =
+                #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                self.info.head_log_area_offset as int,
+                                                                self.info.log_area_len as int);
+            let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+            let pmb = wrpm1@.state[absolute_addr];
+            self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
+                    pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
+        });
+
+        // assert(forall |pos_relative_to_head: int| {
+        //     let log_area_offset =
+        //         #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+        //                                                         self.info.head_log_area_offset as int,
+        //                                                         self.info.log_area_len as int);
+        //     let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+        //     let pmb = wrpm2@.state[absolute_addr];
+        //     // &&& log_start_addr <= absolute_addr < log_start_addr + log_size
+        //     // &&& pmb.outstanding_write is None
+        //     // &&& pmb == wrpm1@.state[absolute_addr]
+        //     // &&& self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
+        //     //         pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
+        //     &&& self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
+        //             pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
+        // });
+
+
+        assert(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@));
+    }
+
     // This lemma makes some facts about non-private fields of self visible
     pub proof fn lemma_reveal_log_inv<Perm, PM>(self, pm: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) 
         where 

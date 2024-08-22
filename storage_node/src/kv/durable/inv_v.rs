@@ -165,7 +165,8 @@ verus! {
 
         // The current pm state has the same log as the original pm state
         lemma_log_bytes_unchanged_during_recovery_write::<Perm, PM, K, I, L>(wrpm_region, overall_metadata, phys_log, addr, bytes);
-        lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), new_wrpm_region_flushed.committed(), overall_metadata);
+        lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), new_wrpm_region_flushed.committed(), 
+            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
 
         // all crash states from this write recover to the same durable kvstore state
         lemma_crash_states_recover_to_same_state::<Perm, PM, K, I, L>(wrpm_region, overall_metadata, phys_log, addr, bytes);
@@ -261,7 +262,8 @@ verus! {
             assert(extract_bytes(wrpm_region@.committed(), log_start_addr, log_size) == extract_bytes(s, log_start_addr, log_size));
             let original_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata);
             let crashed_log = UntrustedOpLog::<K, L>::recover(s, overall_metadata);
-            lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), s, overall_metadata);
+            lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), s, overall_metadata.log_area_addr as nat,
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             assert(crashed_log is Some);
             assert(crashed_log == original_log);
             assert(original_log.unwrap().physical_op_list == phys_log);

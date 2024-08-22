@@ -23,10 +23,10 @@ verus! {
     {
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
             &&& self.len > 0
-            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len <= overall_metadata.region_size
+            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
             &&& ({
-                ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
-                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
+                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size < self.absolute_addr
             })
             &&& self.len == self.bytes.len()
         }

@@ -107,6 +107,7 @@ verus! {
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata)
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
+            &&& self.log.inv(self.wrpm, self.overall_metadata)
                                                                
             // TODO: more component invariants
         }
@@ -715,6 +716,7 @@ verus! {
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, overall_metadata)?;
+            assert(op_log.inv(wrpm_region, overall_metadata));
 
             // 2. Replay the log onto the entire PM region
             // Log entries are replayed blindly onto bytes; components do not have their own
@@ -724,6 +726,7 @@ verus! {
                     PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, overall_metadata);
                 }
                 Self::install_log(&mut wrpm_region, overall_metadata, version_metadata, phys_log, Tracked(perm));
+                proof { op_log.lemma_same_bytes_preserve_op_log_invariant(old_wrpm, wrpm_region, overall_metadata); }
                 assume({
                     // TODO: Prove that installing the log doesn't change the version metadata and overall metadata
                     &&& version_metadata == deserialize_version_metadata(wrpm_region@.committed())
@@ -842,7 +845,16 @@ verus! {
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     let true_final_state = Self::apply_physical_log_entries(old(wrpm_region)@.committed(), phys_log_view);
                     wrpm_region@.committed() == true_final_state.unwrap()
-                })
+                }),
+                ({
+                    let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), overall_metadata);
+                    let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
+                    &&& abstract_op_log matches Some(abstract_op_log)
+                    &&& abstract_op_log.physical_op_list == phys_log_view
+                    &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                }),
+                extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
         {
             let log_start_addr = overall_metadata.log_area_addr;
             let log_size = overall_metadata.log_area_size;
@@ -888,6 +900,8 @@ verus! {
                     }),
                     0 <= index <= phys_log.len(),
                     old_wrpm_constants == wrpm_region.constants(),
+                    extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                        extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
             {
                 let op = &phys_log[index];
 
@@ -911,11 +925,8 @@ verus! {
                 }
 
                 proof {
-                    
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     let replayed_ops = phys_log_view.subrange(0, index as int);
-                    // let remaining_ops = phys_log_view.subrange(index as int, phys_log.len() as int);
-                    // let final_mem = Self::apply_physical_log_entries(old_wrpm, phys_log_view);
                     let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
 
                     // From the loop invariant
@@ -928,8 +939,6 @@ verus! {
 
                     Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_wrpm, overall_metadata, new_replayed_ops);
                     assert(new_mem is Some);
-
-                    // Self::lemma_write_log_entry_equivalent_to_spec_apply(wrpm_region@, op@);
 
                     let step_mem = Self::apply_physical_log_entry(current_mem.unwrap(), op@);
 
@@ -951,6 +960,9 @@ verus! {
                 // write the current op's updates to the specified location on storage
                 wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
                 wrpm_region.flush();
+
+                assert(extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
 
                 index += 1;
             }
@@ -1011,6 +1023,50 @@ verus! {
                 item_table_index,
                 Ghost(self.overall_metadata)
             )
+        }
+
+        pub fn tentative_delete(
+            &mut self,
+            index: u64,
+            Tracked(perm): Tracked<&Perm>
+        ) -> (result: Result<(), KvError<K>>)
+            requires
+                old(self).valid(),
+                old(self)@.contains_key(index as int),
+            ensures 
+                self.valid(),
+                self.constants() == old(self).constants(),
+                match result {
+                    Ok(()) => {
+                        // if we commit, then crash and replay the log, 
+                        // the specified entry should be deleted from the KV store entirely
+                        // I think Jay is working on this right now.
+                        true
+                    }
+                    Err(e) => {
+                        true // TODO
+                    }
+                }
+        {
+            let pm = self.wrpm.get_pm_region_ref();
+            let metadata_table_subregion = PersistentMemorySubregion::new(
+                pm,
+                self.overall_metadata.main_table_addr,
+                Ghost(self.overall_metadata.main_table_size as nat)
+            );
+
+            assume(false);
+
+            // To tentatively delete a record, we need to obtain a log entry representing 
+            // its deletion and tentatively append it to the operation log.
+            let log_entry = self.metadata_table.get_delete_log_entry(&metadata_table_subregion, 
+                self.wrpm.get_pm_region_ref(), index, self.overall_metadata);
+            // then append it to the operation log
+            self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
+
+            assume(false);
+            Err(KvError::NotImplemented)
+
         }
 
         // pub fn tentative_delete(
