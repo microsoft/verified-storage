@@ -1013,6 +1013,92 @@ verus! {
             )
         }
 
+        // pub fn tentative_delete(
+        //     &mut self,
+        //     metadata_index: u64,
+        //     kvstore_id: u128,
+        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
+        // ) -> (result: Result<(), KvError<K>>)
+        //     requires
+        //         old(self).valid(),
+        //         self@.contains_key(metadata_index as int),
+        //     ensures
+        //         self.valid(),
+        //         self.constants() == old(self).constants(),
+        //         match result {
+        //             Ok(()) => {
+        //                 self@[metadata_index as int].is_None()
+        //             }
+        //             Err(_) => true // TODO
+        //         }
+        // {
+        //     assume(false);
+
+        //     // TODO: could get rid of item valid/invalid IF we had another way to determine 
+        //     // if they are allocated (like getting that info from the metadata table)
+
+        //     // TODO: DEALLOCATE LIST NODES
+
+        //     // 1. look up the item index so that we can invalidate it 
+        //     let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+        //         self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
+        //     let item_index = metadata.item_index;
+
+        //     // 2. Log the item and metadata invalidation
+        //     let item_invalidate = OpLogEntryType::ItemTableEntryInvalidate { item_index };
+        //     let metadata_invalidate = OpLogEntryType::InvalidateMetadataEntry { metadata_index };
+
+        //     let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+        //     self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_invalidate, Tracked(&fake_log_perm))?;
+        //     self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_invalidate, Tracked(&fake_log_perm))?;
+
+        //     // 3. Add pending log entries to list
+        //     self.pending_updates.push(item_invalidate);
+        //     self.pending_updates.push(metadata_invalidate);
+
+        //     Ok(())
+        // }
+
+
+/*
+        // Commits all pending updates by committing the log and applying updates to 
+        // each durable component.
+        pub fn commit(
+            &mut self,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>
+        ) -> (result: Result<(), KvError<K>>)
+            requires 
+                // TODO 
+            ensures
+                self.constants() == old(self).constants(),
+                // TODO 
+        {
+            // 1. Commit the log
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 2. Play the log on each durable component
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            // TODO: handle the ghost states properly here
+            self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
+            self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
+            self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
+                Tracked(&fake_list_perm), Ghost(self.durable_list@))?;
+
+            // 3. Clear the log
+            self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
+
+            // 4. Clear the local pending log updates list
+            self.pending_updates.clear();
+
+            Ok(())
+        }
+
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
         // function does NOT return an error if you attempt to create two records with the same 
@@ -1104,7 +1190,7 @@ verus! {
         }
 
 
-/*
+
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
         pub fn commit(

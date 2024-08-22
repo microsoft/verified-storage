@@ -2,7 +2,8 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::lemma_fundamental_div_mod;
 use vstd::arithmetic::mul::lemma_mul_strict_inequality;
-use vstd::set_lib::lemma_set_empty_equivalency_len;
+use vstd::set_lib::*;
+use vstd::seq_lib::*;
 use std::fs::Metadata;
 use std::hash::Hash;
 use vstd::prelude::*;
@@ -150,8 +151,18 @@ verus! {
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self@.inv()
-            &&& self.allocator_view() == self.free_indices()
+            // &&& self.allocator_view() == self.free_indices()
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& self.allocator_view().len() <= overall_metadata.num_keys 
+            &&& self.free_indices().len() <= overall_metadata.num_keys
+            &&& self.free_indices().finite()
+        }
+
+        pub open spec fn allocator_inv(self, overall_metadata: OverallMetadata) -> bool 
+        {
+            &&& self.allocator_view() == self.free_indices()
+            // &&& forall |idx: u64| self.allocator_view().contains(idx) ==> 0 <= idx < overall_metadata.num_keys
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -637,6 +648,8 @@ verus! {
                         &&& 0 <= key_index_pairs[i].2 < overall_metadata.num_keys
                     },
                     K::spec_size_of() > 0,
+                    metadata_allocator@.len() <= index,
+                    metadata_allocator@.no_duplicates(),
             {
                 let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
@@ -773,8 +786,6 @@ verus! {
                             return Err(KvError::CRCMismatch);
                         }
 
-                        assume(false);
-
                         let ghost pre_entry_list = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
                         let crc = crc.extract_init_val(Ghost(true_crc));
@@ -899,6 +910,8 @@ verus! {
                 assert(main_table.allocator_view() =~= main_table.free_indices());
                 assert(entry_list_view.to_set() == key_entry_list_view);
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
+
+                metadata_allocator@.unique_seq_to_set();
             }
 
             assert forall |i| 0 <= i < main_table.state@.durable_metadata_table.len() implies {
@@ -1056,6 +1069,7 @@ verus! {
                 old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
+                old(self).allocator_inv(overall_metadata),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -1121,6 +1135,12 @@ verus! {
             
             assert(old(self).allocator_view().contains(free_index)) by {
                 assert(old(self).metadata_table_free_list@.last() == free_index);
+            }
+            
+            assert(self.allocator_view().len() < old(self).allocator_view().len()) by {
+                assert(self.metadata_table_free_list@.len() < old(self).metadata_table_free_list@.len());
+                self.metadata_table_free_list@.unique_seq_to_set();
+                old(self).metadata_table_free_list@.unique_seq_to_set();
             }
 
             // 2. construct the entry with list metadata and item index
@@ -1198,6 +1218,62 @@ verus! {
             assert(pm_view.committed() == old_pm_view.committed());
 
             Ok(free_index)
+        }
+
+        pub exec fn deallocate_entry<Perm, PM>(
+            &mut self,
+            wrpm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            table_id: u128,
+            index: u64,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires 
+                old(self).inv(wrpm_region@, overall_metadata),
+                wrpm_region@.no_outstanding_writes(),
+                // the given index is free but not in the free list 
+                0 <= index < old(self)@.len(),
+                old(self)@.len() == overall_metadata.num_keys,
+                old(self).free_indices().contains(index),
+                !old(self).allocator_view().contains(index),
+                // for all indices except the one that is free but not in the allocator,
+                // the free view and the free list match
+                forall |i: u64| {
+                    &&& 0 <= i < old(self)@.len()
+                    &&& i != index
+                } ==> (old(self).allocator_view().contains(i) <==> old(self).free_indices().contains(i)),
+            ensures 
+                self.inv(wrpm_region@, overall_metadata),
+                // We've reestabliished the allocator invariant
+                self.allocator_inv(overall_metadata),
+        {
+            assert(self.allocator_view().subset_of(self.free_indices()));
+
+            self.metadata_table_free_list.push(index);
+
+            proof {
+                // Prove that the index has been added to the allocator
+                assert(self.metadata_table_free_list@.subrange(0, self.metadata_table_free_list@.len() - 1) == old(self).metadata_table_free_list@);
+                assert(self.metadata_table_free_list@[self.metadata_table_free_list@.len() - 1] == index);
+                assert(self.metadata_table_free_list@.contains(index));
+                assert(self.allocator_view() =~= self.free_indices());
+
+                // We also have to prove that we have not changed any ghost state about outstanding writes
+                // to prove that we maintain the invariant
+                assert(self.outstanding_cdb_writes == old(self).outstanding_cdb_writes);
+                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
+                    old(self).outstanding_cdb_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size) == 
+                        self.outstanding_cdb_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size));
+            
+                assert(self.outstanding_entry_writes == old(self).outstanding_entry_writes);
+                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
+                    old(self).outstanding_entry_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size) == 
+                        self.outstanding_entry_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size));
+            }
+
+            Ok(())
         }
 
 /* Temporarily commented out for subregion work
