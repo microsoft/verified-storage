@@ -50,6 +50,11 @@ verus! {
             self.state@
         }
 
+        pub closed spec fn allocator_view(self) -> Set<u64>
+        {
+            self.free_list@.to_set()
+        }
+
         pub closed spec fn opaque_inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -79,6 +84,12 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
             }
+        }
+
+        pub closed spec fn allocator_inv(self) -> bool 
+        {
+            forall |i: u64| 0 <= i < self@.len() ==> 
+                (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i))
         }
 
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -632,6 +643,49 @@ verus! {
             Ok(item_table)
         }
 
+        pub exec fn deallocate_item<Perm, PM>(
+            &mut self,
+            wrpm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            item_table_id: u128,
+            item_table_index: u64,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) -> (result: Result<(), KvError<K>>)
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires 
+                old(self).inv(wrpm_region@, overall_metadata),
+                wrpm_region@.no_outstanding_writes(),
+                old(self)@.outstanding_item_table == old(self)@.durable_item_table,
+                // the given index is free (i.e. not valid) but not in the free list
+                0 <= item_table_index < old(self)@.len(),
+                !old(self).spec_valid_indices().contains(item_table_index),
+                !old(self).allocator_view().contains(item_table_index),
+                old(self)@.durable_item_table[item_table_index as int] is None,
+                // the allocator contains all invalid indices except for item_table_index
+                forall |i: u64| {
+                    &&& 0 <= i < old(self)@.len()
+                    &&& i != item_table_index
+                } ==> (!old(self).spec_valid_indices().contains(i) <==> old(self).allocator_view().contains(i))
+            ensures 
+                self.inv(wrpm_region@, overall_metadata),
+                self.allocator_inv()
+        {
+            assert(forall |i: u64| 0 <= i < self@.len() && i != item_table_index ==> 
+                    (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i)));
+
+            self.free_list.push(item_table_index);
+
+            proof {
+                // Prove that the index has been added to the free list
+                assert(self.free_list@.subrange(0, self.free_list@.len() - 1) == old(self).free_list@);
+                assert(self.free_list@[self.free_list@.len() - 1] == item_table_index);
+                assert(self.free_list@.contains(item_table_index));
+            }
+
+            Ok(())
+        }
+
         /* temporarily commented out for subregion development 
 
         pub exec fn play_item_log<PM, L>(
@@ -788,31 +842,6 @@ verus! {
             let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
             let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
             wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_TRUE, Tracked(perm));
-            Ok(())
-        }
-
-        // clears the valid bit for an entry. this should also
-        // deallocate it
-        pub exec fn invalidate_item<PM>(
-            &mut self,
-            wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedItemTablePermission, PM>,
-            item_table_id: u128,
-            item_table_index: u64,
-            Tracked(perm): Tracked<&TrustedItemTablePermission>,
-        ) -> (result: Result<(), KvError<K>>)
-            where
-                PM: PersistentMemoryRegion,
-            requires
-                old(wrpm_region).inv(),
-                // TODO: item invalidation must have been logged
-            ensures
-                wrpm_region.inv(),
-                // TODO
-        {
-            assume(false);
-            let item_slot_size = (self.item_size as usize + traits_t::size_of::<u64>() + traits_t::size_of::<u64>()) as u64;
-            let item_slot_offset = ABSOLUTE_POS_OF_TABLE_AREA + item_table_index * item_slot_size;
-            wrpm_region.serialize_and_write(item_slot_offset + RELATIVE_POS_OF_VALID_CDB, &CDB_FALSE, Tracked(perm));
             Ok(())
         }
 
