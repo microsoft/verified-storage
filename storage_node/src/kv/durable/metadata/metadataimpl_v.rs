@@ -1,8 +1,9 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::div_mod::lemma_fundamental_div_mod;
-use vstd::arithmetic::mul::lemma_mul_strict_inequality;
+use vstd::arithmetic::mul::*;
 use vstd::set_lib::*;
+use vstd::slice::*;
 use vstd::seq_lib::*;
 use std::fs::Metadata;
 use std::hash::Hash;
@@ -1219,19 +1220,18 @@ verus! {
             Ok(free_index)
         }
 
-        pub exec fn deallocate_entry<Perm, PM>(
+        pub exec fn deallocate_entry<PM>(
             &mut self,
-            wrpm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            pm_region: &PM,
             table_id: u128,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         ) -> (result: Result<(), KvError<K>>)
             where 
-                Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires 
-                old(self).inv(wrpm_region@, overall_metadata),
-                wrpm_region@.no_outstanding_writes(),
+                old(self).inv(pm_region@, overall_metadata),
+                pm_region@.no_outstanding_writes(),
                 // the given index is free but not in the free list 
                 0 <= index < old(self)@.len(),
                 old(self)@.len() == overall_metadata.num_keys,
@@ -1244,7 +1244,7 @@ verus! {
                     &&& i != index
                 } ==> (old(self).allocator_view().contains(i) <==> old(self).free_indices().contains(i)),
             ensures 
-                self.inv(wrpm_region@, overall_metadata),
+                self.inv(pm_region@, overall_metadata),
                 // We've reestabliished the allocator invariant
                 self.allocator_inv(overall_metadata),
         {
@@ -1263,16 +1263,91 @@ verus! {
                 // to prove that we maintain the invariant
                 assert(self.outstanding_cdb_writes == old(self).outstanding_cdb_writes);
                 assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_cdb_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size) == 
-                        self.outstanding_cdb_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size));
+                    old(self).outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) == 
+                        self.outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size));
             
                 assert(self.outstanding_entry_writes == old(self).outstanding_entry_writes);
                 assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_entry_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size) == 
-                        self.outstanding_entry_write_matches_pm_view(wrpm_region@, i, overall_metadata.metadata_node_size));
+                    old(self).outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) == 
+                        self.outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size));
             }
 
             Ok(())
+        }
+
+        pub exec fn get_delete_log_entry<PM>(
+            &self,
+            pm_region: &PM,
+            index: u64,
+            overall_metadata: OverallMetadata,
+        ) -> (log_entry: PhysicalOpLogEntry)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                self.inv(pm_region@, overall_metadata),
+                self.allocator_inv(overall_metadata),
+                0 <= index < self@.len(),
+                // the index must refer to a currently-valid entry
+                self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= pm_region@.len() <= u64::MAX,
+                pm_region@.len() == overall_metadata.region_size,
+                ({
+                    ||| overall_metadata.main_table_addr < overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.log_area_addr
+                    ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.main_table_addr
+                }),
+            ensures 
+                log_entry@.inv(overall_metadata),
+                // if we were to install this log entry, it would have the same effect
+                // as deleting the record rooted at the given index. We only talk about the specific
+                // entry being deleted here because other parts of the table may have changed 
+                // by the time we replay this log entry, so the postcondition shouldn't mention
+                // any specific entire-table state.
+                ({
+                    let absolute_addr = log_entry.absolute_addr;
+                    let bytes = log_entry.bytes@;
+                    let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
+                    let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+                    let new_entry_bytes = extract_bytes(new_pm.committed(), 
+                        (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+                    &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
+                    &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
+                })
+        {
+            // We don't have to concretely read anything from PM to put together this log entry.
+            // We just need to calculate the correct offset and create the log entry with the correct
+            // values.
+
+            let entry_slot_size = traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + traits_t::size_of::<K>();
+
+            // Proves that index * entry_slot_size will not overflow
+            proof { lemma_mul_strict_inequality(index as int, overall_metadata.num_keys as int, entry_slot_size as int); }
+            
+            let index_offset = index * entry_slot_size as u64;
+            let absolute_addr = overall_metadata.main_table_addr + index_offset;
+
+            let bytes = slice_to_vec(CDB_FALSE.as_byte_slice());
+
+            let log_entry = PhysicalOpLogEntry {
+                absolute_addr,
+                len: traits_t::size_of::<u64>() as u64,
+                bytes
+            };
+
+            proof {
+                broadcast use pmcopy_axioms;
+                let absolute_addr = log_entry.absolute_addr;
+                let bytes = log_entry.bytes@;
+                let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
+                let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+                let new_entry_bytes = extract_bytes(new_pm.committed(), 
+                    (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+                let new_cdb_bytes = extract_bytes(new_entry_bytes, 0, u64::spec_size_of());
+                lemma_mul_inequality(index + 1, overall_metadata.num_keys as int, entry_slot_size as int);
+                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
+                lemma_subrange_of_extract_bytes_equal(new_pm.committed(), (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat, u64::spec_size_of());
+                assert(new_cdb_bytes == CDB_FALSE.spec_to_bytes());
+            }
+            log_entry
         }
 
 /* Temporarily commented out for subregion work
