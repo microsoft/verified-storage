@@ -59,6 +59,14 @@ verus! {
             }
         }
 
+        pub open spec fn drop_pending_appends(self) -> Self 
+        {
+            Self {
+                physical_op_list: Seq::empty(),
+                op_list_committed: false,
+            }
+        }
+
         pub open spec fn tentatively_append_log_entry(
             self,
             // logical_log_entry: LogicalOpLogEntry<L>,
