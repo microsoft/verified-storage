@@ -1009,6 +1009,7 @@ verus! {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s1, overall_metadata) == Some(AbstractOpLogState::initialize())
                 &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2),
             log_entry.len == log_entry.bytes@.len(),
@@ -1019,8 +1020,6 @@ verus! {
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
-                // &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
-                // &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
             }),
         ensures 
             match result {

@@ -151,6 +151,19 @@ verus! {
             }
         }
 
+        pub open spec fn delete(self, offset: int) -> Result<Self, KvError<K>>
+        {
+            if !self.contents.contains_key(offset) {
+                Err(KvError::KeyNotFound)
+            } else {
+                Ok(
+                    Self {
+                        contents: self.contents.remove(offset)
+                    }
+                )
+            }
+        }
+
         pub open spec fn valid(self) -> bool
         {
             true
