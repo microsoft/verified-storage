@@ -1182,8 +1182,9 @@ impl UntrustedLogImpl {
         // connects those together is that they both talk about the
         // same addresses in the log area.
 
-        assert (info_consistent_with_log_area(wrpm_region@.flush(), log_start_addr as nat, log_size as nat, self.info, self.state@)) by {
-            lemma_addresses_in_log_area_correspond_to_relative_log_positions(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info);
+        proof {
+            lemma_log_area_consistent_with_new_info_and_state_advance_head(wrpm_region@, log_start_addr as nat, log_size as nat, new_head as int,
+                prev_info, self.info, prev_state, self.state@);
         }
 
         // Update the inactive metadata on all regions and flush, then

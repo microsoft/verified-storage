@@ -265,6 +265,63 @@ pub proof fn lemma_addresses_in_log_area_correspond_to_relative_log_positions(
             }
 {}
 
+pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
+    pm_region_view: PersistentMemoryRegionView, 
+    log_start_addr: nat,
+    log_size: nat,
+    new_head: int,
+    prev_info: LogInfo,
+    info: LogInfo,
+    prev_state: AbstractLogState,
+    state: AbstractLogState, 
+)
+    requires 
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
+        state == prev_state.advance_head(new_head),
+        // the rest of the precondition is parts of info_consistent_with_log_area that we already know
+        // are satisfied
+        pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
+        info.log_area_len == prev_info.log_area_len,
+        info.head == new_head,
+        info.log_length <= info.log_plus_pending_length <= info.log_area_len,
+        ({
+            let amount_of_advancement = new_head - prev_info.head;
+            let new_head_log_area_offset =
+            if amount_of_advancement < prev_info.log_area_len - prev_info.head_log_area_offset {
+                amount_of_advancement + prev_info.head_log_area_offset
+            }
+            else {
+                amount_of_advancement - (prev_info.log_area_len - prev_info.head_log_area_offset)
+            };
+            &&& info.log_length == prev_info.log_length - amount_of_advancement
+            &&& info.log_plus_pending_length == prev_info.log_plus_pending_length - amount_of_advancement 
+        }),
+        info.head_log_area_offset == info.head % info.log_area_len as u128,
+        info.head + info.log_plus_pending_length <= u128::MAX,
+        state.log.len() == info.log_length,
+        state.pending.len() == info.log_plus_pending_length - info.log_length,
+        forall |pos_relative_to_head: int| {
+            let log_area_offset =
+                #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                info.head_log_area_offset as int,
+                                                                info.log_area_len as int);
+            let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+            let pmb = pm_region_view.flush().state[absolute_addr];
+            &&& 0 <= pos_relative_to_head < info.log_length ==> {
+                    &&& pmb.state_at_last_flush == state.log[pos_relative_to_head]
+                    &&& pmb.outstanding_write.is_none()
+                }
+            &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
+                    pmb.flush_byte() == state.pending[pos_relative_to_head - info.log_length]
+            &&& info.log_plus_pending_length <= pos_relative_to_head < info.log_area_len ==>
+                    pmb.outstanding_write.is_none()
+        }
+    ensures 
+        info_consistent_with_log_area(pm_region_view.flush(), log_start_addr, log_size, info, state)
+{
+    lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
+}
+
 pub proof fn lemma_auto_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)
     requires
         mem1 == mem2 
