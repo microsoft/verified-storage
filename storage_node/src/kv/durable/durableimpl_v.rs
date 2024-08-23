@@ -82,6 +82,11 @@ verus! {
             Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@)
         }
 
+        pub closed spec fn tentative_view(self, mem: Seq<u8>) -> Option<DurableKvStoreView<K, I, L>>
+        {
+            Self::physical_recover_after_committing_log(mem, self.overall_metadata, self.log@)
+        }
+
         pub closed spec fn constants(self) -> PersistentMemoryConstants
         {
             self.wrpm.constants()
