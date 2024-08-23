@@ -1070,13 +1070,8 @@ verus! {
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| {
-                    ||| Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ||| {
-                        let del_self = old(self)@.delete(index as int);
-                        &&& del_self matches Ok(del_self)
-                        &&& Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(del_self)
-                    } 
-                } <==> #[trigger] perm.check_permission(s),
+                    Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
+                } ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
             ensures 
                 self.valid(),
@@ -1090,7 +1085,9 @@ verus! {
                         true
                     }
                     Err(e) => {
-                        true // TODO
+                        // transaction has been aborted due to an error in the log
+                        // this drops all outstanding modifications to the kv store
+                        true
                     }
                 }
         {
@@ -1108,6 +1105,10 @@ verus! {
 
             assert(self.log.inv(self.wrpm, self.overall_metadata));
 
+            let ghost crash_pred = |s: Seq<u8>| {
+                Self::physical_recover(s, self.overall_metadata) == Some(self@)
+            };
+
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
                 assert(old(self).wrpm_view() == self.wrpm@); // this assertion is required to hit the trigger
@@ -1121,11 +1122,11 @@ verus! {
 
                 assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                     &&& s1.len() == s2.len() 
-                    &&& #[trigger] perm.check_permission(s1)
+                    &&& #[trigger] crash_pred(s1)
                     &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                     &&& UntrustedOpLog::<K, L>::recover(s1, self.overall_metadata) == Some(AbstractOpLogState::initialize())
                     &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                } implies #[trigger] perm.check_permission(s2) by {
+                } implies #[trigger] crash_pred(s2) by {
                    
                     // Caller has permission to crash into s1. 
                     // We don't change anything but the log, and the log state stays the same, then we stay in the same state.
@@ -1149,22 +1150,22 @@ verus! {
                     assert(item_table_region_s2 == item_table_region_s1);
                     assert(list_area_region_s2 == list_area_region_s1);
 
-                    if Self::physical_recover(s1, self.overall_metadata) == Some(self@) {
-                        assert(Self::physical_recover(s2, self.overall_metadata) == Some(self@));
-                    } else {
-                        let del_self = self@.delete(index as int);
-                        assert(del_self matches Ok(del_self));
-                        assert(Self::physical_recover(s2, self.overall_metadata) == Some(del_self.unwrap()));
-                    }
+                    assert(Self::physical_recover(s1, self.overall_metadata) == Some(self@));
+                    assert(Self::physical_recover(s2, self.overall_metadata) == Some(self@));
                 }
             }
 
             // then append it to the operation log
-            let _ = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            match result {
+                Ok(()) => {}
+                Err(_) => {
+                    // transaction aborted
+                }
+            }
 
             assume(false);
             Err(KvError::NotImplemented)
-
         }
 
 /*

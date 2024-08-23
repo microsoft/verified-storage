@@ -989,6 +989,7 @@ verus! {
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_entry: PhysicalOpLogEntry,
         overall_metadata: OverallMetadata,
+        Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where 
@@ -1003,15 +1004,15 @@ verus! {
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                perm.check_permission(s),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] perm.check_permission(s1)
+                &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& Self::recover(s1, overall_metadata) == Some(AbstractOpLogState::initialize())
                 &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
-            } ==> #[trigger] perm.check_permission(s2),
+            } ==> #[trigger] crash_pred(s2),
+            forall |s| crash_pred(s) ==> perm.check_permission(s),
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
             ({
@@ -1089,6 +1090,7 @@ verus! {
             overall_metadata.log_area_addr, 
             overall_metadata.log_area_size, 
             absolute_addr.as_byte_slice(),
+            Ghost(crash_pred),
             Tracked(perm)
         );
         
@@ -1137,6 +1139,7 @@ verus! {
             overall_metadata.log_area_addr, 
             overall_metadata.log_area_size, 
             len.as_byte_slice(),
+            Ghost(crash_pred),
             Tracked(perm)
         );
         match result {
@@ -1177,6 +1180,7 @@ verus! {
             overall_metadata.log_area_addr, 
             overall_metadata.log_area_size, 
             bytes,
+            Ghost(crash_pred),
             Tracked(perm)
         );
         match result {
@@ -1237,6 +1241,7 @@ verus! {
         &mut self, 
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         overall_metadata: OverallMetadata,
+        Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where 
@@ -1250,7 +1255,7 @@ verus! {
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.flush().committed();
                 &&& flushed_state.len() == s2.len() 
@@ -1262,10 +1267,11 @@ verus! {
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] perm.check_permission(s1)
+                &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
-            } ==> #[trigger] perm.check_permission(s2),
+            } ==> #[trigger] crash_pred(s2),
+            forall |s| crash_pred(s) ==> perm.check_permission(s),
         ensures 
             self.inv(*log_wrpm, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1315,7 +1321,7 @@ verus! {
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
-        match self.log.tentatively_append(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, bytes, Tracked(perm)) {
+        match self.log.tentatively_append(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, bytes, Ghost(crash_pred), Tracked(perm)) {
             Ok(_) => {}
             Err(e) => {
                 self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
@@ -1346,7 +1352,7 @@ verus! {
             assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
         }
         
-        match self.log.commit(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, Tracked(perm)) {
+        match self.log.commit(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, Ghost(crash_pred), Tracked(perm)) {
             Ok(_) => {}
             Err(e) => {
                 assert(false);
@@ -1371,6 +1377,7 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         overall_metadata: OverallMetadata,
+        Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
         where
@@ -1385,7 +1392,7 @@ verus! {
             Self::recover(old(log_wrpm)@.committed(), overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, overall_metadata) == Some(old(self)@),
-            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
@@ -1397,10 +1404,11 @@ verus! {
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
-                &&& #[trigger] perm.check_permission(s1)
+                &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& Self::recover(s2, overall_metadata) == Some(old(self)@)
-            } ==> #[trigger] perm.check_permission(s2),
+            } ==> #[trigger] crash_pred(s2),
+            forall |s| crash_pred(s) ==> perm.check_permission(s),
         ensures 
             self.inv(*log_wrpm, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1429,7 +1437,7 @@ verus! {
         }
 
         // Now, advance the head to the tail. Verus is able to prove the required crash preconditions on its own
-        match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Tracked(perm)) {
+        match self.log.advance_head(log_wrpm, tail, log_start_addr, log_size, Ghost(crash_pred), Tracked(perm)) {
             Ok(()) => {}
             Err(e) => {
                 assert(false);
