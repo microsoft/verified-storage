@@ -1079,8 +1079,9 @@ verus! {
             // this is all the stuff you have to prove to call append.
             // some of this may be part of the op log invariant but has to be revealed.
 
-            assume(UntrustedOpLog::<K, L>::parse_log_ops(old(self).log.base_log_view().pending, self.overall_metadata.log_area_addr as nat, 
-                self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat) is Some);
+            proof {
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+            }
 
             assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
                 UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
@@ -1093,15 +1094,6 @@ verus! {
                 &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                 &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata)== Some(AbstractOpLogState::initialize())
             } ==> #[trigger] perm.check_permission(s2));
-
-            proof {
-                let pending_bytes = self.log.base_log_view().pending;
-                let log_ops = UntrustedOpLog::<K, L>::parse_log_ops(pending_bytes, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat, self.overall_metadata.region_size as nat);
-                assume(log_ops.unwrap() == self.log@.physical_op_list);
-                assume(pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX);
-                assume(pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
-            }
 
             // then append it to the operation log
             let _ = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
