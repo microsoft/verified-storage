@@ -131,6 +131,23 @@ verus! {
             self.log@.op_list_committed
         }
 
+        pub closed spec fn wrpm_view(self) -> PersistentMemoryRegionView
+        {
+            self.wrpm@
+        }
+
+        pub closed spec fn spec_overall_metadata(self) -> OverallMetadata
+        {
+            self.overall_metadata
+        }
+
+        pub exec fn get_overall_metadata(&self) -> (out: OverallMetadata)
+            ensures 
+                out == self.spec_overall_metadata()
+        {
+            self.overall_metadata
+        }
+
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
@@ -1041,9 +1058,15 @@ verus! {
                 old(self).valid(),
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
+                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
+                // TODO: update once how we represent durable vs. tentative state here has stabilized
+                // we can only crash into the current durable KV store state
+                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
+                    Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
+                self.spec_overall_metadata() == old(self).spec_overall_metadata(),
                 match result {
                     Ok(()) => {
                         // if we commit, then crash and replay the log, 
@@ -1070,17 +1093,21 @@ verus! {
 
             assert(self.log.inv(self.wrpm, self.overall_metadata));
 
-            // this is all the stuff you have to prove to call append.
-            // some of this may be part of the op log invariant but has to be revealed.
-
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+                assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies 
+                    Self::physical_recover(s, self.overall_metadata) == Some(self@) ==>
+                        UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                by {
+                    self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, s, self.overall_metadata);
+                }
             }
 
-            assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
-                UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+            assert(old(self).wrpm_view() == self.wrpm@); // this assertion is required to hit the trigger
+            assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s));
 
-            assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s));
+            assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
 
             assume(forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
@@ -1096,53 +1123,6 @@ verus! {
             Err(KvError::NotImplemented)
 
         }
-
-        // pub fn tentative_delete(
-        //     &mut self,
-        //     metadata_index: u64,
-        //     kvstore_id: u128,
-        //     Tracked(perm): Tracked<&TrustedKvPermission<PM, K, I, L>>,
-        // ) -> (result: Result<(), KvError<K>>)
-        //     requires
-        //         old(self).valid(),
-        //         self@.contains_key(metadata_index as int),
-        //     ensures
-        //         self.valid(),
-        //         self.constants() == old(self).constants(),
-        //         match result {
-        //             Ok(()) => {
-        //                 self@[metadata_index as int].is_None()
-        //             }
-        //             Err(_) => true // TODO
-        //         }
-        // {
-        //     assume(false);
-
-        //     // TODO: could get rid of item valid/invalid IF we had another way to determine 
-        //     // if they are allocated (like getting that info from the metadata table)
-
-        //     // TODO: DEALLOCATE LIST NODES
-
-        //     // 1. look up the item index so that we can invalidate it 
-        //     let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
-        //         self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
-        //     let item_index = metadata.item_index;
-
-        //     // 2. Log the item and metadata invalidation
-        //     let item_invalidate = OpLogEntryType::ItemTableEntryInvalidate { item_index };
-        //     let metadata_invalidate = OpLogEntryType::InvalidateMetadataEntry { metadata_index };
-
-        //     let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-        //     self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_invalidate, Tracked(&fake_log_perm))?;
-        //     self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_invalidate, Tracked(&fake_log_perm))?;
-
-        //     // 3. Add pending log entries to list
-        //     self.pending_updates.push(item_invalidate);
-        //     self.pending_updates.push(metadata_invalidate);
-
-        //     Ok(())
-        // }
-
 
 /*
         // Commits all pending updates by committing the log and applying updates to 

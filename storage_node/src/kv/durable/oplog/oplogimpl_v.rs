@@ -158,6 +158,31 @@ verus! {
             }
         }
 
+        pub proof fn lemma_if_not_committed_recovery_equals_drop_pending_appends<Perm, PM>(
+            self, 
+            pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            crash_state: Seq<u8>,
+            overall_metadata: OverallMetadata,
+        )
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires
+                self.inv(pm_region, overall_metadata),
+                UntrustedOpLog::<K, L>::recover(crash_state, overall_metadata) is Some,
+                !self@.op_list_committed,
+                pm_region@.can_crash_as(crash_state),
+            ensures 
+                self@.drop_pending_appends() == UntrustedOpLog::<K, L>::recover(crash_state, overall_metadata).unwrap()
+        {
+            // The base log is empty
+            assert(self.log@.log.len() == 0);
+            let base_log_recover_state = UntrustedLogImpl::recover(crash_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+            assert(base_log_recover_state is Some);
+            self.log.lemma_all_crash_states_recover_to_drop_pending_appends(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+            assert(base_log_recover_state.unwrap() == self.log@.drop_pending_appends());
+        }
+
         proof fn lemma_parse_up_to_offset_succeeds(
             offset: nat,
             pm_region: PersistentMemoryRegionView,
