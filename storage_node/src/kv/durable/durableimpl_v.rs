@@ -134,44 +134,50 @@ verus! {
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
-            let recovered_log = UntrustedOpLog::<K, L>::recover(mem, overall_metadata);
-            if let Some(recovered_log) = recovered_log {
-                // First, replay the physical log
-                let physical_log_entries = recovered_log.physical_op_list;
-                let mem_with_log_installed = Self::apply_physical_log_entries(mem, physical_log_entries);
-                if let Some(mem_with_log_installed) = mem_with_log_installed {
-                    // Then, parse the individual components from the updated mem
-                    let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                    let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+            match UntrustedOpLog::<K, L>::recover(mem, overall_metadata) {
+                Some(recovered_log) => Self::physical_recover_given_log(mem, overall_metadata, recovered_log),
+                None => None,
+            }
+        }
 
-                    let main_table_view = parse_metadata_table::<K>(
-                        main_table_region, 
-                        overall_metadata.num_keys,
-                        overall_metadata.metadata_node_size
+        pub open spec fn physical_recover_after_committing_log(mem: Seq<u8>, overall_metadata: OverallMetadata, oplog: AbstractOpLogState) -> Option<DurableKvStoreView<K, I, L>> {
+            Self::physical_recover_given_log(mem, overall_metadata, oplog.commit_op_log())
+        }
+
+        pub open spec fn physical_recover_given_log(mem: Seq<u8>, overall_metadata: OverallMetadata, recovered_log: AbstractOpLogState) -> Option<DurableKvStoreView<K, I, L>> {
+            // First, replay the physical log
+            let physical_log_entries = recovered_log.physical_op_list;
+            let mem_with_log_installed = Self::apply_physical_log_entries(mem, physical_log_entries);
+            if let Some(mem_with_log_installed) = mem_with_log_installed {
+                // Then, parse the individual components from the updated mem
+                let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+
+                let main_table_view = parse_metadata_table::<K>(
+                    main_table_region, 
+                    overall_metadata.num_keys,
+                    overall_metadata.metadata_node_size
+                );
+                if let Some(main_table_view) = main_table_view {
+                    let item_table_view = parse_item_table::<I, K>(
+                        item_table_region,
+                        overall_metadata.num_keys as nat,
+                        main_table_view.valid_item_indices()
                     );
-                    if let Some(main_table_view) = main_table_view {
-                        let item_table_view = parse_item_table::<I, K>(
-                            item_table_region,
-                            overall_metadata.num_keys as nat,
-                            main_table_view.valid_item_indices()
+                    if let Some(item_table_view) = item_table_view {
+                        let list_view = DurableList::<K, L>::parse_all_lists(
+                            main_table_view,
+                            list_area_region,
+                            overall_metadata.list_node_size,
+                            overall_metadata.num_list_entries_per_node
                         );
-                        if let Some(item_table_view) = item_table_view {
-                            let list_view = DurableList::<K, L>::parse_all_lists(
-                                main_table_view,
-                                list_area_region,
-                                overall_metadata.list_node_size,
-                                overall_metadata.num_list_entries_per_node
-                            );
-                            if let Some(list_view) = list_view {
-                                Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
-                            } else {
-                                None
-                            }
-                        } else { 
+                        if let Some(list_view) = list_view {
+                            Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                        } else {
                             None
                         }
-                    } else {
+                    } else { 
                         None
                     }
                 } else {
