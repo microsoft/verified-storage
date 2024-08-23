@@ -1069,6 +1069,15 @@ verus! {
                 // we can only crash into the current durable KV store state
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@),
+                forall |s| {
+                    ||| Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
+                    ||| {
+                        let del_self = old(self)@.delete(index as int);
+                        &&& del_self matches Ok(del_self)
+                        &&& Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(del_self)
+                    } 
+                } <==> #[trigger] perm.check_permission(s),
+                Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -1101,26 +1110,54 @@ verus! {
 
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+                assert(old(self).wrpm_view() == self.wrpm@); // this assertion is required to hit the trigger
+
                 assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies 
                     Self::physical_recover(s, self.overall_metadata) == Some(self@) ==>
                         UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize())
                 by {
                     self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, s, self.overall_metadata);
                 }
+
+                assert forall |s1: Seq<u8>, s2: Seq<u8>| {
+                    &&& s1.len() == s2.len() 
+                    &&& #[trigger] perm.check_permission(s1)
+                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& UntrustedOpLog::<K, L>::recover(s1, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                } implies #[trigger] perm.check_permission(s2) by {
+                   
+                    // Caller has permission to crash into s1. 
+                    // We don't change anything but the log, and the log state stays the same, then we stay in the same state.
+                    // It doesn't actually matter what s1 recovers to, just that it is legal.
+
+                    let recovered_log = AbstractOpLogState::initialize();
+                    let mem_with_log_installed_s1 = Self::apply_physical_log_entries(s1, recovered_log.physical_op_list).unwrap();
+                    assert(mem_with_log_installed_s1 == s1);
+                    let mem_with_log_installed_s2 = Self::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
+                    assert(mem_with_log_installed_s2 == s2);
+                    
+                    let main_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    let item_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                    let list_area_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                    
+                    let main_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    let item_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                    let list_area_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+
+                    assert(main_table_region_s2 == main_table_region_s1);
+                    assert(item_table_region_s2 == item_table_region_s1);
+                    assert(list_area_region_s2 == list_area_region_s1);
+
+                    if Self::physical_recover(s1, self.overall_metadata) == Some(self@) {
+                        assert(Self::physical_recover(s2, self.overall_metadata) == Some(self@));
+                    } else {
+                        let del_self = self@.delete(index as int);
+                        assert(del_self matches Ok(del_self));
+                        assert(Self::physical_recover(s2, self.overall_metadata) == Some(del_self.unwrap()));
+                    }
+                }
             }
-
-            assert(old(self).wrpm_view() == self.wrpm@); // this assertion is required to hit the trigger
-            assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s));
-
-            assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
-                UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
-
-            assume(forall |s1: Seq<u8>, s2: Seq<u8>| {
-                &&& s1.len() == s2.len() 
-                &&& #[trigger] perm.check_permission(s1)
-                &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata)== Some(AbstractOpLogState::initialize())
-            } ==> #[trigger] perm.check_permission(s2));
 
             // then append it to the operation log
             let _ = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));

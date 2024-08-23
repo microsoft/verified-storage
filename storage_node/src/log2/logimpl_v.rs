@@ -560,6 +560,7 @@ impl UntrustedLogImpl {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
             } ==> #[trigger] perm.check_permission(s2),
         ensures
@@ -813,6 +814,7 @@ impl UntrustedLogImpl {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] perm.check_permission(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
             } ==> #[trigger] perm.check_permission(s2),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
