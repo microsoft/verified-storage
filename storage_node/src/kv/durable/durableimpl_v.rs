@@ -1104,7 +1104,7 @@ verus! {
             }
 
             // then append it to the operation log
-            self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
+            let _ = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Tracked(perm));
 
             assume(false);
             Err(KvError::NotImplemented)
