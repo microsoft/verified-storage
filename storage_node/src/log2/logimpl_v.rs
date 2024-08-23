@@ -6,6 +6,7 @@ use vstd::arithmetic::{mul::*, div_mod::*};
 
 use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::KvError;
+use crate::kv::layout_v::*;
 use crate::pmem::{pmemspec_t::*, pmcopy_t::*, pmemutil_v::*, wrpm_t::*, subregion_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::log2::{append_v::*, layout_v::*, logspec_t::*, start_v::*, inv_v::*};
 use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegion;
@@ -90,6 +91,19 @@ impl UntrustedLogImpl {
         }
     }
 
+    pub exec fn get_pending_len<Perm, PM>(&self, wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: &OverallMetadata) -> (out: u64)
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            self.inv(*wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+        ensures 
+            out == self.spec_info().log_plus_pending_length - self.spec_info().log_length,
+            out == self@.pending.len(),
+    {
+        self.info.log_plus_pending_length - self.info.log_length
+    }
+
     // This specification function indicates whether a given view of
     // memory can only crash in a way that, after recovery, leads to a
     // certain abstract state.
@@ -127,6 +141,8 @@ impl UntrustedLogImpl {
         &&& info_consistent_with_log_area(pm@, log_start_addr, log_size, self.info, self.state@)
         &&& Self::can_only_crash_as_state(pm@, log_start_addr, log_size, self.state@.drop_pending_appends())
         &&& metadata_types_set(pm@.committed(), log_start_addr)
+        &&& self.info.log_plus_pending_length >= self.info.log_length
+        &&& self.info.log_plus_pending_length - self.info.log_length == self.state@.pending.len()
     }
 
     pub proof fn lemma_same_bytes_preserve_log_invariant<Perm, PM>(
@@ -203,23 +219,6 @@ impl UntrustedLogImpl {
             self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
                     pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
         });
-
-        // assert(forall |pos_relative_to_head: int| {
-        //     let log_area_offset =
-        //         #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
-        //                                                         self.info.head_log_area_offset as int,
-        //                                                         self.info.log_area_len as int);
-        //     let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
-        //     let pmb = wrpm2@.state[absolute_addr];
-        //     // &&& log_start_addr <= absolute_addr < log_start_addr + log_size
-        //     // &&& pmb.outstanding_write is None
-        //     // &&& pmb == wrpm1@.state[absolute_addr]
-        //     // &&& self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
-        //     //         pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
-        //     &&& self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
-        //             pmb.flush_byte() == self.state@.pending[pos_relative_to_head - self.info.log_length]
-        // });
-
 
         assert(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@));
     }

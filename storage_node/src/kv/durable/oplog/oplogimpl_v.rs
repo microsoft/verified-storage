@@ -82,6 +82,22 @@ verus! {
             &&& no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat)
         }
 
+        pub proof fn lemma_reveal_opaque_op_log_inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: OverallMetadata)
+            where 
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+            requires
+                self.inv(pm_region, overall_metadata)
+            ensures 
+                !self@.op_list_committed ==> {
+                    let pending_bytes = self.base_log_view().pending;
+                    let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
+                        overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    &&& log_ops is Some 
+                    &&& log_ops.unwrap() == self@.physical_op_list
+                }
+        {}
+
         pub closed spec fn view(self) -> AbstractOpLogState
         {
             self.state@
@@ -978,8 +994,8 @@ verus! {
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
-                &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
-                &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
+                // &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
+                // &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
             }),
         ensures 
             match result {
@@ -991,7 +1007,7 @@ verus! {
                     &&& self.inv(*log_wrpm, overall_metadata)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                 }
-                Err(KvError::LogErr { log_err: e }) => {
+                Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
                     &&& self.base_log_view().pending.len() == 0
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
@@ -1004,6 +1020,7 @@ verus! {
     {
         let ghost log_start_addr = overall_metadata.log_area_addr as nat;
         let ghost log_size = overall_metadata.log_area_size as nat;
+        let ghost old_wrpm = log_wrpm@;
         
         // this assert is sufficient to hit the triggers we need to prove that the log entries
         // are all valid after appending the new one
@@ -1012,11 +1029,29 @@ verus! {
             op.inv(overall_metadata)
         });
 
+        let pending_len = self.log.get_pending_len(log_wrpm, &overall_metadata);
+        if {
+            ||| pending_len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2 
+            ||| log_entry.len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2
+            ||| pending_len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2 - log_entry.len
+        } {
+            self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
+            self.current_transaction_crc = CrcDigest::new();
+            self.state = Ghost(AbstractOpLogState {
+                physical_op_list: Seq::empty(),
+                op_list_committed: false
+            });
+            return Err(KvError::OutOfSpace);
+        } 
+
         proof {
-            assert(log_entry.inv(overall_metadata));
+            broadcast use pmcopy_axioms;
+            assert(pending_len == self.log@.pending.len());
+            assert(pending_len + u64::spec_size_of() * 2 <= u64::MAX);
+            assert(pending_len + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
+
             // before we append anything, prove that appending this entry will maintain the loop invariant
             self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, overall_metadata);
-
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
@@ -1032,6 +1067,7 @@ verus! {
             absolute_addr.as_byte_slice(),
             Tracked(perm)
         );
+        
         match result {
             Ok(_) => {}
             Err(e) => {
