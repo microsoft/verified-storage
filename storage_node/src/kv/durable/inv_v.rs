@@ -2,7 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::log2::inv_v::lemma_same_bytes_recover_to_same_state;
-use crate::{kv::layout_v::OverallMetadata, pmem::pmemspec_t::*, DurableKvStore};
+use crate::{kv::layout_v::*, pmem::pmemspec_t::*, DurableKvStore};
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;
@@ -330,5 +330,12 @@ verus! {
             })
 
     {}
+    
+    pub open spec fn no_outstanding_writes_to_version_metadata(
+        pm_region: PersistentMemoryRegionView,
+    ) -> bool 
+    {
+        pm_region.no_outstanding_writes_in_range(0, VersionMetadata::spec_size_of() as int)
+    }
             
 }

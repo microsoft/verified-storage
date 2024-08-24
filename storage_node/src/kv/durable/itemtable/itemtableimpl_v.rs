@@ -82,7 +82,7 @@ verus! {
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
-                &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
+                &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
             }
         }
 
@@ -229,7 +229,7 @@ verus! {
                        Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.committed()[item_addrs[i]]));
                 assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
                 assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
-                assert(self@.durable_item_table[item_table_index as int] == parse_metadata_entry::<I, K>(entry_bytes));
+                assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
             }
 
             let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
@@ -339,7 +339,7 @@ verus! {
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
-                &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
+                &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
             } by {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);

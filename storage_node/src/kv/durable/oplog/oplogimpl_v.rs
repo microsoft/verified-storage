@@ -2,7 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use crate::{
-    kv::{durable::{metadata::layout_v::*, oplog::{logentry_v::*, oplogspec_t::*}},
+    kv::{durable::{metadata::layout_v::*, oplog::{logentry_v::*, oplogspec_t::*}, inv_v::*},
             kvimpl_t::*, layout_v::*},
     log2::{logimpl_v::*, logspec_t::*, layout_v::*, inv_v::*},
     pmem::{pmemspec_t::*, wrpm_t::*, pmemutil_v::*, pmcopy_t::*, traits_t, crc_t::*},
@@ -1023,6 +1023,12 @@ verus! {
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
             }),
         ensures 
+            log_wrpm.constants() == old(log_wrpm).constants(),
+            log_wrpm@.len() == old(log_wrpm)@.len(),
+            log_wrpm.inv(),
+            Self::recover(log_wrpm@.committed(), overall_metadata) is Some,
+            Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
+            no_outstanding_writes_to_version_metadata(log_wrpm@),
             match result {
                 Ok(()) => {
                     // We only maintain the invariant in the success case because an error appending to 
@@ -1031,6 +1037,8 @@ verus! {
                     // be able to commit it later anyway.
                     &&& self.inv(*log_wrpm, overall_metadata)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
+                    &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
+                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
                     &&& self.base_log_view().pending.len() == 0

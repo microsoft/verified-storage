@@ -1276,12 +1276,57 @@ verus! {
             Ok(())
         }
 
+        // pub open spec fn applying_log_entry_deletes_entry(
+        //     pm_region: PersistentMemoryRegionView,
+        //     // current_tentative_view: Seq<u8>,
+        //     index: int,
+        //     log_entry: PhysicalOpLogEntry,
+        //     overall_metadata: OverallMetadata,
+        // ) -> bool 
+        // {
+        //     let absolute_addr = log_entry.absolute_addr;
+        //     let bytes = log_entry.bytes@;
+        //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+
+        //     // forall |pm: PersistentMemoryRegionView| {
+        //     //     &&& pm.no_outstanding_writes()
+        //     //     &&& parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, 
+        //     //             overall_metadata.metadata_node_size) is Some
+        //     // } ==> {
+        //     //     let new_pm = #[trigger] pm.write(absolute_addr as int, bytes).flush();
+        //     //     let main_table_region = extract_bytes(new_pm.committed(), 
+        //     //             overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+        //     //     let metadata_table_view = parse_metadata_table::<K>(main_table_region,
+        //     //             overall_metadata.num_keys, overall_metadata.metadata_node_size);
+        //     //     &&& metadata_table_view matches Some(metadata_table_view)
+        //     //     &&& metadata_table_view.durable_metadata_table[index] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+        //     //     // let new_entry_bytes = extract_bytes(new_pm.flush().committed(), 
+        //     //     //     (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+        //     //     // &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
+        //     //     // &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
+        //     // }
+
+
+
+        //     let new_pm = pm_region.write(absolute_addr as int, bytes).flush();
+        //     // let metadata_table_view = parse_metadata_table::<K>(new_pm.committed(),
+        //     //         overall_metadata.num_keys, overall_metadata.metadata_node_size);
+        //     // &&& metadata_table_view matches Some(metadata_table_view)
+        //     // &&& metadata_table_view.durable_metadata_table[index as int] matches DurableEntry::Invalid
+        //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+        //     let new_entry_bytes = extract_bytes(new_pm.flush().committed(), 
+        //         (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+        //     &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
+        //     &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
+        // }
+
         pub exec fn get_delete_log_entry<PM>(
             &self,
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
             index: u64,
             overall_metadata: OverallMetadata,
+            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         ) -> (log_entry: PhysicalOpLogEntry)
             where 
                 PM: PersistentMemoryRegion,
@@ -1296,21 +1341,40 @@ verus! {
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr,
             ensures 
                 log_entry@.inv(overall_metadata),
+                overall_metadata.main_table_addr <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                ({
+                    let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                            log_entry.bytes[pos - log_entry.absolute_addr]
+                        } else {
+                            pre_byte
+                        }
+                    );
+                    let main_table_region = extract_bytes(new_mem, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_metadata_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                }),
+
+
                 // if we were to install this log entry, it would have the same effect
                 // as deleting the record rooted at the given index. We only talk about the specific
                 // entry being deleted here because other parts of the table may have changed 
                 // by the time we replay this log entry, so the postcondition shouldn't mention
                 // any specific entire-table state.
-                ({
-                    let absolute_addr = log_entry.absolute_addr;
-                    let bytes = log_entry.bytes@;
-                    let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
-                    let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                    let new_entry_bytes = extract_bytes(new_pm.committed(), 
-                        (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
-                    &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
-                    &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
-                })
+                // Self::applying_log_entry_deletes_entry(pm_region@, index as int, log_entry, overall_metadata),
+                // ({
+                //     let absolute_addr = log_entry.absolute_addr;
+                //     let bytes = log_entry.bytes@;
+                //     let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
+                //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
+                //     let new_entry_bytes = extract_bytes(new_pm.committed(), 
+                //         (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+                //     &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
+                //     &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
+                // })
         {
             // We don't have to concretely read anything from PM to put together this log entry.
             // We just need to calculate the correct offset and create the log entry with the correct

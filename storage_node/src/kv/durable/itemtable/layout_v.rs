@@ -119,7 +119,7 @@ verus! {
 
     // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.
     // We do not require that any other entries have valid CRCs
-    pub open spec fn parse_metadata_entry<I, K>(bytes: Seq<u8>) -> Option<I>
+    pub open spec fn parse_item_entry<I, K>(bytes: Seq<u8>) -> Option<I>
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -161,7 +161,7 @@ verus! {
                         // TODO: probably can't have if {} in here
                         if i <= u64::MAX && valid_indices.contains(i as u64) {
                             let bytes = extract_bytes(mem, (i * item_entry_size) as nat, item_entry_size as nat);
-                            parse_metadata_entry::<I, K>(bytes)
+                            parse_item_entry::<I, K>(bytes)
                         } else {
                             None
                         }

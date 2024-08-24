@@ -82,9 +82,9 @@ verus! {
             Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@)
         }
 
-        pub closed spec fn tentative_view(self, mem: Seq<u8>) -> Option<DurableKvStoreView<K, I, L>>
+        pub closed spec fn tentative_view(self) -> Option<DurableKvStoreView<K, I, L>>
         {
-            Self::physical_recover_after_committing_log(mem, self.overall_metadata, self.log@)
+            Self::physical_recover_after_committing_log(self.wrpm@.flush().committed(), self.overall_metadata, self.log@)
         }
 
         pub closed spec fn constants(self) -> PersistentMemoryConstants
@@ -97,7 +97,7 @@ verus! {
             let pm_view = self.wrpm@;
             let mem = pm_view.committed();
             let physical_recovery_state = Self::physical_recover(mem, self.overall_metadata);
-            let logical_recovery_state = Self::logical_recover(mem, self.overall_metadata);
+            // let logical_recovery_state = Self::logical_recover(mem, self.overall_metadata);
             &&& self.wrpm.inv()
             &&& self.version_metadata == deserialize_version_metadata(mem)
             &&& self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr)
@@ -105,8 +105,8 @@ verus! {
                                                 self.overall_metadata.kvstore_id)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
             &&& physical_recovery_state matches Some(physical_recovery_state)
-            &&& logical_recovery_state matches Some(logical_recovery_state)
-            &&& physical_recovery_state == logical_recovery_state
+            // &&& logical_recovery_state matches Some(logical_recovery_state)
+            // &&& physical_recovery_state == logical_recovery_state
             &&& self.metadata_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
                                       self.overall_metadata)
@@ -293,6 +293,86 @@ verus! {
                 }
             }
         }
+
+        pub proof fn lemma_op_log_apply_equal(
+            start: int,
+            mid: int,
+            end: int,
+            mem: Seq<u8>,
+            op_log: Seq<AbstractPhysicalOpLogEntry>,
+            overall_metadata: OverallMetadata,
+        )
+            requires 
+                start <= mid <= end <= op_log.len(),
+                AbstractPhysicalOpLogEntry::log_inv(op_log, overall_metadata),
+                ({
+                    let applied_entries = op_log.subrange(start, mid);
+                    Self::apply_physical_log_entries(mem, applied_entries) is Some
+                })
+            ensures 
+                ({
+                    let applied_entries = op_log.subrange(start, mid);
+                    let all_entries = op_log.subrange(start, end);
+                    let last_op = op_log[end - 1];
+                    Self::apply_physical_log_entries(mem, all_entries) == 
+                        Self::apply_physical_log_entry(
+                            Self::apply_physical_log_entries(mem, applied_entries).unwrap(),
+                            last_op
+                        )
+                })
+            decreases end - start
+        {
+            // TODO
+            assume(false);
+        }
+
+        pub proof fn lemma_applying_same_log_preserves_states_differ_only_in_log_region(
+            mem1: Seq<u8>,
+            mem2: Seq<u8>,
+            op_log: Seq<AbstractPhysicalOpLogEntry>,
+            overall_metadata: OverallMetadata
+        )
+            requires
+                states_differ_only_in_log_region(mem1, mem2, overall_metadata.log_area_addr as nat,
+                    overall_metadata.log_area_size as nat),
+                mem1.len() == mem2.len(),
+                mem1.len() == overall_metadata.region_size,
+                AbstractPhysicalOpLogEntry::log_inv(op_log, overall_metadata),
+            ensures 
+                ({
+                    let mem1_with_log = Self::apply_physical_log_entries(mem1, op_log);
+                    let mem2_with_log = Self::apply_physical_log_entries(mem2, op_log);
+                    &&& mem1_with_log matches Some(mem1_with_log)
+                    &&& mem2_with_log matches Some(mem2_with_log)
+                    &&& states_differ_only_in_log_region(mem1_with_log, mem2_with_log, overall_metadata.log_area_addr as nat,
+                            overall_metadata.log_area_size as nat)
+                })
+        {
+            assume(false);
+        }
+
+        proof fn lemma_tentative_view_valid_after_appending_valid_log_entry(
+            self,
+            // old_pm_region: PersistentMemoryRegionView,
+            // new_pm_region: PersistentMemoryRegionView,
+            mem1: Seq<u8>,
+            mem2: Seq<u8>,
+            old_log: AbstractOpLogState,
+            new_log: AbstractOpLogState,
+            log_entry: PhysicalOpLogEntry,
+        )
+            requires 
+                new_log == old_log.tentatively_append_log_entry(log_entry@),
+                Self::physical_recover_given_log(mem1, self.overall_metadata, old_log.commit_op_log()) is Some,
+                log_entry.inv(self.overall_metadata),
+                states_differ_only_in_log_region(mem2, mem1, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+            ensures 
+                Self::physical_recover_given_log(mem2, self.overall_metadata, new_log.commit_op_log()) is Some
+        {
+            // TODO
+            assume(false);
+        }
+
 
         pub proof fn lemma_log_replay_preserves_size(
             mem: Seq<u8>, 
@@ -1078,6 +1158,11 @@ verus! {
                     Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
                 } ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
+                no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
+                ({
+                    let tentative_view = old(self).tentative_view();
+                    tentative_view is Some
+                })
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -1087,12 +1172,19 @@ verus! {
                         // if we commit, then crash and replay the log, 
                         // the specified entry should be deleted from the KV store entirely
                         // I think Jay is working on this right now.
-                        true
+                        // true
+
+                        // in the tentative view of the log, the key has been removed
+                        let tentative_view = self.tentative_view();
+                        &&& tentative_view matches Some(tentative_view)
+                        &&& !tentative_view.contains_key(index as int)
                     }
                     Err(e) => {
                         // transaction has been aborted due to an error in the log
                         // this drops all outstanding modifications to the kv store
-                        true
+                        let tentative_view = self.tentative_view();
+                        tentative_view == Self::physical_recover_given_log(self.wrpm_view().committed(), 
+                            self.spec_overall_metadata(), AbstractOpLogState::initialize())
                     }
                 }
         {
@@ -1103,10 +1195,13 @@ verus! {
                 Ghost(self.overall_metadata.main_table_size as nat)
             );
 
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list).unwrap();
+
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
             let log_entry = self.metadata_table.get_delete_log_entry(&metadata_table_subregion, 
-                self.wrpm.get_pm_region_ref(), index, self.overall_metadata);
+                self.wrpm.get_pm_region_ref(), index, self.overall_metadata, Ghost(tentative_view_bytes));
 
             assert(self.log.inv(self.wrpm, self.overall_metadata));
 
@@ -1160,17 +1255,273 @@ verus! {
                 }
             }
 
+            let ghost committed_log = self.log@.commit_op_log();
+            let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
+            let ghost current_flushed_mem = self.wrpm@.flush().committed();
+
+            // let ghost mem_with_old_log_applied = Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list).unwrap();
+            // let ghost mem_with_new_log_applied = Self::apply_physical_log_entries(current_flushed_mem, log_with_new_entry.physical_op_list).unwrap();
+
+            let ghost recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
+
+            proof {
+                // let committed_log = self.log@.commit_op_log();
+                // let log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
+
+                // TODO: prove this -- shouldn't be TOO hard?
+                assume(AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.overall_metadata));
+                assert(AbstractPhysicalOpLogEntry::log_inv(committed_log.physical_op_list, self.overall_metadata));
+                assert(AbstractPhysicalOpLogEntry::log_inv(log_with_new_entry.physical_op_list, self.overall_metadata));
+
+                // we want to prove that if we append this log entry to the log, then replaying it will get us into the state we want.
+                // hopefully the log invariant will take care of the rest...
+
+                // let current_flushed_mem = self.wrpm@.flush().committed();
+
+                // replaying the current committed log onto current_flushed_mem should give us the tentative view
+                assert(self.tentative_view() == Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, committed_log));
+
+                // the bytes obtained by replaying the new log should be the same as the bytes obtained by replaying the new entry
+                // on top of the old log.
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(current_flushed_mem, 
+                    self.overall_metadata, log_with_new_entry.physical_op_list);
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(current_flushed_mem, 
+                    self.overall_metadata, committed_log.physical_op_list);
+                
+                let mem_with_old_log_applied = Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list).unwrap();
+                let mem_with_new_log_applied = Self::apply_physical_log_entries(current_flushed_mem, log_with_new_entry.physical_op_list).unwrap();
+
+                assert(committed_log.physical_op_list == 
+                    log_with_new_entry.physical_op_list.subrange(0, committed_log.physical_op_list.len() as int));
+
+                assert(log_entry@ == log_with_new_entry.physical_op_list[log_with_new_entry.physical_op_list.len() - 1]);
+                assert(Self::apply_physical_log_entries(current_flushed_mem, log_with_new_entry.physical_op_list) is Some);
+                assert(Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list) is Some);
+                assume(Self::apply_physical_log_entry(
+                    Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list).unwrap(),
+                    log_entry@
+                ) is Some);
+
+                let start = 0;
+                let mid = committed_log.physical_op_list.len() as int;
+                let end = log_with_new_entry.physical_op_list.len() as int;
+
+                assert(log_with_new_entry.physical_op_list == log_with_new_entry.physical_op_list.subrange(start, end));
+
+                Self::lemma_op_log_apply_equal(
+                    start,
+                    mid,
+                    end,
+                    current_flushed_mem,
+                    log_with_new_entry.physical_op_list,
+                    self.overall_metadata
+                );
+
+                let applied_entries = log_with_new_entry.physical_op_list.subrange(start, mid);
+                let all_entries = log_with_new_entry.physical_op_list.subrange(start, end);
+                let last_op = log_with_new_entry.physical_op_list[end - 1];
+
+                assert(Self::apply_physical_log_entries(current_flushed_mem, all_entries).unwrap() == 
+                    Self::apply_physical_log_entry(
+                        Self::apply_physical_log_entries(current_flushed_mem, applied_entries).unwrap(),
+                        last_op
+                    ).unwrap()
+                );
+
+                assert(mem_with_old_log_applied == Self::apply_physical_log_entries(current_flushed_mem, applied_entries).unwrap());
+                assert(mem_with_new_log_applied == Self::apply_physical_log_entries(current_flushed_mem, all_entries).unwrap());
+
+                assert(Some(mem_with_new_log_applied) == Self::apply_physical_log_entry(mem_with_old_log_applied, log_entry@));
+
+                self.lemma_tentative_view_valid_after_appending_valid_log_entry(
+                    current_flushed_mem,
+                    current_flushed_mem,
+                    self.log@,
+                    self.log@.tentatively_append_log_entry(log_entry@),
+                    log_entry,
+                );
+
+                // let recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
+                assert(recovery_state_with_new_log is Some);
+                assert(!recovery_state_with_new_log.unwrap().contains_key(index as int));
+
+                // even once you've proven everything you have to here ... need to account for that fact that the memory contents are changed here
+                // but we already know what the tentative view is, right? it's the recovery state with the new log
+            }
+
             // then append it to the operation log
             let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
             match result {
                 Ok(()) => {}
-                Err(_) => {
-                    // transaction aborted
+                Err(e) => {
+                    assume(false);
+                    return Err(e);
                 }
             }
 
-            assume(false);
-            Err(KvError::NotImplemented)
+            proof {
+                broadcast use pmcopy_axioms;
+
+                let mem = self.wrpm@.committed();
+                let old_mem = old(self).wrpm@.committed();
+                lemma_establish_extract_bytes_equivalence(mem, old_mem);
+                
+                assert(views_differ_only_in_log_region(old(self).wrpm@, self.wrpm@, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+                assert(no_outstanding_writes_to_version_metadata(self.wrpm@));
+                assert(0 <= VersionMetadata::spec_size_of() < self.overall_metadata.log_area_addr as nat) by {
+                    reveal(spec_padding_needed);
+                }
+
+                assert(Self::physical_recover(old_mem, self.overall_metadata) is Some);
+
+                let physical_recovery_state = Self::physical_recover(mem, self.overall_metadata);
+                assert(UntrustedOpLog::<K, L>::recover(mem, self.overall_metadata) is Some);
+
+                assert(UntrustedOpLog::<K, L>::recover(mem, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+                
+                old(self).log.lemma_if_not_committed_recovery_equals_drop_pending_appends(old(self).wrpm, old_mem, self.overall_metadata);
+                assert(UntrustedOpLog::<K, L>::recover(old_mem, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+                let mem_with_log_installed = Self::apply_physical_log_entries(mem, Seq::empty()).unwrap();
+
+                let main_table_region = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let item_table_region = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let list_area_region = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+
+                assert(main_table_region == extract_bytes(mem, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+                assert(item_table_region == extract_bytes(mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                assert(list_area_region == extract_bytes(mem, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
+
+                assert(main_table_region == extract_bytes(old_mem, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+                assert(item_table_region == extract_bytes(old_mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                assert(list_area_region == extract_bytes(old_mem, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
+
+                let main_table_view = parse_metadata_table::<K>(
+                    main_table_region, 
+                    self.overall_metadata.num_keys,
+                    self.overall_metadata.metadata_node_size
+                );
+
+                let old_main_table_view = parse_metadata_table::<K>(
+                    extract_bytes(old_mem, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat), 
+                    self.overall_metadata.num_keys,
+                    self.overall_metadata.metadata_node_size
+                );
+
+                assert(old(self).metadata_table == self.metadata_table);
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
+                    get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) == 
+                    get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+
+                assert(self.valid());
+                
+                let flushed_mem = self.wrpm@.flush().committed();
+                let old_flushed_mem = old(self).wrpm@.flush().committed();
+
+                assert(old(self).tentative_view() is Some);
+                assert(self.log@.commit_op_log() == old(self).log@.tentatively_append_log_entry(log_entry@).commit_op_log());
+                // TODO: there could already be a lemma for this?
+                self.lemma_tentative_view_valid_after_appending_valid_log_entry(
+                    old(self).wrpm@.flush().committed(),
+                    flushed_mem,
+                    old(self).log@,
+                    self.log@,
+                    log_entry,
+                );
+
+                assert(self.tentative_view() is Some);
+                assert(recovery_state_with_new_log is Some);
+
+                // this should work now -- we probably just need to prove that the rest of the pm hasn't changed?
+                // PRIOR to the log replay..?
+                assert(states_differ_only_in_log_region(old_flushed_mem, flushed_mem, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+                // ===========================================================
+
+                assert(states_differ_only_in_log_region(old_flushed_mem, flushed_mem, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+                Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(flushed_mem, old_flushed_mem, self.log@.commit_op_log().physical_op_list, self.overall_metadata);
+
+                let op_log = self.log@.commit_op_log().physical_op_list;
+                let mem1_with_log = Self::apply_physical_log_entries(flushed_mem, op_log);
+                let mem2_with_log = Self::apply_physical_log_entries(old_flushed_mem, op_log);
+
+                assert({
+                    states_differ_only_in_log_region(mem1_with_log.unwrap(), mem2_with_log.unwrap(), self.overall_metadata.log_area_addr as nat,
+                            self.overall_metadata.log_area_size as nat)
+                });
+
+                assert(old_flushed_mem.len() == flushed_mem.len());
+
+
+                let old_mem_with_new_log_installed = Self::apply_physical_log_entries(old_flushed_mem, op_log);
+                assert(old_mem_with_new_log_installed is Some);
+                let old_mem_with_new_log_installed = old_mem_with_new_log_installed.unwrap();
+                assert(old_mem_with_new_log_installed =~= mem2_with_log.unwrap());
+                
+                let new_mem_with_new_log_installed = Self::apply_physical_log_entries(flushed_mem, op_log);
+                assert(new_mem_with_new_log_installed is Some);
+                let new_mem_with_new_log_installed = new_mem_with_new_log_installed.unwrap();
+                assert(new_mem_with_new_log_installed =~= mem1_with_log.unwrap());
+
+                Self::lemma_log_replay_preserves_size(flushed_mem, op_log);
+                Self::lemma_log_replay_preserves_size(old_flushed_mem, op_log);
+
+                assert(states_differ_only_in_log_region(mem1_with_log.unwrap(), mem2_with_log.unwrap(),  
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+                assert(states_differ_only_in_log_region(new_mem_with_new_log_installed, old_mem_with_new_log_installed, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+                assert(new_mem_with_new_log_installed.len() == old_mem_with_new_log_installed.len());
+
+                let main_table_region1 = extract_bytes(old_mem_with_new_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let item_table_region1 = extract_bytes(old_mem_with_new_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let list_area_region1 = extract_bytes(old_mem_with_new_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+
+                let main_table_region2 = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let item_table_region2 = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let list_area_region2 = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                
+                assert(main_table_region1 =~= main_table_region2);
+                assert(item_table_region1 =~= item_table_region2);
+                assert(list_area_region1 =~= list_area_region2);
+
+                let main_table1 = parse_metadata_table::<K>(main_table_region1, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let main_table2 = parse_metadata_table::<K>(main_table_region2, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                assert(main_table1 == main_table2);
+
+                let item_table1 = parse_item_table::<I, K>(
+                    item_table_region1,
+                    self.overall_metadata.num_keys as nat,
+                    main_table1.valid_item_indices()
+                );
+                let item_table2 = parse_item_table::<I, K>(
+                    item_table_region2,
+                    self.overall_metadata.num_keys as nat,
+                    main_table1.valid_item_indices()
+                );
+                assert(item_table1 == item_table2);
+
+                let list_view1 = DurableList::<K, L>::parse_all_lists(
+                    main_table1,
+                    list_area_region1,
+                    self.overall_metadata.list_node_size,
+                    self.overall_metadata.num_list_entries_per_node
+                );
+                let list_view2 = DurableList::<K, L>::parse_all_lists(
+                    main_table2,
+                    list_area_region1,
+                    self.overall_metadata.list_node_size,
+                    self.overall_metadata.num_list_entries_per_node
+                );
+                assert(list_view1 == list_view2);
+
+                assert(self.tentative_view() == recovery_state_with_new_log);
+            }
+            Ok(())
         }
 
 /*
