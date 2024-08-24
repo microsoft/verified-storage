@@ -35,7 +35,7 @@ use crate::log2::inv_v::*;
 use crate::log2::logspec_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;
+use crate::pmem::pmemutil_v::{lemma_establish_extract_bytes_equivalence, lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed};
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
@@ -121,6 +121,8 @@ verus! {
                                   self.overall_metadata)
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(self.wrpm, self.overall_metadata)
+            &&& forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==>
+                Self::physical_recover(s, self.spec_overall_metadata()) == Some(self@)
                                                                
             // TODO: more component invariants
         }
@@ -818,6 +820,13 @@ verus! {
             let ghost logical_recovery_state = Self::logical_recover(wrpm_region@.committed(), overall_metadata);
             // TODO - Prove that the physical and logical recovery states match.
             assume(physical_recovery_state == logical_recovery_state);
+
+            assert forall|s| #[trigger] wrpm_region@.can_crash_as(s) implies
+                Self::physical_recover(s, overall_metadata) == Some(durable_kv_store@) by {
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
+                assert(s == wrpm_region@.committed());
+            }
+                
             Ok(durable_kv_store)
         }
 
@@ -1063,6 +1072,8 @@ verus! {
         }
 
         proof fn lemma_get_writable_mask_for_item_table_is_suitable_mask(self)
+            requires
+                self.inv(),
             ensures
                 forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
                     &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
@@ -1071,9 +1082,18 @@ verus! {
                                                                 self.overall_metadata.item_table_addr as nat,
                                                                 self.overall_metadata.item_table_size as nat,
                                                                 self.get_writable_mask_for_item_table())
-                } ==> Self::physical_recover(alt_crash_state, self.spec_overall_metadata()) == Some(self@)
+                } ==> Self::physical_recover(alt_crash_state, self.spec_overall_metadata()) == Some(self@),
         {
-            assume(false);
+            assert forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+                    &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
+                    &&& self.wrpm@.len() == alt_region_view.len()
+                    &&& views_differ_only_where_subregion_allows(self.wrpm@, alt_region_view,
+                                                                self.overall_metadata.item_table_addr as nat,
+                                                                self.overall_metadata.item_table_size as nat,
+                                                                self.get_writable_mask_for_item_table())
+                } implies Self::physical_recover(alt_crash_state, self.spec_overall_metadata()) == Some(self@) by {
+                assume(false);
+            }
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
