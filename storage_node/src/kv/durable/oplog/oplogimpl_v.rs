@@ -61,6 +61,8 @@ verus! {
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
+                // while we aren't committed, recovering the committed bytes gives us an empty state
+                &&& Self::recover(pm_region@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize())
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
@@ -95,6 +97,7 @@ verus! {
                         overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                     &&& log_ops is Some 
                     &&& log_ops.unwrap() == self@.physical_op_list
+                    &&&  Self::recover(pm_region@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
         {}
 
@@ -1004,6 +1007,7 @@ verus! {
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(old(log_wrpm)@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
@@ -1022,11 +1026,13 @@ verus! {
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
             }),
+            // TODO: log probably shouldn't know about version metadata
+            no_outstanding_writes_to_version_metadata(old(log_wrpm)@),
+            old(log_wrpm)@.len() >= VersionMetadata::spec_size_of(),
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
-            log_wrpm@.len() == old(log_wrpm)@.len(),
+            log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
-            Self::recover(log_wrpm@.committed(), overall_metadata) is Some,
             Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
             no_outstanding_writes_to_version_metadata(log_wrpm@),
             match result {
@@ -1280,6 +1286,9 @@ verus! {
                 &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
+            // TODO: log probably shouldn't know about version metadata
+            no_outstanding_writes_to_version_metadata(old(log_wrpm)@),
+            old(log_wrpm)@.len() >= VersionMetadata::spec_size_of(),
         ensures 
             self.inv(*log_wrpm, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
@@ -1455,6 +1464,12 @@ verus! {
 
         // update the op log's state -- it is now empty and is not committed
         self.state = Ghost(self.state@.clear_log().unwrap());
+
+        // Prove that the only possible crash state is an empty op log
+        assert(self.log@.drop_pending_appends().log.len() == 0);
+        assert(UntrustedLogImpl::can_only_crash_as_state(log_wrpm@, log_start_addr as nat, log_size as nat, self.log@.drop_pending_appends()));
+        assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+        assert(Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()));
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().len() == 0);

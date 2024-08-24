@@ -1339,6 +1339,15 @@ verus! {
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= pm_region@.len() <= u64::MAX,
                 pm_region@.len() == overall_metadata.region_size,
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr,
+                ({
+                    let main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_metadata_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    main_table_view is Some
+                }),
+                current_tentative_state.len() == overall_metadata.region_size,
+                overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.region_size
             ensures 
                 log_entry@.inv(overall_metadata),
                 overall_metadata.main_table_addr <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < overall_metadata.main_table_addr + overall_metadata.main_table_size,
@@ -1357,24 +1366,6 @@ verus! {
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
                 }),
-
-
-                // if we were to install this log entry, it would have the same effect
-                // as deleting the record rooted at the given index. We only talk about the specific
-                // entry being deleted here because other parts of the table may have changed 
-                // by the time we replay this log entry, so the postcondition shouldn't mention
-                // any specific entire-table state.
-                // Self::applying_log_entry_deletes_entry(pm_region@, index as int, log_entry, overall_metadata),
-                // ({
-                //     let absolute_addr = log_entry.absolute_addr;
-                //     let bytes = log_entry.bytes@;
-                //     let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
-                //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                //     let new_entry_bytes = extract_bytes(new_pm.committed(), 
-                //         (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
-                //     &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
-                //     &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
-                // })
         {
             // We don't have to concretely read anything from PM to put together this log entry.
             // We just need to calculate the correct offset and create the log entry with the correct
@@ -1409,6 +1400,55 @@ verus! {
                 lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
                 lemma_subrange_of_extract_bytes_equal(new_pm.committed(), (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat, u64::spec_size_of());
                 assert(new_cdb_bytes == CDB_FALSE.spec_to_bytes());
+
+                let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                    if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                        log_entry.bytes[pos - log_entry.absolute_addr]
+                    } else {
+                        pre_byte
+                    }
+                );
+
+                lemma_establish_extract_bytes_equivalence(current_tentative_state, new_mem);
+
+                assert(forall |i: int| {
+                        &&& !(log_entry.absolute_addr <= i < log_entry.absolute_addr + log_entry.len)
+                        &&& 0 < i < overall_metadata.region_size
+                    } ==> current_tentative_state[i] == new_mem[i]
+                );
+                assert(extract_bytes(new_mem, log_entry.absolute_addr as nat, u64::spec_size_of()) == CDB_FALSE.spec_to_bytes());
+
+                assume(false);
+
+                let old_main_table_region = extract_bytes(current_tentative_state, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let main_table_region = extract_bytes(new_mem, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+
+                assert forall |i: int| 0 <= i < overall_metadata.num_keys implies 
+                    validate_metadata_entry::<K>(
+                        #[trigger] extract_bytes(main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat), 
+                            overall_metadata.num_keys as nat)
+                by {
+                    if i != index {
+                        let bytes = extract_bytes(main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat);
+                        assert(bytes =~= extract_bytes(old_main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat))
+                    } else {
+
+                    }
+                }
+
+                assert(validate_metadata_entries::<K>(main_table_region, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat));
+
+                let old_main_table_view = parse_metadata_table::<K>(old_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                assert(old_main_table_view is Some);
+
+                let main_table_view = parse_metadata_table::<K>(main_table_region,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
+
+                assert(main_table_view is Some);
+                assert(main_table_view.unwrap().durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid);
             }
             log_entry
         }

@@ -572,6 +572,10 @@ impl UntrustedLogImpl {
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
+            Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) 
+                == Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, 
+                log_start_addr as nat, log_size as nat),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> crash_pred(s),
             states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.flush().committed(), log_start_addr as nat, log_size as nat),
@@ -822,15 +826,23 @@ impl UntrustedLogImpl {
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
+            // TODO: log probably shouldn't know about version metadata
+            no_outstanding_writes_to_version_metadata(old(wrpm_region)@),
+            old(wrpm_region)@.len() >= VersionMetadata::spec_size_of(),
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region.inv(),
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> crash_pred(s),
+            Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) 
+                == Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, 
+                log_start_addr as nat, log_size as nat),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.flush().committed(), log_start_addr as nat, log_size as nat),
+            no_outstanding_writes_to_version_metadata(wrpm_region@),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
@@ -1939,6 +1951,9 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(pm_region)@, log_start_addr as nat),
         ensures
             self.inv(*pm_region, log_start_addr as nat, log_size as nat),
+            Self::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat) 
+                == Some(self@.drop_pending_appends()),
+            pm_region.inv(),
             pm_region@.no_outstanding_writes(),
             pm_region@.len() == old(pm_region)@.len(),
             pm_region.constants() == old(pm_region).constants(),
@@ -1976,6 +1991,9 @@ impl UntrustedLogImpl {
                 assert(s == pm_region@.committed());
                 assert(regular_state.unwrap() == self.state@.drop_pending_appends());
             }
+
+            assert(self@ == self@.drop_pending_appends());
+            assert(pm_region@.can_crash_as(pm_region@.committed()));
         }  
     }
 }

@@ -1159,6 +1159,7 @@ verus! {
                 } ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
+                old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
                 ({
                     let tentative_view = old(self).tentative_view();
                     tentative_view is Some
@@ -1195,8 +1196,14 @@ verus! {
                 Ghost(self.overall_metadata.main_table_size as nat)
             );
 
+            proof {
+                assert(!self.log@.op_list_committed);
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+            }
+
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
+            proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
 
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
@@ -1415,7 +1422,7 @@ verus! {
                     get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
 
                 assert(self.valid());
-                
+
                 let flushed_mem = self.wrpm@.flush().committed();
                 let old_flushed_mem = old(self).wrpm@.flush().committed();
 
