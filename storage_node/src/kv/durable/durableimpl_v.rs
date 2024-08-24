@@ -82,9 +82,15 @@ verus! {
             Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@)
         }
 
-        pub closed spec fn tentative_view(self, mem: Seq<u8>) -> Option<DurableKvStoreView<K, I, L>>
+        pub closed spec fn tentative_view(self) -> Option<DurableKvStoreView<K, I, L>>
         {
-            Self::physical_recover_after_committing_log(mem, self.overall_metadata, self.log@)
+            Self::physical_recover_after_committing_log(self.wrpm@.flush().committed(), self.overall_metadata,
+                                                        self.log@)
+        }
+
+        pub closed spec fn spec_overall_metadata(self) -> OverallMetadata
+        {
+            self.overall_metadata
         }
 
         pub closed spec fn constants(self) -> PersistentMemoryConstants
@@ -1043,6 +1049,140 @@ verus! {
             )
         }
 
+        spec fn get_writable_mask_for_item_table(self) -> (mask: spec_fn(int) -> bool)
+        {
+            let item_table_addr = self.overall_metadata.item_table_addr as int;
+            let item_table_size = self.overall_metadata.item_table_size as int;
+            let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+            |addr: int| {
+                let which_entry = (addr - item_table_addr) / entry_size;
+                &&& item_table_addr <= addr < item_table_addr + item_table_size
+                &&& 0 <= which_entry <= u64::MAX
+                &&& self.item_table.allocator_view().contains(which_entry as u64)
+            }
+        }
+
+        proof fn lemma_get_writable_mask_for_item_table_is_suitable_mask(self)
+            ensures
+                forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
+                    &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
+                    &&& self.wrpm@.len() == alt_region_view.len()
+                    &&& views_differ_only_where_subregion_allows(self.wrpm@, alt_region_view,
+                                                                self.overall_metadata.item_table_addr as nat,
+                                                                self.overall_metadata.item_table_size as nat,
+                                                                self.get_writable_mask_for_item_table())
+                } ==> Self::physical_recover(alt_crash_state, self.spec_overall_metadata()) == Some(self@)
+        {
+            assume(false);
+        }
+
+        // Creates a new durable record in the KV store. Note that since the durable KV store 
+        // identifies records by their metadata table index, rather than their key, this 
+        // function does NOT return an error if you attempt to create two records with the same 
+        // key. Returns the metadata index and the location of the list head node.
+        // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
+        // The caller should do this because this can be done quickly with the volatile info.
+        pub fn tentative_create(
+            &mut self,
+            key: &K,
+            item: &I,
+            kvstore_id: u128,
+            Tracked(perm): Tracked<&Perm>,
+        ) -> (result: Result<(u64, u64), KvError<K>>)
+            requires
+                old(self).inv(),
+                !old(self).transaction_committed(),
+                old(self).tentative_view() is Some,
+                forall|s| Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@) ==>
+                    #[trigger] perm.check_permission(s),
+            ensures
+                self.inv(),
+                self.constants() == old(self).constants(),
+                !self.transaction_committed(),
+                ({
+                    match result {
+                        Ok((offset, head_node)) => {
+                            let spec_result = old(self).tentative_view().unwrap().create(offset as int, *key, *item);
+                            match spec_result {
+                                Ok(spec_result) => {
+                                    let v1 = old(self).tentative_view().unwrap();
+                                    let v2 = self.tentative_view().unwrap();
+                                    &&& self.tentative_view() == Some(spec_result)
+                                    &&& v2.len() == v1.len() + 1
+                                    &&& v2.contains_key(offset as int)
+                                    &&& v2[offset as int] is Some
+                                }
+                                Err(_) => false
+                            }
+                        }
+                        Err(_) => false
+                    }
+                })
+        {
+            let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
+            proof {
+                self.lemma_get_writable_mask_for_item_table_is_suitable_mask();
+            }
+            // 1. find a free slot in the item table and tentatively write the new item there
+            let subregion = WriteRestrictedPersistentMemorySubregion::new::<Perm, PM>(
+                &self.wrpm,
+                Tracked(perm),
+                self.overall_metadata.item_table_addr,
+                Ghost(self.overall_metadata.item_table_size as nat),
+                Ghost(is_writable_item_table_addr),
+            );
+            assume(false);
+            let item_index = self.item_table.tentatively_write_item(
+                &subregion,
+                &mut self.wrpm,
+                &item, 
+                Tracked(perm),
+                Ghost(self.overall_metadata),
+            )?;
+
+            /*
+            // 2. allocate and initialize a head node for this entry; this is tentative since the node is 
+            // not yet accessible 
+            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
+            let head_index = self.durable_list.alloc_and_init_list_node(
+                &mut self.list_wrpm, 
+                Ghost(kvstore_id), 
+                Tracked(&fake_list_perm)
+            )?;
+
+            // 3. find a free slot in the metadata table and tentatively write a new entry to it
+            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let metadata_index = self.metadata_table.tentative_create(
+                &mut self.metadata_wrpm, 
+                Ghost(kvstore_id), 
+                head_index, 
+                item_index, 
+                key,
+                Tracked(&fake_metadata_perm)
+            )?;
+
+            // 4. tentatively append the new item's commit op to the log. Metadata entry commit 
+            // implies item commit and also makes the list accessible so we can append to it
+            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
+            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
+            let tracked fake_metadata_table_perm = TrustedMetadataPermission::fake_metadata_perm();
+
+            let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
+            let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
+
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_log_entry, Tracked(&fake_log_perm))?;
+            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_log_entry, Tracked(&fake_log_perm))?;
+
+            // 5. Add log entries to pending list
+            self.pending_updates.push(item_log_entry);
+            self.pending_updates.push(metadata_log_entry);
+
+            // 6. Return the index of the metadata entry so it can be used in the volatile index.
+            Ok((metadata_index, head_index))
+            */
+            Ok((0, 0))
+        }
+
         pub fn tentative_delete(
             &mut self,
             index: u64,
@@ -1201,98 +1341,6 @@ verus! {
 
             Ok(())
         }
-
-        // Creates a new durable record in the KV store. Note that since the durable KV store 
-        // identifies records by their metadata table index, rather than their key, this 
-        // function does NOT return an error if you attempt to create two records with the same 
-        // key. Returns the metadata index and the location of the list head node.
-        // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
-        // The caller should do this because this can be done quickly with the volatile info.
-        pub fn tentative_create(
-            &mut self,
-            key: &K,
-            item: &I,
-            kvstore_id: u128,
-            Tracked(perm): Tracked<&Perm>,
-        ) -> (result: Result<(u64, u64), KvError<K>>)
-            requires
-                old(self).valid(),
-            ensures
-                self.valid(),
-                self.constants() == old(self).constants(),
-                ({
-                    match result {
-                        Ok((offset, head_node)) => {
-                            let spec_result = old(self)@.create(offset as int, *key, *item);
-                            match spec_result {
-                                Ok(spec_result) => {
-                                    &&& self@.len() == old(self)@.len() + 1
-                                    &&& self@ == spec_result
-                                    &&& 0 <= offset < self@.len()
-                                    &&& self@[offset as int].is_Some()
-                                }
-                                Err(_) => false
-                            }
-                        }
-                        Err(_) => false
-                    }
-                })
-        {
-            assume(false);
-            /*
-
-            // 1. find a free slot in the item table and tentatively write the new item there
-            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let item_index = self.item_table.tentatively_write_item(
-                &mut self.item_table_wrpm, 
-                Ghost(kvstore_id), 
-                &item, 
-                Tracked(&fake_item_table_perm)
-            )?;
-
-            // 2. allocate and initialize a head node for this entry; this is tentative since the node is 
-            // not yet accessible 
-            let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
-            let head_index = self.durable_list.alloc_and_init_list_node(
-                &mut self.list_wrpm, 
-                Ghost(kvstore_id), 
-                Tracked(&fake_list_perm)
-            )?;
-
-            // 3. find a free slot in the metadata table and tentatively write a new entry to it
-            let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            let metadata_index = self.metadata_table.tentative_create(
-                &mut self.metadata_wrpm, 
-                Ghost(kvstore_id), 
-                head_index, 
-                item_index, 
-                key,
-                Tracked(&fake_metadata_perm)
-            )?;
-
-            // 4. tentatively append the new item's commit op to the log. Metadata entry commit 
-            // implies item commit and also makes the list accessible so we can append to it
-            let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_metadata_table_perm = TrustedMetadataPermission::fake_metadata_perm();
-
-            let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
-            let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
-
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_log_entry, Tracked(&fake_log_perm))?;
-            self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_log_entry, Tracked(&fake_log_perm))?;
-
-            // 5. Add log entries to pending list
-            self.pending_updates.push(item_log_entry);
-            self.pending_updates.push(metadata_log_entry);
-
-            // 6. Return the index of the metadata entry so it can be used in the volatile index.
-            Ok((metadata_index, head_index))
-            */
-            Ok((0, 0))
-        }
-
-
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
