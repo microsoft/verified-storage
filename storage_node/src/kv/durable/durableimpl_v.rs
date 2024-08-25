@@ -1201,6 +1201,8 @@ verus! {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
             }
 
+            assert(AbstractPhysicalOpLogEntry::log_inv(old(self).log@.physical_op_list, self.overall_metadata));
+
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
@@ -1272,18 +1274,8 @@ verus! {
             let ghost recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
 
             proof {
-                // let committed_log = self.log@.commit_op_log();
-                // let log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
-
-                // TODO: prove this -- shouldn't be TOO hard?
-                assume(AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.overall_metadata));
-                assert(AbstractPhysicalOpLogEntry::log_inv(committed_log.physical_op_list, self.overall_metadata));
-                assert(AbstractPhysicalOpLogEntry::log_inv(log_with_new_entry.physical_op_list, self.overall_metadata));
-
                 // we want to prove that if we append this log entry to the log, then replaying it will get us into the state we want.
                 // hopefully the log invariant will take care of the rest...
-
-                // let current_flushed_mem = self.wrpm@.flush().committed();
 
                 // replaying the current committed log onto current_flushed_mem should give us the tentative view
                 assert(self.tentative_view() == Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, committed_log));

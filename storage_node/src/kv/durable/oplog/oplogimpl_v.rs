@@ -82,6 +82,7 @@ verus! {
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
             &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat)
+            &&& AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, overall_metadata)
         }
 
         pub proof fn lemma_reveal_opaque_op_log_inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: OverallMetadata)
@@ -91,6 +92,7 @@ verus! {
             requires
                 self.inv(pm_region, overall_metadata)
             ensures 
+                AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, overall_metadata),
                 !self@.op_list_committed ==> {
                     let pending_bytes = self.base_log_view().pending;
                     let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
