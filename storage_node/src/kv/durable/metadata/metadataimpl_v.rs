@@ -155,6 +155,11 @@ verus! {
             &&& self@.inv()
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==> 
+                    match #[trigger] self@.durable_metadata_table[i] {
+                        DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
+                        _ => true
+                    }
             &&& self.allocator_view().len() <= overall_metadata.num_keys 
             &&& self.free_indices().len() <= overall_metadata.num_keys
             &&& self.free_indices().finite()
