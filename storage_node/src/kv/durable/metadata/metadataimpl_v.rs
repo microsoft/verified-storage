@@ -99,7 +99,7 @@ verus! {
         pub closed spec fn outstanding_cdb_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
                                                                  metadata_node_size: u32) -> bool
         {
-            let start = i * metadata_node_size;
+            let start = index_to_offset(i as nat, metadata_node_size as nat) as int;
             match self.outstanding_cdb_writes@[i] {
                 None => pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of()),
                 Some(b) => {
@@ -113,7 +113,7 @@ verus! {
         pub closed spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
                                                                    metadata_node_size: u32) -> bool
         {
-            let start = i * metadata_node_size;
+            let start = index_to_offset(i as nat, metadata_node_size as nat) as int;
             match self.outstanding_entry_writes@[i] {
                 None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + metadata_node_size),
                 Some(e) => {
@@ -209,25 +209,25 @@ verus! {
                 ({
                     let cdb_bytes = extract_bytes(
                         pm.committed(),
-                        (index * overall_metadata.metadata_node_size as u64) as nat,
+                        index_to_offset(index as nat, overall_metadata.metadata_node_size as nat),
                         u64::spec_size_of() as nat,
                     );
                     let cdb = u64::spec_from_bytes(cdb_bytes);
                     let crc_bytes = extract_bytes(
                         pm.committed(),
-                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
+                        index_to_offset(index as nat, overall_metadata.metadata_node_size as nat) + u64::spec_size_of(),
                         u64::spec_size_of() as nat,
                     );
                     let crc = u64::spec_from_bytes(crc_bytes);
                     let entry_bytes = extract_bytes(
                         pm.committed(),
-                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
+                        index_to_offset(index as nat, overall_metadata.metadata_node_size as nat) + u64::spec_size_of() * 2,
                         ListEntryMetadata::spec_size_of() as nat,
                     );
                     let entry = ListEntryMetadata::spec_from_bytes(entry_bytes);
                     let key_bytes = extract_bytes(
                         pm.committed(),
-                        (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2 +
+                        index_to_offset(index as nat, overall_metadata.metadata_node_size as nat) + u64::spec_size_of() * 2 +
                             ListEntryMetadata::spec_size_of(),
                         K::spec_size_of() as nat,
                     );
@@ -248,20 +248,20 @@ verus! {
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
             let entry_bytes = extract_bytes(pm.committed(), (index * metadata_node_size) as nat, metadata_node_size as nat);
             assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
-                   extract_bytes(pm.committed(), (index * overall_metadata.metadata_node_size as u64) as nat,
+                   extract_bytes(pm.committed(), index_to_offset(index as nat, overall_metadata.metadata_node_size as nat),
                                  u64::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of()) =~=
                    extract_bytes(pm.committed(),
-                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of(),
+                        index_to_offset(index as nat, overall_metadata.metadata_node_size as nat) + u64::spec_size_of(),
                                  u64::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) =~=
                    extract_bytes(pm.committed(),
-                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2,
+                                index_to_offset(index as nat, overall_metadata.metadata_node_size as nat) + u64::spec_size_of() * 2,
                                  ListEntryMetadata::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
                                  K::spec_size_of()) =~=
                    extract_bytes(pm.committed(),
-                                 (index * overall_metadata.metadata_node_size as u64) as nat + u64::spec_size_of() * 2
+                                index_to_offset(index as nat, overall_metadata.metadata_node_size as nat)+ u64::spec_size_of() * 2
                                  + ListEntryMetadata::spec_size_of(),
                                  K::spec_size_of()));
         }
@@ -1377,6 +1377,7 @@ verus! {
             proof { lemma_mul_strict_inequality(index as int, overall_metadata.num_keys as int, entry_slot_size as int); }
             
             let index_offset = index * entry_slot_size as u64;
+            assert(index_offset == index_to_offset(index as nat, entry_slot_size as nat));
             let absolute_addr = overall_metadata.main_table_addr + index_offset;
 
             let bytes = slice_to_vec(CDB_FALSE.as_byte_slice());
@@ -1389,16 +1390,22 @@ verus! {
 
             proof {
                 broadcast use pmcopy_axioms;
+
                 let absolute_addr = log_entry.absolute_addr;
                 let bytes = log_entry.bytes@;
                 let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
                 let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
                 let new_entry_bytes = extract_bytes(new_pm.committed(), 
-                    (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
+                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
+                    entry_slot_size as nat);
                 let new_cdb_bytes = extract_bytes(new_entry_bytes, 0, u64::spec_size_of());
                 lemma_mul_inequality(index + 1, overall_metadata.num_keys as int, entry_slot_size as int);
                 lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
-                lemma_subrange_of_extract_bytes_equal(new_pm.committed(), (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat, u64::spec_size_of());
+                lemma_subrange_of_extract_bytes_equal(new_pm.committed(), 
+                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
+                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
+                    entry_slot_size as nat, 
+                    u64::spec_size_of());
                 assert(new_cdb_bytes == CDB_FALSE.spec_to_bytes());
 
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
@@ -1413,28 +1420,58 @@ verus! {
 
                 assert(forall |i: int| {
                         &&& !(log_entry.absolute_addr <= i < log_entry.absolute_addr + log_entry.len)
-                        &&& 0 < i < overall_metadata.region_size
+                        &&& 0 <= i < overall_metadata.region_size
                     } ==> current_tentative_state[i] == new_mem[i]
                 );
-                assert(extract_bytes(new_mem, log_entry.absolute_addr as nat, u64::spec_size_of()) == CDB_FALSE.spec_to_bytes());
+                // assert(overall_metadata.metadata_node_size == entry_slot_size);
 
-                assume(false);
-
+                // assert(extract_bytes(new_mem, log_entry.absolute_addr as nat, u64::spec_size_of()) == CDB_FALSE.spec_to_bytes());
+                
                 let old_main_table_region = extract_bytes(current_tentative_state, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let main_table_region = extract_bytes(new_mem, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                lemma_establish_extract_bytes_equivalence(old_main_table_region, main_table_region);
 
-                assert forall |i: int| 0 <= i < overall_metadata.num_keys implies 
-                    validate_metadata_entry::<K>(
-                        #[trigger] extract_bytes(main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat), 
-                            overall_metadata.num_keys as nat)
+                // assert(entry_slot_size == overall_metadata.metadata_node_size);
+                // assert(entry_slot_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of());
+                assert forall |i: nat| i < overall_metadata.num_keys implies 
+                    validate_metadata_entry::<K>(#[trigger] extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
+                        entry_slot_size as nat), overall_metadata.num_keys as nat)
                 by {
+                    assert(main_table_region.len() >= index_to_offset(i, entry_slot_size as nat) + entry_slot_size) by {
+                        lemma_mul_inequality((i + 1) as int, overall_metadata.num_keys as int, entry_slot_size as int);
+                        lemma_mul_is_distributive_add_other_way(entry_slot_size as int, i as int, 1int);
+                    }
+                    // Handle the case where i != index separately from i == index.
                     if i != index {
-                        let bytes = extract_bytes(main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat);
-                        assert(bytes =~= extract_bytes(old_main_table_region, (i * entry_slot_size) as nat, entry_slot_size as nat))
+                        // When i != index, the entry is the same as it was before, so it's still valid.
+                        // We need to invoke some multiplication theorems to prove that the entry at i 
+                        // does not overlap with the entry at index
+                        if i < index {
+                            assert(i * entry_slot_size < i * entry_slot_size + entry_slot_size <= index * entry_slot_size) by {
+                                lemma_mul_inequality((i + 1) as int, index as int, entry_slot_size as int);
+                                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, i as int, 1int);
+                            }
+                        } else {
+                            assert(index * entry_slot_size + entry_slot_size <= i * entry_slot_size) by {
+                                lemma_mul_inequality((index + 1) as int, i as int, entry_slot_size as int);
+                                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
+                            }
+                        }
+                        assert(
+                            extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
+                                entry_slot_size as nat) =~=
+                            extract_bytes(old_main_table_region, index_to_offset(i, entry_slot_size as nat),
+                                entry_slot_size as nat) 
+                        );
                     } else {
-
+                        // When i == index, the entry is valid because we just set its CDB to false, which makes its CDB 
+                        // a valid, parseable value.
+                        let entry_bytes = extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
+                            entry_slot_size as nat);
+                        let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
+                        assert(cdb_bytes == log_entry.bytes@);
                     }
                 }
 
@@ -1446,6 +1483,8 @@ verus! {
 
                 let main_table_view = parse_metadata_table::<K>(main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size);
+
+                assume(false);
 
                 assert(main_table_view is Some);
                 assert(main_table_view.unwrap().durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid);

@@ -167,7 +167,7 @@ verus! {
         recommends
             mem.len() >= num_keys * metadata_node_size,
     {
-        forall |i: nat| i < num_keys ==> validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, i * metadata_node_size,
+        forall |i: nat| i < num_keys ==> validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, index_to_offset(i, metadata_node_size),
                                                                                         metadata_node_size), num_keys)
     }
 
