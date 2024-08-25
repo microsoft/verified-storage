@@ -1276,50 +1276,6 @@ verus! {
             Ok(())
         }
 
-        // pub open spec fn applying_log_entry_deletes_entry(
-        //     pm_region: PersistentMemoryRegionView,
-        //     // current_tentative_view: Seq<u8>,
-        //     index: int,
-        //     log_entry: PhysicalOpLogEntry,
-        //     overall_metadata: OverallMetadata,
-        // ) -> bool 
-        // {
-        //     let absolute_addr = log_entry.absolute_addr;
-        //     let bytes = log_entry.bytes@;
-        //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-
-        //     // forall |pm: PersistentMemoryRegionView| {
-        //     //     &&& pm.no_outstanding_writes()
-        //     //     &&& parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, 
-        //     //             overall_metadata.metadata_node_size) is Some
-        //     // } ==> {
-        //     //     let new_pm = #[trigger] pm.write(absolute_addr as int, bytes).flush();
-        //     //     let main_table_region = extract_bytes(new_pm.committed(), 
-        //     //             overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-        //     //     let metadata_table_view = parse_metadata_table::<K>(main_table_region,
-        //     //             overall_metadata.num_keys, overall_metadata.metadata_node_size);
-        //     //     &&& metadata_table_view matches Some(metadata_table_view)
-        //     //     &&& metadata_table_view.durable_metadata_table[index] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
-        //     //     // let new_entry_bytes = extract_bytes(new_pm.flush().committed(), 
-        //     //     //     (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
-        //     //     // &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
-        //     //     // &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
-        //     // }
-
-
-
-        //     let new_pm = pm_region.write(absolute_addr as int, bytes).flush();
-        //     // let metadata_table_view = parse_metadata_table::<K>(new_pm.committed(),
-        //     //         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-        //     // &&& metadata_table_view matches Some(metadata_table_view)
-        //     // &&& metadata_table_view.durable_metadata_table[index as int] matches DurableEntry::Invalid
-        //     let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-        //     let new_entry_bytes = extract_bytes(new_pm.flush().committed(), 
-        //         (overall_metadata.main_table_addr + (index * entry_slot_size)) as nat, entry_slot_size as nat);
-        //     &&& validate_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat)
-        //     &&& parse_metadata_entry::<K>(new_entry_bytes, overall_metadata.num_keys as nat) matches DurableEntry::Invalid
-        // }
-
         pub exec fn get_delete_log_entry<PM>(
             &self,
             subregion: &PersistentMemorySubregion,
@@ -1393,20 +1349,9 @@ verus! {
 
                 let absolute_addr = log_entry.absolute_addr;
                 let bytes = log_entry.bytes@;
-                let new_pm = pm_region@.write(absolute_addr as int, bytes).flush();
                 let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                let new_entry_bytes = extract_bytes(new_pm.committed(), 
-                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
-                    entry_slot_size as nat);
-                let new_cdb_bytes = extract_bytes(new_entry_bytes, 0, u64::spec_size_of());
                 lemma_mul_inequality(index + 1, overall_metadata.num_keys as int, entry_slot_size as int);
                 lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
-                lemma_subrange_of_extract_bytes_equal(new_pm.committed(), 
-                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
-                    (overall_metadata.main_table_addr + index_to_offset(index as nat, entry_slot_size as nat)) as nat, 
-                    entry_slot_size as nat, 
-                    u64::spec_size_of());
-                assert(new_cdb_bytes == CDB_FALSE.spec_to_bytes());
 
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -1415,17 +1360,6 @@ verus! {
                         pre_byte
                     }
                 );
-
-                lemma_establish_extract_bytes_equivalence(current_tentative_state, new_mem);
-
-                assert(forall |i: int| {
-                        &&& !(log_entry.absolute_addr <= i < log_entry.absolute_addr + log_entry.len)
-                        &&& 0 <= i < overall_metadata.region_size
-                    } ==> current_tentative_state[i] == new_mem[i]
-                );
-                // assert(overall_metadata.metadata_node_size == entry_slot_size);
-
-                // assert(extract_bytes(new_mem, log_entry.absolute_addr as nat, u64::spec_size_of()) == CDB_FALSE.spec_to_bytes());
                 
                 let old_main_table_region = extract_bytes(current_tentative_state, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
@@ -1433,12 +1367,12 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 lemma_establish_extract_bytes_equivalence(old_main_table_region, main_table_region);
 
-                // assert(entry_slot_size == overall_metadata.metadata_node_size);
-                // assert(entry_slot_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of());
-                assert forall |i: nat| i < overall_metadata.num_keys implies 
-                    validate_metadata_entry::<K>(#[trigger] extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
-                        entry_slot_size as nat), overall_metadata.num_keys as nat)
-                by {
+                assert forall |i: nat| i < overall_metadata.num_keys implies {
+                    &&& validate_metadata_entry::<K>(#[trigger] extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
+                            entry_slot_size as nat), overall_metadata.num_keys as nat)
+                    &&& i == index ==> parse_metadata_entry::<K>(extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
+                            entry_slot_size as nat), overall_metadata.num_keys as nat) == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                } by {
                     assert(main_table_region.len() >= index_to_offset(i, entry_slot_size as nat) + entry_slot_size) by {
                         lemma_mul_inequality((i + 1) as int, overall_metadata.num_keys as int, entry_slot_size as int);
                         lemma_mul_is_distributive_add_other_way(entry_slot_size as int, i as int, 1int);
@@ -1467,27 +1401,14 @@ verus! {
                         );
                     } else {
                         // When i == index, the entry is valid because we just set its CDB to false, which makes its CDB 
-                        // a valid, parseable value.
+                        // a valid, parseable value. This also proves that this entry parses to an Invalid entry, since
+                        // we know that log_entry.bytes@ == CDB_FALSE.spec_to_bytes()
                         let entry_bytes = extract_bytes(main_table_region, index_to_offset(i, entry_slot_size as nat),
                             entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
                         assert(cdb_bytes == log_entry.bytes@);
                     }
                 }
-
-                assert(validate_metadata_entries::<K>(main_table_region, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat));
-
-                let old_main_table_view = parse_metadata_table::<K>(old_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                assert(old_main_table_view is Some);
-
-                let main_table_view = parse_metadata_table::<K>(main_table_region,
-                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
-
-                assume(false);
-
-                assert(main_table_view is Some);
-                assert(main_table_view.unwrap().durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid);
             }
             log_entry
         }
