@@ -81,10 +81,14 @@ verus! {
 
         pub open spec fn commit_op_log(self) -> Self
         {
-            Self {
-                // logical_op_list: self.logical_op_list,
-                physical_op_list: self.physical_op_list,
-                op_list_committed: true,
+            if self.physical_op_list.len() == 0 {
+                self
+            } else {
+                Self {
+                    // logical_op_list: self.logical_op_list,
+                    physical_op_list: self.physical_op_list,
+                    op_list_committed: true,
+                }
             }
         }
 

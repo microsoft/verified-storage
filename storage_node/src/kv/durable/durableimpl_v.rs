@@ -107,14 +107,10 @@ verus! {
             &&& physical_recovery_state matches Some(physical_recovery_state)
             // &&& logical_recovery_state matches Some(logical_recovery_state)
             // &&& physical_recovery_state == logical_recovery_state
-            &&& self.metadata_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
-                                                         self.overall_metadata.main_table_size as nat),
-                                      self.overall_metadata)
-            &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                                                     self.overall_metadata.item_table_size as nat),
-                                  self.overall_metadata)
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(self.wrpm, self.overall_metadata)
+
+            
                                                                
             // TODO: more component invariants
         }
@@ -1184,7 +1180,7 @@ verus! {
                         // transaction has been aborted due to an error in the log
                         // this drops all outstanding modifications to the kv store
                         let tentative_view = self.tentative_view();
-                        tentative_view == Self::physical_recover_given_log(self.wrpm_view().committed(), 
+                        tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
                             self.spec_overall_metadata(), AbstractOpLogState::initialize())
                     }
                 }
@@ -1296,7 +1292,7 @@ verus! {
                 assert(log_entry@ == log_with_new_entry.physical_op_list[log_with_new_entry.physical_op_list.len() - 1]);
                 assert(Self::apply_physical_log_entries(current_flushed_mem, log_with_new_entry.physical_op_list) is Some);
                 assert(Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list) is Some);
-                assume(Self::apply_physical_log_entry(
+                assert(Self::apply_physical_log_entry(
                     Self::apply_physical_log_entries(current_flushed_mem, committed_log.physical_op_list).unwrap(),
                     log_entry@
                 ) is Some);
@@ -1353,7 +1349,51 @@ verus! {
             match result {
                 Ok(()) => {}
                 Err(e) => {
-                    assume(false);
+                    proof {
+                        broadcast use pmcopy_axioms;
+
+                        // NOTE: need to fix proofs in oplog too
+
+                        let tentative_view = self.tentative_view();
+                        let pm_view = self.wrpm@;
+                        let mem = pm_view.committed();
+                    
+                        let flushed_old_mem = old(self).wrpm@.flush().committed();
+
+                        assert(views_differ_only_in_log_region(old(self).wrpm@.flush(), self.wrpm@, 
+                            self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+                        assert(0 < VersionMetadata::spec_size_of() < self.overall_metadata.log_area_addr);
+                        assert(extract_bytes(mem, 0, VersionMetadata::spec_size_of()) == extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()));
+                        lemma_establish_extract_bytes_equivalence(mem, flushed_old_mem);
+
+                        assert(no_outstanding_writes_to_version_metadata(old(self).wrpm@));
+                        
+                        assert(self.version_metadata == deserialize_version_metadata(old(self).wrpm@.committed()));
+                        assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == extract_bytes(old(self).wrpm@.committed(), 0, VersionMetadata::spec_size_of()));
+                        assert(self.version_metadata == deserialize_version_metadata(flushed_old_mem));
+                        assert(self.version_metadata == deserialize_version_metadata(mem));
+
+                        // TODO: finish
+
+                        assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
+                        
+                        // assert(deserialize_version_metadata(mem) == deserialize_version_metadata(flushed_old_mem));
+
+
+                        
+                        assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
+                        
+                        assert(self.metadata_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+                            self.overall_metadata.main_table_size as nat),
+                            self.overall_metadata));
+                        assert(self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
+                            self.overall_metadata.item_table_size as nat),
+                            self.overall_metadata));
+                        
+                        // assert(self.log.inv(self.wrpm, self.overall_metadata));
+                        assert(Self::physical_recover(mem, self.overall_metadata) is Some);
+                    }
                     return Err(e);
                 }
             }
