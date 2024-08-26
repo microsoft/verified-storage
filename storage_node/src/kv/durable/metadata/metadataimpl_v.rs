@@ -31,6 +31,7 @@ verus! {
     pub struct MetadataTable<K> {
         metadata_node_size: u32,
         metadata_table_free_list: Vec<u64>,
+        pending_allocations: Vec<u64>,
         state: Ghost<MetadataTableView<K>>,
         outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
         outstanding_entry_writes: Ghost<Seq<Option<MetadataTableViewEntry<K>>>>,
@@ -64,6 +65,11 @@ verus! {
         pub closed spec fn spec_outstanding_entry_writes(self) -> Seq<Option<MetadataTableViewEntry<K>>>
         {
             self.outstanding_entry_writes@
+        }
+
+        pub closed spec fn spec_metadata_node_size(self) -> u32 
+        {
+            self.metadata_node_size
         }
 
         pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
@@ -126,9 +132,8 @@ verus! {
             }
         }
 
-        pub closed spec fn opaque_inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub closed spec fn opaque_inv(self) -> bool
         {
-            &&& self.metadata_node_size == overall_metadata.metadata_node_size
             &&& forall|i: int, j: int| {
                  &&& 0 <= i < self.metadata_table_free_list@.len()
                  &&& 0 <= j < self.metadata_table_free_list@.len()
@@ -139,13 +144,16 @@ verus! {
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
-            &&& self.opaque_inv(pm, overall_metadata)
+            &&& self.opaque_inv()
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
+            &&& self.spec_metadata_node_size() == overall_metadata.metadata_node_size
             &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self@) ==
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& Some(self@) ==
+                parse_metadata_table::<K>(pm.flush().committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
             &&& self@.durable_metadata_table.len() == self.spec_outstanding_cdb_writes().len() ==
                 self.spec_outstanding_entry_writes().len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
@@ -892,6 +900,7 @@ verus! {
             let main_table = MetadataTable {
                 metadata_node_size,
                 metadata_table_free_list: metadata_allocator,
+                pending_allocations: Vec::new(),
                 state: Ghost(parse_metadata_table::<K>(
                     subregion.view(pm_region).committed(),
                     overall_metadata.num_keys, 
@@ -1417,6 +1426,39 @@ verus! {
             }
             log_entry
         }
+
+        pub exec fn abort_transaction(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        ) 
+            requires
+                // old(self).valid(pm, overall_metadata),
+                pm.no_outstanding_writes(),
+            ensures
+                self.valid(pm, overall_metadata),
+                self.spec_outstanding_cdb_writes() == Seq::new(
+                    old(self).spec_outstanding_cdb_writes().len(),
+                    |i: int| None::<bool>
+                ),
+                self.spec_outstanding_entry_writes() == Seq::new(
+                    old(self).spec_outstanding_entry_writes().len(),
+                    |i: int| None::<MetadataTableViewEntry<K>>
+                ),
+        {
+            // Move all pending allocations from the pending list back into the free list
+            self.metadata_table_free_list.append(&mut self.pending_allocations);
+            // Drop all outstanding updates from the view
+            self.outstanding_cdb_writes = Ghost(Seq::new(
+                old(self).outstanding_cdb_writes@.len(),
+                |i: int| None::<bool>
+            ));
+            self.outstanding_entry_writes = Ghost(Seq::new(
+                old(self).outstanding_entry_writes@.len(),
+                |i: int| None::<MetadataTableViewEntry<K>>
+            ));
+        }
+
 
 /* Temporarily commented out for subregion work
 

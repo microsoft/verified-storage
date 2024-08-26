@@ -53,6 +53,13 @@ verus! {
             self.durable_item_table.len() == self.outstanding_item_table.len()
         }
 
+        pub open spec fn drop_pending_appends(self) -> Self {
+            DurableItemTableView {
+                durable_item_table: self.durable_item_table,
+                outstanding_item_table: self.outstanding_item_table,
+            }
+        }
+
         // pub closed spec fn spec_index(self, index: int) -> Option<DurableItemTableViewEntry<I>>
         // {
         //     if index < 0 || index >= self.len() 

@@ -109,6 +109,16 @@ verus! {
             // &&& physical_recovery_state == logical_recovery_state
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(self.wrpm, self.overall_metadata)
+            &&& {
+                let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);  
+                self.metadata_table.valid(main_table_subregion_view, self.overall_metadata)
+            }
+            &&& {
+                let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);  
+                self.item_table.valid(item_table_subregion_view, self.overall_metadata)
+            }
 
             
                                                                
@@ -140,6 +150,11 @@ verus! {
         pub closed spec fn spec_overall_metadata(self) -> OverallMetadata
         {
             self.overall_metadata
+        }
+
+        pub closed spec fn spec_overall_metadata_addr(self) -> u64
+        {
+            self.version_metadata.overall_metadata_addr
         }
 
         pub exec fn get_overall_metadata(&self) -> (out: OverallMetadata)
@@ -562,6 +577,89 @@ verus! {
                 // the prefix will be empty and we can easily apply the last one.
                 // we apply the first op and pass in just the suffix (i.e. with the first op removed)
                 Self::lemma_apply_op(apply_first, suffix_ops, overall_metadata);
+            }
+        }
+
+        proof fn lemma_tentative_log_entry_append_is_crash_safe(
+            self,
+            crash_pred: spec_fn(Seq<u8>) -> bool,
+            perm: &Perm
+        )
+            requires
+                self.valid(),
+                !self.transaction_committed(),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                    Self::physical_recover(s, self.overall_metadata) == Some(self@),
+                forall |s| {
+                    Self::physical_recover(s, self.overall_metadata) == Some(self@)
+                } ==> #[trigger] perm.check_permission(s),
+                Self::physical_recover(self.wrpm@.committed(), self.overall_metadata) == Some(self@),
+                no_outstanding_writes_to_version_metadata(self.wrpm@),
+                no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
+                self.wrpm@.len() >= VersionMetadata::spec_size_of(),
+                self.tentative_view() is Some,
+                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s| Self::physical_recover(s, self.overall_metadata) == Some(self@) <==> crash_pred(s),
+            ensures
+                forall |s1: Seq<u8>, s2: Seq<u8>| {
+                    &&& s1.len() == s2.len() 
+                    &&& #[trigger] crash_pred(s1)
+                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& UntrustedOpLog::<K, L>::recover(s1, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                } ==> #[trigger] crash_pred(s2),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                    Self::physical_recover(s, self.overall_metadata) == Some(self@) ==>
+                        UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+    
+        {
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+            // assert(old_wrpm == self.wrpm@); // this assertion is required to hit the trigger
+    
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list).unwrap();
+            Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
+
+            assert forall |s| #[trigger] self.wrpm@.can_crash_as(s) implies 
+                Self::physical_recover(s, self.overall_metadata) == Some(self@) ==>
+                    UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+            by {
+                self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, s, self.overall_metadata);
+            }
+    
+            assert forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] crash_pred(s1)
+                &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                &&& UntrustedOpLog::<K, L>::recover(s1, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+            } implies #[trigger] crash_pred(s2) by {
+                
+                // Caller has permission to crash into s1. 
+                // We don't change anything but the log, and the log state stays the same, then we stay in the same state.
+                // It doesn't actually matter what s1 recovers to, just that it is legal.
+    
+                let recovered_log = AbstractOpLogState::initialize();
+                let mem_with_log_installed_s1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s1, recovered_log.physical_op_list).unwrap();
+                assert(mem_with_log_installed_s1 == s1);
+                let mem_with_log_installed_s2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
+                assert(mem_with_log_installed_s2 == s2);
+                
+                let main_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let item_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let list_area_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                
+                let main_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let item_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let list_area_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+    
+                assert(main_table_region_s2 == main_table_region_s1);
+                assert(item_table_region_s2 == item_table_region_s1);
+                assert(list_area_region_s2 == list_area_region_s1);
+    
+                assert(Self::physical_recover(s1, self.overall_metadata) == Some(self@));
+                assert(Self::physical_recover(s2, self.overall_metadata) == Some(self@));
             }
         }
 
@@ -1155,6 +1253,7 @@ verus! {
                 } ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
                 ({
                     let tentative_view = old(self).tentative_view();
@@ -1193,11 +1292,8 @@ verus! {
             );
 
             proof {
-                assert(!self.log@.op_list_committed);
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
             }
-
-            assert(AbstractPhysicalOpLogEntry::log_inv(old(self).log@.physical_op_list, self.overall_metadata));
 
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
@@ -1207,57 +1303,13 @@ verus! {
             // its deletion and tentatively append it to the operation log.
             let log_entry = self.metadata_table.get_delete_log_entry(&metadata_table_subregion, 
                 self.wrpm.get_pm_region_ref(), index, self.overall_metadata, Ghost(tentative_view_bytes));
-
-            assert(self.log.inv(self.wrpm, self.overall_metadata));
-
+    
             let ghost crash_pred = |s: Seq<u8>| {
                 Self::physical_recover(s, self.overall_metadata) == Some(self@)
             };
 
             proof {
-                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
-                assert(old(self).wrpm_view() == self.wrpm@); // this assertion is required to hit the trigger
-
-                assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies 
-                    Self::physical_recover(s, self.overall_metadata) == Some(self@) ==>
-                        UntrustedOpLog::<K, L>::recover(s, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                by {
-                    self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, s, self.overall_metadata);
-                }
-
-                assert forall |s1: Seq<u8>, s2: Seq<u8>| {
-                    &&& s1.len() == s2.len() 
-                    &&& #[trigger] crash_pred(s1)
-                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                    &&& UntrustedOpLog::<K, L>::recover(s1, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                    &&& UntrustedOpLog::<K, L>::recover(s2, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                } implies #[trigger] crash_pred(s2) by {
-                   
-                    // Caller has permission to crash into s1. 
-                    // We don't change anything but the log, and the log state stays the same, then we stay in the same state.
-                    // It doesn't actually matter what s1 recovers to, just that it is legal.
-
-                    let recovered_log = AbstractOpLogState::initialize();
-                    let mem_with_log_installed_s1 = Self::apply_physical_log_entries(s1, recovered_log.physical_op_list).unwrap();
-                    assert(mem_with_log_installed_s1 == s1);
-                    let mem_with_log_installed_s2 = Self::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
-                    assert(mem_with_log_installed_s2 == s2);
-                    
-                    let main_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let item_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let list_area_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                    
-                    let main_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let item_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let list_area_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-                    assert(main_table_region_s2 == main_table_region_s1);
-                    assert(item_table_region_s2 == item_table_region_s1);
-                    assert(list_area_region_s2 == list_area_region_s1);
-
-                    assert(Self::physical_recover(s1, self.overall_metadata) == Some(self@));
-                    assert(Self::physical_recover(s2, self.overall_metadata) == Some(self@));
-                }
+                self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm);
             }
 
             let ghost committed_log = self.log@.commit_op_log();
@@ -1335,13 +1387,6 @@ verus! {
                     self.log@.tentatively_append_log_entry(log_entry@),
                     log_entry,
                 );
-
-                // let recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
-                assert(recovery_state_with_new_log is Some);
-                assert(!recovery_state_with_new_log.unwrap().contains_key(index as int));
-
-                // even once you've proven everything you have to here ... need to account for that fact that the memory contents are changed here
-                // but we already know what the tentative view is, right? it's the recovery state with the new log
             }
 
             // then append it to the operation log
@@ -1354,49 +1399,201 @@ verus! {
 
                         // NOTE: need to fix proofs in oplog too
 
+                        // TODO: clean this up
                         let tentative_view = self.tentative_view();
                         let pm_view = self.wrpm@;
                         let mem = pm_view.committed();
-                    
                         let flushed_old_mem = old(self).wrpm@.flush().committed();
 
                         assert(views_differ_only_in_log_region(old(self).wrpm@.flush(), self.wrpm@, 
                             self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
-
-                        assert(0 < VersionMetadata::spec_size_of() < self.overall_metadata.log_area_addr);
                         assert(extract_bytes(mem, 0, VersionMetadata::spec_size_of()) == extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()));
                         lemma_establish_extract_bytes_equivalence(mem, flushed_old_mem);
+                        // assert(self.version_metadata == deserialize_version_metadata(old(self).wrpm@.committed()));
+                        assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == 
+                            extract_bytes(old(self).wrpm@.committed(), 0, VersionMetadata::spec_size_of()));
 
-                        assert(no_outstanding_writes_to_version_metadata(old(self).wrpm@));
-                        
-                        assert(self.version_metadata == deserialize_version_metadata(old(self).wrpm@.committed()));
-                        assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == extract_bytes(old(self).wrpm@.committed(), 0, VersionMetadata::spec_size_of()));
-                        assert(self.version_metadata == deserialize_version_metadata(flushed_old_mem));
-                        assert(self.version_metadata == deserialize_version_metadata(mem));
-
-                        // TODO: finish
-
+                        assert(extract_bytes(mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
+                            extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
+                        assert(extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) =~= 
+                            extract_bytes(old(self).wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
+                        assert(self.overall_metadata == deserialize_overall_metadata(old(self).wrpm@.committed(), self.version_metadata.overall_metadata_addr));
                         assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
-                        
-                        // assert(deserialize_version_metadata(mem) == deserialize_version_metadata(flushed_old_mem));
-
-
-                        
                         assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
-                        
-                        assert(self.metadata_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat),
-                            self.overall_metadata));
-                        assert(self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                            self.overall_metadata.item_table_size as nat),
-                            self.overall_metadata));
-                        
-                        // assert(self.log.inv(self.wrpm, self.overall_metadata));
-                        assert(Self::physical_recover(mem, self.overall_metadata) is Some);
                     }
+
+                    // Note that self.inv() does not hold here; we have to reestablish it by updating the 
+                    // sub-components to reflect that the transaction has been aborted
+
+                    let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);      
+                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+
+                    let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat); 
+                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+
+                    proof {
+                        let mem = self.wrpm@.committed();
+                        let physical_recovery_state = Self::physical_recover(mem, self.overall_metadata);
+                        let op_log = UntrustedOpLog::<K, L>::recover(mem, self.overall_metadata);
+                        assert(op_log is Some);
+                        assert(op_log.unwrap().physical_op_list.len() == 0);
+                        let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log.unwrap().physical_op_list);
+                        assert(mem_with_log_installed is Some);
+                        
+                        let mem_with_log_installed = mem_with_log_installed.unwrap();
+                        assert(mem_with_log_installed == mem);
+
+                        assert(self.metadata_table.inv(main_table_subregion_view, self.overall_metadata));
+                        // assert(self.metadata_table.inv(self.wrpm@, self.overall_metadata));
+
+                        let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                            self.overall_metadata.main_table_size as nat);
+
+                        // let main_table_region_pre_flush = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                        assert(parse_metadata_table::<K>(
+                            old_main_table_subregion_view.committed(), 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        ) is Some);
+
+                        let main_table_region_post_flush = extract_bytes(old(self).wrpm@.flush().committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                        assert(parse_metadata_table::<K>(
+                            old_main_table_subregion_view.flush().committed(), 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        ) is Some);
+
+                        assert(parse_metadata_table::<K>(
+                            main_table_subregion_view.committed(), 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        ) is Some);
+                        assert(parse_metadata_table::<K>(
+                            main_table_subregion_view.flush().committed(), 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        ) is Some);
+                        
+
+                        // do we know any of this about mem, just not mem_with_log_installed?
+                        let main_table_region = extract_bytes(mem, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                        let item_table_region = extract_bytes(mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                        
+                        assert(main_table_region == main_table_subregion_view.committed());
+                        assert(item_table_region == item_table_subregion_view.committed());
+
+                        let main_table_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                        let item_table_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                        let list_area_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                        
+                        
+                        assert(main_table_region == main_table_region_with_log);
+                        assert(parse_metadata_table::<K>(
+                            main_table_region, 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        ) is Some);
+                        
+                        let main_table_view = parse_metadata_table::<K>(
+                            main_table_region_with_log, 
+                            self.overall_metadata.num_keys,
+                            self.overall_metadata.metadata_node_size
+                        );
+                        assert(main_table_view is Some);
+
+                        let item_table_view = parse_item_table::<I, K>(
+                            item_table_region_with_log,
+                            self.overall_metadata.num_keys as nat,
+                            main_table_view.unwrap().valid_item_indices()
+                        );
+                        assume(false);
+
+                        assert(item_table_view is Some);
+                        
+                        assert(physical_recovery_state is Some);
+                        
+                        assume(self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices());
+
+                        assert(self.valid());
+                    }
+                    
+                    // proof {
+                    //     broadcast use pmcopy_axioms;
+
+                    //     // // NOTE: need to fix proofs in oplog too
+
+                    //     let tentative_view = self.tentative_view();
+                    //     let pm_view = self.wrpm@;
+                    //     let mem = pm_view.committed();
+                    //     let flushed_old_mem = old(self).wrpm@.flush().committed();
+
+                    //     // this may not be true -- we may have flushed outstanding writes. but the view should be the same
+                    //     // assert(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
+                    //     //     get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+
+                    //     let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                    //         self.overall_metadata.main_table_size as nat);
+                    //     let old_flushed_main_table_subregion_view = old_main_table_subregion_view.flush();
+                    //     // again, not necessarily true!! they might differ in terms of bytes
+                    //     // assert(old_main_table_subregion_view.no_outstanding_writes());
+                    //     // assert(old_main_table_subregion_view.committed() == old_flushed_main_table_subregion_view.committed());
+                    //     // assert(old_main_table_subregion_view == old_flushed_main_table_subregion_view);
+
+                    //     let old_main_table_view = parse_metadata_table::<K>(
+                    //         old_main_table_subregion_view.committed(), 
+                    //         self.overall_metadata.num_keys,
+                    //         self.overall_metadata.metadata_node_size);
+                    //     assert(old_main_table_view is Some);
+                    //     let old_main_table_view_flushed = parse_metadata_table::<K>(
+                    //         old_flushed_main_table_subregion_view.committed(), 
+                    //         self.overall_metadata.num_keys,
+                    //         self.overall_metadata.metadata_node_size);
+                    //     assert(old_main_table_view_flushed is Some);
+                    //     assert(old_main_table_view == old_main_table_view_flushed);
+
+                    //     // assert(self.metadata_table.inv(old_main_table_subregion_view, self.overall_metadata));
+
+                    //     assert(old_flushed_main_table_subregion_view == old_flushed_main_table_subregion_view.flush());
+                        
+                    //     // assert(forall |i| 0 <= i < self.metadata_table@.durable_metadata_table.len() ==>
+                    //     //     self.metadata_table.outstanding_cdb_write_matches_pm_view(old_flushed_main_table_subregion_view, i, self.overall_metadata.metadata_node_size));
+
+                    //     // assert(forall |i| 0 <= i < self.metadata_table@.durable_metadata_table.len() ==>
+                    //     //     self.metadata_table.outstanding_entry_write_matches_pm_view(old_flushed_main_table_subregion_view, i, self.overall_metadata.metadata_node_size));
+                        
+                    //     // assert(self.metadata_table.inv(old_flushed_main_table_subregion_view, self.overall_metadata));
+                    //     // assert(self.metadata_table.valid(old_flushed_main_table_subregion_view, self.overall_metadata));
+                        
+                    //     let current_subregion_view = get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+                    //         self.overall_metadata.main_table_size as nat);
+                    //     assert(current_subregion_view == old_flushed_main_table_subregion_view);
+
+                    //     let current_view = parse_metadata_table::<K>(
+                    //         current_subregion_view.committed(), 
+                    //         self.overall_metadata.num_keys,
+                    //         self.overall_metadata.metadata_node_size);
+                    //     assert(current_view == old_main_table_view_flushed);
+
+                    //     assert(self.metadata_table.valid(current_subregion_view, self.overall_metadata));
+
+
+                    //     assume(false);
+
+                    //     assert(self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
+                    //         self.overall_metadata.item_table_size as nat),
+                    //         self.overall_metadata));
+                        
+                    //     // assert(self.log.inv(self.wrpm, self.overall_metadata));
+                    //     assert(Self::physical_recover(mem, self.overall_metadata) is Some);
+                    // }
                     return Err(e);
                 }
             }
+
+            // TODO REMOVE
+            assume(false);
 
             proof {
                 broadcast use pmcopy_axioms;

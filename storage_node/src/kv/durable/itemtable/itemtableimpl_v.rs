@@ -35,6 +35,7 @@ verus! {
         entry_size: u64,
         num_keys: u64,
         free_list: Vec<u64>,
+        pending_allocations: Vec<u64>,
         valid_indices: Ghost<Set<u64>>,
         state: Ghost<DurableItemTableView<I>>,
         _phantom: Ghost<Option<K>>,
@@ -68,6 +69,8 @@ verus! {
             &&& self.opaque_inv(pm_view, overall_metadata)
             &&& self@.inv()
             &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
+            &&& Some(self@) == parse_item_table::<I, K>(pm_view.committed(), self.spec_num_keys() as nat, self.spec_valid_indices())
+            &&& Some(self@) == parse_item_table::<I, K>(pm_view.flush().committed(), self.spec_num_keys() as nat, self.spec_valid_indices())
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
@@ -606,6 +609,7 @@ verus! {
                 entry_size: overall_metadata.item_size + traits_t::size_of::<u64>() as u64, // item + CRC
                 num_keys: overall_metadata.num_keys,
                 free_list: item_table_allocator,
+                pending_allocations: Vec::new(),
                 valid_indices: Ghost(in_use_indices),
                 state: Ghost(table.unwrap()),
                 _phantom: Ghost(None)
@@ -684,6 +688,24 @@ verus! {
             }
 
             Ok(())
+        }
+
+        pub exec fn abort_transaction(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        )
+            requires 
+                pm.no_outstanding_writes(),
+            ensures
+                self.valid(pm, overall_metadata),
+                self@ == self@.drop_pending_appends(),
+        {
+            // Move all pending allocations back into the free list
+            self.free_list.append(&mut self.pending_allocations);
+
+            // Drop all outstanding updates from the view
+            self.state = Ghost(self.state@.drop_pending_appends());
         }
 
         /* temporarily commented out for subregion development 

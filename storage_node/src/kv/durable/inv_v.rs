@@ -1,13 +1,14 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use crate::log2::inv_v::lemma_same_bytes_recover_to_same_state;
+use crate::log2::inv_v::*;
 use crate::{kv::layout_v::*, pmem::pmemspec_t::*, DurableKvStore};
 use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
+use crate::kv::durable::durablespec_t::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::kvspec_t::*;
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
@@ -337,5 +338,13 @@ verus! {
     {
         pm_region.no_outstanding_writes_in_range(0, VersionMetadata::spec_size_of() as int)
     }
-            
+
+    pub open spec fn no_outstanding_writes_to_overall_metadata(
+        pm_region: PersistentMemoryRegionView,
+        overall_metadata_addr: int,
+    ) -> bool 
+    {
+        pm_region.no_outstanding_writes_in_range(overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
+    }
+           
 }
