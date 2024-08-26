@@ -663,6 +663,47 @@ verus! {
             }
         }
 
+        proof fn lemma_version_and_overall_metadata_unchanged(
+            self,
+            old_pm_view: PersistentMemoryRegionView
+        )
+            requires 
+                0 < self.version_metadata.overall_metadata_addr < 
+                    self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
+                    self.overall_metadata.log_area_addr,
+                self.wrpm@.len() == old_pm_view.len(),
+                self.wrpm@.no_outstanding_writes(),
+                0 < VersionMetadata::spec_size_of() < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
+                no_outstanding_writes_to_version_metadata(old_pm_view),
+                no_outstanding_writes_to_overall_metadata(old_pm_view, self.version_metadata.overall_metadata_addr as int),
+                views_differ_only_in_log_region(old_pm_view.flush(), self.wrpm@, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+                self.version_metadata == deserialize_version_metadata(old_pm_view.committed()),
+                self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr ),
+            ensures 
+                self.version_metadata == deserialize_version_metadata(self.wrpm@.committed()),
+                self.overall_metadata == deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr),
+        {
+            broadcast use pmcopy_axioms;
+            let pm_view = self.wrpm@;
+            let mem = pm_view.committed();
+            let flushed_old_mem = old_pm_view.flush().committed();
+
+            lemma_establish_extract_bytes_equivalence(mem, flushed_old_mem);
+            assert(extract_bytes(mem, 0, VersionMetadata::spec_size_of()) == 
+                extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()));
+            assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == 
+                extract_bytes(old_pm_view.committed(), 0, VersionMetadata::spec_size_of()));
+
+            assert(extract_bytes(mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
+                extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
+            assert(extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) =~= 
+                extract_bytes(old_pm_view.committed(), self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
+            assert(self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr));
+            assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
+            assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
+        }
+
         // In logical recovery, we replay logical log entries based on replay functions provided by each component
         // TODO: might be useful to return mem from here?
         pub open spec fn logical_recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> 
@@ -1395,31 +1436,7 @@ verus! {
                 Ok(()) => {}
                 Err(e) => {
                     proof {
-                        broadcast use pmcopy_axioms;
-
-                        // NOTE: need to fix proofs in oplog too
-
-                        // TODO: clean this up
-                        let tentative_view = self.tentative_view();
-                        let pm_view = self.wrpm@;
-                        let mem = pm_view.committed();
-                        let flushed_old_mem = old(self).wrpm@.flush().committed();
-
-                        assert(views_differ_only_in_log_region(old(self).wrpm@.flush(), self.wrpm@, 
-                            self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
-                        assert(extract_bytes(mem, 0, VersionMetadata::spec_size_of()) == extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()));
-                        lemma_establish_extract_bytes_equivalence(mem, flushed_old_mem);
-                        // assert(self.version_metadata == deserialize_version_metadata(old(self).wrpm@.committed()));
-                        assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == 
-                            extract_bytes(old(self).wrpm@.committed(), 0, VersionMetadata::spec_size_of()));
-
-                        assert(extract_bytes(mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
-                            extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
-                        assert(extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) =~= 
-                            extract_bytes(old(self).wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
-                        assert(self.overall_metadata == deserialize_overall_metadata(old(self).wrpm@.committed(), self.version_metadata.overall_metadata_addr));
-                        assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
-                        assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
+                        self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@);
                     }
 
                     // Note that self.inv() does not hold here; we have to reestablish it by updating the 
@@ -1509,7 +1526,6 @@ verus! {
                             main_table_view.unwrap().valid_item_indices()
                         );
                         assume(false);
-
                         assert(item_table_view is Some);
                         
                         assert(physical_recovery_state is Some);
