@@ -56,7 +56,7 @@ verus! {
         pub open spec fn drop_pending_appends(self) -> Self {
             DurableItemTableView {
                 durable_item_table: self.durable_item_table,
-                outstanding_item_table: self.outstanding_item_table,
+                outstanding_item_table: Seq::new(self.outstanding_item_table.len(), |i: int| None),
             }
         }
 

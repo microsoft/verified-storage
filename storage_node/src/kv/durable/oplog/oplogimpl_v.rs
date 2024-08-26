@@ -1038,18 +1038,11 @@ verus! {
             Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
             no_outstanding_writes_to_version_metadata(log_wrpm@),
             self.inv(*log_wrpm, overall_metadata), // can we maintain this here?
-            views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
-                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             match result {
                 Ok(()) => {
-                    // We only maintain the invariant in the success case because an error appending to 
-                    // the log should abort the transaction, since we may not have appended a full log entry
-                    // and even if we did (or did not append anything), the error likely indicates we won't 
-                    // be able to commit it later anyway.
-                    // &&& self.inv(*log_wrpm, overall_metadata)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
-                    // &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
-                    //         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                    &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
+                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
                     &&& self.base_log_view().pending.len() == 0
@@ -1058,8 +1051,6 @@ verus! {
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
                     &&& log_wrpm@.no_outstanding_writes()
                     &&& self@.physical_op_list.len() == 0
-                    &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(_) => false 
             }

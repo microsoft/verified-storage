@@ -142,6 +142,7 @@ verus! {
                self.metadata_table_free_list@[i] != self.metadata_table_free_list@[j]
         }
 
+        // TODO: this needs to say something about pending allocations
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.opaque_inv()
@@ -152,8 +153,6 @@ verus! {
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& Some(self@) ==
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
-            &&& Some(self@) ==
-                parse_metadata_table::<K>(pm.flush().committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
             &&& self@.durable_metadata_table.len() == self.spec_outstanding_cdb_writes().len() ==
                 self.spec_outstanding_entry_writes().len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>

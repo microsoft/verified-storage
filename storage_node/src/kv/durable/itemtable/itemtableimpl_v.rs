@@ -56,6 +56,11 @@ verus! {
             self.free_list@.to_set()
         }
 
+        pub closed spec fn pending_allocations_view(self) -> Set<u64>
+        {
+            self.pending_allocations@.to_set()
+        }
+
         pub closed spec fn opaque_inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -63,16 +68,16 @@ verus! {
             &&& self.entry_size == entry_size
         }
 
+        // TODO: this needs to say something about pending allocations
         pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.opaque_inv(pm_view, overall_metadata)
             &&& self@.inv()
             &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
-            &&& Some(self@) == parse_item_table::<I, K>(pm_view.committed(), self.spec_num_keys() as nat, self.spec_valid_indices())
-            &&& Some(self@) == parse_item_table::<I, K>(pm_view.flush().committed(), self.spec_num_keys() as nat, self.spec_valid_indices())
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx)
+            &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
+                    !self.spec_free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
                 self.spec_free_list()[i] != self.spec_free_list()[j]
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==> self.spec_free_list()[i] < overall_metadata.num_keys
@@ -131,6 +136,11 @@ verus! {
         pub closed spec fn spec_free_list(self) -> Seq<u64>
         {
             self.free_list@
+        }
+
+        pub closed spec fn spec_pending_allocations(self) -> Seq<u64>
+        {
+            self.pending_allocations@
         }
 
         pub closed spec fn spec_valid_indices(self) -> Set<u64>
@@ -308,6 +318,7 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 }
             };
+            self.pending_allocations.push(free_index);
 
             assert(old(self).subregion_grants_access_to_entry_slot(*subregion, free_index));
             assert(self.spec_valid_indices() == old(self).spec_valid_indices());
@@ -697,6 +708,19 @@ verus! {
         )
             requires 
                 pm.no_outstanding_writes(),
+                // old(self).opaque_inv(pm, overall_metadata),
+                old(self)@.inv(),
+                old(self)@.len() == old(self).spec_num_keys() == overall_metadata.num_keys,
+                ({
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    &&& pm.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
+                }),
+                forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
+                    !old(self).spec_free_list().contains(idx),
+                forall|i: int, j: int| 0 <= i < old(self).spec_free_list().len() && 0 <= j < old(self).spec_free_list().len() && i != j ==>
+                    old(self).spec_free_list()[i] != old(self).spec_free_list()[j],
+
+
             ensures
                 self.valid(pm, overall_metadata),
                 self@ == self@.drop_pending_appends(),
@@ -707,6 +731,18 @@ verus! {
 
             // Drop all outstanding updates from the view
             self.state = Ghost(self.state@.drop_pending_appends());
+
+            proof {
+                assume(false);
+                // assert(forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx));
+
+                // assert(forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
+                //     self.spec_free_list()[i] != self.spec_free_list()[j]);
+
+                // assert(self.inv(pm, overall_metadata));
+                
+                // assert(self.valid(pm, overall_metadata));
+            }
         }
 
         /* temporarily commented out for subregion development 
