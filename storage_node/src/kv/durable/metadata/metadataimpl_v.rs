@@ -1445,6 +1445,7 @@ verus! {
                     old(self).spec_outstanding_entry_writes().len(),
                     |i: int| None::<MetadataTableViewEntry<K>>
                 ),
+                self@.valid_item_indices() == old(self)@.valid_item_indices(),
         {
             // Move all pending allocations from the pending list back into the free list
             self.metadata_table_free_list.append(&mut self.pending_allocations);

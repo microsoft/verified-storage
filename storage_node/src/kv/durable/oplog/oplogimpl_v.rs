@@ -1038,6 +1038,8 @@ verus! {
             Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
             no_outstanding_writes_to_version_metadata(log_wrpm@),
             self.inv(*log_wrpm, overall_metadata), // can we maintain this here?
+            views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
+                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             match result {
                 Ok(()) => {
                     // We only maintain the invariant in the success case because an error appending to 
@@ -1046,8 +1048,8 @@ verus! {
                     // be able to commit it later anyway.
                     // &&& self.inv(*log_wrpm, overall_metadata)
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
-                    &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
-                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                    // &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
+                    //         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
                     &&& self.base_log_view().pending.len() == 0

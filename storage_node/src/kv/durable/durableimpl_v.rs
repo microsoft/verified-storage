@@ -118,10 +118,7 @@ verus! {
                 let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);  
                 self.item_table.valid(item_table_subregion_view, self.overall_metadata)
-            }
-
-            
-                                                               
+            }                                         
             // TODO: more component invariants
         }
 
@@ -303,6 +300,26 @@ verus! {
                     }
                 }
             }
+        }
+
+        proof fn lemma_phys_recover_succeeds_if_mem_with_empty_log_matches_everywhere_but_log_region(
+            mem1: Seq<u8>,
+            mem2: Seq<u8>,
+            overall_metadata: OverallMetadata
+        )
+            requires 
+                states_differ_only_in_log_region(mem1, mem2, overall_metadata.log_area_addr as nat,
+                    overall_metadata.log_area_size as nat),
+                Self::physical_recover(mem1, overall_metadata) is Some,
+                UntrustedOpLog::<K, L>::recover(mem1, overall_metadata) is Some,
+                UntrustedOpLog::<K, L>::recover(mem2, overall_metadata) is Some,
+                UntrustedOpLog::<K, L>::recover(mem1, overall_metadata).unwrap() == AbstractOpLogState::initialize(),
+                UntrustedOpLog::<K, L>::recover(mem2, overall_metadata).unwrap() == AbstractOpLogState::initialize(),
+            ensures 
+                Self::physical_recover(mem2, overall_metadata) is Some,
+        {
+            // TODO
+            assume(false); 
         }
 
         pub proof fn lemma_op_log_apply_equal(
@@ -1435,9 +1452,7 @@ verus! {
             match result {
                 Ok(()) => {}
                 Err(e) => {
-                    proof {
-                        self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@);
-                    }
+                    proof { self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@); }
 
                     // Note that self.inv() does not hold here; we have to reestablish it by updating the 
                     // sub-components to reflect that the transaction has been aborted
@@ -1452,158 +1467,10 @@ verus! {
 
                     proof {
                         let mem = self.wrpm@.committed();
-                        let physical_recovery_state = Self::physical_recover(mem, self.overall_metadata);
-                        let op_log = UntrustedOpLog::<K, L>::recover(mem, self.overall_metadata);
-                        assert(op_log is Some);
-                        assert(op_log.unwrap().physical_op_list.len() == 0);
-                        let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log.unwrap().physical_op_list);
-                        assert(mem_with_log_installed is Some);
-                        
-                        let mem_with_log_installed = mem_with_log_installed.unwrap();
-                        assert(mem_with_log_installed == mem);
-
-                        assert(self.metadata_table.inv(main_table_subregion_view, self.overall_metadata));
-                        // assert(self.metadata_table.inv(self.wrpm@, self.overall_metadata));
-
-                        let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat);
-
-                        // let main_table_region_pre_flush = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(parse_metadata_table::<K>(
-                            old_main_table_subregion_view.committed(), 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        ) is Some);
-
-                        let main_table_region_post_flush = extract_bytes(old(self).wrpm@.flush().committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(parse_metadata_table::<K>(
-                            old_main_table_subregion_view.flush().committed(), 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        ) is Some);
-
-                        assert(parse_metadata_table::<K>(
-                            main_table_subregion_view.committed(), 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        ) is Some);
-                        assert(parse_metadata_table::<K>(
-                            main_table_subregion_view.flush().committed(), 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        ) is Some);
-                        
-
-                        // do we know any of this about mem, just not mem_with_log_installed?
-                        let main_table_region = extract_bytes(mem, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region = extract_bytes(mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        
-                        assert(main_table_region == main_table_subregion_view.committed());
-                        assert(item_table_region == item_table_subregion_view.committed());
-
-                        let main_table_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        let list_area_region_with_log = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                        
-                        
-                        assert(main_table_region == main_table_region_with_log);
-                        assert(parse_metadata_table::<K>(
-                            main_table_region, 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        ) is Some);
-                        
-                        let main_table_view = parse_metadata_table::<K>(
-                            main_table_region_with_log, 
-                            self.overall_metadata.num_keys,
-                            self.overall_metadata.metadata_node_size
-                        );
-                        assert(main_table_view is Some);
-
-                        let item_table_view = parse_item_table::<I, K>(
-                            item_table_region_with_log,
-                            self.overall_metadata.num_keys as nat,
-                            main_table_view.unwrap().valid_item_indices()
-                        );
-                        assume(false);
-                        assert(item_table_view is Some);
-                        
-                        assert(physical_recovery_state is Some);
-                        
-                        assume(self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices());
-
-                        assert(self.valid());
+                        Self::lemma_phys_recover_succeeds_if_mem_with_empty_log_matches_everywhere_but_log_region(
+                            old(self).wrpm@.committed(), mem, self.overall_metadata
+                        );                    
                     }
-                    
-                    // proof {
-                    //     broadcast use pmcopy_axioms;
-
-                    //     // // NOTE: need to fix proofs in oplog too
-
-                    //     let tentative_view = self.tentative_view();
-                    //     let pm_view = self.wrpm@;
-                    //     let mem = pm_view.committed();
-                    //     let flushed_old_mem = old(self).wrpm@.flush().committed();
-
-                    //     // this may not be true -- we may have flushed outstanding writes. but the view should be the same
-                    //     // assert(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
-                    //     //     get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-
-                    //     let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
-                    //         self.overall_metadata.main_table_size as nat);
-                    //     let old_flushed_main_table_subregion_view = old_main_table_subregion_view.flush();
-                    //     // again, not necessarily true!! they might differ in terms of bytes
-                    //     // assert(old_main_table_subregion_view.no_outstanding_writes());
-                    //     // assert(old_main_table_subregion_view.committed() == old_flushed_main_table_subregion_view.committed());
-                    //     // assert(old_main_table_subregion_view == old_flushed_main_table_subregion_view);
-
-                    //     let old_main_table_view = parse_metadata_table::<K>(
-                    //         old_main_table_subregion_view.committed(), 
-                    //         self.overall_metadata.num_keys,
-                    //         self.overall_metadata.metadata_node_size);
-                    //     assert(old_main_table_view is Some);
-                    //     let old_main_table_view_flushed = parse_metadata_table::<K>(
-                    //         old_flushed_main_table_subregion_view.committed(), 
-                    //         self.overall_metadata.num_keys,
-                    //         self.overall_metadata.metadata_node_size);
-                    //     assert(old_main_table_view_flushed is Some);
-                    //     assert(old_main_table_view == old_main_table_view_flushed);
-
-                    //     // assert(self.metadata_table.inv(old_main_table_subregion_view, self.overall_metadata));
-
-                    //     assert(old_flushed_main_table_subregion_view == old_flushed_main_table_subregion_view.flush());
-                        
-                    //     // assert(forall |i| 0 <= i < self.metadata_table@.durable_metadata_table.len() ==>
-                    //     //     self.metadata_table.outstanding_cdb_write_matches_pm_view(old_flushed_main_table_subregion_view, i, self.overall_metadata.metadata_node_size));
-
-                    //     // assert(forall |i| 0 <= i < self.metadata_table@.durable_metadata_table.len() ==>
-                    //     //     self.metadata_table.outstanding_entry_write_matches_pm_view(old_flushed_main_table_subregion_view, i, self.overall_metadata.metadata_node_size));
-                        
-                    //     // assert(self.metadata_table.inv(old_flushed_main_table_subregion_view, self.overall_metadata));
-                    //     // assert(self.metadata_table.valid(old_flushed_main_table_subregion_view, self.overall_metadata));
-                        
-                    //     let current_subregion_view = get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
-                    //         self.overall_metadata.main_table_size as nat);
-                    //     assert(current_subregion_view == old_flushed_main_table_subregion_view);
-
-                    //     let current_view = parse_metadata_table::<K>(
-                    //         current_subregion_view.committed(), 
-                    //         self.overall_metadata.num_keys,
-                    //         self.overall_metadata.metadata_node_size);
-                    //     assert(current_view == old_main_table_view_flushed);
-
-                    //     assert(self.metadata_table.valid(current_subregion_view, self.overall_metadata));
-
-
-                    //     assume(false);
-
-                    //     assert(self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                    //         self.overall_metadata.item_table_size as nat),
-                    //         self.overall_metadata));
-                        
-                    //     // assert(self.log.inv(self.wrpm, self.overall_metadata));
-                    //     assert(Self::physical_recover(mem, self.overall_metadata) is Some);
-                    // }
                     return Err(e);
                 }
             }
