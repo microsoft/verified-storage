@@ -69,6 +69,8 @@ verus! {
             &&& self@.inv()
             &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
+            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@)
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
                 self.spec_free_list()[i] != self.spec_free_list()[j]
@@ -359,6 +361,10 @@ verus! {
                 }
             }
 
+            // TODO @jaylorch
+            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@));
+
             Ok(free_index)
         }
 
@@ -638,6 +644,15 @@ verus! {
                     pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 }
+            }
+
+            proof {
+                // Prove that the item table region only has one crash state, which recovers to the initial table's state
+                let pm_view = subregion.view(pm_region);
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
+                assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.committed());
+                assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, item_table.spec_valid_indices()) == Some(item_table@));
             }
 
             Ok(item_table)

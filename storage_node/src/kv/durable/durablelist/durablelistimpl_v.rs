@@ -48,7 +48,12 @@ verus! {
         }
 
         // TODO
-        closed spec fn inv(self) -> bool;
+        pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MetadataTableView<K>, overall_metadata: OverallMetadata) -> bool
+        {
+            // TODO: be more precise -- should match current state
+            &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
+                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
+        }
 
         pub open spec fn recover(
             mem: Seq<u8>,
@@ -393,7 +398,8 @@ verus! {
                             overall_metadata.list_node_size, 
                             overall_metadata.num_list_entries_per_node
                         ).unwrap();
-                        list@ == list_view
+                        &&& list@ == list_view
+                        &&& list.inv(subregion.view(pm_region), main_table@, overall_metadata)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr

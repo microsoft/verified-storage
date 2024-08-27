@@ -111,10 +111,24 @@ verus! {
                                                          self.overall_metadata.main_table_size as nat),
                                       self.overall_metadata)
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                                                     self.overall_metadata.item_table_size as nat),
-                                  self.overall_metadata)
+                                self.overall_metadata.item_table_size as nat), self.overall_metadata)
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(self.wrpm, self.overall_metadata)
+            &&& {
+                let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);  
+                self.metadata_table.valid(main_table_subregion_view, self.overall_metadata)
+            }
+            &&& {
+                let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);  
+                self.item_table.valid(item_table_subregion_view, self.overall_metadata)
+            }                 
+            &&& {
+                let list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat);
+                self.durable_list.inv(list_area_subregion_view, self.metadata_table@, self.overall_metadata)
+            }         
                                                                
             // TODO: more component invariants
         }

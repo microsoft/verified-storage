@@ -144,8 +144,8 @@ verus! {
             &&& pm.len() >= overall_metadata.main_table_size
             &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
-            &&& Some(self@) ==
-                parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
+                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@)
             &&& self@.durable_metadata_table.len() == self.spec_outstanding_cdb_writes().len() ==
                 self.spec_outstanding_entry_writes().len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
@@ -155,6 +155,11 @@ verus! {
             &&& self@.inv()
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==> 
+                    match #[trigger] self@.durable_metadata_table[i] {
+                        DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
+                        _ => true
+                    }
             &&& self.allocator_view().len() <= overall_metadata.num_keys 
             &&& self.free_indices().len() <= overall_metadata.num_keys
             &&& self.free_indices().finite()
@@ -244,6 +249,7 @@ verus! {
                     &&& key == meta.key
                 }),
         {
+            assert(pm.can_crash_as(pm.committed()));
             let metadata_node_size = overall_metadata.metadata_node_size;
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
             let entry_bytes = extract_bytes(pm.committed(), (index * metadata_node_size) as nat, metadata_node_size as nat);
@@ -589,6 +595,15 @@ verus! {
                 assert(metadata_node_size * max_index == max_index * metadata_node_size) by {
                     vstd::arithmetic::mul::lemma_mul_is_commutative(metadata_node_size as int, max_index as int);
                 }
+
+                // Proves that there is currently only one crash state, and it recovers to the current ghost table state.
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(subregion.view(pm_region));
+                assert(forall |s| subregion.view(pm_region).can_crash_as(s) ==> s == mem);
+                assert(parse_metadata_table::<K>(
+                    mem,
+                    overall_metadata.num_keys, 
+                    overall_metadata.metadata_node_size 
+                ) == Some(table));
             }
 
             while index < num_keys
@@ -606,16 +621,13 @@ verus! {
                     subregion.view(pm_region).no_outstanding_writes(),
                     mem == subregion.view(pm_region).committed(),
                     old_pm_constants == pm_region.constants(),
-                    parse_metadata_table::<K>(
-                        subregion.view(pm_region).committed(),
-                        overall_metadata.num_keys, 
-                        overall_metadata.metadata_node_size 
-                    ) is Some,
-                    table == parse_metadata_table::<K>(
-                        subregion.view(pm_region).committed(),
-                        overall_metadata.num_keys, 
-                        overall_metadata.metadata_node_size 
-                    ).unwrap(),
+                    subregion.view(pm_region).can_crash_as(subregion.view(pm_region).committed()),
+                    forall |s| #[trigger] subregion.view(pm_region).can_crash_as(s) ==>  
+                        parse_metadata_table::<K>(
+                            s,
+                            overall_metadata.num_keys, 
+                            overall_metadata.metadata_node_size 
+                        ) == Some(table),
                     metadata_node_size == overall_metadata.metadata_node_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
@@ -1217,6 +1229,10 @@ verus! {
 
             assert(self.allocator_view() =~= self.free_indices());
             assert(pm_view.committed() == old_pm_view.committed());
+
+            // TODO @jaylorch
+            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@));
 
             Ok(free_index)
         }
