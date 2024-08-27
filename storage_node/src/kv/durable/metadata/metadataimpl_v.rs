@@ -151,8 +151,8 @@ verus! {
             &&& self.spec_metadata_node_size() == overall_metadata.metadata_node_size
             &&& overall_metadata.metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
-            &&& Some(self@) ==
-                parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size)
+            &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
+                    parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@)
             &&& self@.durable_metadata_table.len() == self.spec_outstanding_cdb_writes().len() ==
                 self.spec_outstanding_entry_writes().len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>

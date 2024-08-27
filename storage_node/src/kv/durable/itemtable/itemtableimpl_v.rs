@@ -76,6 +76,8 @@ verus! {
             &&& self@.inv()
             &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
+            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@)
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
                     !self.spec_free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
@@ -719,8 +721,6 @@ verus! {
                     !old(self).spec_free_list().contains(idx),
                 forall|i: int, j: int| 0 <= i < old(self).spec_free_list().len() && 0 <= j < old(self).spec_free_list().len() && i != j ==>
                     old(self).spec_free_list()[i] != old(self).spec_free_list()[j],
-
-
             ensures
                 self.valid(pm, overall_metadata),
                 self@ == self@.drop_pending_appends(),

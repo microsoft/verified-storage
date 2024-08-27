@@ -118,7 +118,12 @@ verus! {
                 let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);  
                 self.item_table.valid(item_table_subregion_view, self.overall_metadata)
-            }                                         
+            }                 
+            &&& {
+                let list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat);
+                self.durable_list.inv(list_area_subregion_view, self.metadata_table@, self.overall_metadata)
+            }                        
             // TODO: more component invariants
         }
 
@@ -693,8 +698,7 @@ verus! {
                 0 < VersionMetadata::spec_size_of() < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
                 no_outstanding_writes_to_version_metadata(old_pm_view),
                 no_outstanding_writes_to_overall_metadata(old_pm_view, self.version_metadata.overall_metadata_addr as int),
-                views_differ_only_in_log_region(old_pm_view.flush(), self.wrpm@, 
-                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+                version_and_overall_metadata_match(old_pm_view.committed(), self.wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat),
                 self.version_metadata == deserialize_version_metadata(old_pm_view.committed()),
                 self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr ),
             ensures 
@@ -1427,7 +1431,7 @@ verus! {
             }
 
             // then append it to the operation log
-            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
             match result {
                 Ok(()) => {}
                 Err(e) => {
@@ -1436,9 +1440,7 @@ verus! {
 
                     proof { self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@); }
 
-                    // Note that self.inv() does not hold here; we have to reestablish it by updating the 
-                    // sub-components to reflect that the transaction has been aborted
-
+                    // abort the transaction in each component to re-establish their invariants
                     let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);      
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
@@ -1447,11 +1449,31 @@ verus! {
                         self.overall_metadata.item_table_size as nat); 
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
 
+                    let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                        self.overall_metadata.list_area_size as nat);
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+
                     proof {
-                        let mem = self.wrpm@.committed();
-                        Self::lemma_phys_recover_succeeds_if_mem_with_empty_log_matches_everywhere_but_log_region(
-                            old(self).wrpm@.committed(), mem, self.overall_metadata
-                        );                    
+                        // We now have to prove that recovering KV store -- which is flushed during transaction abort
+                        // but is otherwise not modified -- results in the correct state. The individual component invariants
+                        // ensure that they each recovery successfully in all crash states, so we just have to prove
+                        // that replaying the log here is a no-op, so recovering after log replay is equivalent to recovering
+                        // from a crash state we already know is valid and therefore KV store recover succeeds.
+                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+                        assert(item_table_subregion_view.can_crash_as(item_table_subregion_view.committed()));
+                        assert(list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
+
+                        let recovered_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.overall_metadata).unwrap();
+                        let mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), recovered_op_log.physical_op_list).unwrap();
+                        let main_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat,
+                            self.overall_metadata.main_table_size as nat);   
+                        let item_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat,
+                            self.overall_metadata.item_table_size as nat); 
+                        let list_area_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat,
+                            self.overall_metadata.list_area_size as nat); 
+                        assert(main_table_region_view_with_log_installed == main_table_subregion_view.committed());
+                        assert(item_table_region_view_with_log_installed == item_table_subregion_view.committed());
+                        assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
                     }
                     return Err(e);
                 }
@@ -1477,6 +1499,8 @@ verus! {
                     get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
                 assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) == 
                     get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat) == 
+                    get_subregion_view(old(self).wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
 
                 let flushed_mem = self.wrpm@.flush().committed();
                 let old_flushed_mem = old(self).wrpm@.flush().committed();

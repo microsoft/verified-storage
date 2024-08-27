@@ -851,6 +851,7 @@ impl UntrustedLogImpl {
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& self@ == old(self)@
+                    &&& wrpm_region@ == old(wrpm_region)@
                     &&& available_space < bytes_to_append@.len()
                     &&& {
                             ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()

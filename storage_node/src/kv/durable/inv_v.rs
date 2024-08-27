@@ -329,7 +329,6 @@ verus! {
                     overall_metadata.num_list_entries_per_node
                 ) is Some
             })
-
     {}
     
     pub open spec fn no_outstanding_writes_to_version_metadata(
@@ -346,5 +345,18 @@ verus! {
     {
         pm_region.no_outstanding_writes_in_range(overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
     }
+
+    pub open spec fn version_and_overall_metadata_match(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        overall_metadata_addr: nat
+    ) -> bool
+    {
+        &&& extract_bytes(mem1, 0, VersionMetadata::spec_size_of()) == 
+                extract_bytes(mem2, 0, VersionMetadata::spec_size_of())
+        &&& extract_bytes(mem1, overall_metadata_addr, OverallMetadata::spec_size_of()) == 
+                extract_bytes(mem2, overall_metadata_addr, OverallMetadata::spec_size_of())
+    }
+        
            
 }
