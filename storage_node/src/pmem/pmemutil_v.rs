@@ -147,6 +147,22 @@ verus! {
         };
     }
 
+    // This lemma establishes that it's possible to crash into the
+    // committed state.
+    pub proof fn lemma_persistent_memory_view_can_crash_as_committed(pm_region_view: PersistentMemoryRegionView)
+        ensures
+            pm_region_view.can_crash_as(pm_region_view.committed()),
+    {
+    }
+
+    // This lemma establishes that it's possible to crash into the
+    // fully-flushed state.
+    pub proof fn lemma_persistent_memory_view_can_crash_as_flushed(pm_region_view: PersistentMemoryRegionView)
+        ensures
+            pm_region_view.can_crash_as(pm_region_view.flush().committed()),
+    {
+    }
+
     // This executable function returns a vector containing the sizes
     // of the regions in the given collection of persistent memory
     // regions.
@@ -874,5 +890,50 @@ verus! {
             extract_bytes(extract_bytes(mem, start1, len1), (start2 - start1) as nat, len2)
     {
         lemma_subrange_of_subrange_equal(mem, start1, start2, start2 + len2, start1 + len1);
+    }
+
+    pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+        v1: PersistentMemoryRegionView,
+        v2: PersistentMemoryRegionView,
+        crash_state1: Seq<u8>,
+        can_views_differ_at_addr: spec_fn(int) -> bool,
+    ) -> (crash_state2: Seq<u8>)
+        requires
+            v1.len() == v2.len(),
+            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> v1.state[addr] == v2.state[addr],
+            v1.can_crash_as(crash_state1),
+        ensures
+            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> crash_state1[addr] == crash_state2[addr],
+            v2.can_crash_as(crash_state2),
+    {
+        let crash_state2 = Seq::<u8>::new(crash_state1.len(), |addr: int| {
+           if !can_views_differ_at_addr(addr) {
+               crash_state1[addr]
+           }
+           else {
+               let chunk = addr / const_persistence_chunk_size();
+               if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                   v2.state[addr].state_at_last_flush
+               }
+               else {
+                   v2.state[addr].flush_byte()
+               }
+           }
+        });
+        assert forall|chunk| {
+            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2)
+            ||| v2.chunk_corresponds_after_flush(chunk, crash_state2)
+        } by {
+            if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2));
+            }
+            else {
+                assert(v1.chunk_corresponds_after_flush(chunk, crash_state1));
+                assert(v2.chunk_corresponds_after_flush(chunk, crash_state2));
+            }
+        }
+        crash_state2
     }
 }

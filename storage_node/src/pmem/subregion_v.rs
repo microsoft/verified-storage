@@ -1,14 +1,15 @@
-use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
+use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_hoist_over_denominator};
 use vstd::bytes::*;
 use vstd::invariant::*;
 use vstd::prelude::*;
 use vstd::seq::*;
 use vstd::seq_lib::*;
-use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_hoist_over_denominator};
 
 verus! {
 
@@ -1450,24 +1451,21 @@ pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_where
                                                     is_writable_absolute_addr_fn),
         v2.can_crash_as(crash_state2),
 {
-    Seq::<u8>::new(crash_state1.len(), |addr: int| {
-       if {
-           ||| 0 <= addr < start
-           ||| start + len <= addr < crash_state1.len()
-           ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
-       } {
-           crash_state1[addr]
-       }
-       else {
-           let chunk = addr / const_persistence_chunk_size();
-           if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
-               v2.state[addr].state_at_last_flush
-           }
-           else {
-               v2.state[addr].flush_byte()
-           }
-       }
-    })
+    let filter = |addr: int| start <= addr < start + len && is_writable_absolute_addr_fn(addr);
+    let crash_state2 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+        v1, v2, crash_state1, filter
+    );
+
+    assert forall |addr: int| {
+       ||| 0 <= addr < start
+       ||| start + len <= addr < crash_state1.len()
+       ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
+    } implies crash_state1[addr] == #[trigger] crash_state2[addr] by {
+        assert(0 <= addr < v1.len());
+        assert(!filter(addr));
+    }
+    
+    crash_state2
 }
 
 pub proof fn lemma_subregion_view_can_crash_as_subrange(

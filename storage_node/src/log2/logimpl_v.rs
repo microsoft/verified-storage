@@ -352,10 +352,10 @@ impl UntrustedLogImpl {
             forall |s| #[trigger] new_pm1.can_crash_as(s) ==> perm.check_permission(s),
             forall |s| #[trigger] new_pm2.can_crash_as(s) ==> perm.check_permission(s)
     {
-        broadcast use pmcopy_axioms;
         lemma_metadata_fits_in_log_header_area();
 
         assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies perm.check_permission(s) by {
+            broadcast use pmcopy_axioms;
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -364,6 +364,7 @@ impl UntrustedLogImpl {
         }
 
         assert forall |s| #[trigger] new_pm2.can_crash_as(s) implies perm.check_permission(s) by {
+            broadcast use pmcopy_axioms;
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -834,6 +835,7 @@ impl UntrustedLogImpl {
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& self@ == old(self)@
+                    &&& wrpm_region@ == old(wrpm_region)@
                     &&& available_space < bytes_to_append@.len()
                     &&& {
                             ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
@@ -1933,6 +1935,8 @@ impl UntrustedLogImpl {
             self@.log == old(self)@.log,
             self@.head == old(self)@.head,
             self@.capacity == old(self)@.capacity,
+            forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@),
     {
         // remove pending bytes from the log length in the concrete state
         self.info.log_plus_pending_length = self.info.log_length;
