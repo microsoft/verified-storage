@@ -354,8 +354,9 @@ pub proof fn lemma_same_bytes_recover_to_same_state(
         mem1.len() == mem2.len(),
         extract_bytes(mem1, log_start_addr, log_size) == 
             extract_bytes(mem2, log_start_addr, log_size),
-        0 <= log_start_addr < log_start_addr + log_size < region_size,
-        0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
+        0 <= log_start_addr,
+        log_start_addr + log_size <= region_size,
+        spec_log_area_pos() <= log_size,
     ensures
         UntrustedLogImpl::recover(mem1, log_start_addr, log_size) ==
             UntrustedLogImpl::recover(mem2, log_start_addr, log_size)
@@ -370,6 +371,9 @@ pub proof fn lemma_same_bytes_recover_to_same_state(
             let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
         let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
         let crc_pos = metadata_pos + LogMetadata::spec_size_of();
+        assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+            reveal(spec_padding_needed);
+        }
         // Proves that metadata, CRC, and log area are the same
         lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
         lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
@@ -544,10 +548,13 @@ pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: 
             extract_bytes(mem2, log_start_addr, spec_log_area_pos()),
         spec_check_log_cdb(mem1, log_start_addr) is Some,
         spec_check_log_cdb(mem2, log_start_addr) is Some,
-        log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
     ensures 
         active_metadata_bytes_are_equal(mem1, mem2, log_start_addr)
 {
+    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+        reveal(spec_padding_needed);
+    }
+
     lemma_establish_extract_bytes_equivalence(mem1, mem2);
     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
 }
@@ -570,10 +577,14 @@ pub proof fn lemma_metadata_matches_implies_metadata_types_set(
         // 0 < ABSOLUTE_POS_OF_LOG_AREA < pm2.committed().len(),
         active_metadata_is_equal(pm1, pm2, log_start_addr),
         pm1.len() == pm2.len(),
-        log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < pm1.len(),
+        log_start_addr + spec_log_area_pos() <= pm1.len(),
     ensures 
         metadata_types_set(pm2.committed(), log_start_addr)
 {
+    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+        reveal(spec_padding_needed);
+    }
+
     lemma_active_metadata_bytes_equal_implies_metadata_types_set(pm1.committed(), pm2.committed(), log_start_addr, cdb);
 }
 
@@ -600,10 +611,14 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
             &&& !cdb ==> !cdb1.unwrap() && !cdb2.unwrap()
         }),
         metadata_types_set(mem1, log_start_addr),
-        log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
+        log_start_addr + spec_log_area_pos() <= mem1.len(),
     ensures 
         metadata_types_set(mem2, log_start_addr),
 {
+    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+        reveal(spec_padding_needed);
+    }
+    
     lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
     // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
@@ -865,7 +880,7 @@ pub proof fn lemma_metadata_types_set_after_cdb_update(
         new_pm_region_view.no_outstanding_writes(),
         log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= old_pm_region_view.len(),
         old_pm_region_view.len() == new_pm_region_view.len(),
-        log_size > spec_log_header_area_size(),
+        log_size >= spec_log_header_area_size(),
         new_cdb_bytes.len() == u64::spec_size_of(),
         new_cdb_bytes == CDB_FALSE.spec_to_bytes() || new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
         old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
@@ -907,7 +922,7 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
         metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
         info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
         metadata_types_set(pm_region_view.committed(), log_start_addr),
-        log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < pm_region_view.len()
+        log_start_addr + spec_log_area_pos() <= pm_region_view.len(),
     ensures
         ({
             let pm_region_view2 = pm_region_view.flush();
@@ -918,6 +933,10 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
         })
 {
     let pm_region_view2 = pm_region_view.flush();
+
+    assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+        reveal(spec_padding_needed);
+    }
 
     assert(memory_matches_deserialized_cdb(pm_region_view2, log_start_addr, cdb)) by {
         assert(extract_bytes(pm_region_view2.committed(), log_start_addr, u64::spec_size_of()) == 
