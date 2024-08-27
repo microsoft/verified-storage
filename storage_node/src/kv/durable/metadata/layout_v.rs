@@ -4,7 +4,6 @@ use vstd::arithmetic::mul::lemma_mul_strict_inequality;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
-use vstd::ptr::*;
 use crate::kv::durable::inv_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::crc_t::*;

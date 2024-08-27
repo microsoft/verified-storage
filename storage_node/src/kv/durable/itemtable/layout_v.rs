@@ -34,7 +34,6 @@ use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
-use vstd::ptr::*;
 
 use super::itemtablespec_t::DurableItemTableView;
 
