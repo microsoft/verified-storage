@@ -85,12 +85,9 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_metadata_entry::<I, K>(entry_bytes)
             }
-        }
-
-        pub closed spec fn allocator_inv(self) -> bool 
-        {
-            forall |i: u64| 0 <= i < self@.len() ==> 
-                (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i))
+            &&& parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat,
+                                       self.spec_valid_indices()) matches Some(div)
+            &&& div.durable_item_table == self@.durable_item_table
         }
 
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -359,6 +356,10 @@ verus! {
                     }
                 }
             }
+
+            assert(parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat,
+                                                     self.spec_valid_indices()).unwrap().durable_item_table =~=
+                   self@.durable_item_table);
 
             Ok(free_index)
         }
@@ -641,6 +642,10 @@ verus! {
                 }
             }
 
+            assert(parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat,
+                                            item_table.spec_valid_indices()).unwrap().durable_item_table =~=
+                   item_table@.durable_item_table);
+
             Ok(item_table)
         }
 
@@ -670,7 +675,6 @@ verus! {
                 } ==> (!old(self).spec_valid_indices().contains(i) <==> old(self).allocator_view().contains(i))
             ensures 
                 self.inv(wrpm_region@, overall_metadata),
-                self.allocator_inv(),
         {
             assert(forall |i: u64| 0 <= i < self@.len() && i != item_table_index ==> 
                     (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i)));

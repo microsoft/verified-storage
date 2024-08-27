@@ -8,6 +8,7 @@ use vstd::invariant::*;
 use vstd::prelude::*;
 use vstd::seq::*;
 use vstd::seq_lib::*;
+use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_hoist_over_denominator};
 
 verus! {
 
@@ -19,8 +20,6 @@ pub open spec fn get_subregion_view(
     len: nat,
 ) -> PersistentMemoryRegionView
     recommends
-        0 <= start,
-        0 <= len,
         start + len <= region.len(),
 {
     PersistentMemoryRegionView{ state: region.state.subrange(start as int, (start + len) as int) }
@@ -34,8 +33,6 @@ pub open spec fn memories_differ_only_where_subregion_allows(
     is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
     recommends
-        0 <= start,
-        0 <= len,
         mem1.len() == mem2.len(),
         start + len <= mem1.len(),
 {
@@ -54,8 +51,6 @@ pub open spec fn views_differ_only_where_subregion_allows(
     is_writable_absolute_addr_fn: spec_fn(int) -> bool
 ) -> bool
     recommends
-        0 <= start,
-        0 <= len,
         start + len <= v1.len(),
         v1.len() == v2.len()
 {
@@ -77,7 +72,6 @@ pub open spec fn condition_sufficient_to_create_wrpm_subregion<Perm>(
     where
         Perm: CheckPermission<Seq<u8>>,
 {
-    &&& 0 <= len
     &&& start + len <= region_view.len() <= u64::MAX
     &&& forall |crash_state| region_view.can_crash_as(crash_state) ==> condition(crash_state)
     &&& forall |crash_state| condition(crash_state) ==> perm.check_permission(crash_state)
@@ -176,7 +170,6 @@ impl WriteRestrictedPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
         requires
             wrpm.inv(),
-            0 <= len,
             start + len <= wrpm@.len() <= u64::MAX,
             forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
                 &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
@@ -1008,7 +1001,6 @@ impl WritablePersistentMemorySubregion
     ) -> (result: Self)
         requires
             pm.inv(),
-            0 <= len,
             start + len <= pm@.len() <= u64::MAX,
         ensures
             result.inv(pm),
@@ -1449,8 +1441,6 @@ pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_where
     is_writable_absolute_addr_fn: spec_fn(int) -> bool,
 ) -> (crash_state2: Seq<u8>)
     requires
-        0 <= start,
-        0 <= len,
         start + len <= v1.len(),
         v1.len() == v2.len(),
         views_differ_only_where_subregion_allows(v1, v2, start, len, is_writable_absolute_addr_fn),
@@ -1478,6 +1468,42 @@ pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_where
            }
        }
     })
+}
+
+pub proof fn lemma_subregion_view_can_crash_as_subrange(
+    v: PersistentMemoryRegionView,
+    s: Seq<u8>,
+    start: nat,
+    len: nat,
+)
+    requires
+        start + len <= v.len(),
+        v.can_crash_as(s),
+        start % const_persistence_chunk_size() as nat == 0,
+    ensures
+        get_subregion_view(v, start, len).can_crash_as(s.subrange(start as int, (start + len) as int)),
+{
+    let vv = get_subregion_view(v, start, len);
+    let ss = s.subrange(start as int, (start + len) as int);
+    let start_chunk = start / const_persistence_chunk_size() as nat;
+    assert forall|addr: int| #[trigger] ((addr + start) / const_persistence_chunk_size()) ==
+                       addr / const_persistence_chunk_size() + start_chunk by {
+        assert(start_chunk * const_persistence_chunk_size() == start) by {
+            lemma_fundamental_div_mod(start as int, const_persistence_chunk_size());
+        }
+        lemma_hoist_over_denominator(addr, start_chunk as int, const_persistence_chunk_size() as nat);
+    }
+    assert forall|chunk| {
+        ||| vv.chunk_corresponds_ignoring_outstanding_writes(chunk, ss)
+        ||| vv.chunk_corresponds_after_flush(chunk, ss)
+    } by {
+        if v.chunk_corresponds_ignoring_outstanding_writes(chunk + start_chunk, s) {
+            assert(vv.chunk_corresponds_ignoring_outstanding_writes(chunk, ss));
+        }
+        else {
+            assert(vv.chunk_corresponds_after_flush(chunk, ss));
+        }
+    }
 }
 
 }
