@@ -1193,7 +1193,7 @@ verus! {
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     item_table_region,
                     alt_item_table_region,
-                    self.overall_metadata.num_keys as nat,
+                    self.overall_metadata.num_keys,
                     main_table_view.valid_item_indices()
                 );
             }
