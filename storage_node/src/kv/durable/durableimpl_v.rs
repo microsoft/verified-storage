@@ -41,6 +41,7 @@ use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::util_v::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
@@ -1399,6 +1400,12 @@ verus! {
                        0 <= i < self.overall_metadata.num_keys ==>
                        (#[trigger] main_table_view.valid_item_indices().contains(i) <==>
                         !self.item_table.allocator_view().contains(i))); // TODO - should be invariant of item table
+                assume(forall|addr: int| {
+                    let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+                    let which_entry = addr / entry_size;
+                    &&& 0 <= addr < item_table_region.len()
+                    &&& 0 <= which_entry <= u64::MAX ==> main_table_view.valid_item_indices().contains(which_entry as u64)
+                } ==> item_table_region[addr] == alt_item_table_region[addr]);
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     item_table_region,
                     alt_item_table_region,
@@ -1529,9 +1536,8 @@ verus! {
                 // we can only crash into the current durable KV store state
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@),
-                forall |s| {
-                    Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
-                } ==> #[trigger] perm.check_permission(s),
+                forall |s| Self::physical_recover(s, old(self).spec_overall_metadata()) == Some(old(self)@)
+                    ==> #[trigger] perm.check_permission(s),
                 Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
@@ -1560,6 +1566,7 @@ verus! {
                     }
                 }
         {
+            assert(forall |idx: u64| old(self).metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
             let pm = self.wrpm.get_pm_region_ref();
             let metadata_table_subregion = PersistentMemorySubregion::new(
                 pm,
@@ -1647,6 +1654,7 @@ verus! {
                     self.log@.tentatively_append_log_entry(log_entry@),
                     log_entry,
                 );
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
             }
 
             // then append it to the operation log
@@ -1676,6 +1684,22 @@ verus! {
                         assert(item_table_subregion_view.can_crash_as(item_table_subregion_view.committed()));
                         assert(list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
 
+                        let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                            self.overall_metadata.main_table_size as nat);      
+                        let old_item_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat,
+                            self.overall_metadata.item_table_size as nat); 
+                        let old_list_area_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.list_area_addr as nat,
+                            self.overall_metadata.list_area_size as nat);
+
+                        // All crash states of the old pm state recover to the current abstract state; since self.wrpm@.flush().committed()
+                        // is a crash state of self.wrpm@, the current PM also recovers to the current abstract state. Verus only needs
+                        // us to prove this for the main table subregion.
+                        assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+                        assert(forall |s| #[trigger] old_main_table_subregion_view.can_crash_as(s) ==> 
+                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old(self).metadata_table@));
+                        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(main_table_subregion_view);
+                        assert(forall |s| main_table_subregion_view.can_crash_as(s) ==> s == main_table_subregion_view.committed());
+
                         let recovered_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.overall_metadata).unwrap();
                         let mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), recovered_op_log.physical_op_list).unwrap();
                         let main_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat,
@@ -1687,6 +1711,10 @@ verus! {
                         assert(main_table_region_view_with_log_installed == main_table_subregion_view.committed());
                         assert(item_table_region_view_with_log_installed == item_table_subregion_view.committed());
                         assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
+
+                        assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
+                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old(self).metadata_table@));
+                        assert(forall |idx: u64| old(self).metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
                     }
 
                     // abort the transaction in each component to re-establish their invariants

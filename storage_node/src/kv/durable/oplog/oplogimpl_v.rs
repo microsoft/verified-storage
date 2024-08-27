@@ -97,10 +97,11 @@ verus! {
                 !self@.op_list_committed ==> {
                     let pending_bytes = self.base_log_view().pending;
                     let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-                        overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                     &&& log_ops is Some 
                     &&& log_ops.unwrap() == self@.physical_op_list
-                    &&&  Self::recover(pm_region@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                            Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
         {}
 

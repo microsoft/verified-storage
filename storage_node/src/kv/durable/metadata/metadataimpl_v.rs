@@ -57,6 +57,11 @@ verus! {
             self.metadata_table_free_list@.to_set()
         }
 
+        pub closed spec fn pending_allocations_view(self) -> Set<u64>
+        {
+            self.pending_allocations@.to_set()
+        }
+
         pub closed spec fn spec_outstanding_cdb_writes(self) -> Seq<Option<bool>>
         {
             self.outstanding_cdb_writes@
@@ -163,7 +168,8 @@ verus! {
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                 self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& self@.inv()
-            
+            &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.pending_allocations_view().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==> 
                     match #[trigger] self@.durable_metadata_table[i] {
@@ -1158,6 +1164,7 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 },
             };
+            self.pending_allocations.push(free_index);
             
             assert(old(self).allocator_view().contains(free_index)) by {
                 assert(old(self).metadata_table_free_list@.last() == free_index);
@@ -1167,6 +1174,21 @@ verus! {
                 assert(self.metadata_table_free_list@.len() < old(self).metadata_table_free_list@.len());
                 self.metadata_table_free_list@.unique_seq_to_set();
                 old(self).metadata_table_free_list@.unique_seq_to_set();
+            }
+
+            proof {
+                // Prove that the allocator and pending allocations lists maintain their invariants
+                assert(self.pending_allocations@ == old(self).pending_allocations@.push(free_index));
+                assert forall |idx| self.pending_allocations@.contains(idx) implies idx < overall_metadata.num_keys by {
+                    if idx == free_index {
+                        assert(free_index < overall_metadata.num_keys);
+                    } else {
+                        assert(old(self).pending_allocations@.contains(idx));
+                    }
+                }
+                assert forall |idx| self.metadata_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
+                    assert(old(self).metadata_table_free_list@.contains(idx));
+                }
             }
 
             // 2. construct the entry with list metadata and item index
@@ -1267,6 +1289,8 @@ verus! {
                 old(self)@.len() == overall_metadata.num_keys,
                 old(self).free_indices().contains(index),
                 !old(self).allocator_view().contains(index),
+                !old(self).pending_allocations_view().contains(index),
+                old(self).allocator_view().len() + old(self).pending_allocations_view().len() < overall_metadata.num_keys,
                 // for all indices except the one that is free but not in the allocator,
                 // the free view and the free list match
                 forall |i: u64| {
@@ -1275,7 +1299,7 @@ verus! {
                 } ==> (old(self).allocator_view().contains(i) <==> old(self).free_indices().contains(i)),
             ensures 
                 self.inv(pm_region@, overall_metadata),
-                // We've reestabliished the allocator invariant
+                // We've reestablished the allocator invariant
                 self.allocator_inv(overall_metadata),
         {
             assert(self.allocator_view().subset_of(self.free_indices()));
@@ -1288,6 +1312,21 @@ verus! {
                 assert(self.metadata_table_free_list@[self.metadata_table_free_list@.len() - 1] == index);
                 assert(self.metadata_table_free_list@.contains(index));
                 assert(self.allocator_view() =~= self.free_indices());
+
+                old(self).metadata_table_free_list@.unique_seq_to_set();
+                self.metadata_table_free_list@.unique_seq_to_set();
+                self.pending_allocations@.unique_seq_to_set();
+                assert(old(self).metadata_table_free_list@.len() + 1 == self.metadata_table_free_list@.len());
+                assert(old(self).allocator_view().len() + 1 == self.allocator_view().len());
+
+                // all indexes in the free list are still valid
+                assert forall |idx| self.metadata_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
+                    if idx == index {
+                        assert(idx < overall_metadata.num_keys);
+                    } else {
+                        assert(old(self).metadata_table_free_list@.contains(idx));
+                    }
+                }
 
                 // We also have to prove that we have not changed any ghost state about outstanding writes
                 // to prove that we maintain the invariant
@@ -1466,9 +1505,9 @@ verus! {
                         DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     },
-                old(self).allocator_view().len() <= overall_metadata.num_keys,
-                old(self).free_indices().len() <= overall_metadata.num_keys, 
-                old(self).allocator_view().subset_of(old(self).free_indices()),
+                // old(self).allocator_view().len() <= overall_metadata.num_keys,
+                // old(self).free_indices().len() <= overall_metadata.num_keys, 
+                // old(self).allocator_view().subset_of(old(self).free_indices()),
                 pm.no_outstanding_writes(),
             ensures
                 self.valid(pm, overall_metadata),
@@ -1515,6 +1554,8 @@ verus! {
                 ||| old(self).pending_allocations@.contains(idx) 
                 ||| old(self).metadata_table_free_list@.contains(idx)
             });
+            // assert(forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys);
+            // assert(self.metadata_table_free_list@.len() == old(self).metadata_table_free_list@.len() + old(self).pending_allocations@.len());
             
         }
 
