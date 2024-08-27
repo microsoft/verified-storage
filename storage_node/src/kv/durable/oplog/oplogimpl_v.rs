@@ -62,7 +62,7 @@ verus! {
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
                 // while we aren't committed, recovering the committed bytes gives us an empty state
-                &&& forall |s| pm_region@.can_crash_as(s) ==>
+                &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                         Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize())
             }
             &&& self@.op_list_committed ==> {

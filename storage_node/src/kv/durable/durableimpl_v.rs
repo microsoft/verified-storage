@@ -1440,18 +1440,12 @@ verus! {
 
                     proof { self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@); }
 
-                    // abort the transaction in each component to re-establish their invariants
                     let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);      
-                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-
                     let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                         self.overall_metadata.item_table_size as nat); 
-                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-
                     let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                         self.overall_metadata.list_area_size as nat);
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
 
                     proof {
                         // We now have to prove that recovering KV store -- which is flushed during transaction abort
@@ -1475,6 +1469,12 @@ verus! {
                         assert(item_table_region_view_with_log_installed == item_table_subregion_view.committed());
                         assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
                     }
+
+                    // abort the transaction in each component to re-establish their invariants
+                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+                    
                     return Err(e);
                 }
             }
