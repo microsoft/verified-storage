@@ -716,11 +716,11 @@ verus! {
             requires 
                 old(self).inv(wrpm_region@, overall_metadata),
                 wrpm_region@.no_outstanding_writes(),
-                old(self).spec_outstanding_item_table() == old(self)@.durable_item_table, // TODO: @hayley - this seems unlikely to be true
                 // the given index is free (i.e. not valid) but not in the free list
                 0 <= item_table_index < old(self)@.len(),
                 !old(self).spec_valid_indices().contains(item_table_index),
                 !old(self).allocator_view().contains(item_table_index),
+                old(self).spec_outstanding_item_table()[item_table_index as int] is None,
                 old(self)@.durable_item_table[item_table_index as int] is None,
                 // the allocator contains all invalid indices except for item_table_index
                 forall |i: u64| {
