@@ -631,11 +631,6 @@ verus! {
                     subregion.view(pm_region).no_outstanding_writes(),
                     mem == subregion.view(pm_region).committed(),
                     old_pm_constants == pm_region.constants(),
-                    // parse_metadata_table::<K>(
-                    //     subregion.view(pm_region).committed(),
-                    //     overall_metadata.num_keys, 
-                    //     overall_metadata.metadata_node_size 
-                    // ) is Some,
                     subregion.view(pm_region).can_crash_as(subregion.view(pm_region).committed()),
                     forall |s| #[trigger] subregion.view(pm_region).can_crash_as(s) ==>  
                         parse_metadata_table::<K>(
@@ -643,11 +638,6 @@ verus! {
                             overall_metadata.num_keys, 
                             overall_metadata.metadata_node_size 
                         ) == Some(table),
-                    // table == parse_metadata_table::<K>(
-                    //     subregion.view(pm_region).committed(),
-                    //     overall_metadata.num_keys, 
-                    //     overall_metadata.metadata_node_size 
-                    // ).unwrap(),
                     metadata_node_size == overall_metadata.metadata_node_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
@@ -1252,6 +1242,10 @@ verus! {
 
             assert(self.allocator_view() =~= self.free_indices());
             assert(pm_view.committed() == old_pm_view.committed());
+
+            // TODO @jaylorch
+            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@));
 
             Ok(free_index)
         }

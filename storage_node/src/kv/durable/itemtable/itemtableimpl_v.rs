@@ -16,6 +16,7 @@ use crate::pmem::subregion_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
+use vstd::assert_seqs_equal;
 use vstd::hash_map::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
@@ -375,6 +376,10 @@ verus! {
                 }
             }
 
+            // TODO @jaylorch
+            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@));
+
             Ok(free_index)
         }
 
@@ -657,6 +662,15 @@ verus! {
                 }
             }
 
+            proof {
+                // Prove that the item table region only has one crash state, which recovers to the initial table's state
+                let pm_view = subregion.view(pm_region);
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
+                assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.committed());
+                assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, item_table.spec_valid_indices()) == Some(item_table@));
+            }
+
             Ok(item_table)
         }
 
@@ -686,7 +700,7 @@ verus! {
                 } ==> (!old(self).spec_valid_indices().contains(i) <==> old(self).allocator_view().contains(i))
             ensures 
                 self.inv(wrpm_region@, overall_metadata),
-                self.allocator_inv()
+                self.allocator_inv(),
         {
             assert(forall |i: u64| 0 <= i < self@.len() && i != item_table_index ==> 
                     (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i)));
@@ -1006,5 +1020,74 @@ verus! {
             return Ok(table_metadata);
         }
         */
+    }
+
+    pub proof fn lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries<I, K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: nat,
+        valid_indices: Set<u64>
+    )
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of()),
+            forall|addr: int| {
+                let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+                let which_entry = addr / entry_size;
+                &&& 0 <= addr < mem1.len()
+                &&& 0 <= which_entry <= u64::MAX ==> valid_indices.contains(which_entry as u64)
+            } ==> mem1[addr] == mem2[addr],
+        ensures
+            parse_item_table::<I, K>(mem1, num_keys, valid_indices) ==
+            parse_item_table::<I, K>(mem2, num_keys, valid_indices)
+    {
+        if mem1.len() < num_keys * (I::spec_size_of() + u64::spec_size_of()) {
+            return;
+        }
+
+        let entry_size = I::spec_size_of() + u64::spec_size_of();
+        assert forall |i: u64| i < num_keys && valid_indices.contains(i) implies
+            extract_bytes(mem1, (i * entry_size) as nat, entry_size) ==
+            extract_bytes(mem2, (i * entry_size) as nat, entry_size) by {
+            lemma_valid_entry_index(i as nat, num_keys as nat, entry_size as nat);
+            assert forall|addr: int| i * entry_size <= addr < i * entry_size + entry_size implies mem1[addr] == mem2[addr] by {
+                assert(addr / entry_size as int == i) by {
+                    lemma_addr_in_entry_divided_by_entry_size(i as nat, entry_size as nat, addr as int);
+                }
+            }
+            assert(extract_bytes(mem1, (i * entry_size) as nat, entry_size) =~=
+                   extract_bytes(mem2, (i * entry_size) as nat, entry_size));
+
+        }
+        assert(validate_item_table_entries::<I, K>(mem1, num_keys, valid_indices) =~=
+               validate_item_table_entries::<I, K>(mem2, num_keys, valid_indices));
+        let item_table_view1 = Seq::new(
+            num_keys as nat,
+            |i: int| {
+                // TODO: probably can't have if {} in here
+                if i <= u64::MAX && valid_indices.contains(i as u64) {
+                    let bytes = extract_bytes(mem1, (i * entry_size) as nat, entry_size as nat);
+                    parse_item_entry::<I, K>(bytes)
+                } else {
+                    None
+                }
+            }
+        );
+        let item_table_view2 = Seq::new(
+            num_keys as nat,
+            |i: int| {
+                // TODO: probably can't have if {} in here
+                if i <= u64::MAX && valid_indices.contains(i as u64) {
+                    let bytes = extract_bytes(mem2, (i * entry_size) as nat, entry_size as nat);
+                    parse_item_entry::<I, K>(bytes)
+                } else {
+                    None
+                }
+            }
+        );
+        assert(item_table_view1 =~= item_table_view2);
     }
 }

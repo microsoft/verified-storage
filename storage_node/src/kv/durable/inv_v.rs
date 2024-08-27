@@ -48,6 +48,16 @@ verus! {
         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, index2 as int, 1);
     }
 
+    pub proof fn lemma_addr_in_entry_divided_by_entry_size(index: nat, size: nat, addr: int)
+        requires
+            index * size <= addr < index * size + size,
+        ensures
+            addr / size as int == index,
+    {
+        let r = addr - index * size;
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(addr, size as int, index as int, r as int);
+    }
+
     pub open spec fn addr_modified_by_recovery(
         log: Seq<AbstractPhysicalOpLogEntry>,
         addr: int,

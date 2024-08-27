@@ -29,7 +29,6 @@ use builtin_macros::*;
 use vstd::bytes;
 use vstd::bytes::*;
 use vstd::prelude::*;
-use vstd::ptr::*;
 use vstd::layout::*;
 use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
 
@@ -184,7 +183,7 @@ verus! {
 
     pub broadcast proof fn axiom_u64_to_le_bytes(v: u64)
         ensures 
-            v.spec_to_bytes() == spec_u64_to_le_bytes(v)
+            #[trigger] v.spec_to_bytes() == spec_u64_to_le_bytes(v)
     {
         admit();
     }
@@ -193,7 +192,7 @@ verus! {
         requires
             s.len() == 8
         ensures 
-            u64::spec_from_bytes(s) == spec_u64_from_le_bytes(s)
+            #[trigger] u64::spec_from_bytes(s) == spec_u64_from_le_bytes(s)
     {
         admit();
     }

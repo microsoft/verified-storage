@@ -353,7 +353,6 @@ impl UntrustedLogImpl {
             forall |s| #[trigger] new_pm1.can_crash_as(s) ==> crash_pred(s),
             forall |s| #[trigger] new_pm2.can_crash_as(s) ==> crash_pred(s)
     {
-        broadcast use pmcopy_axioms;
         lemma_metadata_fits_in_log_header_area();
 
         assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies crash_pred(s) by {
@@ -1962,6 +1961,8 @@ impl UntrustedLogImpl {
             self@.log == old(self)@.log,
             self@.head == old(self)@.head,
             self@.capacity == old(self)@.capacity,
+            forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@),
     {
         // remove pending bytes from the log length in the concrete state
         self.info.log_plus_pending_length = self.info.log_length;

@@ -54,7 +54,6 @@ verus! {
             // TODO: be more precise -- should match current state
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
                     Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
-
         }
 
         pub open spec fn recover(

@@ -61,7 +61,6 @@ verus! {
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
-                // while we aren't committed, recovering the committed bytes gives us an empty state
                 &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                         Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize())
             }
@@ -73,7 +72,8 @@ verus! {
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
-                &&& UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size  as nat) == Some(self.log@)
+                &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                        Self::recover(s, overall_metadata) == Some(self@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -527,8 +527,12 @@ verus! {
             self.log.lemma_same_bytes_preserve_log_invariant(wrpm1, wrpm2, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat,
                 overall_metadata.region_size as nat);
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm1@);
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
+            assert(forall |s| wrpm1@.can_crash_as(s) ==> s == wrpm1@.committed());
+            assert(forall |s| wrpm2@.can_crash_as(s) ==> s == wrpm2@.committed());
+            assert(wrpm1@.can_crash_as(wrpm1@.committed()));
         }
-
 
         // This executable function parses the entire operation log iteratively
         // and returns a vector of `PhysicalOpLogEntry`. This operation will fail 
@@ -804,6 +808,14 @@ verus! {
             }
         };
         let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+
+        proof {
+            // Prove that all current possible crash states recover to `op_log_state`
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+            assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.committed());
+            assert(forall |s| #[trigger] pm_region@.can_crash_as(s) ==> 
+                Self::recover(s, overall_metadata) == Some(op_log_state.unwrap()));
+        }
 
         // Read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes.
         // Obtain the head and tail of the log so that we know the region to read to get the log contents and the CRC
@@ -1356,6 +1368,9 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
+                assert(log_wrpm@.no_outstanding_writes());
+                assert(forall |s| #[trigger] log_wrpm@.can_crash_as(s) ==> 
+                    Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1459,6 +1474,7 @@ verus! {
         };
 
         proof {
+            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr as nat, log_size as nat);
         }
 
