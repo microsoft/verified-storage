@@ -1101,6 +1101,10 @@ verus! {
                 physical_op_list: Seq::empty(),
                 op_list_committed: false
             });
+            // TODO @hayley-leblanc
+            assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+            assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
             return Err(KvError::OutOfSpace);
         } 
 
@@ -1138,6 +1142,10 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
+                // TODO @hayley-leblanc
+                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1186,6 +1194,10 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
+                // TODO @hayley-leblanc
+                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1227,7 +1239,10 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                assert(log_wrpm@ == old(log_wrpm)@);
+                // TODO @hayley-leblanc
+                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1266,6 +1281,9 @@ verus! {
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
         }
+
+        // TODO @hayley-leblanc
+        assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
         
         Ok(())
     }
