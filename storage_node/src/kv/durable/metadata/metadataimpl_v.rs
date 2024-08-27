@@ -1505,9 +1505,6 @@ verus! {
                         DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     },
-                // old(self).allocator_view().len() <= overall_metadata.num_keys,
-                // old(self).free_indices().len() <= overall_metadata.num_keys, 
-                // old(self).allocator_view().subset_of(old(self).free_indices()),
                 pm.no_outstanding_writes(),
             ensures
                 self.valid(pm, overall_metadata),
@@ -1554,9 +1551,6 @@ verus! {
                 ||| old(self).pending_allocations@.contains(idx) 
                 ||| old(self).metadata_table_free_list@.contains(idx)
             });
-            // assert(forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys);
-            // assert(self.metadata_table_free_list@.len() == old(self).metadata_table_free_list@.len() + old(self).pending_allocations@.len());
-            
         }
 
 
