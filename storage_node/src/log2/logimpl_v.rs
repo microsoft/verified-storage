@@ -330,7 +330,6 @@ impl UntrustedLogImpl {
         requires 
             new_pm1 == old_pm.write(inactive_metadata_pos, new_metadata.spec_to_bytes()),
             new_pm2 == old_pm.write(inactive_metadata_pos, new_metadata.spec_to_bytes()).write(inactive_crc_pos, new_crc.spec_to_bytes()),
-
             forall |s| #[trigger] old_pm.can_crash_as(s) ==> crash_pred(s),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
@@ -356,6 +355,7 @@ impl UntrustedLogImpl {
         lemma_metadata_fits_in_log_header_area();
 
         assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies crash_pred(s) by {
+            broadcast use pmcopy_axioms;
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -364,6 +364,7 @@ impl UntrustedLogImpl {
         }
 
         assert forall |s| #[trigger] new_pm2.can_crash_as(s) implies crash_pred(s) by {
+            broadcast use pmcopy_axioms;
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -678,7 +679,7 @@ impl UntrustedLogImpl {
                         &&& #[trigger] s1.len() == s2.len()
                         &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                     };
-                    assert(wrpm_region@.can_crash_as(witness));
+                    // assert(wrpm_region@.can_crash_as(witness));
                     assert(crash_pred(witness));
                 }
             }
