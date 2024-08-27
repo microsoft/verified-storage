@@ -1440,4 +1440,44 @@ impl WritablePersistentMemorySubregion
     }
 }
 
+pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    crash_state1: Seq<u8>,
+    start: nat,
+    len: nat,
+    is_writable_absolute_addr_fn: spec_fn(int) -> bool,
+) -> (crash_state2: Seq<u8>)
+    requires
+        0 <= start,
+        0 <= len,
+        start + len <= v1.len(),
+        v1.len() == v2.len(),
+        views_differ_only_where_subregion_allows(v1, v2, start, len, is_writable_absolute_addr_fn),
+        v1.can_crash_as(crash_state1),
+    ensures
+        memories_differ_only_where_subregion_allows(crash_state1, crash_state2, start, len,
+                                                    is_writable_absolute_addr_fn),
+        v2.can_crash_as(crash_state2),
+{
+    Seq::<u8>::new(crash_state1.len(), |addr: int| {
+       if {
+           ||| 0 <= addr < start
+           ||| start + len <= addr < crash_state1.len()
+           ||| start <= addr < start + len && !is_writable_absolute_addr_fn(addr)
+       } {
+           crash_state1[addr]
+       }
+       else {
+           let chunk = addr / const_persistence_chunk_size();
+           if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+               v2.state[addr].state_at_last_flush
+           }
+           else {
+               v2.state[addr].flush_byte()
+           }
+       }
+    })
+}
+
 }

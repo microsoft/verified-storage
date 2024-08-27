@@ -1074,6 +1074,7 @@ verus! {
         proof fn lemma_get_writable_mask_for_item_table_is_suitable_mask(self)
             requires
                 self.inv(),
+                !self.log@.op_list_committed,
             ensures
                 forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
                     &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
@@ -1092,7 +1093,80 @@ verus! {
                                                                 self.overall_metadata.item_table_size as nat,
                                                                 self.get_writable_mask_for_item_table())
                 } implies Self::physical_recover(alt_crash_state, self.spec_overall_metadata()) == Some(self@) by {
-                assume(false);
+                let crash_state = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
+                    alt_region_view,
+                    self.wrpm@,
+                    alt_crash_state,
+                    self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat,
+                    self.get_writable_mask_for_item_table(),
+                );
+                assert(Self::physical_recover(crash_state, self.overall_metadata) == Some(self@));
+                assert(UntrustedOpLog::<K, L>::recover(crash_state, self.overall_metadata) ==
+                       UntrustedOpLog::<K, L>::recover(alt_crash_state, self.overall_metadata)) by {
+                    assert(extract_bytes(crash_state,
+                                         self.overall_metadata.log_area_addr as nat,
+                                         self.overall_metadata.log_area_size as nat) =~=
+                           extract_bytes(alt_crash_state,
+                                         self.overall_metadata.log_area_addr as nat,
+                                         self.overall_metadata.log_area_size as nat));
+                    lemma_same_bytes_recover_to_same_state(crash_state, alt_crash_state,
+                                                           self.overall_metadata.log_area_addr as nat,
+                                                           self.overall_metadata.log_area_size as nat,
+                                                           crash_state.len());
+                }
+                let recovered_log = UntrustedOpLog::<K, L>::recover(crash_state, self.overall_metadata);
+                assert(recovered_log is Some);
+                assume(recovered_log == Some(AbstractOpLogState::initialize())); // TODO after oplog supports it
+                let mem_with_log_installed = Self::apply_physical_log_entries(alt_crash_state,
+                                                                              recovered_log.unwrap().physical_op_list);
+                assert(mem_with_log_installed == Some(alt_crash_state));
+                assert(extract_bytes(alt_crash_state,
+                                     self.overall_metadata.main_table_addr as nat,
+                                     self.overall_metadata.main_table_size as nat) =~=
+                       extract_bytes(crash_state,
+                                     self.overall_metadata.main_table_addr as nat,
+                                     self.overall_metadata.main_table_size as nat));
+                assert(extract_bytes(alt_crash_state,
+                                     self.overall_metadata.list_area_addr as nat,
+                                     self.overall_metadata.list_area_size as nat) =~=
+                       extract_bytes(crash_state,
+                                     self.overall_metadata.list_area_addr as nat,
+                                     self.overall_metadata.list_area_size as nat));
+                let item_table_region = extract_bytes(crash_state,
+                                                      self.overall_metadata.item_table_addr as nat,
+                                                      self.overall_metadata.item_table_size as nat);
+                let alt_item_table_region = extract_bytes(alt_crash_state,
+                                                          self.overall_metadata.item_table_addr as nat,
+                                                          self.overall_metadata.item_table_size as nat);
+                let main_table_region = extract_bytes(crash_state,
+                                                      self.overall_metadata.main_table_addr as nat,
+                                                      self.overall_metadata.main_table_size as nat);
+                let main_table_view = parse_metadata_table::<K>(
+                    main_table_region, 
+                    self.overall_metadata.num_keys,
+                    self.overall_metadata.metadata_node_size
+                ).unwrap();
+                let item_table_view = parse_item_table::<I, K>(
+                    item_table_region,
+                    self.overall_metadata.num_keys as nat,
+                    main_table_view.valid_item_indices()
+                );
+                let alt_item_table_view = parse_item_table::<I, K>(
+                    alt_item_table_region,
+                    self.overall_metadata.num_keys as nat,
+                    main_table_view.valid_item_indices()
+                );
+                assume(forall|i: u64|
+                       0 <= i < self.overall_metadata.num_keys ==>
+                       (#[trigger] main_table_view.valid_item_indices().contains(i) <==>
+                        !self.item_table.allocator_view().contains(i))); // TODO - should be invariant of item table
+                lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
+                    item_table_region,
+                    alt_item_table_region,
+                    self.overall_metadata.num_keys as nat,
+                    main_table_view.valid_item_indices()
+                );
             }
         }
 
