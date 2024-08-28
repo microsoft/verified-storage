@@ -89,6 +89,32 @@ verus! {
             self.durable_metadata_table
         }
 
+        pub open spec fn delete(self, index: int) -> Option<Self>
+        {
+            if index < 0 || index >= self.durable_metadata_table.len() {
+                None 
+            } else {
+                Some(Self {
+                    durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
+                })
+                // match self.durable_metadata_table[index] {
+                //     DurableEntry::Valid(_) => {
+                //         Some(Self {
+                //             durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
+                //         })
+                //     }
+                //     _ => None
+                // }
+                // if self.durable_metadata_table@[i] matches DurableEntry::Invalid {
+                //     None
+                // } else {
+                //     Some(Self {
+                //         durable_metadata_table: self.durable_metadata_table.set(i, DurableEntry::Invalid)
+                //     })
+                // }
+            }
+        }
+
         // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
         //     if 0 <= index < self.metadata_table.len() {
         //         self.metadata_table[index]

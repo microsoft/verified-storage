@@ -1383,12 +1383,20 @@ verus! {
                             pre_byte
                         }
                     );
-                    let main_table_region = extract_bytes(new_mem, 
+                    let current_main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let main_table_view = parse_metadata_table::<K>(main_table_region,
+                    let current_main_table_view = parse_metadata_table::<K>(current_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                    let new_main_table_region = extract_bytes(new_mem, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                    &&& new_main_table_view matches Some(new_main_table_view)
+                    
+                    // &&& main_table_view.durable_metadata_table[index as int] == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                    // &&& forall |i: int| 0 <= i < main_table_view.durable_metadata_table.len() && i != index ==> 
+                    //         main_table_view.durable_metadata_table[i] == self@.durable_metadata_table[i]
+                    &&& Some(new_main_table_view) == current_main_table_view.delete(index as int)
                 }),
         {
             // We don't have to concretely read anything from PM to put together this log entry.
