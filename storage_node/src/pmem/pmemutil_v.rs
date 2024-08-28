@@ -147,6 +147,22 @@ verus! {
         };
     }
 
+    // This lemma establishes that it's possible to crash into the
+    // committed state.
+    pub proof fn lemma_persistent_memory_view_can_crash_as_committed(pm_region_view: PersistentMemoryRegionView)
+        ensures
+            pm_region_view.can_crash_as(pm_region_view.committed()),
+    {
+    }
+
+    // This lemma establishes that it's possible to crash into the
+    // fully-flushed state.
+    pub proof fn lemma_persistent_memory_view_can_crash_as_flushed(pm_region_view: PersistentMemoryRegionView)
+        ensures
+            pm_region_view.can_crash_as(pm_region_view.flush().committed()),
+    {
+    }
+
     // This executable function returns a vector containing the sizes
     // of the regions in the given collection of persistent memory
     // regions.
@@ -874,5 +890,65 @@ verus! {
             extract_bytes(extract_bytes(mem, start1, len1), (start2 - start1) as nat, len2)
     {
         lemma_subrange_of_subrange_equal(mem, start1, start2, start2 + len2, start1 + len1);
+    }
+
+    // This lemma proves that a subrange of a subrange is equal to the result of a single call to
+    // subrange.
+    pub proof fn lemma_subrange_of_subrange_forall(mem: Seq<u8>)
+        ensures
+            forall|s1: int, e1: int, s2: int, e2: int|
+               0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 ==>
+               mem.subrange(s1, e1).subrange(s2, e2) == mem.subrange(s1 + s2, s1 + e2)
+    {
+        assert forall|s1: int, e1: int, s2: int, e2: int|
+               0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 implies
+               mem.subrange(s1, e1).subrange(s2, e2) == mem.subrange(s1 + s2, s1 + e2) by {
+            mem.lemma_slice_of_slice(s1, e1, s2, e2);
+        }
+    }
+
+    pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+        v1: PersistentMemoryRegionView,
+        v2: PersistentMemoryRegionView,
+        crash_state1: Seq<u8>,
+        can_views_differ_at_addr: spec_fn(int) -> bool,
+    ) -> (crash_state2: Seq<u8>)
+        requires
+            v1.len() == v2.len(),
+            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> v1.state[addr] == v2.state[addr],
+            v1.can_crash_as(crash_state1),
+        ensures
+            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> crash_state1[addr] == crash_state2[addr],
+            v2.can_crash_as(crash_state2),
+    {
+        let crash_state2 = Seq::<u8>::new(crash_state1.len(), |addr: int| {
+           if !can_views_differ_at_addr(addr) {
+               crash_state1[addr]
+           }
+           else {
+               let chunk = addr / const_persistence_chunk_size();
+               if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                   v2.state[addr].state_at_last_flush
+               }
+               else {
+                   v2.state[addr].flush_byte()
+               }
+           }
+        });
+        assert forall|chunk| {
+            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2)
+            ||| v2.chunk_corresponds_after_flush(chunk, crash_state2)
+        } by {
+            if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2));
+            }
+            else {
+                assert(v1.chunk_corresponds_after_flush(chunk, crash_state1));
+                assert(v2.chunk_corresponds_after_flush(chunk, crash_state2));
+            }
+        }
+        crash_state2
     }
 }

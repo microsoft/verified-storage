@@ -38,6 +38,7 @@ verus! {
         free_list: Vec<u64>,
         pending_allocations: Vec<u64>,
         valid_indices: Ghost<Set<u64>>,
+        outstanding_item_table: Ghost<Seq<Option<I>>>,
         state: Ghost<DurableItemTableView<I>>,
         _phantom: Ghost<Option<K>>,
     }
@@ -61,6 +62,11 @@ verus! {
         {
             self.pending_allocations@.to_set()
         }
+        
+        pub closed spec fn spec_outstanding_item_table(self) -> Seq<Option<I>>
+        {
+            self.outstanding_item_table@
+        }
 
         pub closed spec fn opaque_inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
@@ -74,19 +80,23 @@ verus! {
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.opaque_inv(pm_view, overall_metadata)
-            &&& self@.inv()
             &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
-                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@)
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
                     !self.spec_free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
+            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==> {
+                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices())
+                           matches Some(table_view)
+                    &&& table_view.durable_item_table == self@.durable_item_table
+            }
             &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
                 self.spec_free_list()[i] != self.spec_free_list()[j]
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==> self.spec_free_list()[i] < overall_metadata.num_keys
+            &&& self.spec_outstanding_item_table().len() == self@.durable_item_table.len()
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==>
-                self@.outstanding_item_table[#[trigger] self.spec_free_list()[i] as int] is None
-            &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self@.outstanding_item_table[idx as int] is None ==>
+                self.spec_outstanding_item_table()[#[trigger] self.spec_free_list()[i] as int] is None
+            &&& forall|idx: u64| idx < overall_metadata.num_keys &&
+                #[trigger] self.spec_outstanding_item_table()[idx as int] is None ==>
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
             &&& forall|idx: u64| self.spec_valid_indices().contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
@@ -97,16 +107,11 @@ verus! {
             }
         }
 
-        pub closed spec fn allocator_inv(self) -> bool 
-        {
-            forall |i: u64| 0 <= i < self@.len() ==> 
-                (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i))
-        }
-
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.inv(pm_view, overall_metadata)
-            &&& forall|idx: u64| idx < overall_metadata.num_keys ==> #[trigger] self@.outstanding_item_table[idx as int] is None
+            &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
+                #[trigger] self.spec_outstanding_item_table()[idx as int] is None
         }
 
         pub open spec fn subregion_grants_access_to_entry_slot(
@@ -209,7 +214,7 @@ verus! {
                 self.valid(subregion.view(pm_region), overall_metadata),
                 item_table_index < self.spec_num_keys(),
                 self.spec_valid_indices().contains(item_table_index),
-                self@.outstanding_item_table[item_table_index as int] is None,
+                self.spec_outstanding_item_table()[item_table_index as int] is None,
             ensures
                 match result {
                     Ok(item) => item == self@.durable_item_table[item_table_index as int].unwrap(),
@@ -295,8 +300,9 @@ verus! {
                         &&& old(self).spec_free_list().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self@.outstanding_item_table[i] == old(self)@.outstanding_item_table[i]
-                        &&& self@.outstanding_item_table[index as int] == Some(*item)
+                            #[trigger] self.spec_outstanding_item_table()[i] ==
+                            old(self).spec_outstanding_item_table()[i]
+                        &&& self.spec_outstanding_item_table()[index as int] == Some(*item)
                         &&& forall |other_index: u64| self.spec_free_list().contains(other_index) <==>
                             old(self).spec_free_list().contains(other_index) && other_index != index
                     },
@@ -308,6 +314,13 @@ verus! {
                     _ => false,
                 }
         {
+            let ghost old_pm_view = subregion.view(wrpm_region);
+            assert(parse_item_table::<I, K>(old_pm_view.committed(), overall_metadata.num_keys as nat,
+                                            self.spec_valid_indices()) matches Some(table_view)
+                   && table_view.durable_item_table == self@.durable_item_table) by {
+                lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
+            }
+            
             let entry_size = self.entry_size;
             assert(self.valid(subregion.view(wrpm_region), overall_metadata));
             assert(self.inv(subregion.view(wrpm_region), overall_metadata));
@@ -330,7 +343,7 @@ verus! {
             
             proof {
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                assert(self@.outstanding_item_table[free_index as int] is None);
+                assert(self.spec_outstanding_item_table()[free_index as int] is None);
             }
 
             let crc_addr = free_index * (entry_size as u64);
@@ -342,11 +355,11 @@ verus! {
             // write the item itself
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
 
-            self.state = Ghost(self.state@.tentatively_create(free_index, *item));
+            self.outstanding_item_table = Ghost(self.outstanding_item_table@.update(free_index as int, Some(*item)));
 
             let ghost pm_view = subregion.view(wrpm_region);
             assert forall|idx: u64| idx < overall_metadata.num_keys &&
-                   #[trigger] self@.outstanding_item_table[idx as int] is None implies
+                   #[trigger] self.spec_outstanding_item_table()[idx as int] is None implies
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
@@ -376,9 +389,41 @@ verus! {
                 }
             }
 
-            // TODO @jaylorch
-            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
-                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@));
+            assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
+                &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices())
+                       matches Some(table_view)
+                &&& table_view.durable_item_table == self@.durable_item_table
+            } by {
+                let can_views_differ_at_addr = |addr: int| crc_addr <= addr < crc_addr + entry_size;
+                let crash_state = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+                    pm_view, old_pm_view, s, can_views_differ_at_addr
+                );
+                assert(forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                    0 <= addr < pm_view.len() && !can_views_differ_at_addr(addr) ==> s[addr] == crash_state[addr]);
+                match parse_item_table::<I, K>(crash_state, overall_metadata.num_keys as nat,
+                                               self.spec_valid_indices()) {
+                    Some(table_view) => {
+                        assert forall|addr: int| {
+                            let which_entry = addr / entry_size as int;
+                            &&& 0 <= addr < crash_state.len()
+                            &&& which_entry < overall_metadata.num_keys
+                            &&& self.spec_valid_indices().contains(which_entry as u64)
+                        } implies s[addr] == crash_state[addr] by {
+                            let which_entry = addr / entry_size as int;
+                            lemma_valid_entry_index(which_entry as nat, overall_metadata.num_keys as nat,
+                                                    entry_size as nat);
+                            lemma_entries_dont_overlap_unless_same_index(which_entry as nat, free_index as nat,
+                                                                         entry_size as nat);
+                            assert(which_entry != free_index);
+                            assert(!can_views_differ_at_addr(addr));
+                        }
+                        lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
+                            crash_state, s, overall_metadata.num_keys, self.spec_valid_indices()
+                        );
+                    },
+                    None => assert(false),
+                }
+            }
 
             Ok(free_index)
         }
@@ -520,7 +565,7 @@ verus! {
                     Ok(item_table) => {
                         let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
                         let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
-                        &&& item_table.inv(subregion.view(pm_region), overall_metadata)
+                        &&& item_table.valid(subregion.view(pm_region), overall_metadata)
                         // table view is correct
                         &&& table == item_table@
                         &&& forall |i: int| 0 <= i < key_index_info.len() ==> {
@@ -622,6 +667,7 @@ verus! {
 
             let ghost in_use_indices = Set::new(|i: u64| 0 <= i < overall_metadata.num_keys &&
                                                 key_index_info_contains_index(key_index_info@, i));
+            let ghost outstanding_item_table = Seq::new(overall_metadata.num_keys as nat, |i: int| None);
             let item_table = Self {
                 item_size: overall_metadata.item_size,
                 entry_size: overall_metadata.item_size + traits_t::size_of::<u64>() as u64, // item + CRC
@@ -629,6 +675,7 @@ verus! {
                 free_list: item_table_allocator,
                 pending_allocations: Vec::new(),
                 valid_indices: Ghost(in_use_indices),
+                outstanding_item_table: Ghost(outstanding_item_table),
                 state: Ghost(table.unwrap()),
                 _phantom: Ghost(None)
             };
@@ -656,7 +703,7 @@ verus! {
                 }
 
                 assert forall|idx: u64| idx < num_keys &&
-                           #[trigger] item_table@.outstanding_item_table[idx as int] is None implies
+                           #[trigger] item_table.spec_outstanding_item_table()[idx as int] is None implies
                     pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 }
@@ -687,11 +734,11 @@ verus! {
             requires 
                 old(self).inv(wrpm_region@, overall_metadata),
                 wrpm_region@.no_outstanding_writes(),
-                old(self)@.outstanding_item_table == old(self)@.durable_item_table,
                 // the given index is free (i.e. not valid) but not in the free list
                 0 <= item_table_index < old(self)@.len(),
                 !old(self).spec_valid_indices().contains(item_table_index),
                 !old(self).allocator_view().contains(item_table_index),
+                old(self).spec_outstanding_item_table()[item_table_index as int] is None,
                 old(self)@.durable_item_table[item_table_index as int] is None,
                 // the allocator contains all invalid indices except for item_table_index
                 forall |i: u64| {
@@ -700,7 +747,6 @@ verus! {
                 } ==> (!old(self).spec_valid_indices().contains(i) <==> old(self).allocator_view().contains(i))
             ensures 
                 self.inv(wrpm_region@, overall_metadata),
-                self.allocator_inv(),
         {
             assert(forall |i: u64| 0 <= i < self@.len() && i != item_table_index ==> 
                     (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i)));
@@ -725,7 +771,7 @@ verus! {
             requires 
                 pm.no_outstanding_writes(),
                 // old(self).opaque_inv(pm, overall_metadata),
-                old(self)@.inv(),
+                // old(self)@.inv(),
                 old(self)@.len() == old(self).spec_num_keys() == overall_metadata.num_keys,
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -737,14 +783,14 @@ verus! {
                     old(self).spec_free_list()[i] != old(self).spec_free_list()[j],
             ensures
                 self.valid(pm, overall_metadata),
-                self@ == self@.drop_pending_appends(),
+                // self@ == self@.drop_pending_appends(),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
         {
             // Move all pending allocations back into the free list
             self.free_list.append(&mut self.pending_allocations);
 
             // Drop all outstanding updates from the view
-            self.state = Ghost(self.state@.drop_pending_appends());
+            // self.state = Ghost(self.state@.drop_pending_appends());
 
             proof {
                 assume(false);
@@ -1025,7 +1071,7 @@ verus! {
     pub proof fn lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries<I, K>(
         mem1: Seq<u8>,
         mem2: Seq<u8>,
-        num_keys: nat,
+        num_keys: u64,
         valid_indices: Set<u64>
     )
         where 
@@ -1038,11 +1084,12 @@ verus! {
                 let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
                 let which_entry = addr / entry_size;
                 &&& 0 <= addr < mem1.len()
-                &&& 0 <= which_entry <= u64::MAX ==> valid_indices.contains(which_entry as u64)
+                &&& which_entry < num_keys
+                &&& valid_indices.contains(which_entry as u64)
             } ==> mem1[addr] == mem2[addr],
         ensures
-            parse_item_table::<I, K>(mem1, num_keys, valid_indices) ==
-            parse_item_table::<I, K>(mem2, num_keys, valid_indices)
+            parse_item_table::<I, K>(mem1, num_keys as nat, valid_indices) ==
+            parse_item_table::<I, K>(mem2, num_keys as nat, valid_indices)
     {
         if mem1.len() < num_keys * (I::spec_size_of() + u64::spec_size_of()) {
             return;
@@ -1062,8 +1109,8 @@ verus! {
                    extract_bytes(mem2, (i * entry_size) as nat, entry_size));
 
         }
-        assert(validate_item_table_entries::<I, K>(mem1, num_keys, valid_indices) =~=
-               validate_item_table_entries::<I, K>(mem2, num_keys, valid_indices));
+        assert(validate_item_table_entries::<I, K>(mem1, num_keys as nat, valid_indices) =~=
+               validate_item_table_entries::<I, K>(mem2, num_keys as nat, valid_indices));
         let item_table_view1 = Seq::new(
             num_keys as nat,
             |i: int| {

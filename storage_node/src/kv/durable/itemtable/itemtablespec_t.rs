@@ -27,7 +27,6 @@ verus! {
     pub struct DurableItemTableView<I>
     {
         pub durable_item_table: Seq<Option<I>>,
-        pub outstanding_item_table: Seq<Option<I>>,
     }
 
     impl<I> DurableItemTableView<I>
@@ -36,7 +35,6 @@ verus! {
         {
             Self {
                 durable_item_table: Seq::new(num_keys as nat, |i: int| None),
-                outstanding_item_table: Seq::new(num_keys as nat, |i: int| None),
             }
         }
 
@@ -44,19 +42,6 @@ verus! {
         {
             Self {
                 durable_item_table: item_table,
-                outstanding_item_table: Seq::new(item_table.len(), |i: int| None),
-            }
-        }
-
-        pub open spec fn inv(self) -> bool
-        {
-            self.durable_item_table.len() == self.outstanding_item_table.len()
-        }
-
-        pub open spec fn drop_pending_appends(self) -> Self {
-            DurableItemTableView {
-                durable_item_table: self.durable_item_table,
-                outstanding_item_table: Seq::new(self.outstanding_item_table.len(), |i: int| None),
             }
         }
 
@@ -73,14 +58,6 @@ verus! {
         pub open spec fn len(self) -> nat 
         {
             self.durable_item_table.len()
-        }
-
-        pub open spec fn tentatively_create(self, idx: u64, item: I) -> Self
-        {
-            Self {
-                outstanding_item_table: self.outstanding_item_table.update(idx as int, Some(item)),
-                ..self
-            }
         }
 
         // // Inserting an entry and committing it are two separate operations. Inserted entries

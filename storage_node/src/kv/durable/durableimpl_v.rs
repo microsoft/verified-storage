@@ -1194,7 +1194,7 @@ verus! {
                 let which_entry = (addr - item_table_addr) / entry_size;
                 &&& item_table_addr <= addr < item_table_addr + item_table_size
                 &&& 0 <= which_entry <= u64::MAX
-                &&& self.item_table.allocator_view().contains(which_entry as u64)
+                &&& !self.metadata_table@.valid_item_indices().contains(which_entry as u64)
             }
         }
 
@@ -1284,20 +1284,38 @@ verus! {
                     self.overall_metadata.num_keys as nat,
                     main_table_view.valid_item_indices()
                 );
-                assume(forall|i: u64|
-                       0 <= i < self.overall_metadata.num_keys ==>
-                       (#[trigger] main_table_view.valid_item_indices().contains(i) <==>
-                        !self.item_table.allocator_view().contains(i))); // TODO - should be invariant of item table
-                assume(forall|addr: int| {
+                assert forall|addr: int| {
                     let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
                     let which_entry = addr / entry_size;
                     &&& 0 <= addr < item_table_region.len()
                     &&& 0 <= which_entry <= u64::MAX ==> main_table_view.valid_item_indices().contains(which_entry as u64)
-                } ==> item_table_region[addr] == alt_item_table_region[addr]);
+                } implies item_table_region[addr] == alt_item_table_region[addr] by {
+                    let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+                    let which_entry = addr / entry_size;
+                    assert(0 <= which_entry <= u64::MAX);
+                    assert(main_table_view.valid_item_indices().contains(which_entry as u64));
+                    assert(self.wrpm@.can_crash_as(crash_state));
+                    assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                              self.overall_metadata.main_table_size as nat).can_crash_as(
+                           main_table_region)) by {
+                        lemma_subregion_view_can_crash_as_subrange(self.wrpm@, crash_state,
+                                                                   self.overall_metadata.main_table_addr as nat,
+                                                                   self.overall_metadata.main_table_size as nat);
+                    }
+                    assert(parse_metadata_table::<K>(main_table_region, self.overall_metadata.num_keys,
+                                                     self.overall_metadata.metadata_node_size)
+                           matches Some(recovered_view)
+                           && recovered_view.valid_item_indices() == self.metadata_table@.valid_item_indices());
+                    assert(main_table_view == parse_metadata_table::<K>(
+                        main_table_region, self.overall_metadata.num_keys,
+                        self.overall_metadata.metadata_node_size).unwrap());
+                    assert(main_table_view.valid_item_indices() == self.metadata_table@.valid_item_indices());
+                    assert(!self.get_writable_mask_for_item_table()(addr + self.overall_metadata.item_table_addr));
+                }
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     item_table_region,
                     alt_item_table_region,
-                    self.overall_metadata.num_keys as nat,
+                    self.overall_metadata.num_keys,
                     main_table_view.valid_item_indices()
                 );
             }

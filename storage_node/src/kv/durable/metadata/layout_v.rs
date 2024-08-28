@@ -2,14 +2,16 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::arithmetic::mul::lemma_mul_strict_inequality;
 use core::fmt::Debug;
+use vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use crate::kv::durable::inv_v::*;
-use crate::pmem::pmcopy_t::*;
-use crate::pmem::crc_t::*;
-use crate::pmem::pmemspec_t::*;
 use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::util_v::*;
+use crate::pmem::crc_t::*;
+use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemspec_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
@@ -298,6 +300,281 @@ verus! {
     pub open spec fn index_to_offset(index: nat, entry_size: nat) -> nat 
     {
         index * entry_size
+    }
+
+    pub open spec fn is_addr_part_of_invalid_entry(
+        mem: Seq<u8>,
+        num_keys: u64,
+        metadata_node_size: u32,
+        addr: int,
+    ) -> bool
+    {
+        let which_entry = addr / metadata_node_size as int;
+        let cdb_bytes = extract_bytes(mem, (which_entry * metadata_node_size) as nat, u64::spec_size_of());
+        &&& which_entry < num_keys
+        &&& addr - which_entry * metadata_node_size >= u64::spec_size_of()
+        &&& u64::bytes_parseable(cdb_bytes)
+        &&& u64::spec_from_bytes(cdb_bytes) == CDB_FALSE
+    }
+
+    pub proof fn lemma_validate_metadata_entry_doesnt_depend_on_fields_of_invalid_entries<K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        metadata_node_size: u32,
+        i: nat,
+    )
+        where 
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * metadata_node_size,
+            metadata_node_size ==
+                ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
+                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+            i < num_keys
+        ensures
+            validate_metadata_entry::<K>(extract_bytes(mem1, i * metadata_node_size as nat, metadata_node_size as nat),
+                                         num_keys as nat) ==
+            validate_metadata_entry::<K>(extract_bytes(mem2, i * metadata_node_size as nat, metadata_node_size as nat),
+                                         num_keys as nat)
+    {
+        lemma_subrange_of_subrange_forall(mem1);
+        lemma_subrange_of_subrange_forall(mem2);
+
+        let bytes1 = extract_bytes(mem1, i * metadata_node_size as nat, metadata_node_size as nat);
+        let cdb_bytes1 = extract_bytes(bytes1, 0, u64::spec_size_of());
+        let crc_bytes1 = extract_bytes(bytes1, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes1 = extract_bytes(bytes1, (u64::spec_size_of() * 2) as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes1 = extract_bytes(bytes1,
+                                      (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2) as nat,
+                                      K::spec_size_of());
+        let cdb1 = u64::spec_from_bytes(cdb_bytes1);
+
+        let bytes2 = extract_bytes(mem2, i * metadata_node_size as nat, metadata_node_size as nat);
+        let cdb_bytes2 = extract_bytes(bytes2, 0, u64::spec_size_of());
+        let crc_bytes2 = extract_bytes(bytes2, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes2 = extract_bytes(bytes2, (u64::spec_size_of() * 2) as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes2 = extract_bytes(bytes2,
+                                      (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2) as nat,
+                                      K::spec_size_of());
+        let cdb2 = u64::spec_from_bytes(cdb_bytes2);
+
+        lemma_valid_entry_index(i, num_keys as nat, metadata_node_size as nat);
+        assert(cdb_bytes1 == cdb_bytes2) by {
+            assert forall|addr: int| i * metadata_node_size <= addr < i * metadata_node_size + u64::spec_size_of()
+                    implies mem1[addr] == mem2[addr] by {
+                let which_entry = addr / metadata_node_size as int;
+                assert(which_entry == i) by {
+                    lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
+                                                       addr - i * metadata_node_size);
+                }
+                assert(addr - which_entry * metadata_node_size < u64::spec_size_of());
+                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+            }
+            assert(cdb_bytes1 =~= cdb_bytes2);
+        }
+        
+        if cdb1 == CDB_FALSE {
+            assert(cdb2 == CDB_FALSE);
+        }
+        else {
+            assert forall|addr: int| i * metadata_node_size <= addr < i * metadata_node_size + metadata_node_size
+                       implies mem1[addr] == mem2[addr] by {
+                let which_entry = addr / metadata_node_size as int;
+                assert(which_entry == i) by {
+                    lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
+                                                       addr - i * metadata_node_size);
+                }
+                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+            }
+            assert(crc_bytes1 =~= crc_bytes2);
+            assert(metadata_bytes1 =~= metadata_bytes2);
+            assert(key_bytes1 =~= key_bytes2);
+        }
+    }
+
+    pub proof fn lemma_validate_metadata_entries_doesnt_depend_on_fields_of_invalid_entries<K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        metadata_node_size: u32,
+    )
+        where 
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * metadata_node_size,
+            metadata_node_size ==
+                ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
+                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+        ensures
+            validate_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat) ==
+            validate_metadata_entries::<K>(mem2, num_keys as nat, metadata_node_size as nat)
+    {
+        assert forall |i: nat| i < num_keys implies
+            validate_metadata_entry::<K>(#[trigger] extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat),
+                                                                  metadata_node_size as nat), num_keys as nat) ==
+            validate_metadata_entry::<K>(extract_bytes(mem2, index_to_offset(i, metadata_node_size as nat),
+                                                       metadata_node_size as nat), num_keys as nat) by {
+            lemma_validate_metadata_entry_doesnt_depend_on_fields_of_invalid_entries::<K>(
+                mem1, mem2, num_keys, metadata_node_size, i
+            );
+        }
+
+        if validate_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat) {
+            assert forall |i: nat| i < num_keys implies
+                validate_metadata_entry::<K>(#[trigger] extract_bytes(mem2, index_to_offset(i, metadata_node_size as nat),
+                                                                      metadata_node_size as nat), num_keys as nat) 
+            by {
+                assert(validate_metadata_entry::<K>(extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat),
+                                                                  metadata_node_size as nat), num_keys as nat));
+            }
+        }
+        else {
+            let i = choose|i: nat| {
+                &&& i < num_keys
+                &&& !validate_metadata_entry::<K>(#[trigger] extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat),
+                                                                         metadata_node_size as nat),
+                                                num_keys as nat)
+            };
+            assert(!validate_metadata_entry::<K>(extract_bytes(mem2, index_to_offset(i, metadata_node_size as nat),
+                                                               metadata_node_size as nat),
+                                                 num_keys as nat));
+        }
+    }
+
+    pub proof fn lemma_parse_metadata_entry_doesnt_depend_on_fields_of_invalid_entries<K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        metadata_node_size: u32,
+        i: nat,
+    )
+        where 
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * metadata_node_size,
+            metadata_node_size ==
+                ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
+                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+            i < num_keys,
+            validate_metadata_entry::<K>(extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat),
+                                         num_keys as nat),
+            validate_metadata_entry::<K>(extract_bytes(mem2, index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat),
+                                         num_keys as nat),
+        ensures
+            parse_metadata_entry::<K>(extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat),
+                                      num_keys as nat) ==
+            parse_metadata_entry::<K>(extract_bytes(mem2, index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat),
+                                      num_keys as nat)
+    {
+        lemma_subrange_of_subrange_forall(mem1);
+        lemma_subrange_of_subrange_forall(mem2);
+
+        let bytes1 = extract_bytes(mem1, i * metadata_node_size as nat, metadata_node_size as nat);
+        let cdb_bytes1 = extract_bytes(bytes1, 0, u64::spec_size_of());
+        let crc_bytes1 = extract_bytes(bytes1, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes1 = extract_bytes(bytes1, (u64::spec_size_of() * 2) as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes1 = extract_bytes(bytes1,
+                                      (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2) as nat,
+                                      K::spec_size_of());
+        let cdb1 = u64::spec_from_bytes(cdb_bytes1);
+
+        let bytes2 = extract_bytes(mem2, i * metadata_node_size as nat, metadata_node_size as nat);
+        let cdb_bytes2 = extract_bytes(bytes2, 0, u64::spec_size_of());
+        let crc_bytes2 = extract_bytes(bytes2, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes2 = extract_bytes(bytes2, (u64::spec_size_of() * 2) as nat,
+                                           ListEntryMetadata::spec_size_of());
+        let key_bytes2 = extract_bytes(bytes2,
+                                      (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2) as nat,
+                                      K::spec_size_of());
+        let cdb2 = u64::spec_from_bytes(cdb_bytes2);
+
+        lemma_valid_entry_index(i, num_keys as nat, metadata_node_size as nat);
+        assert(cdb_bytes1 == cdb_bytes2) by {
+            assert forall|addr: int| i * metadata_node_size <= addr < i * metadata_node_size + u64::spec_size_of()
+                    implies mem1[addr] == mem2[addr] by {
+                let which_entry = addr / metadata_node_size as int;
+                assert(which_entry == i) by {
+                    lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
+                                                       addr - i * metadata_node_size);
+                }
+                assert(addr - which_entry * metadata_node_size < u64::spec_size_of());
+                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+            }
+            assert(cdb_bytes1 =~= cdb_bytes2);
+        }
+        
+        if cdb1 == CDB_FALSE {
+            assert(cdb2 == CDB_FALSE);
+        }
+        else {
+            assert forall|addr: int| i * metadata_node_size <= addr < i * metadata_node_size + metadata_node_size
+                       implies mem1[addr] == mem2[addr] by {
+                let which_entry = addr / metadata_node_size as int;
+                assert(which_entry == i) by {
+                    lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
+                                                       addr - i * metadata_node_size);
+                }
+                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+            }
+            assert(crc_bytes1 =~= crc_bytes2);
+            assert(metadata_bytes1 =~= metadata_bytes2);
+            assert(key_bytes1 =~= key_bytes2);
+        }
+    }
+
+    pub proof fn lemma_parse_metadata_table_doesnt_depend_on_fields_of_invalid_entries<K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        metadata_node_size: u32,
+    )
+        where 
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * metadata_node_size,
+            metadata_node_size ==
+                ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+            forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
+                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+        ensures
+            parse_metadata_table::<K>(mem1, num_keys, metadata_node_size) ==
+            parse_metadata_table::<K>(mem2, num_keys, metadata_node_size)
+    {
+        if mem1.len() < num_keys * metadata_node_size {
+            return;
+        }
+
+        lemma_validate_metadata_entries_doesnt_depend_on_fields_of_invalid_entries::<K>(
+            mem1, mem2, num_keys, metadata_node_size
+        );
+
+        if !validate_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat) {
+            return;
+        }
+
+        assert forall|i: int| 0 <= i < num_keys implies
+            parse_metadata_entry::<K>(#[trigger] extract_bytes(mem1, (i * metadata_node_size as int) as nat,
+                                                               metadata_node_size as nat), num_keys as nat) ==
+            parse_metadata_entry::<K>(extract_bytes(mem2, (i * metadata_node_size as int) as nat,
+                                                    metadata_node_size as nat), num_keys as nat) by {
+            lemma_parse_metadata_entry_doesnt_depend_on_fields_of_invalid_entries::<K>(
+                mem1, mem2, num_keys, metadata_node_size, i as nat
+            );
+        }
+
+        assert(parse_metadata_table::<K>(mem1, num_keys, metadata_node_size) =~=
+               parse_metadata_table::<K>(mem2, num_keys, metadata_node_size));
     }
 
 }
