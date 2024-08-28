@@ -1244,7 +1244,8 @@ verus! {
                 }
                 let recovered_log = UntrustedOpLog::<K, L>::recover(crash_state, self.overall_metadata);
                 assert(recovered_log is Some);
-                assume(recovered_log == Some(AbstractOpLogState::initialize())); // TODO after oplog supports it
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.overall_metadata);
+                assert(recovered_log == Some(AbstractOpLogState::initialize()));
                 let mem_with_log_installed = Self::apply_physical_log_entries(alt_crash_state,
                                                                               recovered_log.unwrap().physical_op_list);
                 assert(mem_with_log_installed == Some(alt_crash_state));
