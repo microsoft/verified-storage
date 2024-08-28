@@ -353,12 +353,22 @@ verus! {
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+                old_self.item_table.spec_valid_indices() == self.item_table.spec_valid_indices()
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);      
                     forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
                         parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@)
+                }),
+                ({
+                    let old_item_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat); 
+                    let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat);      
+                    &&& forall |s| #[trigger] item_table_subregion_view.can_crash_as(s) ==> 
+                            parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat, self.item_table.spec_valid_indices()) == Some(old_self.item_table@)
+                    &&& old_item_table_subregion_view.can_crash_as(item_table_subregion_view.committed())
                 }),
                 Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some,
         {
@@ -387,6 +397,7 @@ verus! {
             assert(old_list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
 
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(main_table_subregion_view);
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(old_item_table_subregion_view);
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(item_table_subregion_view);
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(list_area_subregion_view);
             assert(forall |s| main_table_subregion_view.can_crash_as(s) ==> s == main_table_subregion_view.committed());
@@ -1705,7 +1716,7 @@ verus! {
                             self.version_metadata,
                             self.overall_metadata
                         );
-                        self.lemma_transaction_abort(*old(self)); 
+                        self.lemma_transaction_abort(*old(self));  
                     }
 
                     // abort the transaction in each component to re-establish their invariants

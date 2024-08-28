@@ -68,19 +68,29 @@ verus! {
             self.outstanding_item_table@
         }
 
-        pub closed spec fn opaque_inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub closed spec fn opaque_inv(self, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.item_size == overall_metadata.item_size
             &&& self.entry_size == entry_size
+            &&& self.free_list@.no_duplicates()
+            &&& self.pending_allocations@.no_duplicates()
+            &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
+                !self.free_list@.contains(#[trigger] self.pending_allocations[i])
+            &&& forall |i: int| 0 <= i < self.free_list.len() ==> 
+                !self.pending_allocations@.contains(#[trigger] self.free_list[i])
+            &&& forall|i: int| 0 <= i < self.free_list@.len() ==> 
+                    self.free_list@[i] < overall_metadata.num_keys
+            &&& forall|i: int| 0 <= i < self.pending_allocations@.len() ==> 
+                    self.pending_allocations@[i] < overall_metadata.num_keys
         }
 
         // TODO: this needs to say something about pending allocations
         pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
-            &&& self.opaque_inv(pm_view, overall_metadata)
-            &&& self@.len() == self.spec_num_keys() == overall_metadata.num_keys
+            &&& self.opaque_inv(overall_metadata)
+            &&& self@.len() == self.spec_outstanding_item_table().len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
                     !self.spec_free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
@@ -89,9 +99,6 @@ verus! {
                            matches Some(table_view)
                     &&& table_view.durable_item_table == self@.durable_item_table
             }
-            &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
-                self.spec_free_list()[i] != self.spec_free_list()[j]
-            &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==> self.spec_free_list()[i] < overall_metadata.num_keys
             &&& self.spec_outstanding_item_table().len() == self@.durable_item_table.len()
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==>
                 self.spec_outstanding_item_table()[#[trigger] self.spec_free_list()[i] as int] is None
@@ -335,6 +342,8 @@ verus! {
                 }
             };
             self.pending_allocations.push(free_index);
+
+            assert(!self.free_list@.contains(free_index));
 
             assert(old(self).subregion_grants_access_to_entry_slot(*subregion, free_index));
             assert(self.spec_valid_indices() == old(self).spec_valid_indices());
@@ -739,6 +748,7 @@ verus! {
                 0 <= item_table_index < old(self)@.len(),
                 !old(self).spec_valid_indices().contains(item_table_index),
                 !old(self).allocator_view().contains(item_table_index),
+                !old(self).spec_pending_allocations().contains(item_table_index),
                 old(self).spec_outstanding_item_table()[item_table_index as int] is None,
                 old(self)@.durable_item_table[item_table_index as int] is None,
                 // the allocator contains all invalid indices except for item_table_index
@@ -771,38 +781,53 @@ verus! {
         )
             requires 
                 pm.no_outstanding_writes(),
-                // old(self).opaque_inv(pm, overall_metadata),
-                // old(self)@.inv(),
-                old(self)@.len() == old(self).spec_num_keys() == overall_metadata.num_keys,
+                old(self).opaque_inv(overall_metadata),
+                forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
+                    !old(self).spec_free_list().contains(idx) && !old(self).pending_allocations_view().contains(idx),
+                old(self)@.len() == old(self).spec_outstanding_item_table().len() == old(self).spec_num_keys() == overall_metadata.num_keys,
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& pm.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
                 forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
                     !old(self).spec_free_list().contains(idx),
-                forall|i: int, j: int| 0 <= i < old(self).spec_free_list().len() && 0 <= j < old(self).spec_free_list().len() && i != j ==>
-                    old(self).spec_free_list()[i] != old(self).spec_free_list()[j],
+                forall |s| #[trigger] pm.can_crash_as(s) ==> {
+                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, old(self).spec_valid_indices())
+                            matches Some(table_view)
+                    &&& table_view.durable_item_table == old(self)@.durable_item_table
+                },
+                forall|idx: u64| old(self).spec_valid_indices().contains(idx) ==> {
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    let entry_bytes = extract_bytes(pm.committed(), (idx * entry_size) as nat, entry_size as nat);
+                    &&& idx < overall_metadata.num_keys
+                    &&& validate_item_table_entry::<I, K>(entry_bytes)
+                    &&& old(self)@.durable_item_table[idx as int] is Some
+                    &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
+                },
             ensures
                 self.valid(pm, overall_metadata),
-                // self@ == self@.drop_pending_appends(),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
         {
             // Move all pending allocations back into the free list
             self.free_list.append(&mut self.pending_allocations);
 
             // Drop all outstanding updates from the view
-            // self.state = Ghost(self.state@.drop_pending_appends());
+            self.outstanding_item_table = Ghost(Seq::new(self.outstanding_item_table@.len(), |i: int| None));
 
             proof {
-                assume(false);
-                // assert(forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> !self.spec_free_list().contains(idx));
-
-                // assert(forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
-                //     self.spec_free_list()[i] != self.spec_free_list()[j]);
-
-                // assert(self.inv(pm, overall_metadata));
-                
-                // assert(self.valid(pm, overall_metadata));
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert forall|idx: u64| {
+                    &&& idx < overall_metadata.num_keys
+                    &&& #[trigger] self.spec_outstanding_item_table()[idx as int] is None 
+                } implies pm.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
+                    lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                    assert(overall_metadata.num_keys * entry_size <= pm.len());
+                }
+                assert(forall |idx: u64| self.free_list@.contains(idx) ==> {
+                    ||| old(self).free_list@.contains(idx)
+                    ||| old(self).pending_allocations@.contains(idx)
+                });
+                assert(self.spec_valid_indices() == old(self).spec_valid_indices());
             }
         }
 
