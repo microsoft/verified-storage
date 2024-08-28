@@ -679,7 +679,7 @@ impl UntrustedLogImpl {
                         &&& #[trigger] s1.len() == s2.len()
                         &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                     };
-                    // assert(wrpm_region@.can_crash_as(witness));
+                    assert(wrpm_region@.can_crash_as(witness));
                     assert(crash_pred(witness));
                 }
             }
