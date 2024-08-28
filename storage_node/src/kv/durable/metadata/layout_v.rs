@@ -310,7 +310,8 @@ verus! {
     ) -> bool
     {
         let which_entry = addr / metadata_node_size as int;
-        let cdb_bytes = extract_bytes(mem, (which_entry * metadata_node_size) as nat, u64::spec_size_of());
+        let cdb_bytes = extract_bytes(mem, index_to_offset(which_entry as nat, metadata_node_size as nat),
+                                      u64::spec_size_of());
         &&& which_entry < num_keys
         &&& addr - which_entry * metadata_node_size >= u64::spec_size_of()
         &&& u64::bytes_parseable(cdb_bytes)
