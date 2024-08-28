@@ -1418,6 +1418,7 @@ verus! {
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
             index: u64,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         ) -> (log_entry: PhysicalOpLogEntry)
@@ -1440,9 +1441,10 @@ verus! {
                     main_table_view is Some
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
-                overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.region_size
+                overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.region_size,
+                VersionMetadata::spec_size_of() < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < overall_metadata.main_table_addr,
             ensures 
-                log_entry@.inv(overall_metadata),
+                log_entry@.inv(version_metadata, overall_metadata),
                 overall_metadata.main_table_addr <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 ({
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|

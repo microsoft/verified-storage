@@ -41,7 +41,7 @@ verus! {
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
         }
 
-        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: OverallMetadata) -> bool
+        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
@@ -58,50 +58,55 @@ verus! {
                 // since we haven't written the CRC yet) should give us the current abstract log op list
                 let pending_bytes = self.log@.pending;
                 let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
-                        Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize())
+                        Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
                 let log_ops = Self::parse_log_ops(log_contents.unwrap(), overall_metadata.log_area_addr as nat, 
-                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& log_contents is Some
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
                 &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
-                        Self::recover(s, overall_metadata) == Some(self@)
+                        Self::recover(s, version_metadata, overall_metadata) == Some(self@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
-                    op.inv(overall_metadata)
+                    op.inv(version_metadata, overall_metadata)
             } 
             &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
             &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat)
-            &&& AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, overall_metadata)
+            &&& AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, version_metadata, overall_metadata)
         }
 
-        pub proof fn lemma_reveal_opaque_op_log_inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, overall_metadata: OverallMetadata)
+        pub proof fn lemma_reveal_opaque_op_log_inv<Perm, PM>(
+            self, 
+            pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, 
+            version_metadata: VersionMetadata, 
+            overall_metadata: OverallMetadata
+        )
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires
-                self.inv(pm_region, overall_metadata)
+                self.inv(pm_region, version_metadata, overall_metadata)
             ensures 
-                AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, overall_metadata),
+                AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, version_metadata, overall_metadata),
                 !self@.op_list_committed ==> {
                     let pending_bytes = self.base_log_view().pending;
                     let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& log_ops is Some 
                     &&& log_ops.unwrap() == self@.physical_op_list
                     &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
-                            Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize())
+                            Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
         {}
 
@@ -114,7 +119,7 @@ verus! {
             self.log@.log.len()
         }
 
-        pub open spec fn recover(mem: Seq<u8>, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState>
+        pub open spec fn recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<AbstractOpLogState>
         {
             // use log's recover method to recover the log state, then parse it into operations
             match UntrustedLogImpl::recover(mem, overall_metadata.log_area_addr as nat,
@@ -130,7 +135,8 @@ verus! {
                                 log_contents, 
                                 overall_metadata.log_area_addr as nat, 
                                 overall_metadata.log_area_size as nat,
-                                overall_metadata.region_size as nat
+                                overall_metadata.region_size as nat, 
+                                version_metadata.overall_metadata_addr as nat
                             ) {
                                     Some(AbstractOpLogState {
                                         physical_op_list: physical_log_entries,
@@ -169,18 +175,19 @@ verus! {
             self, 
             pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             crash_state: Seq<u8>,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
         )
             where 
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires
-                self.inv(pm_region, overall_metadata),
-                UntrustedOpLog::<K, L>::recover(crash_state, overall_metadata) is Some,
+                self.inv(pm_region, version_metadata, overall_metadata),
+                UntrustedOpLog::<K, L>::recover(crash_state, version_metadata, overall_metadata) is Some,
                 !self@.op_list_committed,
                 pm_region@.can_crash_as(crash_state),
             ensures 
-                self@.drop_pending_appends() == UntrustedOpLog::<K, L>::recover(crash_state, overall_metadata).unwrap()
+                self@.drop_pending_appends() == UntrustedOpLog::<K, L>::recover(crash_state, version_metadata, overall_metadata).unwrap()
         {
             // The base log is empty
             assert(self.log@.log.len() == 0);
@@ -194,28 +201,33 @@ verus! {
             offset: nat,
             pm_region: PersistentMemoryRegionView,
             log_contents: Seq<u8>,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
         )
             requires 
-                UntrustedOpLog::<K, L>::recover(pm_region.committed(), overall_metadata) is Some,
+                UntrustedOpLog::<K, L>::recover(pm_region.committed(), version_metadata, overall_metadata) is Some,
                 ({
                     let base_log = UntrustedLogImpl::recover(pm_region.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                     &&& base_log matches Some(base_log)
                     &&& base_log.log.len() > 0
                     &&& log_contents == extract_bytes(base_log.log, 0, (base_log.log.len() - u64::spec_size_of()) as nat)
                 }),
-                Self::parse_log_ops_helper(0, offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
+                Self::parse_log_ops_helper(0, offset, log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is Some,
                 offset < log_contents.len(),
                 u64::spec_size_of() < log_contents.len(),
             ensures 
-                Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some
+                Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is Some
         {
             // Proof by contradiction: if the op at offset cannot be parsed, then the whole op log cannot be parsed;
             // but the precondition says it can, so the op log must be valid/parseable.
-            if Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is None {
-                assert(Self::parse_log_ops_helper(offset, log_contents.len(), log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is None);
+            if Self::parse_log_op(offset, log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is None {
+                assert(Self::parse_log_ops_helper(offset, log_contents.len(), log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is None);
                 Self::lemma_partial_parse_fails_implies_full_parse_fails(0, offset, log_contents.len(), log_contents, 
-                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 assert(false);
             }
         }
@@ -231,22 +243,23 @@ verus! {
             log_start_addr: nat, 
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat,
         )
             requires 
                 start <= mid <= end <= log_contents.len(),
-                Self::parse_log_ops_helper(mid, end, log_contents, log_start_addr, log_size, region_size) is None,
-                Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size) is Some,
+                Self::parse_log_ops_helper(mid, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is None,
+                Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
                 end == log_contents.len(),
             ensures 
-                Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is None,
+                Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is None,
             decreases end - start
         {
             if start == mid {
                 // trivial 
             } else {
-                let next_op = Self::parse_log_op(start, log_contents, log_start_addr, log_size, region_size).unwrap();
+                let next_op = Self::parse_log_op(start, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
                 let next_start = start + u64::spec_size_of() * 2 + next_op.len;
-                Self::lemma_partial_parse_fails_implies_full_parse_fails(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);
+                Self::lemma_partial_parse_fails_implies_full_parse_fails(next_start, mid, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr);
             }
         }
 
@@ -264,45 +277,46 @@ verus! {
             log_start_addr: nat, 
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat,
         )
         requires
             start <= mid <= end <= log_contents.len(),
-            Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size) is Some,
-            Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size) is Some,
+            Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
+            Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
             ({
-                let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size);
+                let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr);
                 &&& last_op matches Some(last_op)
                 &&& end == mid + u64::spec_size_of() * 2 + last_op.len
             })
         ensures 
-            Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size) is Some,
+            Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
             ({
-                let old_seq = Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size).unwrap();
-                let new_seq = Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size).unwrap();
-                let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size).unwrap();
+                let old_seq = Self::parse_log_ops_helper(start, mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
+                let new_seq = Self::parse_log_ops_helper(start, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
+                let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
                 new_seq == old_seq + seq![last_op]
             }),
         decreases end - start
         {
-            let old_seq = Self::parse_log_ops_helper(start, mid,log_contents, log_start_addr, log_size, region_size).unwrap();
-            let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size).unwrap();
+            let old_seq = Self::parse_log_ops_helper(start, mid,log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
+            let last_op = Self::parse_log_op(mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
 
             if mid == start {
                 // Base case: old_seq is empty.
                 // This case is not trivial; Verus needs some help reasoning about the end point as well
-                assert(Some(Seq::<AbstractPhysicalOpLogEntry>::empty()) == Self::parse_log_ops_helper(end, end, log_contents, log_start_addr, log_size, region_size));
+                assert(Some(Seq::<AbstractPhysicalOpLogEntry>::empty()) == Self::parse_log_ops_helper(end, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr));
                 return;
             }
             // first_op + middle_section == parse_log_ops_helper(start, mid, ...) by the definition of parse (which prepends earlier entries
             // onto the sequence of parsed ops)
-            let first_op = Self::parse_log_op(start, log_contents, log_start_addr, log_size, region_size).unwrap();
+            let first_op = Self::parse_log_op(start, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
             let next_start = start + u64::spec_size_of() * 2 + first_op.len;
-            let middle_section = Self::parse_log_ops_helper(next_start, mid, log_contents, log_start_addr, log_size, region_size).unwrap();
+            let middle_section = Self::parse_log_ops_helper(next_start, mid, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr).unwrap();
 
             // associativity 
             assert((seq![first_op] + middle_section) + seq![last_op] == seq![first_op] + (middle_section + seq![last_op]));
 
-            Self::lemma_op_log_parse_equal(next_start, mid, end, log_contents, log_start_addr, log_size, region_size);  
+            Self::lemma_op_log_parse_equal(next_start, mid, end, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr);  
         }
 
         // This lemma proves that if one sequence is a prefix of another sequence and the shorter sequence
@@ -315,19 +329,20 @@ verus! {
             log_start_addr: nat,
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat
         )
             requires 
                 extract_bytes(mem2, 0, mem1.len()) == mem1,
                 mem2.len() > mem1.len(),
-                Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size) is Some,
+                Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
             ensures 
-                Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size) =~=
-                    Self::parse_log_ops_helper(0, mem1.len(), mem2, log_start_addr, log_size, region_size)
+                Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size, overall_metadata_addr) =~=
+                    Self::parse_log_ops_helper(0, mem1.len(), mem2, log_start_addr, log_size, region_size, overall_metadata_addr)
         {
             let mem2_prefix = extract_bytes(mem2, 0, mem1.len());
-            assert(Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size) =~=
-                Self::parse_log_ops_helper(0, mem2_prefix.len(), mem2_prefix, log_start_addr, log_size, region_size));
-            Self::lemma_inductive_parsing_same_range_equal(0, mem1.len(), mem1, mem2, log_start_addr, log_size, region_size);
+            assert(Self::parse_log_ops_helper(0, mem1.len(), mem1, log_start_addr, log_size, region_size, overall_metadata_addr) =~=
+                Self::parse_log_ops_helper(0, mem2_prefix.len(), mem2_prefix, log_start_addr, log_size, region_size, overall_metadata_addr));
+            Self::lemma_inductive_parsing_same_range_equal(0, mem1.len(), mem1, mem2, log_start_addr, log_size, region_size, overall_metadata_addr);
         }
 
         // This helper lemma does the key work to prove lemma_parsing_same_range_equal.
@@ -341,22 +356,23 @@ verus! {
             log_start_addr: nat,
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat
         )
             requires 
                 current_offset <= target_offset <= mem1.len() <= mem2.len(),
                 target_offset == mem1.len(),
                 extract_bytes(mem2, 0, mem1.len()) == mem1,
-                Self::parse_log_ops_helper(current_offset, target_offset, mem1, log_start_addr, log_size, region_size) is Some,
+                Self::parse_log_ops_helper(current_offset, target_offset, mem1, log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
             ensures 
-                Self::parse_log_ops_helper(current_offset, target_offset, mem1, log_start_addr, log_size, region_size) =~=
-                    Self::parse_log_ops_helper(current_offset, target_offset, mem2, log_start_addr, log_size, region_size)
+                Self::parse_log_ops_helper(current_offset, target_offset, mem1, log_start_addr, log_size, region_size, overall_metadata_addr) =~=
+                    Self::parse_log_ops_helper(current_offset, target_offset, mem2, log_start_addr, log_size, region_size, overall_metadata_addr)
             decreases target_offset - current_offset 
         {
             if target_offset == current_offset {
                 // trivial
             } else {
                 lemma_establish_extract_bytes_equivalence(mem1, mem2);
-                let mem1_op = Self::parse_log_op(current_offset, mem1, log_start_addr, log_size, region_size);
+                let mem1_op = Self::parse_log_op(current_offset, mem1, log_start_addr, log_size, region_size, overall_metadata_addr);
                 let entry_size = u64::spec_size_of() * 2 + mem1_op.unwrap().len;
                 let next_offset = current_offset + entry_size;
                 Self::lemma_inductive_parsing_same_range_equal(
@@ -366,7 +382,8 @@ verus! {
                     mem2, 
                     log_start_addr,
                     log_size,
-                    region_size
+                    region_size, 
+                    overall_metadata_addr
                 );
             }
         }
@@ -380,6 +397,7 @@ verus! {
             log_start_addr: nat, 
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat,
         ) -> Option<AbstractPhysicalOpLogEntry>
         {
             // 1. Read the absolute addr and log entry size
@@ -396,6 +414,8 @@ verus! {
                     ||| absolute_addr < absolute_addr + len < log_start_addr // region end before log area
                     ||| log_start_addr + log_size < absolute_addr < absolute_addr + len // region ends after log area
                 })
+                ||| absolute_addr < VersionMetadata::spec_size_of()
+                ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of()
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len
             } {
@@ -418,9 +438,10 @@ verus! {
             log_start_addr: nat, 
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat,
         ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
         {
-            Self::parse_log_ops_helper(0, log_contents.len(),  log_contents, log_start_addr, log_size, region_size)
+            Self::parse_log_ops_helper(0, log_contents.len(),  log_contents, log_start_addr, log_size, region_size, overall_metadata_addr)
         }
 
         pub open spec fn parse_log_ops_helper(
@@ -430,6 +451,7 @@ verus! {
             log_start_addr: nat, 
             log_size: nat,
             region_size: nat,
+            overall_metadata_addr: nat,
         ) -> Option<Seq<AbstractPhysicalOpLogEntry>>
             decreases target_offset - current_offset
         {
@@ -437,7 +459,7 @@ verus! {
                 Some(Seq::empty())
             } else {
                 // parse the log entry at the current offset
-                let op = Self::parse_log_op(current_offset, log_contents, log_start_addr, log_size, region_size);
+                let op = Self::parse_log_op(current_offset, log_contents, log_start_addr, log_size, region_size, overall_metadata_addr);
                 if let Some(op) = op {
                     let entry_size = u64::spec_size_of() * 2 + op.len;
                     if target_offset < current_offset + entry_size {
@@ -449,7 +471,8 @@ verus! {
                             log_contents, 
                             log_start_addr,
                             log_size,
-                            region_size
+                            region_size,
+                            overall_metadata_addr
                         );
                         if let Some(seq) = seq {
                             Some(seq![op] + seq)
@@ -470,27 +493,32 @@ verus! {
             current_offset: nat,
             target_offset: nat,
             log_contents: Seq<u8>,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
         )
             requires 
-                Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some 
+                Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is Some 
             ensures 
                 ({
-                    let parsed_log = Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat).unwrap();
-                    AbstractPhysicalOpLogEntry::log_inv(parsed_log, overall_metadata)
+                    let parsed_log = Self::parse_log_ops_helper(current_offset, target_offset, log_contents, overall_metadata.log_area_addr as nat, 
+                        overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat).unwrap();
+                    AbstractPhysicalOpLogEntry::log_inv(parsed_log, version_metadata, overall_metadata)
                 })
             decreases target_offset - current_offset
         {
             if target_offset == current_offset {
                 // trivial
             } else {
-                let op = Self::parse_log_op(current_offset, log_contents, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                let op = Self::parse_log_op(current_offset, log_contents, overall_metadata.log_area_addr as nat, 
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 assert(op is Some); // inv holds when op can be parsed
                 let entry_size = u64::spec_size_of() * 2 + op.unwrap().len;
                 Self::lemma_successful_log_ops_parse_implies_inv(
                     current_offset + entry_size,
                     target_offset,
                     log_contents,
+                    version_metadata,
                     overall_metadata
                 );
             }
@@ -500,6 +528,7 @@ verus! {
             self,
             wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             wrpm2: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata
         )
             where 
@@ -510,7 +539,7 @@ verus! {
                 wrpm1@.len() == wrpm2@.len(),
                 wrpm1.inv(),
                 wrpm2.inv(),
-                self.inv(wrpm1, overall_metadata),
+                self.inv(wrpm1, version_metadata, overall_metadata),
                 self.base_log_view() == self.base_log_view().drop_pending_appends(),
                 wrpm1@.no_outstanding_writes(),
                 wrpm2@.no_outstanding_writes(),
@@ -519,7 +548,7 @@ verus! {
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             ensures 
-                self.inv(wrpm2, overall_metadata),
+                self.inv(wrpm2, version_metadata, overall_metadata),
         {
             let mem1 = wrpm1@.committed();
             let mem2 = wrpm2@.committed();
@@ -542,6 +571,7 @@ verus! {
         pub exec fn parse_phys_op_log<Perm, PM>(
             pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             log_bytes: Vec<u8>,
+            version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata
         ) -> (result: Result<Vec<PhysicalOpLogEntry>, KvError<K>>)
             where 
@@ -552,7 +582,7 @@ verus! {
                 pm_region@.no_outstanding_writes(),
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-                Self::recover(pm_region@.committed(), overall_metadata) is Some,
+                Self::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some,
                 pm_region@.len() == overall_metadata.region_size,
                 ({
                     let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
@@ -562,13 +592,15 @@ verus! {
                 ({
                     let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                     let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                    let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
+                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& abstract_op_log matches Some(abstract_log)
                     &&& 0 < abstract_log.len() <= u64::MAX
                 }),
                 ({
-                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
-                    let parsed_ops = Self::parse_log_ops(log_bytes@, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                    let parsed_ops = Self::parse_log_ops(log_bytes@, overall_metadata.log_area_addr as nat, 
+                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& recovered_log matches Some(recovered_log)
                     &&& parsed_ops matches Some(parsed_ops)
                     &&& recovered_log.physical_op_list == parsed_ops
@@ -579,18 +611,18 @@ verus! {
                 match result {
                     Ok(phys_log) => {
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& phys_log.len() == 0
                             &&& abstract_op_log.physical_op_list.len() == 0
                         }
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log.physical_op_list == phys_log_view
-                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
-                            &&& forall |i: int| 0 <= i < phys_log_view.len() ==> #[trigger] (phys_log_view[i]).inv(overall_metadata)
+                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata)
+                            &&& forall |i: int| 0 <= i < phys_log_view.len() ==> #[trigger] (phys_log_view[i]).inv(version_metadata, overall_metadata)
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
@@ -604,10 +636,12 @@ verus! {
         let log_start_addr = overall_metadata.log_area_addr;
         let log_size = overall_metadata.log_area_size;
         let region_size = overall_metadata.region_size;
+        let overall_metadata_addr = version_metadata.overall_metadata_addr;
 
         let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat).unwrap();
         let ghost phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-        let ghost abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, log_start_addr as nat, log_size as nat, region_size as nat).unwrap();
+        let ghost abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, log_start_addr as nat, 
+                log_size as nat, region_size as nat, version_metadata.overall_metadata_addr as nat).unwrap();
 
         let mut offset = 0;
         let mut ops = Vec::<PhysicalOpLogEntry>::new();
@@ -616,23 +650,23 @@ verus! {
             // Before the loop, we haven't parsed anything
             let phys_log_view = Seq::new(ops@.len(), |i: int| ops[i]@);
             assert(phys_log_view == Seq::<AbstractPhysicalOpLogEntry>::empty());
-            assert(Some(phys_log_view) == Self::parse_log_ops_helper(0, 0, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat))
+            assert(Some(phys_log_view) == Self::parse_log_ops_helper(0, 0, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat));
         }
 
         while offset < log_bytes.len()
             invariant
                 u64::spec_size_of() * 2 <= log_bytes.len() <= u64::MAX,
                 0 < abstract_op_log.len() <= u64::MAX,
-                Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) is Some,
+                Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat) is Some,
                 ({
                     let phys_log_view = Seq::new(ops@.len(), |i: int| ops[i]@);
-                    &&& Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) matches Some(abstract_log_view)
+                    &&& Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat) matches Some(abstract_log_view)
                     &&& phys_log_view == abstract_log_view
-                    &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                    &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata)
                 }),
                 ({
-                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
-                    let parsed_ops = Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                    let parsed_ops = Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat);
                     &&& recovered_log matches Some(recovered_log)
                     &&& parsed_ops matches Some(parsed_ops)
                     &&& recovered_log.physical_op_list == parsed_ops
@@ -647,13 +681,14 @@ verus! {
                 log_start_addr == overall_metadata.log_area_addr,
                 log_size == overall_metadata.log_area_size,
                 region_size == overall_metadata.region_size,
-                forall |i: int| 0 <= i < ops.len() ==> #[trigger] (ops[i]).inv(overall_metadata)
+                overall_metadata_addr == version_metadata.overall_metadata_addr,
+                forall |i: int| 0 <= i < ops.len() ==> #[trigger] (ops[i]).inv(version_metadata, overall_metadata)
         {
             broadcast use pmcopy_axioms;
 
             proof {
-                assert(Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) is Some);
-                assert(UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata) is Some);
+                assert(Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat) is Some);
+                assert(UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some);
                 let recovered_base_log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
 
                 let log_contents = Self::get_log_contents(recovered_base_log).unwrap();
@@ -662,10 +697,10 @@ verus! {
                 // the full op log, as well as the op log up to offset, both recover correctly.
                 // this should imply that there is either a valid entry at offset, or that offset is 
                 // is at the end 
-                Self::lemma_parse_up_to_offset_succeeds(offset as nat, pm_region@, log_contents, overall_metadata);
+                Self::lemma_parse_up_to_offset_succeeds(offset as nat, pm_region@, log_contents, version_metadata, overall_metadata);
 
                 assert(offset <= log_contents.len());
-                let current_op = Self::parse_log_op(offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                let current_op = Self::parse_log_op(offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat);
                 assert(current_op is Some);
             }
 
@@ -717,15 +752,17 @@ verus! {
 
             proof {
                 let phys_log_view = Seq::new(ops@.len(), |i: int| ops[i]@);
-                assert(Self::parse_log_op(old_offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat) is Some);
-                Self::lemma_op_log_parse_equal(0, old_offset as nat, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);      
+                assert(Self::parse_log_op(old_offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, 
+                    region_size as nat, overall_metadata_addr as nat) is Some);
+                Self::lemma_op_log_parse_equal(0, old_offset as nat, offset as nat, log_bytes@, log_start_addr as nat, 
+                    log_size as nat, region_size as nat, overall_metadata_addr as nat);      
                 
-                let abstract_partial_log = Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat);
+                let abstract_partial_log = Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat);
                 assert(abstract_partial_log is Some);
                 let abstract_partial_log = abstract_partial_log.unwrap();
                 assert(abstract_partial_log == phys_log_view);
 
-                Self::lemma_successful_log_ops_parse_implies_inv(0, offset as nat, log_bytes@, overall_metadata);
+                Self::lemma_successful_log_ops_parse_implies_inv(0, offset as nat, log_bytes@, version_metadata, overall_metadata);
             }
         }
         Ok(ops)
@@ -738,6 +775,7 @@ verus! {
     // Note that the op log is given the entire PM device, but only deals with the log region.
     pub exec fn start<Perm, PM>(
         pm_region: &WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata
     ) -> (result: Result<(Self, Vec<PhysicalOpLogEntry>), KvError<K>>)
         where 
@@ -748,12 +786,13 @@ verus! {
             pm_region@.no_outstanding_writes(),
             overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
             overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-            Self::recover(pm_region@.committed(), overall_metadata) is Some,
+            Self::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some,
             pm_region@.len() == overall_metadata.region_size,
             ({
                 let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                 let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
+                        overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& abstract_op_log matches Some(abstract_log)
                 &&& 0 < abstract_log.len() <= u64::MAX
             }),
@@ -764,21 +803,21 @@ verus! {
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {
-                    &&& op_log_impl.inv(*pm_region, overall_metadata)
+                    &&& op_log_impl.inv(*pm_region, version_metadata, overall_metadata)
                     &&& op_log_impl.base_log_view() == op_log_impl.base_log_view().drop_pending_appends()
                     &&& {
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& phys_log.len() == 0
                             &&& abstract_op_log.physical_op_list.len() == 0
                         }
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log.physical_op_list == phys_log_view
-                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, overall_metadata)
+                            &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata)
                         }
                     }
                 }
@@ -791,7 +830,7 @@ verus! {
                     let log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                     let tail = log.head + log.log.len();
                     ||| tail - log.head < u64::spec_size_of() as u128
-                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.committed(), overall_metadata) is None
+                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata) is None
                 }
                 Err(_) => false
             }
@@ -808,14 +847,14 @@ verus! {
                 return Err(KvError::LogErr { log_err: e });
             }
         };
-        let ghost op_log_state = Self::recover(pm_region@.committed(), overall_metadata);
+        let ghost op_log_state = Self::recover(pm_region@.committed(), version_metadata, overall_metadata);
 
         proof {
             // Prove that all current possible crash states recover to `op_log_state`
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
             assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.committed());
             assert(forall |s| #[trigger] pm_region@.can_crash_as(s) ==> 
-                Self::recover(s, overall_metadata) == Some(op_log_state.unwrap()));
+                Self::recover(s, version_metadata, overall_metadata) == Some(op_log_state.unwrap()));
         }
 
         // Read the entire log and its CRC and check for corruption. we have to do this before we can parse the bytes.
@@ -868,7 +907,7 @@ verus! {
             return Err(KvError::CRCMismatch);
         }
 
-        let phys_op_log = Self::parse_phys_op_log(pm_region, log_bytes, overall_metadata)?;
+        let phys_op_log = Self::parse_phys_op_log(pm_region, log_bytes, version_metadata, overall_metadata)?;
 
         let op_log_impl = Self {
             log,
@@ -927,13 +966,14 @@ verus! {
         self,
         pm_region: PersistentMemoryRegionView,
         log_entry: PhysicalOpLogEntry,
+        version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata,
     )
         requires
             ({
                 let pending_bytes = self.log@.pending;
                 let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& pending_bytes.len() + u64::spec_size_of() * 2 <= u64::MAX
@@ -947,13 +987,14 @@ verus! {
             log_entry.len == log_entry.bytes@.len(),
             log_entry.absolute_addr + log_entry.len <= overall_metadata.region_size,
             overall_metadata.region_size == pm_region.len(),
+            log_entry.inv(version_metadata, overall_metadata),
         ensures 
             ({
                 let pending_bytes = self.log@.pending;
                 let bytes = log_entry.bytes@;
                 let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
                 let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
-                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& new_log_ops is Some 
                 &&& new_log_ops.unwrap() == self@.physical_op_list.push(log_entry@)
 
@@ -964,15 +1005,16 @@ verus! {
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
         let region_size = overall_metadata.region_size as nat;
+        let overall_metadata_addr = version_metadata.overall_metadata_addr as nat;
 
         let pending_bytes = self.log@.pending;
         let bytes = log_entry.bytes@;
         let new_pending_bytes = pending_bytes + log_entry.absolute_addr.spec_to_bytes() + (log_entry.bytes.len() as u64).spec_to_bytes() + bytes;
         let old_log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat).unwrap();
+            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat).unwrap();
 
         // parsing just the new operation's bytes succeeds
-        let new_op = Self::parse_log_op(pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
+        let new_op = Self::parse_log_op(pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size, overall_metadata_addr);
         assert(new_op is Some && new_op.unwrap() == log_entry@) by {
             let addr_bytes = extract_bytes(new_pending_bytes, pending_bytes.len(), u64::spec_size_of());
             let len_bytes = extract_bytes(new_pending_bytes, pending_bytes.len() + u64::spec_size_of(), u64::spec_size_of());
@@ -986,12 +1028,12 @@ verus! {
         
         // Parsing the pending_bytes prefix of new_pending_bytes gives the same op log as parsing pending_bytes
         assert(extract_bytes(new_pending_bytes, 0, pending_bytes.len()) == pending_bytes);
-        Self::lemma_parsing_same_range_equal(pending_bytes, new_pending_bytes, log_start_addr, log_size, region_size);
+        Self::lemma_parsing_same_range_equal(pending_bytes, new_pending_bytes, log_start_addr, log_size, region_size, overall_metadata_addr);
 
         // Appending the new op to the pending_bytes op log is equivalent to parsing all of new_pending_bytes
-        Self::lemma_op_log_parse_equal(0, pending_bytes.len(), new_pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size);
+        Self::lemma_op_log_parse_equal(0, pending_bytes.len(), new_pending_bytes.len(), new_pending_bytes, log_start_addr, log_size, region_size, overall_metadata_addr);
         let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
-            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
         
         assert(new_log_ops.unwrap() == old_log_ops.push(new_op.unwrap()));
     }
@@ -1007,6 +1049,7 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_entry: PhysicalOpLogEntry,
+        version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
@@ -1015,22 +1058,22 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), overall_metadata),
-            log_entry@.inv(overall_metadata),
+            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
+            log_entry@.inv(version_metadata, overall_metadata),
             !old(self)@.op_list_committed,
             overall_metadata.region_size == old(log_wrpm)@.len(),
             Self::parse_log_ops(old(self).base_log_view().pending, overall_metadata.log_area_addr as nat, 
-                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat) is Some,
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            Self::recover(old(log_wrpm)@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
+                Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                &&& Self::recover(s1, overall_metadata) == Some(AbstractOpLogState::initialize())
-                &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
+                &&& Self::recover(s1, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
             log_entry.len == log_entry.bytes@.len(),
@@ -1038,7 +1081,7 @@ verus! {
             ({
                 let pending_bytes = old(self).base_log_view().pending;
                 let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
-                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                    overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
             }),
@@ -1046,8 +1089,8 @@ verus! {
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
-            Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
-            self.inv(*log_wrpm, overall_metadata), // can we maintain this here?
+            Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            self.inv(*log_wrpm, version_metadata, overall_metadata), // can we maintain this here?
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
@@ -1075,7 +1118,7 @@ verus! {
         // are all valid after appending the new one
         assert(forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
             let op = #[trigger] self@.physical_op_list[i];
-            op.inv(overall_metadata)
+            op.inv(version_metadata, overall_metadata)
         });
 
         let pending_len = self.log.get_pending_len(log_wrpm, &overall_metadata);
@@ -1100,7 +1143,7 @@ verus! {
             assert(pending_len + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
 
             // before we append anything, prove that appending this entry will maintain the loop invariant
-            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, overall_metadata);
+            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, version_metadata, overall_metadata);
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
@@ -1247,9 +1290,9 @@ verus! {
             assert(new_pending_bytes == old_pending_bytes + absolute_addr.spec_to_bytes() + len.spec_to_bytes() + bytes@);
 
             let old_log_ops = Self::parse_log_ops(old_pending_bytes, overall_metadata.log_area_addr as nat, 
-                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
             let new_log_ops = Self::parse_log_ops(new_pending_bytes, overall_metadata.log_area_addr as nat, 
-                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
+                overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
             assert(old_log_ops is Some);
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
@@ -1264,6 +1307,7 @@ verus! {
     pub exec fn commit_log<Perm, PM>(
         &mut self, 
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
@@ -1272,35 +1316,35 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), overall_metadata),
+            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
             old(self)@.physical_op_list.len() > 0,
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()),
+                Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.flush().committed();
                 &&& flushed_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(flushed_state, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
-                        ||| Self::recover(s2, overall_metadata) == Some(old(self)@.commit_op_log())
-                        ||| Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
+                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@.commit_op_log())
+                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                &&& Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
             // TODO: log probably shouldn't know about version metadata
             no_outstanding_writes_to_version_metadata(old(log_wrpm)@),
             old(log_wrpm)@.len() >= VersionMetadata::spec_size_of(),
         ensures 
-            self.inv(*log_wrpm, overall_metadata),
+            self.inv(*log_wrpm, version_metadata, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             match result {
@@ -1333,7 +1377,7 @@ verus! {
             // also recover to a legal op log state
             assert forall |s| UntrustedLogImpl::recover(s, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
                     Some(self.base_log_view().drop_pending_appends())
-                implies #[trigger] Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()) 
+                implies #[trigger] Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()) 
             by {
                 let base_log_recovery_state = UntrustedLogImpl::recover(s, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                 assert(base_log_recovery_state is Some);
@@ -1359,7 +1403,7 @@ verus! {
                 });
                 assert(log_wrpm@.no_outstanding_writes());
                 assert(forall |s| #[trigger] log_wrpm@.can_crash_as(s) ==> 
-                    Self::recover(s, overall_metadata) == Some(AbstractOpLogState::initialize()));
+                    Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1407,6 +1451,7 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         overall_metadata: OverallMetadata,
+        version_metadata: VersionMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)
@@ -1414,33 +1459,33 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), overall_metadata),
+            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
             old(self)@.op_list_committed,
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
             old(log_wrpm)@.no_outstanding_writes(),
-            Self::recover(old(log_wrpm)@.committed(), overall_metadata) == Some(old(self)@),
+            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
-                Self::recover(s, overall_metadata) == Some(old(self)@),
+                Self::recover(s, version_metadata, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(s2, current_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
-                        ||| Self::recover(s2, overall_metadata) == Some(old(self)@)
-                        ||| Self::recover(s2, overall_metadata) == Some(AbstractOpLogState::initialize())
+                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
+                        ||| Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                     }
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                &&& Self::recover(s2, overall_metadata) == Some(old(self)@)
+                &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
         ensures 
-            self.inv(*log_wrpm, overall_metadata),
+            self.inv(*log_wrpm, version_metadata, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             match result {
@@ -1483,7 +1528,7 @@ verus! {
         assert(self.log@.drop_pending_appends().log.len() == 0);
         assert(UntrustedLogImpl::can_only_crash_as_state(log_wrpm@, log_start_addr as nat, log_size as nat, self.log@.drop_pending_appends()));
         assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
-        assert(Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()));
+        assert(Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().len() == 0);

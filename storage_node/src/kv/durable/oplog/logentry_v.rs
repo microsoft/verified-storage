@@ -16,7 +16,7 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
-use crate::kv::layout_v::OverallMetadata;
+use crate::kv::layout_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
@@ -96,30 +96,30 @@ verus! {
             }
         }
 
-        pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
-            self@.inv(overall_metadata)
+        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
+            self@.inv(version_metadata, overall_metadata)
         }
 
-        pub open spec fn log_inv(log: Vec<PhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool {
-            forall |i: int| 0 <= i < log.len() ==> #[trigger] log[i].inv(overall_metadata)
+        pub open spec fn log_inv(log: Vec<PhysicalOpLogEntry>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
+            forall |i: int| 0 <= i < log.len() ==> #[trigger] log[i].inv(version_metadata, overall_metadata)
         }
 
-        pub proof fn lemma_abstract_log_inv_implies_concrete_log_inv(log: Vec<PhysicalOpLogEntry>, overall_metadata: OverallMetadata)
+        pub proof fn lemma_abstract_log_inv_implies_concrete_log_inv(log: Vec<PhysicalOpLogEntry>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata)
             requires
                 ({
                     let log_view = Seq::new(log@.len(), |i: int| log[i]@);
-                    AbstractPhysicalOpLogEntry::log_inv(log_view, overall_metadata)
+                    AbstractPhysicalOpLogEntry::log_inv(log_view, version_metadata, overall_metadata)
                 })
             ensures 
-                PhysicalOpLogEntry::log_inv(log, overall_metadata)
+                PhysicalOpLogEntry::log_inv(log, version_metadata, overall_metadata)
         {
             let log_view = Seq::new(log@.len(), |i: int| log[i]@);
             assert(forall |i: int| 0 <= i < log.len() ==> #[trigger] log_view[i] == #[trigger] log[i]@);
-            assert(forall |i: int| 0 <= i < log.len() ==> (#[trigger] log_view[i]).inv(overall_metadata));
-            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]@).inv(overall_metadata) by {
+            assert(forall |i: int| 0 <= i < log.len() ==> (#[trigger] log_view[i]).inv(version_metadata, overall_metadata));
+            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]@).inv(version_metadata, overall_metadata) by {
                 assert(log[i]@ =~= log_view[i]);
             }
-            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]).inv(overall_metadata) by {
+            assert forall |i: int| 0 <= i < log.len() implies (#[trigger] log[i]).inv(version_metadata, overall_metadata) by {
                 let op = log[i];
                 assert(op.absolute_addr == op@.absolute_addr);
                 assert(op.len == op@.len);

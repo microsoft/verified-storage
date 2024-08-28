@@ -5,7 +5,7 @@ use vstd::prelude::*;
 
 use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::kv::durable::oplog::logentry_v::*;
-use crate::kv::layout_v::OverallMetadata;
+use crate::kv::layout_v::*;
 use crate::multilog::multilogspec_t::*;
 use crate::pmem::pmcopy_t::*;
 
@@ -21,18 +21,20 @@ verus! {
 
     impl AbstractPhysicalOpLogEntry
     {
-        pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool {
+        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
             &&& self.len > 0
             &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
             &&& ({
                 ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
                 ||| overall_metadata.log_area_addr + overall_metadata.log_area_size < self.absolute_addr
             })
+            &&& VersionMetadata::spec_size_of() <= self.absolute_addr
+            &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <= self.absolute_addr
             &&& self.len == self.bytes.len()
         }
 
-        pub open spec fn log_inv(log: Seq<Self>, overall_metadata: OverallMetadata) -> bool {
-            forall |i: int| 0 <= i < log.len() ==> (#[trigger] log[i]).inv(overall_metadata)
+        pub open spec fn log_inv(log: Seq<Self>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
+            forall |i: int| 0 <= i < log.len() ==> (#[trigger] log[i]).inv(version_metadata, overall_metadata)
         }
     }
 
