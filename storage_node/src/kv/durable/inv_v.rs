@@ -366,7 +366,5 @@ verus! {
                 extract_bytes(mem2, 0, VersionMetadata::spec_size_of())
         &&& extract_bytes(mem1, overall_metadata_addr, OverallMetadata::spec_size_of()) == 
                 extract_bytes(mem2, overall_metadata_addr, OverallMetadata::spec_size_of())
-    }
-        
-           
+    }      
 }

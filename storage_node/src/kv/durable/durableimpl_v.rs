@@ -324,6 +324,88 @@ verus! {
             }
         }
 
+        // This lemma proves that after `tentatively_append_log_entry` fails and begins to abort the 
+        // current transaction, replaying the log is a no op and we can still recover to a valid state.
+        // This satisfies the preconditions for the individual components' abort functions, which
+        // will reestablish their invariants before returning an error to the caller.
+        proof fn lemma_transaction_abort(self, old_self: Self)
+            requires
+                old_self.inv(),
+                self.overall_metadata == old_self.overall_metadata,
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() >= VersionMetadata::spec_size_of(),
+                !old_self.transaction_committed(),
+                self.wrpm@.len() == old_self.wrpm@.len(),
+                self.wrpm@.no_outstanding_writes(),
+                0 < self.version_metadata.overall_metadata_addr < 
+                    self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
+                    self.overall_metadata.log_area_addr,
+                0 < VersionMetadata::spec_size_of() < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
+                forall |s| #[trigger] old_self.wrpm@.can_crash_as(s) ==> 
+                    Self::physical_recover(s, self.overall_metadata) == Some(old_self@),
+                UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.overall_metadata) == Some(AbstractOpLogState::initialize()),
+                views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+            ensures
+                ({
+                    let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);      
+                    forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
+                        parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@)
+                }),
+                Self::physical_recover(self.wrpm@.committed(), self.overall_metadata) is Some,
+                
+        {
+            let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);      
+            let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat); 
+            let list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat);
+
+            assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+            assert(item_table_subregion_view.can_crash_as(item_table_subregion_view.committed()));
+            assert(list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
+    
+            let old_main_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);      
+            let old_item_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat); 
+            let old_list_area_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat);
+    
+            // All crash states of the old pm state recover to the current abstract state; since self.wrpm@.flush().committed()
+            // is a crash state of self.wrpm@, the current PM also recovers to the current abstract state. 
+            assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+            assert(old_item_table_subregion_view.can_crash_as(item_table_subregion_view.committed()));
+            assert(old_list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
+
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(main_table_subregion_view);
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(item_table_subregion_view);
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(list_area_subregion_view);
+            assert(forall |s| main_table_subregion_view.can_crash_as(s) ==> s == main_table_subregion_view.committed());
+            assert(forall |s| item_table_subregion_view.can_crash_as(s) ==> s == item_table_subregion_view.committed());
+            assert(forall |s| list_area_subregion_view.can_crash_as(s) ==> s == list_area_subregion_view.committed());
+    
+            let recovered_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.overall_metadata).unwrap();
+            let mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), recovered_op_log.physical_op_list).unwrap();
+            let main_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);   
+            let item_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat); 
+            let list_area_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat); 
+            assert(main_table_region_view_with_log_installed == main_table_subregion_view.committed());
+            assert(item_table_region_view_with_log_installed == item_table_subregion_view.committed());
+            assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
+    
+            assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
+                parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@));
+            assert(forall |idx: u64| old_self.metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
+
+            assert(Self::physical_recover(self.wrpm@.committed(), self.overall_metadata) is Some);
+        }
+
         pub proof fn lemma_applying_same_log_preserves_states_differ_only_in_log_region(
             mem1: Seq<u8>,
             mem2: Seq<u8>,
@@ -1548,48 +1630,7 @@ verus! {
                     let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                         self.overall_metadata.list_area_size as nat);
 
-                    proof {
-                        // We now have to prove that recovering KV store -- which is flushed during transaction abort
-                        // but is otherwise not modified -- results in the correct state. The individual component invariants
-                        // ensure that they each recovery successfully in all crash states, so we just have to prove
-                        // that replaying the log here is a no-op, so recovering after log replay is equivalent to recovering
-                        // from a crash state we already know is valid and therefore KV store recover succeeds.
-                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
-                        assert(item_table_subregion_view.can_crash_as(item_table_subregion_view.committed()));
-                        assert(list_area_subregion_view.can_crash_as(list_area_subregion_view.committed()));
-
-                        let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat);      
-                        let old_item_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat,
-                            self.overall_metadata.item_table_size as nat); 
-                        let old_list_area_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.list_area_addr as nat,
-                            self.overall_metadata.list_area_size as nat);
-
-                        // All crash states of the old pm state recover to the current abstract state; since self.wrpm@.flush().committed()
-                        // is a crash state of self.wrpm@, the current PM also recovers to the current abstract state. Verus only needs
-                        // us to prove this for the main table subregion.
-                        assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
-                        assert(forall |s| #[trigger] old_main_table_subregion_view.can_crash_as(s) ==> 
-                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old(self).metadata_table@));
-                        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(main_table_subregion_view);
-                        assert(forall |s| main_table_subregion_view.can_crash_as(s) ==> s == main_table_subregion_view.committed());
-
-                        let recovered_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.overall_metadata).unwrap();
-                        let mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), recovered_op_log.physical_op_list).unwrap();
-                        let main_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat);   
-                        let item_table_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.item_table_addr as nat,
-                            self.overall_metadata.item_table_size as nat); 
-                        let list_area_region_view_with_log_installed = extract_bytes(mem_with_log_installed, self.overall_metadata.list_area_addr as nat,
-                            self.overall_metadata.list_area_size as nat); 
-                        assert(main_table_region_view_with_log_installed == main_table_subregion_view.committed());
-                        assert(item_table_region_view_with_log_installed == item_table_subregion_view.committed());
-                        assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
-
-                        assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
-                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old(self).metadata_table@));
-                        assert(forall |idx: u64| old(self).metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
-                    }
+                    proof { self.lemma_transaction_abort(*old(self)); }
 
                     // abort the transaction in each component to re-establish their invariants
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
