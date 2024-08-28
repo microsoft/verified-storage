@@ -141,7 +141,7 @@ verus! {
         {
             &&& self.metadata_table_free_list@.no_duplicates()
             &&& self.pending_allocations@.no_duplicates()
-            &&& self.metadata_table_free_list@.len() + self.pending_allocations@.len() <= overall_metadata.num_keys
+            // &&& self.metadata_table_free_list@.len() + self.pending_allocations@.len() <= overall_metadata.num_keys
             &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
                 !self.metadata_table_free_list@.contains(#[trigger] self.pending_allocations[i])
             &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys

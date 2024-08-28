@@ -414,7 +414,6 @@ verus! {
                                                     entry_size as nat);
                             lemma_entries_dont_overlap_unless_same_index(which_entry as nat, free_index as nat,
                                                                          entry_size as nat);
-                            // assert(which_entry != free_index);
                             assert(which_entry < free_index ==> (which_entry + 1) * entry_size <= free_index * entry_size);
                             assert(which_entry > free_index ==> (free_index + 1) * entry_size <= which_entry * entry_size);
                             assert(!can_views_differ_at_addr(addr));

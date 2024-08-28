@@ -352,10 +352,9 @@ impl UntrustedLogImpl {
             forall |s| #[trigger] new_pm1.can_crash_as(s) ==> crash_pred(s),
             forall |s| #[trigger] new_pm2.can_crash_as(s) ==> crash_pred(s)
     {
-        lemma_metadata_fits_in_log_header_area();
-
         assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies crash_pred(s) by {
             broadcast use pmcopy_axioms;
+            lemma_metadata_fits_in_log_header_area();
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -365,6 +364,7 @@ impl UntrustedLogImpl {
 
         assert forall |s| #[trigger] new_pm2.can_crash_as(s) implies crash_pred(s) by {
             broadcast use pmcopy_axioms;
+            lemma_metadata_fits_in_log_header_area();
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
@@ -748,15 +748,15 @@ impl UntrustedLogImpl {
                         max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat));
 
                     lemma_append_crash_states_do_not_modify_reachable_state(
-                        wrpm_region@, new_pm1, log_start_addr as nat, log_size as nat, 
-                        self.info, self.state@, self.cdb, is_writable_absolute_addr
-                    );
-                    lemma_append_crash_states_do_not_modify_reachable_state(
                         wrpm_region@, new_pm2, log_start_addr as nat, log_size as nat, 
                         self.info, self.state@, self.cdb, is_writable_absolute_addr
                     );
                     
                     assert forall |s2| #[trigger] new_pm1.can_crash_as(s2) implies crash_pred(s2) by {
+                         lemma_append_crash_states_do_not_modify_reachable_state(
+                            wrpm_region@, new_pm1, log_start_addr as nat, log_size as nat, 
+                            self.info, self.state@, self.cdb, is_writable_absolute_addr
+                        );
                         assert(Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
                         lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm1, 
                             log_area_start_addr + write_addr, extract_bytes(bytes_to_append@, 0, max_len_without_wrapping as nat), 

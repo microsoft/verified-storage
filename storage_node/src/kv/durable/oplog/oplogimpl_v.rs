@@ -1137,7 +1137,6 @@ verus! {
         } 
 
         proof {
-            broadcast use pmcopy_axioms;
             assert(pending_len == self.log@.pending.len());
             assert(pending_len + u64::spec_size_of() * 2 <= u64::MAX);
             assert(pending_len + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
