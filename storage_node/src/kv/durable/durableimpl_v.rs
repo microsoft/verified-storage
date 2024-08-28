@@ -335,6 +335,7 @@ verus! {
                     overall_metadata.log_area_size as nat),
                 mem1.len() == mem2.len(),
                 mem1.len() == overall_metadata.region_size,
+                overall_metadata.log_area_size <= mem1.len(),
                 AbstractPhysicalOpLogEntry::log_inv(op_log, overall_metadata),
             ensures 
                 ({
@@ -346,37 +347,23 @@ verus! {
                             overall_metadata.log_area_size as nat)
                 })
         {
-            assume(false);
+            Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(mem1, overall_metadata, op_log);
+            Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(mem2, overall_metadata, op_log);
+            Self::lemma_log_replay_preserves_size(mem1, op_log);
+            Self::lemma_log_replay_preserves_size(mem2, op_log);
+
+
+            let mem1_with_log = Self::apply_physical_log_entries(mem1, op_log).unwrap();
+            let mem2_with_log = Self::apply_physical_log_entries(mem2, op_log).unwrap();
+
+            assert forall |addr: int| {
+                &&& 0 <= addr < mem1.len() 
+                &&& !(overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size)
+            } implies mem1_with_log[addr] == #[trigger] mem2_with_log[addr] by {
+                Self::lemma_byte_equal_after_recovery_specific_byte(addr, mem1, mem2, overall_metadata, op_log);
+            }
+
         }
-
-        // proof fn lemma_tentative_view_valid_after_appending_valid_log_entry(
-        //     self,
-        //     // old_pm_region: PersistentMemoryRegionView,
-        //     // new_pm_region: PersistentMemoryRegionView,
-        //     mem1: Seq<u8>,
-        //     mem2: Seq<u8>,
-        //     old_log: AbstractOpLogState,
-        //     new_log: AbstractOpLogState,
-        //     log_entry: PhysicalOpLogEntry,
-        // )
-        //     requires 
-        //         mem1.len() == mem2.len(),
-        //         mem1.len() == self.overall_metadata.region_size,
-        //         self.overall_metadata.log_area_size <= mem1.len(),
-        //         new_log == old_log.tentatively_append_log_entry(log_entry@),
-        //         Self::physical_recover_given_log(mem1, self.overall_metadata, old_log.commit_op_log()) is Some,
-        //         AbstractPhysicalOpLogEntry::log_inv(new_log.physical_op_list, self.overall_metadata),
-        //         states_differ_only_in_log_region(mem2, mem1, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
-        //     ensures 
-        //         Self::physical_recover_given_log(mem2, self.overall_metadata, new_log.commit_op_log()) is Some
-        // {
-        //     Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
-        //         mem2,
-        //         self.overall_metadata,
-        //         new_log.physical_op_list
-        //     );
-        // }
-
 
         pub proof fn lemma_log_replay_preserves_size(
             mem: Seq<u8>, 
@@ -1624,7 +1611,6 @@ verus! {
 
                 Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(flushed_mem, old_flushed_mem, self.log@.commit_op_log().physical_op_list, self.overall_metadata);
 
-                
                 let old_mem_with_old_log_installed = Self::apply_physical_log_entries(old_flushed_mem, old_op_log).unwrap();
                 let old_mem_with_new_log_installed = Self::apply_physical_log_entries(old_flushed_mem, op_log).unwrap();
                 let new_mem_with_old_log_installed = Self::apply_physical_log_entries(flushed_mem, old_op_log).unwrap();
