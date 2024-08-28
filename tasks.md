@@ -16,7 +16,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `get_list_len` *
         - [ ] `read_list_entry_at_index` *
         - [ ] `tentative_update_item` * 
-        - [ ] `tentative_delete` * - hayley-leblanc
+        - [x] `tentative_delete` * 
         - [ ] `tentative_append` *
         - [ ] `tentative_alloc_list_node` *
         - [ ] `tentative_update_list_entry_at_index` *
