@@ -354,7 +354,6 @@ verus! {
                         parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@)
                 }),
                 Self::physical_recover(self.wrpm@.committed(), self.overall_metadata) is Some,
-                
         {
             let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                 self.overall_metadata.main_table_size as nat);      
@@ -404,6 +403,48 @@ verus! {
             assert(forall |idx: u64| old_self.metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
 
             assert(Self::physical_recover(self.wrpm@.committed(), self.overall_metadata) is Some);
+        }
+
+        pub proof fn lemma_metadata_unchanged_when_views_differ_only_in_log_region(
+            v1: PersistentMemoryRegionView,
+            v2: PersistentMemoryRegionView,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+        )
+            requires
+                views_differ_only_in_log_region(v1.flush(), v2, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                version_metadata == deserialize_version_metadata(v1.committed()),
+                overall_metadata == deserialize_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr),
+                v2.no_outstanding_writes(),
+                no_outstanding_writes_to_version_metadata(v1),
+                no_outstanding_writes_to_overall_metadata(v1, version_metadata.overall_metadata_addr as int),
+                0 < version_metadata.overall_metadata_addr < 
+                    version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
+                    overall_metadata.log_area_addr,
+                0 < VersionMetadata::spec_size_of() < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < v1.len(),
+                v1.len() == v2.len(),
+                v1.len() >= VersionMetadata::spec_size_of(),
+                v1.len() == overall_metadata.region_size,
+            ensures 
+                version_metadata == deserialize_version_metadata(v2.committed()),
+                overall_metadata == deserialize_overall_metadata(v2.committed(), version_metadata.overall_metadata_addr),
+        {
+            // broadcast use pmcopy_axioms;
+
+            lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
+            lemma_establish_extract_bytes_equivalence(v1.flush().committed(), v2.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v1);
+
+            assert(version_metadata == deserialize_version_metadata(v1.committed()));
+            assert(overall_metadata == deserialize_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr));
+
+            assert(extract_version_metadata(v1.committed()) == extract_version_metadata(v2.committed()));
+            assert(extract_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr) == 
+                extract_overall_metadata(v2.committed(), version_metadata.overall_metadata_addr));
+
+            assert(version_metadata == deserialize_version_metadata(v1.flush().committed()));
+            assert(overall_metadata == deserialize_overall_metadata(v1.flush().committed(), version_metadata.overall_metadata_addr));
         }
 
         pub proof fn lemma_applying_same_log_preserves_states_differ_only_in_log_region(
@@ -1614,14 +1655,12 @@ verus! {
             }
 
             // then append it to the operation log
-            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
             match result {
                 Ok(()) => {}
                 Err(e) => {
                     // If the append failed, we need to abort the transaction and prove that the durable KV store as a whole
                     // aborts the current transaction.
-
-                    proof { self.lemma_version_and_overall_metadata_unchanged(old(self).wrpm@); }
 
                     let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);      
@@ -1630,7 +1669,15 @@ verus! {
                     let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                         self.overall_metadata.list_area_size as nat);
 
-                    proof { self.lemma_transaction_abort(*old(self)); }
+                    proof {
+                        Self::lemma_metadata_unchanged_when_views_differ_only_in_log_region(
+                            old(self).wrpm@,
+                            self.wrpm@,
+                            self.version_metadata,
+                            self.overall_metadata
+                        );
+                        self.lemma_transaction_abort(*old(self)); 
+                    }
 
                     // abort the transaction in each component to re-establish their invariants
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));

@@ -826,9 +826,6 @@ impl UntrustedLogImpl {
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            // TODO: log probably shouldn't know about version metadata
-            no_outstanding_writes_to_version_metadata(old(wrpm_region)@),
-            old(wrpm_region)@.len() >= VersionMetadata::spec_size_of(),
         ensures
             self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
             wrpm_region@.len() == old(wrpm_region)@.len(),
@@ -842,7 +839,6 @@ impl UntrustedLogImpl {
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
             states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.flush().committed(), log_start_addr as nat, log_size as nat),
-            no_outstanding_writes_to_version_metadata(wrpm_region@),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
@@ -1964,6 +1960,7 @@ impl UntrustedLogImpl {
             self@.capacity == old(self)@.capacity,
             forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                 Self::recover(s, log_start_addr as nat, log_size as nat) == Some(self@),
+            pm_region@ == old(pm_region)@.flush(),
     {
         // remove pending bytes from the log length in the concrete state
         self.info.log_plus_pending_length = self.info.log_length;

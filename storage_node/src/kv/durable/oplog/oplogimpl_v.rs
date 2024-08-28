@@ -1007,7 +1007,6 @@ verus! {
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         log_entry: PhysicalOpLogEntry,
-        version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
@@ -1043,20 +1042,11 @@ verus! {
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
             }),
-            // TODO: log probably shouldn't know about version metadata
-            no_outstanding_writes_to_version_metadata(old(log_wrpm)@),
-            no_outstanding_writes_to_overall_metadata(old(log_wrpm)@, version_metadata.overall_metadata_addr as int),
-            0 < VersionMetadata::spec_size_of() < version_metadata.overall_metadata_addr < 
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
-                overall_metadata.log_area_addr,
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
             Self::recover(log_wrpm@.committed(), overall_metadata) == Some(AbstractOpLogState::initialize()),
-            no_outstanding_writes_to_version_metadata(log_wrpm@),
-            no_outstanding_writes_to_overall_metadata(log_wrpm@, version_metadata.overall_metadata_addr as int),
-            version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat), 
             self.inv(*log_wrpm, overall_metadata), // can we maintain this here?
             match result {
                 Ok(()) => {
@@ -1071,7 +1061,6 @@ verus! {
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
                     &&& log_wrpm@.no_outstanding_writes()
                     &&& self@.physical_op_list.len() == 0
-                    // TODO: is this true?
                     &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
@@ -1101,10 +1090,6 @@ verus! {
                 physical_op_list: Seq::empty(),
                 op_list_committed: false
             });
-            // TODO @hayley-leblanc
-            assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-            assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
             return Err(KvError::OutOfSpace);
         } 
 
@@ -1142,10 +1127,6 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                // TODO @hayley-leblanc
-                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1194,10 +1175,6 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                // TODO @hayley-leblanc
-                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1239,10 +1216,6 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                // TODO @hayley-leblanc
-                assume(views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-                assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1281,9 +1254,6 @@ verus! {
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
         }
-
-        // TODO @hayley-leblanc
-        assume(version_and_overall_metadata_match(old(log_wrpm)@.committed(), log_wrpm@.committed(), version_metadata.overall_metadata_addr as nat));
         
         Ok(())
     }
