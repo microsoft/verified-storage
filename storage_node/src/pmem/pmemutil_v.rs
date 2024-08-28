@@ -892,6 +892,21 @@ verus! {
         lemma_subrange_of_subrange_equal(mem, start1, start2, start2 + len2, start1 + len1);
     }
 
+    // This lemma proves that a subrange of a subrange is equal to the result of a single call to
+    // subrange.
+    pub proof fn lemma_subrange_of_subrange_forall(mem: Seq<u8>)
+        ensures
+            forall|s1: int, e1: int, s2: int, e2: int|
+               0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 ==>
+               mem.subrange(s1, e1).subrange(s2, e2) == mem.subrange(s1 + s2, s1 + e2)
+    {
+        assert forall|s1: int, e1: int, s2: int, e2: int|
+               0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 implies
+               mem.subrange(s1, e1).subrange(s2, e2) == mem.subrange(s1 + s2, s1 + e2) by {
+            mem.lemma_slice_of_slice(s1, e1, s2, e2);
+        }
+    }
+
     pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
         v1: PersistentMemoryRegionView,
         v2: PersistentMemoryRegionView,

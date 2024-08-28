@@ -1121,9 +1121,9 @@ verus! {
                     _ => false,
                 }
         {
-            let ghost pm_view = subregion.view(wrpm_region);
-            assert(self.valid(pm_view, overall_metadata));
-            assert(self.inv(pm_view, overall_metadata));
+            let ghost old_pm_view = subregion.view(wrpm_region);
+            assert(self.valid(old_pm_view, overall_metadata));
+            assert(self.inv(old_pm_view, overall_metadata));
 
             // 1. pop an index from the free list
             // since this index is on the free list, its CDB is already false
@@ -1135,15 +1135,16 @@ verus! {
                     }
 
                     assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
-                        self.outstanding_cdb_write_matches_pm_view(pm_view, i, overall_metadata.metadata_node_size) by {
-                        assert(old(self).outstanding_cdb_write_matches_pm_view(pm_view, i,
+                        self.outstanding_cdb_write_matches_pm_view(old_pm_view, i,
+                                                                   overall_metadata.metadata_node_size) by {
+                        assert(old(self).outstanding_cdb_write_matches_pm_view(old_pm_view, i,
                                                                              overall_metadata.metadata_node_size));
                     }
 
                     assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
-                           self.outstanding_entry_write_matches_pm_view(pm_view, i,
+                           self.outstanding_entry_write_matches_pm_view(old_pm_view, i,
                                                                         overall_metadata.metadata_node_size) by {
-                        assert(old(self).outstanding_entry_write_matches_pm_view(pm_view, i,
+                        assert(old(self).outstanding_entry_write_matches_pm_view(old_pm_view, i,
                                                                                overall_metadata.metadata_node_size));
                     }
 
@@ -1177,7 +1178,8 @@ verus! {
             proof {
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
                 assert(old(self).spec_outstanding_entry_writes()[free_index as int] is None);
-                assert(old(self).outstanding_entry_write_matches_pm_view(pm_view, free_index as int, metadata_node_size));
+                assert(old(self).outstanding_entry_write_matches_pm_view(old_pm_view, free_index as int,
+                                                                       metadata_node_size));
             }
             let slot_addr = free_index * metadata_node_size as u64;
             // CDB is at slot addr -- we aren't setting that one yet
@@ -1194,7 +1196,6 @@ verus! {
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
-            let ghost old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
             let ghost pm_view = subregion.view(wrpm_region);
             assert forall |idx: int| 0 <= idx < self@.durable_metadata_table.len() implies {
                 &&& self.outstanding_cdb_write_matches_pm_view(pm_view, idx, metadata_node_size)
@@ -1235,9 +1236,66 @@ verus! {
             assert(self.allocator_view() =~= self.free_indices());
             assert(pm_view.committed() == old_pm_view.committed());
 
-            // TODO @jaylorch
-            assume(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
-                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@));
+            assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
+                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size)
+                == Some(self@) by {
+                let can_views_differ_at_addr = |addr: int| is_addr_part_of_invalid_entry(
+                    old_pm_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size, addr
+                );
+                assert forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
+                        0 <= addr < pm_view.len() && !can_views_differ_at_addr(addr)
+                        implies pm_view.state[addr] == old_pm_view.state[addr] by {
+                    if crc_addr <= addr < key_addr + K::spec_size_of() {
+                        lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
+                        assert(parse_metadata_table::<K>(old_pm_view.committed(), overall_metadata.num_keys,
+                                                         overall_metadata.metadata_node_size) == Some(self@));
+                        assert(self@.durable_metadata_table[free_index as int] is Invalid);
+                        let entry_bytes = extract_bytes(old_pm_view.committed(),
+                                                        (free_index * metadata_node_size) as nat,
+                                                        metadata_node_size as nat);
+                        assert(validate_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat));
+                        assert(parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) is Invalid);
+                        assert(addr / overall_metadata.metadata_node_size as int == free_index) by {
+                            vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(
+                                addr, metadata_node_size as int, free_index as int, addr - free_index * metadata_node_size
+                            );
+                        }
+                        lemma_subrange_of_subrange_forall(old_pm_view.committed());
+                        assert(is_addr_part_of_invalid_entry(old_pm_view.committed(), overall_metadata.num_keys,
+                                                             overall_metadata.metadata_node_size, addr));
+                        assert(can_views_differ_at_addr(addr));
+                        assert(false);
+                    }
+                }
+                let crash_state = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+                    pm_view, old_pm_view, s, can_views_differ_at_addr
+                );
+                assert(parse_metadata_table::<K>(crash_state, overall_metadata.num_keys,
+                                                 overall_metadata.metadata_node_size) == Some(self@));
+                assert forall|addr: int| 0 <= addr < crash_state.len() && crash_state[addr] != s[addr] implies
+                       #[trigger] is_addr_part_of_invalid_entry(crash_state, overall_metadata.num_keys,
+                                                                overall_metadata.metadata_node_size, addr) by {
+                    assert(can_views_differ_at_addr(addr));
+                    assert(is_addr_part_of_invalid_entry(old_pm_view.committed(), overall_metadata.num_keys,
+                                                         overall_metadata.metadata_node_size, addr));
+                    lemma_subrange_of_subrange_forall(crash_state);
+                    lemma_subrange_of_subrange_forall(old_pm_view.committed());
+                    let which_entry = addr / metadata_node_size as int;
+                    let cdb_bytes1 = extract_bytes(old_pm_view.committed(),
+                                                   (which_entry * metadata_node_size) as nat,
+                                                   u64::spec_size_of());
+                    let cdb_bytes2 = extract_bytes(crash_state,
+                                                   (which_entry * metadata_node_size) as nat,
+                                                   u64::spec_size_of());
+                    assume(forall|i: int| which_entry * metadata_node_size <= i < which_entry * metadata_node_size + u64::spec_size_of() ==> old_pm_view.committed()[i] == #[trigger] crash_state[i]);
+                    assert(cdb_bytes1 =~= cdb_bytes2);
+                    assert(is_addr_part_of_invalid_entry(crash_state, overall_metadata.num_keys,
+                                                         overall_metadata.metadata_node_size, addr));
+                }
+                lemma_parse_metadata_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
+                    crash_state, s, overall_metadata.num_keys, overall_metadata.metadata_node_size
+                );
+            }
 
             Ok(free_index)
         }
@@ -1706,4 +1764,5 @@ verus! {
 
         */
     }
+        
 }
