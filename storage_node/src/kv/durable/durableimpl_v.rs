@@ -1693,7 +1693,7 @@ verus! {
                                           self.overall_metadata.log_area_size as nat) =~=
                        get_subregion_view(old(self).wrpm@, self.overall_metadata.log_area_addr as nat,
                                           self.overall_metadata.log_area_size as nat));
-                assert(self.log.inv(self.wrpm, self.version_metadata, self.overall_metadata)) by {
+                assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)) by {
                     assume(false);  // TODO @hayley
                     self.log.lemma_same_bytes_preserve_op_log_invariant(old(self).wrpm, self.wrpm, self.version_metadata,
                                                                         self.overall_metadata);
@@ -2012,7 +2012,7 @@ verus! {
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
                 self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices(),
-                self.log.inv(self.wrpm, self.version_metadata, self.overall_metadata),
+                self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 self.metadata_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                                            self.overall_metadata.main_table_size as nat),
                                         self.overall_metadata),
