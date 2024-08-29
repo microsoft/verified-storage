@@ -169,10 +169,12 @@ impl UntrustedLogImpl {
             UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends()));
         let views_must_match_at_addr = |addr: int| log_start_addr <= addr < log_start_addr + log_size;
 
-        // TODO
-        assume(forall|addr: int| #![trigger views_must_match_at_addr(addr)]
-            0 <= addr < wrpm1@.len() && views_must_match_at_addr(addr) ==> wrpm1@.state[addr] == wrpm2@.state[addr]);
-        
+        assert forall |addr: int| log_start_addr <= addr < log_start_addr + log_size implies wrpm1@.state[addr] == wrpm2@.state[addr] by {
+            let subregion1 = get_subregion_view(wrpm1@, log_start_addr, log_size);
+            let subregion2 = get_subregion_view(wrpm2@, log_start_addr, log_size);
+            assert(subregion1.state[addr - log_start_addr] == subregion2.state[addr - log_start_addr]);
+        }
+
         // all crash states of wrpm1 have a corresponding crash state in wrpm2 where 
         // the bytes in the log are the same, and vice versa
         assert forall |s1| #[trigger] wrpm1@.can_crash_as(s1) implies {
@@ -238,10 +240,8 @@ impl UntrustedLogImpl {
             lemma_active_metadata_bytes_equal_implies_metadata_types_set(wrpm1@.committed(), wrpm2@.committed(), log_start_addr, cdb1);
         }
 
-        assume(no_outstanding_writes_to_metadata(wrpm2@, log_start_addr));
         assume(memory_matches_deserialized_cdb(wrpm2@, log_start_addr, self.cdb));
         assume(metadata_consistent_with_info(wrpm2@, log_start_addr, log_size, self.cdb, self.info));
-        assume(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@));
         assume(Self::can_only_crash_as_state(wrpm2@, log_start_addr, log_size, self.state@.drop_pending_appends()));
        
     }
