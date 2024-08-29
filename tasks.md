@@ -10,7 +10,7 @@ Starred functions * have an unverified implementation (which may be out of date 
           - [x] `start` for op log, item table, and main table
           - [ ] `start` with list area
         - [x] `install_log`
-        - [ ] `commit` *
+        - [ ] `commit` * - hayley-leblanc
         - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
         - [ ] `get_list_len` *
