@@ -1989,7 +1989,6 @@ verus! {
                     } else {
                         // The CDB did not make it to storage.
                         assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
-                        // assume(false);
 
                         // TODO: refactor -- this is the exact same proof as above
                         let recovered_log = AbstractOpLogState::initialize();
