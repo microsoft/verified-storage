@@ -141,6 +141,111 @@ impl UntrustedLogImpl {
         &&& self.info.log_plus_pending_length - self.info.log_length == self.state@.pending.len()
     }
 
+    pub proof fn lemma_same_log_view_preserves_invariant<Perm, PM>(
+        self,
+        wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        wrpm2: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: nat,
+        log_size: nat,
+        region_size: nat,
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            wrpm1@.len() == region_size,
+            wrpm1@.len() == wrpm2@.len(),
+            wrpm1.inv(),
+            wrpm2.inv(),
+            self.inv(wrpm1@, log_start_addr, log_size),
+            get_subregion_view(wrpm1@, log_start_addr, log_size) == 
+                get_subregion_view(wrpm2@, log_start_addr, log_size),
+            0 <= log_start_addr < log_start_addr + log_size < region_size,
+            0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
+        ensures 
+            self.inv(wrpm2@, log_start_addr, log_size)
+    {
+        assert(forall |s| #[trigger] wrpm1@.can_crash_as(s) ==> 
+            UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends()));
+        let views_must_match_at_addr = |addr: int| log_start_addr <= addr < log_start_addr + log_size;
+
+        // TODO
+        assume(forall|addr: int| #![trigger views_must_match_at_addr(addr)]
+            0 <= addr < wrpm1@.len() && views_must_match_at_addr(addr) ==> wrpm1@.state[addr] == wrpm2@.state[addr]);
+        
+        // all crash states of wrpm1 have a corresponding crash state in wrpm2 where 
+        // the bytes in the log are the same, and vice versa
+        assert forall |s1| #[trigger] wrpm1@.can_crash_as(s1) implies {
+            exists |s2| {
+                &&& #[trigger] wrpm2@.can_crash_as(s2) 
+                &&& extract_bytes(s1, log_start_addr, log_size) == 
+                        extract_bytes(s2, log_start_addr, log_size)
+            }
+        } by {
+            let s2 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
+                wrpm1@, wrpm2@, s1, views_must_match_at_addr);
+            assert(wrpm2@.can_crash_as(s2));
+            lemma_establish_extract_bytes_equivalence(s1, s2);  
+            assert(forall |addr: int| views_must_match_at_addr(addr) ==> s1[addr] == s2[addr]);
+            assert(extract_bytes(s1, log_start_addr, log_size) =~= 
+                extract_bytes(s2, log_start_addr, log_size));         
+        }
+
+        assert forall |s2| #[trigger] wrpm2@.can_crash_as(s2) implies {
+            exists |s1| {
+                &&& #[trigger] wrpm1@.can_crash_as(s1) 
+                &&& extract_bytes(s1, log_start_addr, log_size) == 
+                        extract_bytes(s2, log_start_addr, log_size)
+            }
+        } by {
+            let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
+                wrpm2@, wrpm1@, s2, views_must_match_at_addr);
+            assert(wrpm1@.can_crash_as(s1));
+            lemma_establish_extract_bytes_equivalence(s1, s2);  
+            assert(forall |addr: int| views_must_match_at_addr(addr) ==> s1[addr] == s2[addr]);
+            assert(extract_bytes(s1, log_start_addr, log_size) =~= 
+                extract_bytes(s2, log_start_addr, log_size)); 
+        }
+
+        assert(metadata_types_set(wrpm2@.committed(), log_start_addr)) by {
+            broadcast use pmcopy_axioms;
+            lemma_establish_extract_bytes_equivalence(wrpm1@.committed(), wrpm2@.committed());
+            let wrpm1_subregion = get_subregion_view(wrpm1@, log_start_addr, log_size);
+            let wrpm2_subregion = get_subregion_view(wrpm2@, log_start_addr, log_size);
+
+            assert forall |addr: int| 0 <= addr < wrpm1_subregion.len() implies 
+                #[trigger] wrpm1@.state[addr + log_start_addr] == wrpm2@.state[addr + log_start_addr] 
+            by {
+                assert(wrpm1_subregion.state[addr] == wrpm2_subregion.state[addr]);
+                assert(wrpm1_subregion.state[addr] == wrpm1@.state[addr + log_start_addr]);
+                assert(wrpm2_subregion.state[addr] == wrpm2@.state[addr + log_start_addr]);
+            }
+
+            assert forall |addr: int| 0 <= addr < wrpm1_subregion.len() implies 
+                #[trigger] wrpm1@.state[addr + log_start_addr].state_at_last_flush == wrpm2@.state[addr + log_start_addr].state_at_last_flush
+            by {
+                assert(wrpm1_subregion.state[addr].state_at_last_flush == wrpm2_subregion.state[addr].state_at_last_flush);
+                assert(wrpm1_subregion.state[addr].state_at_last_flush == wrpm1@.state[addr + log_start_addr].state_at_last_flush);
+                assert(wrpm2_subregion.state[addr].state_at_last_flush == wrpm2@.state[addr + log_start_addr].state_at_last_flush);
+            }
+
+            let cdb1 = spec_check_log_cdb(wrpm1@.committed(), log_start_addr).unwrap();
+            let metadata_pos = spec_get_active_log_metadata_pos(cdb1) + log_start_addr;
+            lemma_subrange_of_extract_bytes_equal(wrpm1@.committed(), log_start_addr, metadata_pos, log_size, LogMetadata::spec_size_of() + u64::spec_size_of());
+            assert(extract_bytes(wrpm1@.committed(), metadata_pos, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
+                extract_bytes(wrpm2@.committed(), metadata_pos, LogMetadata::spec_size_of() + u64::spec_size_of()));
+            assert(active_metadata_bytes_are_equal(wrpm1@.committed(), wrpm2@.committed(), log_start_addr));
+            lemma_active_metadata_bytes_equal_implies_metadata_types_set(wrpm1@.committed(), wrpm2@.committed(), log_start_addr, cdb1);
+        }
+
+        assume(no_outstanding_writes_to_metadata(wrpm2@, log_start_addr));
+        assume(memory_matches_deserialized_cdb(wrpm2@, log_start_addr, self.cdb));
+        assume(metadata_consistent_with_info(wrpm2@, log_start_addr, log_size, self.cdb, self.info));
+        assume(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@));
+        assume(Self::can_only_crash_as_state(wrpm2@, log_start_addr, log_size, self.state@.drop_pending_appends()));
+       
+    }
+
     pub proof fn lemma_same_bytes_preserve_log_invariant<Perm, PM>(
         self,
         wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
