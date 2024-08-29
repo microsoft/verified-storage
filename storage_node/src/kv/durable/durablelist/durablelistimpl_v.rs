@@ -51,9 +51,8 @@ verus! {
         // TODO
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MetadataTableView<K>, overall_metadata: OverallMetadata) -> bool
         {
-            // TODO: be more precise -- should match current state
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
-                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
+                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) == Some(self@)
         }
 
         pub open spec fn recover(

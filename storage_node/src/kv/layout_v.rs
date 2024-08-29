@@ -137,4 +137,47 @@ verus! {
         let bytes = extract_overall_crc(mem, overall_metadata_addr);
         u64::spec_from_bytes(bytes)
     }
+
+    pub proof fn lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+        v1: PersistentMemoryRegionView,
+        v2: PersistentMemoryRegionView,
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    )
+        requires
+            v1.len() == v2.len(),
+            version_metadata.overall_metadata_addr >= VersionMetadata::spec_size_of(),
+            v1.len() >= version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of(),
+            forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==> v1.state[addr] == v2.state[addr],
+            forall|addr: int| version_metadata.overall_metadata_addr <= addr
+                        < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
+                v1.state[addr] == v2.state[addr],
+            forall|s| #[trigger] v1.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
+            forall|s| #[trigger] v1.can_crash_as(s) ==>
+                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
+        ensures
+            forall|s| #[trigger] v2.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
+            forall|s| #[trigger] v2.can_crash_as(s) ==>
+                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
+    {
+        assert forall|s2| #[trigger] v2.can_crash_as(s2) implies version_metadata == deserialize_version_metadata(s2) by
+        {
+            let f = |addr: int| !(0 <= addr < VersionMetadata::spec_size_of());
+            let s1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(v2, v1, s2, f);
+            assert(forall|addr: int| 0 <= addr < s1.len() && !f(addr) ==> s1[addr] == s2[addr]);
+            lemma_establish_extract_bytes_equivalence(s1, s2);
+            assert(deserialize_version_metadata(s1) =~= deserialize_version_metadata(s2));
+        }
+        
+        assert forall|s2| #[trigger] v2.can_crash_as(s2) implies
+            overall_metadata == deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr) by
+        {
+            let f = |addr: int| !(version_metadata.overall_metadata_addr <= addr
+                                < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of());
+            let s1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(v2, v1, s2, f);
+            assert(forall|addr: int| 0 <= addr < s1.len() && !f(addr) ==> s1[addr] == s2[addr]);
+            lemma_establish_extract_bytes_equivalence(s1, s2);
+            assert(deserialize_version_metadata(s1) =~= deserialize_version_metadata(s2));
+        }
+    }
 }

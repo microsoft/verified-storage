@@ -107,7 +107,20 @@ verus! {
                     &&& log_ops.unwrap() == self@.physical_op_list
                     &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                             Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
-                }
+                },
+                self@.op_list_committed ==> {
+                    let log_contents = Self::get_log_contents(self.base_log_view());
+                    let log_ops = Self::parse_log_ops(log_contents.unwrap(), overall_metadata.log_area_addr as nat, 
+                                                      overall_metadata.log_area_size as nat,
+                                                      overall_metadata.region_size as nat,
+                                                      version_metadata.overall_metadata_addr as nat);
+                    &&& log_contents is Some
+                    &&& log_ops is Some
+                    &&& log_ops.unwrap() == self@.physical_op_list
+                    &&& self.base_log_view().log.len() > 0
+                    &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                            Self::recover(s, version_metadata, overall_metadata) == Some(self@)
+                },
         {}
 
         pub closed spec fn view(self) -> AbstractOpLogState
