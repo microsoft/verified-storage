@@ -710,6 +710,35 @@ impl WriteRestrictedPersistentMemorySubregion
                 #[trigger] self.view(wrpm).state[addr] == wrpm@.state[addr + self.start()],
     {
     }
+
+    pub proof fn lemma_if_committed_subview_unchanged_then_committed_view_unchanged<Perm, PMRegion>(
+        self,
+        wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
+        perm: &Perm
+    )
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PMRegion: PersistentMemoryRegion,
+        requires
+            self.inv(wrpm, perm),
+            self.view(wrpm).committed() == self.initial_subregion_view().committed(),
+        ensures
+            wrpm@.committed() == self.initial_region_view().committed(),
+    {
+        let s1 = wrpm@.committed();
+        let s2 = self.initial_region_view().committed();
+        assert forall|addr: int| 0 <= addr < wrpm@.len() implies
+                   #[trigger] s1[addr] == s2[addr] by {
+            if self.start() <= addr < self.end() {
+                assert(s1[addr] == self.view(wrpm).committed()[addr - self.start()]);
+                assert(s2[addr] == self.initial_subregion_view().committed()[addr - self.start()]);
+            }
+            else {
+                assert(wrpm@.state[addr] == self.initial_region_view().state[addr]);
+            }
+        }
+        assert(s1 =~= s2);
+    }
 }
 
 

@@ -951,4 +951,18 @@ verus! {
         }
         crash_state2
     }
+
+    pub proof fn lemma_write_doesnt_change_committed(
+        pm: PersistentMemoryRegionView,
+        addr: int,
+        bytes: Seq<u8>
+    )
+        requires
+            0 <= addr,
+            addr + bytes.len() <= pm.len(),
+        ensures
+            pm.committed() == pm.write(addr, bytes).committed(),
+    {
+        assert(pm.committed() =~= pm.write(addr, bytes).committed());
+    }
 }

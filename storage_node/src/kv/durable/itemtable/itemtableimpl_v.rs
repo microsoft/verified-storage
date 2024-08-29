@@ -350,13 +350,14 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
             requires
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
+                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
                         &&& old(self).spec_free_list().contains(index)
@@ -385,7 +386,6 @@ verus! {
             }
             
             let entry_size = self.entry_size;
-            assert(self.valid(subregion.view(wrpm_region), overall_metadata));
             assert(self.inv(subregion.view(wrpm_region), overall_metadata));
             assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
@@ -422,6 +422,7 @@ verus! {
             self.outstanding_item_table = Ghost(self.outstanding_item_table@.update(free_index as int, Some(*item)));
 
             let ghost pm_view = subregion.view(wrpm_region);
+            assert(pm_view.committed() =~= old_pm_view.committed());
             assert forall|idx: u64| idx < overall_metadata.num_keys &&
                    #[trigger] self.spec_outstanding_item_table()[idx as int] is None implies
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {

@@ -43,6 +43,18 @@ verus! {
             #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
     }
 
+    pub open spec fn subregion_grants_access_to_main_table_entry<K>(
+        subregion: WriteRestrictedPersistentMemorySubregion,
+        idx: u64
+    ) -> bool
+        where 
+            K: PmCopy + Sized,
+    {
+        let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+        forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
+            subregion.is_writable_relative_addr(addr as int)
+    }
+
     impl<K> MetadataTable<K>
         where 
             K: PmCopy + std::fmt::Debug,
@@ -189,17 +201,6 @@ verus! {
             &&& forall |i| 0 <= i < self.spec_outstanding_entry_writes().len() ==> self.spec_outstanding_entry_writes()[i] is None
         }
 
-        pub open spec fn subregion_grants_access_to_entry_slot(
-            self,
-            subregion: WriteRestrictedPersistentMemorySubregion,
-            idx: u64
-        ) -> bool
-        {
-            let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-            forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
-                subregion.is_writable_relative_addr(addr as int)
-        }
-
         pub open spec fn subregion_grants_access_to_free_slots(
             self,
             subregion: WriteRestrictedPersistentMemorySubregion
@@ -208,7 +209,7 @@ verus! {
             forall|idx: u64| {
                 &&& idx < self@.len()
                 &&& self.allocator_view().contains(idx)
-            } ==> self.subregion_grants_access_to_entry_slot(subregion, idx)
+            } ==> #[trigger] subregion_grants_access_to_main_table_entry::<K>(subregion, idx)
         }
 
         pub proof fn lemma_establish_bytes_parseable_for_valid_entry(
@@ -1158,6 +1159,7 @@ verus! {
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
+                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
@@ -1270,6 +1272,7 @@ verus! {
             let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
             let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
+            assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
             subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
@@ -1326,6 +1329,8 @@ verus! {
                     old_pm_view, pm_view, s, overall_metadata, free_index
                 );
             }
+
+            assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
 
             Ok(free_index)
         }
