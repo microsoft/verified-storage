@@ -175,11 +175,6 @@ verus! {
                         DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     }
-            &&& forall|s| pm.can_crash_as(s) ==> {
-                &&& parse_metadata_table::<K>(s, overall_metadata.num_keys,
-                                            overall_metadata.metadata_node_size) matches Some(recovered_view)
-                &&& recovered_view.valid_item_indices() == self@.valid_item_indices()
-            }
         }
 
         pub open spec fn allocator_inv(self, overall_metadata: OverallMetadata) -> bool 
