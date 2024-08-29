@@ -736,7 +736,7 @@ verus! {
                 0 < VersionMetadata::spec_size_of() < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
                 no_outstanding_writes_to_version_metadata(old_pm_view),
                 no_outstanding_writes_to_overall_metadata(old_pm_view, self.version_metadata.overall_metadata_addr as int),
-                version_and_overall_metadata_match(old_pm_view.committed(), self.wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat),
+                version_and_overall_metadata_match::<K, L>(old_pm_view.committed(), self.wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat),
                 self.version_metadata == deserialize_version_metadata(old_pm_view.committed()),
                 self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr ),
             ensures 
@@ -761,6 +761,66 @@ verus! {
             assert(self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr));
             assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
             assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
+        }
+
+        proof fn lemma_durable_kv_satisfies_crash_condition_with_init_op_log(
+            self,
+            s1: Seq<u8>,
+            s2: Seq<u8>,
+            crash_pred: spec_fn(Seq<u8>) -> bool,
+        )
+            requires
+                self.valid(),
+                !self.transaction_committed(),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> crash_pred(s),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@),
+                s1.len() == s2.len(),
+                crash_pred(s1),
+                states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat,
+                    self.overall_metadata.log_area_size as nat),
+                UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
+                UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
+                forall |s|{
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                } ==> crash_pred(s),
+                no_outstanding_writes_to_version_metadata(self.wrpm@),
+                no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
+                self.wrpm@.len() >= VersionMetadata::spec_size_of(),
+                ({
+                    let tentative_view = self.tentative_view();
+                    tentative_view is Some
+                }),
+                self.spec_num_log_entries_in_current_transaction() > 0,
+                ({
+                    ||| Self::physical_recover(s1, self.version_metadata, self.overall_metadata) == Some(self@)
+                    ||| Self::physical_recover(s1, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                })
+            ensures 
+                crash_pred(s2)
+        {
+            lemma_establish_extract_bytes_equivalence(s1, s2);
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap();
+            Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
+
+            let recovered_log = AbstractOpLogState::initialize();
+            let mem_with_log_installed_s1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s1, recovered_log.physical_op_list).unwrap();
+            assert(mem_with_log_installed_s1 == s1);
+            let mem_with_log_installed_s2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
+            assert(mem_with_log_installed_s2 == s2);
+
+            lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                mem_with_log_installed_s1, mem_with_log_installed_s2, self.version_metadata, self.overall_metadata);
+            
+            // s2 actually can't recover to self.tentative_view() in this case, but we don't need to prove that;
+            // we just need to prove that all of its crash states are allowed by crash_pred
+            assert({
+                ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == Some(self@)
+                ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == self.tentative_view()
+            });
         }
 
         // In logical recovery, we replay logical log entries based on replay functions provided by each component
@@ -1802,10 +1862,9 @@ verus! {
                 let new_mem_new_log_main_table_region = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let new_mem_new_log_item_table_region = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 let new_mem_new_log_list_area_region = extract_bytes(new_mem_with_new_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                
-                assert(old_mem_new_log_main_table_region == new_mem_new_log_main_table_region);
-                assert(old_mem_new_log_item_table_region == new_mem_new_log_item_table_region);
-                assert(old_mem_new_log_list_area_region == new_mem_new_log_list_area_region);
+
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    old_mem_with_new_log_installed, new_mem_with_new_log_installed, self.version_metadata, self.overall_metadata);
 
                 assert(old_mem_old_log_item_table_region == old_mem_new_log_item_table_region);
                 assert(old_mem_old_log_list_area_region == old_mem_new_log_list_area_region);
@@ -1900,43 +1959,13 @@ verus! {
 
                 // Prove that we satisfy commit_log's preconditions
 
-                // TODO: Refactor -- there's a very similar proof for tentative appends
                 assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                         &&& s1.len() == s2.len() 
                         &&& #[trigger] crash_pred(s1)
                         &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                         &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
                         &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                } implies #[trigger] crash_pred(s2) by {
-                    // Caller has permission to crash into s1. 
-                    // We don't change anything but the log, and the log state stays the same, then we stay in the same state.
-                    // It doesn't actually matter what s1 recovers to, just that it is legal.
-        
-                    let recovered_log = AbstractOpLogState::initialize();
-                    let mem_with_log_installed_s1 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s1, recovered_log.physical_op_list).unwrap();
-                    assert(mem_with_log_installed_s1 == s1);
-                    let mem_with_log_installed_s2 = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
-                    assert(mem_with_log_installed_s2 == s2);
-                    
-                    let main_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let item_table_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let list_area_region_s1 = extract_bytes(mem_with_log_installed_s1, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                    
-                    let main_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let item_table_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let list_area_region_s2 = extract_bytes(mem_with_log_installed_s2, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-        
-                    assert(main_table_region_s2 == main_table_region_s1);
-                    assert(item_table_region_s2 == item_table_region_s1);
-                    assert(list_area_region_s2 == list_area_region_s1);
-                    
-                    // s2 actually can't recover to self.tentative_view() in this case, but we don't need to prove that;
-                    // we just need to prove that all of its crash states are allowed by crash_pred
-                    assert({
-                        ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == Some(self@)
-                        ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == self.tentative_view()
-                    });
-                }
+                } implies #[trigger] crash_pred(s2) by { self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(s1, s2, crash_pred); }
 
                 assert forall |s2: Seq<u8>| {
                     let flushed_state = self.wrpm@.flush().committed();
@@ -1951,70 +1980,26 @@ verus! {
                     assert(self.wrpm@.can_crash_as(flushed_state));
                     // This assertion handles crash states where we have done our first flush but may or may not 
                     // have updated the base log's CDB.
-                    // There are two cases
                     if UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log()) {
-                        // The CDB made it to storage
+                        // The CDB made it to storage.
                         // In this case, the whole KV store recovers to its tentative view. 
-
                         let committed_log = self.log@.commit_op_log();
 
-                        assert(Self::physical_recover(flushed_state, self.version_metadata, self.overall_metadata) is Some);
-                        assert(Self::physical_recover(flushed_state, self.version_metadata, self.overall_metadata) == Some(self@));
-
                         Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
-                            flushed_state, s2, committed_log.physical_op_list, self.version_metadata, self.overall_metadata
-                        );
+                            flushed_state, s2, committed_log.physical_op_list, self.version_metadata, self.overall_metadata);
                         Self::lemma_log_replay_preserves_size(s2, committed_log.physical_op_list);
                         let flushed_state_with_log_installed = Self::apply_physical_log_entries(flushed_state, committed_log.physical_op_list).unwrap();
                         let s2_with_log_installed = Self::apply_physical_log_entries(s2, committed_log.physical_op_list).unwrap();
 
-                        assert(flushed_state_with_log_installed.len() == s2_with_log_installed.len());
                         assert(states_differ_only_in_log_region(flushed_state_with_log_installed, s2_with_log_installed, 
                             self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
-
-                        // TODO @hayley: put these equivalences in a lemma since they're used everywhere
-
-                        let main_table_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        let list_area_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                        
-                        let main_table_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        let list_area_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-            
-                        assert(main_table_region_s2 == main_table_region_flushed);
-                        assert(item_table_region_s2 == item_table_region_flushed);
-                        assert(list_area_region_s2 == list_area_region_flushed);
+                        lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                            flushed_state_with_log_installed, s2_with_log_installed, self.version_metadata, self.overall_metadata);
                         
                     } else {
                         // The CDB did not make it to storage.
                         assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
-
-                        // TODO: refactor -- this is the exact same proof as above
-                        let recovered_log = AbstractOpLogState::initialize();
-                        let flushed_state_with_log_installed = Self::apply_physical_log_entries(flushed_state, recovered_log.physical_op_list).unwrap();
-                        assert(flushed_state_with_log_installed == flushed_state);
-                        let s2_with_log_installed = Self::apply_physical_log_entries(s2, recovered_log.physical_op_list).unwrap();
-                        assert(s2_with_log_installed == s2);
-                        
-                        let main_table_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        let list_area_region_flushed = extract_bytes(flushed_state_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                        
-                        let main_table_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let item_table_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                        let list_area_region_s2 = extract_bytes(s2_with_log_installed, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-            
-                        assert(main_table_region_s2 == main_table_region_flushed);
-                        assert(item_table_region_s2 == item_table_region_flushed);
-                        assert(list_area_region_s2 == list_area_region_flushed);
-                        
-                        // s2 actually can't recover to self.tentative_view() in this case, but we don't need to prove that;
-                        // we just need to prove that all of its crash states are allowed by crash_pred
-                        assert({
-                            ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == Some(self@)
-                            ||| Self::physical_recover(s2, self.version_metadata, self.overall_metadata) == self.tentative_view()
-                        });
+                        self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(flushed_state, s2, crash_pred);
                     }
                 }
             }
