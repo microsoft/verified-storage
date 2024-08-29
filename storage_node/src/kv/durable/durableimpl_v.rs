@@ -1523,16 +1523,21 @@ verus! {
                                 }
                                 Err(_) => false
                             }
-                        }
-                        Err(_) => false
+                        },
+                        Err(KvError::OutOfSpace) => {
+                            &&& self@ == old(self)@
+                            &&& self.tentative_view() == old(self).tentative_view()
+                        },
+                        Err(_) => false,
                     }
                 })
         {
+            // 1. find a free slot in the item table and tentatively write the new item there
+
             let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
             proof {
                 self.lemma_get_writable_mask_for_item_table_is_suitable_mask();
             }
-            // 1. find a free slot in the item table and tentatively write the new item there
             let subregion = WriteRestrictedPersistentMemorySubregion::new::<Perm, PM>(
                 &self.wrpm,
                 Tracked(perm),
@@ -1540,7 +1545,19 @@ verus! {
                 Ghost(self.overall_metadata.item_table_size as nat),
                 Ghost(is_writable_item_table_addr),
             );
-            assume(false);
+
+            assert forall|idx: u64| {
+                &&& idx < self.item_table@.len()
+                &&& !self.item_table.spec_valid_indices().contains(idx)
+            } implies #[trigger] subregion_grants_access_to_item_table_entry::<I>(subregion, idx) by {
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size implies
+                           subregion.is_writable_relative_addr(addr as int) by {
+                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                    lemma_addr_in_entry_divided_by_entry_size(idx as nat, entry_size, addr as int);
+                }
+            }
+
             let item_index = self.item_table.tentatively_write_item(
                 &subregion,
                 &mut self.wrpm,
@@ -1548,6 +1565,7 @@ verus! {
                 Tracked(perm),
                 Ghost(self.overall_metadata),
             )?;
+            assume(false);
 
             /*
             // 2. allocate and initialize a head node for this entry; this is tentative since the node is 

@@ -27,6 +27,18 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
+    pub open spec fn subregion_grants_access_to_item_table_entry<I>(
+        subregion: WriteRestrictedPersistentMemorySubregion,
+        idx: u64
+    ) -> bool
+        where
+            I: PmCopy + Sized,
+    {
+        let entry_size = I::spec_size_of() + u64::spec_size_of();
+        forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
+            subregion.is_writable_relative_addr(addr as int)
+    }
+
     pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -94,11 +106,12 @@ verus! {
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
                     !self.spec_free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
-            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==> {
-                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices())
-                           matches Some(table_view)
-                    &&& table_view.durable_item_table == self@.durable_item_table
-            }
+            &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
+                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) ==
+                       Some(self@)
+            &&& forall|i: int, j: int| 0 <= i < self.spec_free_list().len() && 0 <= j < self.spec_free_list().len() && i != j ==>
+                self.spec_free_list()[i] != self.spec_free_list()[j]
+            &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==> self.spec_free_list()[i] < overall_metadata.num_keys
             &&& self.spec_outstanding_item_table().len() == self@.durable_item_table.len()
             &&& forall|i: int| 0 <= i < self.spec_free_list().len() ==>
                 self.spec_outstanding_item_table()[#[trigger] self.spec_free_list()[i] as int] is None
@@ -121,17 +134,6 @@ verus! {
                 #[trigger] self.spec_outstanding_item_table()[idx as int] is None
         }
 
-        pub open spec fn subregion_grants_access_to_entry_slot(
-            self,
-            subregion: WriteRestrictedPersistentMemorySubregion,
-            idx: u64
-        ) -> bool
-        {
-            let entry_size = I::spec_size_of() + u64::spec_size_of();
-            forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
-                subregion.is_writable_relative_addr(addr as int)
-        }
-
         pub open spec fn subregion_grants_access_to_free_slots(
             self,
             subregion: WriteRestrictedPersistentMemorySubregion
@@ -139,8 +141,8 @@ verus! {
         {
             forall|idx: u64| {
                 &&& idx < self@.len()
-                &&& self.spec_free_list().contains(idx)
-            } ==> self.subregion_grants_access_to_entry_slot(subregion, idx)
+                &&& !self.spec_valid_indices().contains(idx)
+            } ==> #[trigger] subregion_grants_access_to_item_table_entry::<I>(subregion, idx)
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -278,6 +280,59 @@ verus! {
             Ok(item)
         }
 
+        proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
+            self: Self,
+            v1: PersistentMemoryRegionView,
+            v2: PersistentMemoryRegionView,
+            crash_state2: Seq<u8>,
+            overall_metadata: OverallMetadata,
+            which_entry: u64,
+        )
+            requires
+                self.inv(v1, overall_metadata),
+                !self.spec_valid_indices().contains(which_entry),
+                v1.len() == v2.len(),
+                v2.can_crash_as(crash_state2),
+                which_entry < overall_metadata.num_keys,
+                forall|addr: int| {
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    let start_addr = which_entry * entry_size;
+                    let end_addr = start_addr + entry_size;
+                    &&& 0 <= addr < v1.len()
+                    &&& !(start_addr <= addr < end_addr)
+                } ==> v2.state[addr] == v1.state[addr],
+            ensures
+                parse_item_table::<I, K>(crash_state2, overall_metadata.num_keys as nat,
+                                         self.spec_valid_indices()) == Some(self@),
+        {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            let num_keys = overall_metadata.num_keys;
+            let start_addr = which_entry * entry_size;
+            let end_addr = start_addr + entry_size;
+            let can_views_differ_at_addr = |addr: int| start_addr <= addr < end_addr;
+            let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
+                v2, v1, crash_state2, can_views_differ_at_addr
+            );
+            assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, self.spec_valid_indices()) == Some(self@));
+            lemma_valid_entry_index(which_entry as nat, num_keys as nat, entry_size as nat);
+            let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
+            lemma_subrange_of_subrange_forall(crash_state1);
+            assert forall|addr: int| {
+                let addrs_entry = addr / entry_size as int;
+                &&& 0 <= addr < crash_state1.len()
+                &&& addrs_entry < overall_metadata.num_keys
+                &&& self.spec_valid_indices().contains(addrs_entry as u64)
+            } implies crash_state1[addr] == crash_state2[addr] by {
+                let addrs_entry = addr / entry_size as int;
+                lemma_valid_entry_index(addrs_entry as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(addrs_entry as nat, which_entry as nat, entry_size as nat);
+                assert(!can_views_differ_at_addr(addr));
+            }
+            lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
+                crash_state1, crash_state2, num_keys, self.spec_valid_indices()
+            );
+        }
+
         // this function can be used to both create new items and do COW updates to existing items.
         // must always write to an invalid slot
         // this operation is NOT directly logged
@@ -315,16 +370,17 @@ verus! {
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
+                        &&& self.spec_outstanding_item_table() == old(self).spec_outstanding_item_table()
                         &&& self.spec_free_list() == old(self).spec_free_list()
                         &&& self.spec_free_list().len() == 0
+                        &&& wrpm_region == old(wrpm_region)
                     },
                     _ => false,
                 }
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(parse_item_table::<I, K>(old_pm_view.committed(), overall_metadata.num_keys as nat,
-                                            self.spec_valid_indices()) matches Some(table_view)
-                   && table_view.durable_item_table == self@.durable_item_table) by {
+                                            self.spec_valid_indices()) == Some(self@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
             
@@ -344,8 +400,7 @@ verus! {
             self.pending_allocations.push(free_index);
 
             assert(!self.free_list@.contains(free_index));
-
-            assert(old(self).subregion_grants_access_to_entry_slot(*subregion, free_index));
+            assert(subregion_grants_access_to_item_table_entry::<I>(*subregion, free_index));
             assert(self.spec_valid_indices() == old(self).spec_valid_indices());
 
             broadcast use pmcopy_axioms;
@@ -399,40 +454,11 @@ verus! {
             }
 
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
-                &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices())
-                       matches Some(table_view)
-                &&& table_view.durable_item_table == self@.durable_item_table
+                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@)
             } by {
-                let can_views_differ_at_addr = |addr: int| crc_addr <= addr < crc_addr + entry_size;
-                let crash_state = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
-                    pm_view, old_pm_view, s, can_views_differ_at_addr
+                old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
+                    old_pm_view, pm_view, s, overall_metadata, free_index
                 );
-                assert(forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
-                    0 <= addr < pm_view.len() && !can_views_differ_at_addr(addr) ==> s[addr] == crash_state[addr]);
-                match parse_item_table::<I, K>(crash_state, overall_metadata.num_keys as nat,
-                                               self.spec_valid_indices()) {
-                    Some(table_view) => {
-                        assert forall|addr: int| {
-                            let which_entry = addr / entry_size as int;
-                            &&& 0 <= addr < crash_state.len()
-                            &&& which_entry < overall_metadata.num_keys
-                            &&& self.spec_valid_indices().contains(which_entry as u64)
-                        } implies s[addr] == crash_state[addr] by {
-                            let which_entry = addr / entry_size as int;
-                            lemma_valid_entry_index(which_entry as nat, overall_metadata.num_keys as nat,
-                                                    entry_size as nat);
-                            lemma_entries_dont_overlap_unless_same_index(which_entry as nat, free_index as nat,
-                                                                         entry_size as nat);
-                            assert(which_entry < free_index ==> (which_entry + 1) * entry_size <= free_index * entry_size);
-                            assert(which_entry > free_index ==> (free_index + 1) * entry_size <= which_entry * entry_size);
-                            assert(!can_views_differ_at_addr(addr));
-                        }
-                        lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
-                            crash_state, s, overall_metadata.num_keys, self.spec_valid_indices()
-                        );
-                    },
-                    None => assert(false),
-                }
             }
 
             Ok(free_index)
