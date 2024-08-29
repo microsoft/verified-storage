@@ -96,7 +96,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            self.inv(*wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+            self.inv(wrpm@, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
         ensures 
             out == self.spec_info().log_plus_pending_length - self.spec_info().log_length,
             out == self@.pending.len(),
@@ -125,22 +125,18 @@ impl UntrustedLogImpl {
         self.state@
     }
 
-    pub closed spec fn inv<Perm, PM>(self, pm: WriteRestrictedPersistentMemoryRegion<Perm, PM>, log_start_addr: nat, log_size: nat) -> bool
-        where 
-            Perm: CheckPermission<Seq<u8>>,
-            PM: PersistentMemoryRegion
+    pub closed spec fn inv(self, pm: PersistentMemoryRegionView, log_start_addr: nat, log_size: nat) -> bool
     {
-        &&& pm.inv()
         &&& self@.capacity >= self@.log.len()
         &&& self@.capacity == log_size - spec_log_area_pos()
-        &&& no_outstanding_writes_to_metadata(pm@, log_start_addr)
-        &&& memory_matches_deserialized_cdb(pm@, log_start_addr, self.cdb)
+        &&& no_outstanding_writes_to_metadata(pm, log_start_addr)
+        &&& memory_matches_deserialized_cdb(pm, log_start_addr, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
-        &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX
-        &&& metadata_consistent_with_info(pm@, log_start_addr, log_size, self.cdb, self.info)
-        &&& info_consistent_with_log_area(pm@, log_start_addr, log_size, self.info, self.state@)
-        &&& Self::can_only_crash_as_state(pm@, log_start_addr, log_size, self.state@.drop_pending_appends())
-        &&& metadata_types_set(pm@.committed(), log_start_addr)
+        &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm.len() <= u64::MAX
+        &&& metadata_consistent_with_info(pm, log_start_addr, log_size, self.cdb, self.info)
+        &&& info_consistent_with_log_area(pm, log_start_addr, log_size, self.info, self.state@)
+        &&& Self::can_only_crash_as_state(pm, log_start_addr, log_size, self.state@.drop_pending_appends())
+        &&& metadata_types_set(pm.committed(), log_start_addr)
         &&& self.info.log_plus_pending_length >= self.info.log_length
         &&& self.info.log_plus_pending_length - self.info.log_length == self.state@.pending.len()
     }
@@ -161,7 +157,7 @@ impl UntrustedLogImpl {
             wrpm1@.len() == wrpm2@.len(),
             wrpm1.inv(),
             wrpm2.inv(),
-            self.inv(wrpm1, log_start_addr, log_size),
+            self.inv(wrpm1@, log_start_addr, log_size),
             wrpm1@.no_outstanding_writes(),
             wrpm2@.no_outstanding_writes(),
             self@ == self@.drop_pending_appends(),
@@ -171,7 +167,7 @@ impl UntrustedLogImpl {
             0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
 
         ensures 
-            self.inv(wrpm2, log_start_addr, log_size)
+            self.inv(wrpm2@, log_start_addr, log_size)
     {
         broadcast use pmcopy_axioms;
 
@@ -229,7 +225,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            self.inv(pm, log_start_addr, log_size),
+            self.inv(pm@, log_start_addr, log_size),
         ensures
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm@.len() <= u64::MAX,
             metadata_types_set(pm@.committed(), log_start_addr),
@@ -246,7 +242,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            self.inv(wrpm_region, log_start_addr, log_size)
+            self.inv(wrpm_region@, log_start_addr, log_size)
         ensures 
             ({
                 let recovery_view = Self::recover(wrpm_region@.committed(), log_start_addr, log_size);
@@ -266,7 +262,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            self.inv(wrpm_region, log_start_addr, log_size)
+            self.inv(wrpm_region@, log_start_addr, log_size)
         ensures 
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> 
                 UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends())
@@ -390,7 +386,7 @@ impl UntrustedLogImpl {
             PM: PersistentMemoryRegion,
         requires
             // TODO: refactor/clean up; much of this is the same as precond of tentatively_append_to_log
-            self.inv(wrpm_region, log_start_addr, log_size),
+            self.inv(wrpm_region@, log_start_addr, log_size),
             wrpm_region.inv(),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr),
             memory_matches_deserialized_cdb(wrpm_region@, log_start_addr, self.cdb),
@@ -585,7 +581,7 @@ impl UntrustedLogImpl {
                 match result {
                     Ok(log_impl) => {
                         &&& log_impl@ == state
-                        &&& log_impl.inv(*pm_region, log_start_addr as nat, log_size as nat)
+                        &&& log_impl.inv(pm_region@, log_start_addr as nat, log_size as nat)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
@@ -628,7 +624,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            self.inv(old(wrpm_region)@, log_start_addr as nat, log_size as nat),
             bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
             self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
             old(wrpm_region).inv(),
@@ -870,7 +866,8 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            old(self).inv(old(wrpm_region)@, log_start_addr as nat, log_size as nat),
+            old(wrpm_region).inv(),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> crash_pred(s),
@@ -886,7 +883,7 @@ impl UntrustedLogImpl {
             forall |s| crash_pred(s) ==> perm.check_permission(s),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
         ensures
-            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region.inv(),
@@ -916,7 +913,6 @@ impl UntrustedLogImpl {
                 _ => false
             },
     {
-        reveal(spec_padding_needed);
         // One useful invariant implies that
         // `info.log_plus_pending_length <= info.log_area_len`, so
         // we know we can safely do the following subtraction
@@ -959,6 +955,7 @@ impl UntrustedLogImpl {
         // about anything but the log area and so it doesn't have to reason about
         // the overall recovery view to perform writes.
         let ghost old_wrpm_region = wrpm_region@;
+        assert(spec_log_header_area_size() < spec_log_area_pos()) by { reveal(spec_padding_needed); }
         let result = self.tentatively_append_to_log(wrpm_region, log_start_addr, log_size, bytes_to_append, Ghost(crash_pred), Tracked(perm), Ghost(is_writable_absolute_addr_fn));
 
         // We now update our `info` field to reflect the new
@@ -1141,7 +1138,8 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            old(self).inv(old(wrpm_region)@, log_start_addr as nat, log_size as nat),
+            old(wrpm_region).inv(),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> crash_pred(s),
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
             forall |s| #[trigger] old(wrpm_region)@.can_crash_as(s) ==> 
@@ -1165,7 +1163,7 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
         ensures
-            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
@@ -1292,7 +1290,8 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            self.inv(*pm_region, log_start_addr as nat, log_size as nat),
+            self.inv(pm_region@, log_start_addr as nat, log_size as nat),
+            pm_region.inv(),
             pos + len <= u128::MAX,
             log_start_addr + spec_log_area_pos() <= pm_region@.len() <= u64::MAX,
         ensures
@@ -1578,7 +1577,7 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
             // old(self).state@.drop_pending_appends() == prev_state.commit(),
         ensures
-            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             self.state == old(self).state,
@@ -1896,7 +1895,8 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion
         requires
-            old(self).inv(*old(wrpm_region), log_start_addr as nat, log_size as nat),
+            old(self).inv(old(wrpm_region)@, log_start_addr as nat, log_size as nat),
+            old(wrpm_region).inv(),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
             Self::recover(old(wrpm_region)@.committed(), log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
@@ -1922,7 +1922,7 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_start_addr < log_start_addr + log_size <= old(wrpm_region)@.len() <= u64::MAX
         ensures
-            self.inv(*wrpm_region, log_start_addr as nat, log_size as nat),
+            self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region@.no_outstanding_writes(),
@@ -1966,7 +1966,7 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires
-            self.inv(*pm_region, log_start_addr as nat, log_size as nat)
+            self.inv(pm_region@, log_start_addr as nat, log_size as nat)
         ensures
             ({
                 let log = self@;
@@ -2002,11 +2002,12 @@ impl UntrustedLogImpl {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(pm_region), log_start_addr as nat, log_size as nat),
+            old(self).inv(old(pm_region)@, log_start_addr as nat, log_size as nat),
+            old(pm_region).inv(),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             no_outstanding_writes_to_metadata(old(pm_region)@, log_start_addr as nat),
         ensures
-            self.inv(*pm_region, log_start_addr as nat, log_size as nat),
+            self.inv(pm_region@, log_start_addr as nat, log_size as nat),
             Self::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat) 
                 == Some(self@.drop_pending_appends()),
             pm_region.inv(),

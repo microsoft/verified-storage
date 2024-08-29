@@ -41,10 +41,7 @@ verus! {
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
         }
 
-        pub closed spec fn inv<Perm, PM>(self, pm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
-            where 
-                Perm: CheckPermission<Seq<u8>>,
-                PM: PersistentMemoryRegion,
+        pub closed spec fn inv(self, pm_region: PersistentMemoryRegionView, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.log.inv(pm_region, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
             &&& ({
@@ -61,7 +58,7 @@ verus! {
                     overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
-                &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                &&& forall |s| #[trigger] pm_region.can_crash_as(s) ==>
                         Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             }
             &&& self@.op_list_committed ==> {
@@ -72,17 +69,17 @@ verus! {
                 &&& log_ops is Some
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
-                &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
+                &&& forall |s| #[trigger] pm_region.can_crash_as(s) ==>
                         Self::recover(s, version_metadata, overall_metadata) == Some(self@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
                     op.inv(version_metadata, overall_metadata)
             } 
-            &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX
+            &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region.len() <= u64::MAX
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
             &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
-            &&& no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat)
+            &&& no_outstanding_writes_to_metadata(pm_region, overall_metadata.log_area_addr as nat)
             &&& AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, version_metadata, overall_metadata)
         }
 
@@ -96,7 +93,7 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires
-                self.inv(pm_region, version_metadata, overall_metadata)
+                self.inv(pm_region@, version_metadata, overall_metadata)
             ensures 
                 AbstractPhysicalOpLogEntry::log_inv(self@.physical_op_list, version_metadata, overall_metadata),
                 !self@.op_list_committed ==> {
@@ -182,7 +179,7 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
             requires
-                self.inv(pm_region, version_metadata, overall_metadata),
+                self.inv(pm_region@, version_metadata, overall_metadata),
                 UntrustedOpLog::<K, L>::recover(crash_state, version_metadata, overall_metadata) is Some,
                 !self@.op_list_committed,
                 pm_region@.can_crash_as(crash_state),
@@ -539,7 +536,7 @@ verus! {
                 wrpm1@.len() == wrpm2@.len(),
                 wrpm1.inv(),
                 wrpm2.inv(),
-                self.inv(wrpm1, version_metadata, overall_metadata),
+                self.inv(wrpm1@, version_metadata, overall_metadata),
                 self.base_log_view() == self.base_log_view().drop_pending_appends(),
                 wrpm1@.no_outstanding_writes(),
                 wrpm2@.no_outstanding_writes(),
@@ -548,7 +545,7 @@ verus! {
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             ensures 
-                self.inv(wrpm2, version_metadata, overall_metadata),
+                self.inv(wrpm2@, version_metadata, overall_metadata),
         {
             let mem1 = wrpm1@.committed();
             let mem2 = wrpm2@.committed();
@@ -803,7 +800,7 @@ verus! {
         ensures
             match result {
                 Ok((op_log_impl, phys_log)) => {
-                    &&& op_log_impl.inv(*pm_region, version_metadata, overall_metadata)
+                    &&& op_log_impl.inv(pm_region@, version_metadata, overall_metadata)
                     &&& op_log_impl.base_log_view() == op_log_impl.base_log_view().drop_pending_appends()
                     &&& {
                         ||| {
@@ -1058,7 +1055,8 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
+            old(self).inv(old(log_wrpm)@, version_metadata, overall_metadata),
+            old(log_wrpm).inv(),
             log_entry@.inv(version_metadata, overall_metadata),
             !old(self)@.op_list_committed,
             overall_metadata.region_size == old(log_wrpm)@.len(),
@@ -1090,7 +1088,7 @@ verus! {
             log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
             Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            self.inv(*log_wrpm, version_metadata, overall_metadata), // can we maintain this here?
+            self.inv(log_wrpm@, version_metadata, overall_metadata), // can we maintain this here?
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
@@ -1315,7 +1313,7 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
+            old(self).inv(old(log_wrpm)@, version_metadata, overall_metadata),
             old(self)@.physical_op_list.len() > 0,
             !old(self)@.op_list_committed,
             old(log_wrpm).inv(),
@@ -1343,7 +1341,7 @@ verus! {
             no_outstanding_writes_to_version_metadata(old(log_wrpm)@),
             old(log_wrpm)@.len() >= VersionMetadata::spec_size_of(),
         ensures 
-            self.inv(*log_wrpm, version_metadata, overall_metadata),
+            self.inv(log_wrpm@, version_metadata, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             match result {
@@ -1458,7 +1456,8 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
             PM: PersistentMemoryRegion,
         requires 
-            old(self).inv(*old(log_wrpm), version_metadata, overall_metadata),
+            old(self).inv(old(log_wrpm)@, version_metadata, overall_metadata),
+            old(log_wrpm).inv(),
             old(self)@.op_list_committed,
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
@@ -1484,7 +1483,7 @@ verus! {
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
         ensures 
-            self.inv(*log_wrpm, version_metadata, overall_metadata),
+            self.inv(log_wrpm@, version_metadata, overall_metadata),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             match result {
