@@ -374,6 +374,99 @@ impl UntrustedLogImpl {
         }
     }
 
+    // This lemma proves that a write to WRPM for a non-wrapping log append is crash safe
+    proof fn lemma_tentatively_append_is_crash_safe<Perm, PM>(
+        self,
+        wrpm_region:  WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        log_start_addr: nat,
+        log_size: nat,
+        write_addr: int,
+        bytes_to_append: Seq<u8>,
+        is_writable_absolute_addr: spec_fn(int) -> bool,
+        crash_pred: spec_fn(Seq<u8>) -> bool,
+    )
+        where
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires
+            // TODO: refactor/clean up; much of this is the same as precond of tentatively_append_to_log
+            self.inv(wrpm_region, log_start_addr, log_size),
+            wrpm_region.inv(),
+            no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr),
+            memory_matches_deserialized_cdb(wrpm_region@, log_start_addr, self.cdb),
+            metadata_consistent_with_info(wrpm_region@, log_start_addr, log_size, self.cdb, self.info),
+            info_consistent_with_log_area(wrpm_region@, log_start_addr, log_size, self.info, self.state@),
+            metadata_types_set(wrpm_region@.committed(), log_start_addr),
+            log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= wrpm_region@.len(),
+            forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
+                &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
+                &&& log_area_offset_unreachable_during_recovery(self.info.head_log_area_offset as int,
+                        self.info.log_area_len as int,
+                        self.info.log_length as int,
+                        addr - (log_start_addr + spec_log_area_pos()))
+            },
+            forall |i: int| log_start_addr <= i < log_start_addr + spec_log_area_pos() ==> !(#[trigger] is_writable_absolute_addr(i)),
+            log_size == self.info.log_area_len + spec_log_area_pos(),
+            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos(),
+            bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
+            self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
+            write_addr == relative_log_pos_to_log_area_offset(self.info.log_plus_pending_length as int,
+                                self.info.head_log_area_offset as int, self.info.log_area_len as int),
+            bytes_to_append.len() > 0,
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> crash_pred(s),
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] crash_pred(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
+            } ==> #[trigger] crash_pred(s2),
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> 
+                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@.drop_pending_appends()),
+            ({
+                ||| {
+                        &&& self.info.log_plus_pending_length >= self.info.log_area_len - self.info.head_log_area_offset
+                        &&& write_addr == self.info.log_plus_pending_length - (self.info.log_area_len - self.info.head_log_area_offset)
+                    }
+                ||| {
+                        &&& bytes_to_append.len() <= self.info.log_area_len - self.info.head_log_area_offset - self.info.log_plus_pending_length
+                        &&& write_addr == self.info.log_plus_pending_length + self.info.head_log_area_offset
+                    }
+            }),
+        ensures 
+            ({
+                let log_area_start_addr = log_start_addr + spec_log_area_pos();
+                let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append);
+                &&& forall |s2| #[trigger] new_pm.can_crash_as(s2) ==> crash_pred(s2)
+                &&& forall |s| #[trigger] new_pm.can_crash_as(s) ==> 
+                        UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self.state@.drop_pending_appends())
+                &&& Self::can_only_crash_as_state(wrpm_region@, log_start_addr, log_size, self.state@.drop_pending_appends())
+            })
+
+    {
+        let log_area_start_addr = log_start_addr + spec_log_area_pos();
+        let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append);
+        assert(views_differ_only_where_subregion_allows(wrpm_region@, new_pm, log_start_addr + spec_log_area_pos(),
+                                                    self.info.log_area_len as nat, is_writable_absolute_addr));
+        lemma_append_crash_states_do_not_modify_reachable_state(
+            wrpm_region@, new_pm, log_start_addr, log_size, self.info, 
+            self.state@, self.cdb, is_writable_absolute_addr
+        );
+        assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies crash_pred(s2) by {
+            lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
+                log_area_start_addr + write_addr, bytes_to_append, log_start_addr, log_size);
+            let witness = choose |s1: Seq<u8>| {
+                &&& wrpm_region@.can_crash_as(s1)
+                &&& #[trigger] s1.len() == s2.len()
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
+            };
+            assert(wrpm_region@.can_crash_as(witness));
+            assert(crash_pred(witness));
+        }
+    }
+
     pub exec fn setup<PM, K>(
         pm_region: &mut PM,
         log_start_addr: u64,
@@ -624,17 +717,6 @@ impl UntrustedLogImpl {
 
         let num_bytes: u64 = bytes_to_append.len() as u64;
         if num_bytes == 0 {
-            assert(forall |a: Seq<u8>, b: Seq<u8>| b == Seq::<u8>::empty() ==> a + b == a);
-            assert(bytes_to_append@ =~= Seq::<u8>::empty());
-            assert(self.info.tentatively_append(bytes_to_append.len() as u64) =~= self.info);
-            assert(self.state@.tentatively_append(bytes_to_append@) =~= self.state@);
-            assert(info_consistent_with_log_area(
-                wrpm_region@,
-                log_start_addr as nat,
-                log_size as nat,
-                self.info.tentatively_append(bytes_to_append.len() as u64),
-                self.state@.tentatively_append(bytes_to_append@)
-            ));
             return Ok(old_pending_tail);
         }
 
@@ -665,23 +747,8 @@ impl UntrustedLogImpl {
 
             proof {
                 lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
-
-                let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append@);
-                lemma_append_crash_states_do_not_modify_reachable_state(
-                    wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
-                    self.info, self.state@, self.cdb, is_writable_absolute_addr
-                );
-                assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies crash_pred(s2) by {
-                    lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
-                        log_area_start_addr + write_addr, bytes_to_append@,log_start_addr as nat, log_size as nat);
-                    let witness = choose |s1: Seq<u8>| {
-                        &&& wrpm_region@.can_crash_as(s1)
-                        &&& #[trigger] s1.len() == s2.len()
-                        &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
-                    };
-                    assert(wrpm_region@.can_crash_as(witness));
-                    assert(crash_pred(witness));
-                }
+                self.lemma_tentatively_append_is_crash_safe(*wrpm_region, log_start_addr as nat, log_size as nat, 
+                    write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
         }
@@ -715,16 +782,8 @@ impl UntrustedLogImpl {
                 // If there's room for all the bytes we need to write, we just need one write.
                 proof {
                     lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
-
-                    let new_pm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append@);
-                    lemma_append_crash_states_do_not_modify_reachable_state(
-                        wrpm_region@, new_pm, log_start_addr as nat, log_size as nat, 
-                        self.info, self.state@, self.cdb, is_writable_absolute_addr
-                    );
-                    assert forall |s2| #[trigger] new_pm.can_crash_as(s2) implies crash_pred(s2) by {
-                        lemma_crash_state_differing_only_in_log_region_exists(wrpm_region@, new_pm, 
-                            log_area_start_addr + write_addr, bytes_to_append@, log_start_addr as nat, log_size as nat);
-                    }
+                    self.lemma_tentatively_append_is_crash_safe(*wrpm_region, log_start_addr as nat, log_size as nat, 
+                        write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
             }
