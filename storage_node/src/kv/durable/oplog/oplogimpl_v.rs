@@ -1336,6 +1336,7 @@ verus! {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s1, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
@@ -1357,6 +1358,10 @@ verus! {
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
                     &&& log_wrpm@.no_outstanding_writes()
                     &&& self@.physical_op_list.len() == 0
+                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
+                            Some(AbstractOpLogState::initialize())
+                    &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(_) => false 
             }
