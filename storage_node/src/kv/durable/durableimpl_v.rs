@@ -109,7 +109,7 @@ verus! {
                                                 self.overall_metadata.kvstore_id)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
-            &&& self.log.inv(self.wrpm, self.version_metadata, self.overall_metadata)
+            &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
             &&& forall|s| #[trigger] pm_view.can_crash_as(s) ==> self.inv_mem(s)
             &&& self.metadata_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
@@ -982,7 +982,7 @@ verus! {
             // 1. Start the log and obtain logged operations (if any)
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, version_metadata, overall_metadata)?;
-            assert(op_log.inv(wrpm_region, version_metadata, overall_metadata));
+            assert(op_log.inv(wrpm_region@, version_metadata, overall_metadata));
 
             // 2. Replay the log onto the entire PM region
             // Log entries are replayed blindly onto bytes; components do not have their own
