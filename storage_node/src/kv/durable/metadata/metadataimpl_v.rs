@@ -11,7 +11,6 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
-use crate::kv::durable::metadata::metadataspec_t::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
@@ -28,6 +27,128 @@ use crate::pmem::wrpm_t::*;
 use crate::util_v::*;
 
 verus! {
+    pub struct MetadataTableViewEntry<K> {
+        pub crc: u64,
+        pub entry: ListEntryMetadata,
+        pub key: K,
+    }
+
+    impl<K> MetadataTableViewEntry<K> {
+        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+            Self {
+                crc,
+                entry,
+                key,
+            }
+        }
+
+        pub closed spec fn crc(self) -> u64 {
+            self.crc
+        }
+
+        pub closed spec fn list_head_index(self) -> u64 {
+            self.entry.head
+        }
+
+        pub open spec fn item_index(self) -> u64 {
+            self.entry.item_index
+        }
+
+        pub closed spec fn len(self) -> u64 
+        {
+            self.entry.length
+        }
+
+        pub open spec fn key(self) -> K {
+            self.key
+        }
+    }
+
+    #[verifier::ext_equal]
+    pub struct MetadataTableView<K> {
+        pub durable_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+    }
+
+    impl<K> MetadataTableView<K>
+        where
+            K: PmCopy,
+    {
+        pub open spec fn init(num_keys: u64) -> Self {
+            Self {
+                durable_metadata_table: Seq::new(num_keys as nat, |i: int| DurableEntry::Invalid),
+            }
+        }
+
+        pub open spec fn inv(self) -> bool
+        {
+            &&& forall |i| #![trigger self.durable_metadata_table[i]] {
+                  let entries = self.durable_metadata_table;
+                  0 <= i < entries.len() ==> !(entries[i] is Tentative)
+            }
+        }
+
+        pub open spec fn len(self) -> nat
+        {
+            self.durable_metadata_table.len()
+        }
+
+        pub open spec fn new(
+            metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        ) -> Self {
+            Self {
+                durable_metadata_table: metadata_table,
+            }
+        }
+
+        pub open spec fn get_durable_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        {
+            self.durable_metadata_table
+        }
+
+        pub open spec fn delete(self, index: int) -> Option<Self>
+        {
+            if index < 0 || index >= self.durable_metadata_table.len() {
+                None 
+            } else {
+                Some(Self {
+                    durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
+                })
+                // match self.durable_metadata_table[index] {
+                //     DurableEntry::Valid(_) => {
+                //         Some(Self {
+                //             durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
+                //         })
+                //     }
+                //     _ => None
+                // }
+                // if self.durable_metadata_table@[i] matches DurableEntry::Invalid {
+                //     None
+                // } else {
+                //     Some(Self {
+                //         durable_metadata_table: self.durable_metadata_table.set(i, DurableEntry::Invalid)
+                //     })
+                // }
+            }
+        }
+
+        // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
+        //     if 0 <= index < self.metadata_table.len() {
+        //         self.metadata_table[index]
+        //     } else {
+        //         None
+        //     }
+        // }
+
+        pub open spec fn valid_item_indices(self) -> Set<u64> {
+            Set::new(|i: u64| exists |j: int| {
+                    &&& 0 <= j < self.durable_metadata_table.len() 
+                    &&& #[trigger] self.durable_metadata_table[j] matches DurableEntry::Valid(entry)
+                    &&& entry.item_index() == i
+                }
+            )
+        }
+    }
+
     pub struct MetadataTable<K> {
         metadata_node_size: u32,
         metadata_table_free_list: Vec<u64>,
@@ -41,6 +162,18 @@ verus! {
     {
         forall|addr: int| start <= addr < start + bytes.len() ==>
             #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
+    }
+
+    pub open spec fn subregion_grants_access_to_main_table_entry<K>(
+        subregion: WriteRestrictedPersistentMemorySubregion,
+        idx: u64
+    ) -> bool
+        where 
+            K: PmCopy + Sized,
+    {
+        let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+        forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr < idx * entry_size + entry_size ==>
+            subregion.is_writable_relative_addr(addr as int)
     }
 
     impl<K> MetadataTable<K>
@@ -175,14 +308,9 @@ verus! {
                         DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     }
-            &&& forall|s| pm.can_crash_as(s) ==> {
-                &&& parse_metadata_table::<K>(s, overall_metadata.num_keys,
-                                            overall_metadata.metadata_node_size) matches Some(recovered_view)
-                &&& recovered_view.valid_item_indices() == self@.valid_item_indices()
-            }
         }
 
-        pub open spec fn allocator_inv(self, overall_metadata: OverallMetadata) -> bool 
+        pub open spec fn allocator_inv(self) -> bool
         {
             &&& self.allocator_view() == self.free_indices()
         }
@@ -194,17 +322,6 @@ verus! {
             &&& forall |i| 0 <= i < self.spec_outstanding_entry_writes().len() ==> self.spec_outstanding_entry_writes()[i] is None
         }
 
-        pub open spec fn subregion_grants_access_to_entry_slot(
-            self,
-            subregion: WriteRestrictedPersistentMemorySubregion,
-            idx: u64
-        ) -> bool
-        {
-            let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-            forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
-                subregion.is_writable_relative_addr(addr as int)
-        }
-
         pub open spec fn subregion_grants_access_to_free_slots(
             self,
             subregion: WriteRestrictedPersistentMemorySubregion
@@ -213,7 +330,7 @@ verus! {
             forall|idx: u64| {
                 &&& idx < self@.len()
                 &&& self.allocator_view().contains(idx)
-            } ==> self.subregion_grants_access_to_entry_slot(subregion, idx)
+            } ==> #[trigger] subregion_grants_access_to_main_table_entry::<K>(subregion, idx)
         }
 
         pub proof fn lemma_establish_bytes_parseable_for_valid_entry(
@@ -561,6 +678,7 @@ verus! {
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
+                        &&& main_table.allocator_inv()
                         &&& main_table.no_outstanding_writes()
                         // main table states match
                         &&& table == main_table@
@@ -1156,13 +1274,15 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires 
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
-                old(self).allocator_inv(overall_metadata),
+                old(self).allocator_inv(),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
+                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                self.allocator_inv(),
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
@@ -1189,12 +1309,12 @@ verus! {
                         &&& self@ == old(self)@
                         &&& self.allocator_view() == old(self).allocator_view()
                         &&& self.allocator_view().len() == 0
+                        &&& wrpm_region == old(wrpm_region)
                     },
                     _ => false,
                 }
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
-            assert(self.valid(old_pm_view, overall_metadata));
             assert(self.inv(old_pm_view, overall_metadata));
 
             // 1. pop an index from the free list
@@ -1275,6 +1395,7 @@ verus! {
             let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
             let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
+            assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
             subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
@@ -1308,7 +1429,7 @@ verus! {
                     assert(false);
                 }
             }
-            
+
             assert forall|idx: u64| self.free_indices().contains(idx) implies self.allocator_view().contains(idx) by {
                 assert(old(self).free_indices().contains(idx));
                 assert(old(self).allocator_view().contains(idx));
@@ -1331,6 +1452,8 @@ verus! {
                     old_pm_view, pm_view, s, overall_metadata, free_index
                 );
             }
+
+            assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
 
             Ok(free_index)
         }
@@ -1363,7 +1486,7 @@ verus! {
             ensures 
                 self.inv(pm_region@, overall_metadata),
                 // We've reestablished the allocator invariant
-                self.allocator_inv(overall_metadata),
+                self.allocator_inv(),
         {
             assert(self.allocator_view().subset_of(self.free_indices()));
 

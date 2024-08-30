@@ -11,7 +11,7 @@
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::kv::durable::itemtable::itemtablespec_t::*;
+use crate::kv::durable::itemtable::itemtableimpl_v::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;

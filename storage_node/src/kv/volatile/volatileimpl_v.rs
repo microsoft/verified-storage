@@ -9,7 +9,7 @@ use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
-use crate::kv::volatile::volatilespec_t::*;
+use crate::kv::volatile::volatilespec_v::*;
 use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
 use std::hash::Hash;

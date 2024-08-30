@@ -3,12 +3,10 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::log2::inv_v::*;
 use crate::{kv::layout_v::*, pmem::pmemspec_t::*, DurableKvStore};
-use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
-use crate::kv::durable::durablespec_t::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::{kvspec_t::*, setup_v::*};
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
@@ -164,7 +162,7 @@ verus! {
 
         // The current pm state has the same log as the original pm state
         lemma_log_bytes_unchanged_during_recovery_write::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log, addr, bytes);
-        lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), new_wrpm_region_flushed.committed(), 
+        lemma_same_log_bytes_recover_to_same_state(wrpm_region@.committed(), new_wrpm_region_flushed.committed(), 
             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
 
         // all crash states from this write recover to the same durable kvstore state
@@ -263,7 +261,7 @@ verus! {
             assert(extract_bytes(wrpm_region@.committed(), log_start_addr, log_size) == extract_bytes(s, log_start_addr, log_size));
             let original_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), version_metadata, overall_metadata);
             let crashed_log = UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata);
-            lemma_same_bytes_recover_to_same_state(wrpm_region@.committed(), s, overall_metadata.log_area_addr as nat,
+            lemma_same_log_bytes_recover_to_same_state(wrpm_region@.committed(), s, overall_metadata.log_area_addr as nat,
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             assert(crashed_log is Some);
             assert(crashed_log == original_log);

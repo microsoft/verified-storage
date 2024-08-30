@@ -951,4 +951,63 @@ verus! {
         }
         crash_state2
     }
+
+    pub proof fn lemma_write_doesnt_change_committed(
+        pm: PersistentMemoryRegionView,
+        addr: int,
+        bytes: Seq<u8>
+    )
+        requires
+            0 <= addr,
+            addr + bytes.len() <= pm.len(),
+        ensures
+            pm.committed() == pm.write(addr, bytes).committed(),
+    {
+        assert(pm.committed() =~= pm.write(addr, bytes).committed());
+
+    }
+    
+    pub proof fn lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
+        v1: PersistentMemoryRegionView,
+        v2: PersistentMemoryRegionView,
+        crash_state1: Seq<u8>,
+        views_must_match_at_addr: spec_fn(int) -> bool,
+    ) -> (crash_state2: Seq<u8>)
+        requires
+            v1.len() == v2.len(),
+            forall|addr: int| #![trigger views_must_match_at_addr(addr)]
+                0 <= addr < v1.len() && views_must_match_at_addr(addr) ==> v1.state[addr] == v2.state[addr],
+            v1.can_crash_as(crash_state1),
+        ensures
+            forall|addr: int| #![trigger views_must_match_at_addr(addr)]
+                0 <= addr < v1.len() && views_must_match_at_addr(addr) ==> crash_state1[addr] == crash_state2[addr],
+            v2.can_crash_as(crash_state2),
+    {
+        let crash_state2 = Seq::<u8>::new(crash_state1.len(), |addr: int| {
+            if views_must_match_at_addr(addr) {
+                crash_state1[addr]
+            } else {
+                let chunk = addr / const_persistence_chunk_size();
+                if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                    v2.state[addr].state_at_last_flush
+                }
+                else {
+                    v2.state[addr].flush_byte()
+                }
+            }
+        });
+        assert forall|chunk| {
+            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2)
+            ||| v2.chunk_corresponds_after_flush(chunk, crash_state2)
+        } by {
+            if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
+                assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2));
+            }
+            else {
+                assert(v1.chunk_corresponds_after_flush(chunk, crash_state1));
+                assert(v2.chunk_corresponds_after_flush(chunk, crash_state2));
+            }
+        }
+        crash_state2
+    }
 }

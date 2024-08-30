@@ -1,9 +1,7 @@
-use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
-use crate::kv::durable::oplog::logentry_v::*;
-use crate::kv::durable::itemtable::itemtablespec_t::*;
-use crate::kv::durable::metadata::{layout_v::*, metadataspec_t::*, metadataimpl_v::*};
-use crate::kv::durable::oplog::oplogspec_t::*;
+use crate::kv::durable::oplog::{logentry_v::*, oplogimpl_v::*};
+use crate::kv::durable::itemtable::itemtableimpl_v::*;
+use crate::kv::durable::metadata::{layout_v::*, metadataimpl_v::*};
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
@@ -22,6 +20,169 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 
 verus! {
+    pub struct TrustedListPermission
+    {
+        // TODO: how many regions will this use? Probably just one?
+        ghost is_state_allowable: spec_fn(Seq<u8>) -> bool
+    }
+
+    impl CheckPermission<Seq<u8>> for TrustedListPermission
+    {
+        closed spec fn check_permission(&self, state: Seq<u8>) -> bool
+        {
+            (self.is_state_allowable)(state)
+        }
+    }
+
+    impl TrustedListPermission 
+    {
+         // TODO: REMOVE THIS
+         #[verifier::external_body]
+         pub proof fn fake_list_perm() -> (tracked perm: Self)
+         {
+             Self {
+                 is_state_allowable: |s| true
+             }
+         }
+    }
+
+    pub struct DurableListElementView<L>
+    {
+        crc: u64,
+        list_element: L
+    }
+
+    impl<L> DurableListElementView<L>
+    {
+        pub closed spec fn new(crc: u64, list_element: L) -> Self 
+        {
+            Self { crc, list_element }
+        }
+
+        pub closed spec fn list_element(self) -> L 
+        {
+            self.list_element
+        }
+    }
+
+    // The `lists` field represents the current contents of the list. It abstracts away the physical 
+    // nodes of the unrolled linked list that the list is actually stored in, but it may contain
+    // tentatively-appended list elements that are not visible yet.
+    #[verifier::reject_recursive_types(K)]
+    pub struct DurableListView<K, L>
+    {
+        pub durable_lists: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
+        pub tentative_lists: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
+    }
+
+    impl<K, L> DurableListView<K, L>
+        where
+            K: std::fmt::Debug,
+    {
+        // pub closed spec fn spec_index(self, key: K) -> Option<Seq<DurableListElementView<L>>>
+        // {
+        //     if self.lists.contains_key(key) {
+        //         Some(self.lists[key])
+        //     } else {
+        //         None
+        //     }
+        // }
+
+        pub closed spec fn init() -> Self 
+        {
+            Self {
+                durable_lists: Map::empty(),
+                tentative_lists: Map::empty()
+            }
+        }
+
+        pub closed spec fn new(lists: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>) -> Self 
+        {
+            Self {
+                durable_lists: lists,
+                tentative_lists: lists
+            }
+        }
+
+        // pub closed spec fn insert_key(self, key: K) -> Result<Self, KvError<K>>
+        // {
+        //     if self.lists.contains_key(key) {
+        //         Err(KvError::KeyAlreadyExists)
+        //     } else {
+        //         Ok(Self {
+        //             lists: self.lists.insert(key, Seq::empty()),
+        //         })
+        //     }
+        // }
+
+        // pub closed spec fn insert_list_element(
+        //     self,
+        //     key: K,
+        //     crc: u64,
+        //     list_element: L,
+        //     index: int
+        // ) -> Result<Self, KvError<K>>
+        // {
+        //     if !self.lists.contains_key(key) {
+        //         Err(KvError::KeyNotFound)
+        //     } else if index < 0 || index > self.lists[key].len() {
+        //         Err(KvError::IndexOutOfRange)
+        //     } else {
+        //         let new_lists = self.lists[key].update(index, DurableListElementView { crc, list_element });
+        //         Ok(Self {
+        //             lists: self.lists.insert(key, new_lists),
+        //         })
+        //     }
+        // }
+
+        // pub closed spec fn append_list_element(
+        //     self,
+        //     key: K,
+        //     crc: u64,
+        //     list_element: L
+        // ) -> Result<Self, KvError<K>>
+        // {
+        //     if !self.lists.contains_key(key) {
+        //         Err(KvError::KeyNotFound)
+        //     } else {
+        //         let new_lists = self.lists[key].push(DurableListElementView { crc, list_element });
+        //         Ok(Self {
+        //             lists: self.lists.insert(key, new_lists),
+        //         })
+        //     }
+        // }
+
+        // pub closed spec fn remove_key(
+        //     self,
+        //     key: K
+        // ) -> Result<Self, KvError<K>>
+        // {
+        //     if !self.lists.contains_key(key) {
+        //         Err(KvError::KeyNotFound)
+        //     } else {
+        //         Ok(Self {
+        //             lists: self.lists.remove(key),
+        //         })
+        //     }
+        // }
+
+        // pub closed spec fn trim_lists(
+        //     self,
+        //     key: K,
+        //     trim_length: int
+        // ) -> Result<Self, KvError<K>>
+        // {
+        //     if !self.lists.contains_key(key) {
+        //         Err(KvError::KeyNotFound)
+        //     } else {
+        //         let new_lists = self.lists[key].subrange(trim_length, self.lists[key].len() as int);
+        //         Ok(Self {
+        //             lists: self.lists.insert(key, new_lists),
+        //         })
+        //     }
+        // }
+    }
+
     pub const NUM_DURABLE_LIST_REGIONS: u64 = 1;
 
     #[verifier::reject_recursive_types(K)]
@@ -51,9 +212,8 @@ verus! {
         // TODO
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MetadataTableView<K>, overall_metadata: OverallMetadata) -> bool
         {
-            // TODO: be more precise -- should match current state
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
-                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
+                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) == Some(self@)
         }
 
         pub open spec fn recover(

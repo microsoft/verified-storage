@@ -4,7 +4,7 @@
 //! the `_v.rs` suffix), so you don't have to read it to be confident
 //! of the system's correctness.
 
-use crate::log2::{inv_v::*, layout_v::*, logimpl_v::*, logspec_t::*};
+use crate::log2::{inv_v::*, layout_v::*, logimpl_v::*};
 use crate::pmem::{pmemutil_v::*, subregion_v::*, pmemspec_t::*, pmcopy_t::*};
 use builtin::*;
 use builtin_macros::*;
