@@ -923,6 +923,7 @@ verus! {
                 }
             }
 
+            // TODO @hayley
             assume(forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
