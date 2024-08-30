@@ -29,8 +29,6 @@ use crate::kv::volatile::volatilespec_t::*;
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::inv_v::*;
-// use crate::log::logimpl_t::*;
-use crate::log2::logspec_t::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;

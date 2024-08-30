@@ -8,11 +8,110 @@ use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::KvError;
 use crate::kv::layout_v::*;
 use crate::pmem::{pmemspec_t::*, pmcopy_t::*, pmemutil_v::*, wrpm_t::*, subregion_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
-use crate::log2::{append_v::*, layout_v::*, logspec_t::*, start_v::*, inv_v::*};
+use crate::log2::{append_v::*, layout_v::*, start_v::*, inv_v::*};
 use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegion;
 use crate::util_v::*;
 
 verus! {
+// An `AbstractLogState` is an abstraction of a single log. Its
+// fields are:
+//
+// `head` -- the logical position of the first accessible byte
+// in the log
+//
+// `log` -- the accessible bytes in the log, logically starting
+// at position `head`
+//
+// `pending` -- the bytes tentatively appended past the end of the
+// log, which will not become part of the log unless committed
+// and which will be discarded on a crash
+//
+// `capacity` -- the maximum length of the `log` field
+#[verifier::ext_equal]
+pub struct AbstractLogState {
+    pub head: int,
+    pub log: Seq<u8>,
+    pub pending: Seq<u8>,
+    pub capacity: int,
+}
+
+impl AbstractLogState {
+
+    // This is the specification for the initial state of an
+    // abstract log.
+    pub open spec fn initialize(capacity: int) -> Self {
+        Self {
+            head: 0int,
+            log: Seq::<u8>::empty(),
+            pending: Seq::<u8>::empty(),
+            capacity: capacity
+        }
+    }
+
+    // This is the specification for what it means to tentatively
+    // append to a log. It appends the given bytes to the
+    // `pending` field.
+    pub open spec fn tentatively_append(self, bytes: Seq<u8>) -> Self {
+        Self { pending: self.pending + bytes, ..self }
+    }
+
+    // This is the specification for what it means to commit a
+    // log.  It adds all pending bytes to the log and clears the
+    // pending bytes.
+    pub open spec fn commit(self) -> Self {
+        Self { log: self.log + self.pending, pending: Seq::<u8>::empty(), ..self }
+    }
+
+    // This is the specification for what it means to advance the
+    // head to a given new value `new_value`.
+    pub open spec fn advance_head(self, new_head: int) -> Self
+    {
+        let new_log = self.log.subrange(new_head - self.head, self.log.len() as int);
+        Self { head: new_head, log: new_log, ..self }
+    }
+
+    // This is the specification for what it means to read `len`
+    // bytes from a certain virtual position `pos` in the abstract
+    // log.
+    pub open spec fn read(self, pos: int, len: int) -> Seq<u8>
+    {
+        self.log.subrange(pos - self.head, pos - self.head + len)
+    }
+
+    // This is the specification for what it means to drop pending
+    // appends. (This isn't a user-invokable operation; it's what
+    // happens on a crash.)
+    pub open spec fn drop_pending_appends(self) -> Self
+    {
+        Self { pending: Seq::<u8>::empty(), ..self }
+    }
+}
+
+// This is the specification that `LogImpl` (TODO UPDATE) provides for data
+// bytes it reads. It says that those bytes are correct unless
+// there was corruption on the persistent memory between the last
+// write and this read.
+pub open spec fn read_correct_modulo_corruption(bytes: Seq<u8>, true_bytes: Seq<u8>,
+    addrs: Seq<int>, impervious_to_corruption: bool) -> bool
+{
+    &&& all_elements_unique(addrs)
+    &&& if impervious_to_corruption {
+            // If the region is impervious to corruption, the bytes read
+            // must match the true bytes, i.e., the bytes last written.
+            bytes == true_bytes
+        }
+        else {
+            // Otherwise, there must exist a sequence of distinct
+            // addresses `addrs` such that the nth byte of `bytes` is
+            // a possibly corrupted version of the nth byte of
+            // `true_bytes` read from the nth address in `addrs`.  We
+            // don't require the sequence of addresses to be
+            // contiguous because the data might not be contiguous on
+            // disk (e.g., if it wrapped around the log area).
+            maybe_corrupted(bytes, true_bytes, addrs)
+        }
+}
+
 
 // This enumeration represents the various errors that can be
 // returned from log operations. They're self-explanatory.

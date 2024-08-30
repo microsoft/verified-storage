@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use crate::{
     kv::{durable::{metadata::layout_v::*, oplog::logentry_v::*, inv_v::*},
             kvimpl_t::*, layout_v::*},
-    log2::{logimpl_v::*, logspec_t::*, layout_v::*, inv_v::*},
+    log2::{logimpl_v::*, layout_v::*, inv_v::*},
     pmem::{pmemspec_t::*, wrpm_t::*, pmemutil_v::*, pmcopy_t::*, traits_t, crc_t::*},
 };
 use vstd::bytes::*;

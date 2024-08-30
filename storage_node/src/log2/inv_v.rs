@@ -7,7 +7,6 @@ use crate::lemma_establish_extract_bytes_equivalence;
 use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, wrpm_t::*};
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
-use crate::log2::logspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::util_v::*;
 
