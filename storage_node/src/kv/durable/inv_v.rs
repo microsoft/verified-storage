@@ -8,7 +8,6 @@ use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
-use crate::kv::durable::durablespec_t::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::{kvspec_t::*, setup_v::*};
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};

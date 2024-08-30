@@ -25,7 +25,6 @@ use vstd::prelude::*;
 
 use super::durable::durableimpl_v::*;
 use super::durable::durablelist::layout_v::*;
-use super::durable::durablespec_t::*;
 use super::durable::itemtable::layout_v::*;
 use super::kvimpl_v::*;
 use super::kvspec_t::*;
