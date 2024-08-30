@@ -10,9 +10,7 @@ use vstd::bytes::u64_to_le_bytes;
 use vstd::prelude::*;
 
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
-use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
-use crate::kv::durable::durablespec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
 use crate::kv::durable::itemtable::itemtablespec_t::*;
@@ -49,6 +47,177 @@ use std::hash::Hash;
 use super::inv_v::lemma_safe_recovery_writes;
 
 verus! {
+    pub struct DurableKvStoreList<L>
+    {
+        pub list: Seq<L>,
+        // pub node_offset_map: Map<int, int> // maps nodes to the first logical list index they contain
+    }
+
+    impl<L> DurableKvStoreList<L>
+    {
+        pub open spec fn spec_index(self, idx: int) -> Option<L>
+        {
+            if idx < self.list.len() {
+                Some(self.list[idx])
+            } else {
+                None
+            }
+        }
+
+        // pub open spec fn offset_index(self, offset: int) -> Option<int>
+        // {
+        //     if self.node_offset_map.contains_key(offset) {
+        //         Some(self.node_offset_map[offset])
+        //     } else {
+        //         None
+        //     }
+        // }
+
+        pub open spec fn len(self) -> int
+        {
+            self.list.len() as int
+        }
+
+        pub open spec fn empty() -> Self
+        {
+            DurableKvStoreList {
+                list: Seq::empty(),
+                // node_offset_map: Map::empty(),
+            }
+        }
+    }
+
+    pub struct DurableKvStoreViewEntry<K, I, L>
+    where
+        K: Hash + Eq,
+    {
+        pub key: K,
+        pub item: I,
+        pub list: DurableKvStoreList<L>,
+
+    }
+
+    // TODO: remove since the fields are public
+    impl<K, I, L> DurableKvStoreViewEntry<K, I, L>
+    where
+        K: Hash + Eq,
+    {
+        pub open spec fn key(self) -> K
+        {
+            self.key
+        }
+
+        pub open spec fn item(self) -> I
+        {
+            self.item
+        }
+
+        pub open spec fn list(self) -> DurableKvStoreList<L>
+        {
+            self.list
+        }
+    }
+
+    pub struct DurableKvStoreView<K, I, L>
+    where
+        K: Hash + Eq + std::fmt::Debug,
+    {
+        pub contents: Map<int, DurableKvStoreViewEntry<K, I, L>>,
+    }
+
+    impl<K, I, L> DurableKvStoreView<K, I, L>
+    where
+        K: Hash + Eq + std::fmt::Debug,
+    {
+        pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, I, L>>
+        {
+            if self.contents.contains_key(idx) {
+                Some(self.contents[idx])
+            } else {
+                None
+            }
+        }
+
+        pub open spec fn init() -> Self {
+            Self {
+                contents: Map::empty()
+            }
+        }
+
+        pub open spec fn contains_key(self, idx: int) -> bool
+        {
+            self[idx] is Some
+        }
+
+        pub open spec fn empty(self) -> bool
+        {
+            self.contents.is_empty()
+        }
+
+        pub open spec fn len(self) -> nat
+        {
+            self.contents.len()
+        }
+
+        pub open spec fn create(self, offset: int, key: K, item: I) -> Result<Self, KvError<K>>
+        {
+            if self.contents.contains_key(offset) {
+                Err(KvError::KeyAlreadyExists)
+            } else {
+                Ok(
+                    Self {
+                        contents: self.contents.insert(
+                            offset,
+                            DurableKvStoreViewEntry {
+                                key,
+                                item,
+                                list: DurableKvStoreList::empty()
+                            }
+                        ),
+                    }
+                )
+            }
+        }
+
+        pub open spec fn delete(self, offset: int) -> Result<Self, KvError<K>>
+        {
+            if !self.contents.contains_key(offset) {
+                Err(KvError::KeyNotFound)
+            } else {
+                Ok(
+                    Self {
+                        contents: self.contents.remove(offset)
+                    }
+                )
+            }
+        }
+
+        pub open spec fn valid(self) -> bool
+        {
+            true
+        }
+
+        // TODO: might be cleaner to define this elsewhere (like in the interface)
+        pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
+        {
+            &&& self.len() == volatile_index.contents.len()
+            &&& self.contents.dom().finite()
+            &&& volatile_index.contents.dom().finite()
+            &&& self.valid()
+            // all keys in the volatile index are stored at the indexed offset in the durable store
+            &&& forall |k: K| #[trigger] volatile_index.contains_key(k) ==> {
+                    let indexed_offset = volatile_index[k].unwrap().header_addr;
+                    &&& self.contains_key(indexed_offset)
+                    &&& self[indexed_offset].unwrap().key == k
+                }
+            // all offsets in the durable store have a corresponding entry in the volatile index
+            &&& forall |i: int| #[trigger] self.contains_key(i) ==> {
+                &&& volatile_index.contains_key(self[i].unwrap().key)
+                &&& volatile_index[self[i].unwrap().key].unwrap().header_addr == i
+            }
+        }
+    }
+
     #[verifier::reject_recursive_types(K)]
     pub struct DurableKvStore<Perm, PM, K, I, L>
     where

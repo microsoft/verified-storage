@@ -9,7 +9,6 @@ use vstd::set::*;
 use vstd::set_lib::*;
 
 use crate::kv::durable::durableimpl_v::*;
-use crate::kv::durable::durablespec_t::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvimpl_v::*;
 use crate::kv::kvspec_t::*;
