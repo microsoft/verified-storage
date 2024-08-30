@@ -10,7 +10,7 @@ use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
 use crate::kv::durable::durablespec_t::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
-use crate::kv::kvspec_t::*;
+use crate::kv::{kvspec_t::*, setup_v::*};
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
 use std::hash::Hash;
 
@@ -374,4 +374,40 @@ verus! {
         &&& extract_bytes(mem1, overall_metadata_addr, OverallMetadata::spec_size_of()) == 
                 extract_bytes(mem2, overall_metadata_addr, OverallMetadata::spec_size_of())
     }      
+
+    // TODO: remove the generics and only require the parts of overall_metadata_valid in the 
+    // precondition that are necessary to prove the lemma 
+    pub proof fn lemma_non_log_components_match_when_states_differ_only_in_log_region<K, I, L>(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    )
+        where 
+            K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug + Copy,
+        requires 
+            states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat,
+                overall_metadata.log_area_size as nat),
+            s1.len() == s2.len(),
+            overall_metadata.list_area_addr + overall_metadata.list_area_size <= s1.len(),
+            overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+        ensures 
+            ({
+                let main_table_region1 = extract_bytes(s1, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region1 = extract_bytes(s1, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region1 = extract_bytes(s1, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+
+                let main_table_region2 = extract_bytes(s2, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region2 = extract_bytes(s2, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region2 = extract_bytes(s2, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+            
+                &&& main_table_region1 == main_table_region2
+                &&& item_table_region1 == item_table_region2
+                &&& list_area_region1 == list_area_region2
+            })
+    {
+        lemma_establish_extract_bytes_equivalence(s1, s2);
+    }
 }

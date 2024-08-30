@@ -819,15 +819,20 @@ verus! {
                         ||| {
                             let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& abstract_op_log == op_log_impl@
                             &&& phys_log.len() == 0
                             &&& abstract_op_log.physical_op_list.len() == 0
+                            &&& !abstract_op_log.op_list_committed
                         }
                         ||| {
                             let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                             &&& abstract_op_log matches Some(abstract_op_log)
+                            &&& abstract_op_log == op_log_impl@
                             &&& abstract_op_log.physical_op_list == phys_log_view
                             &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata)
+                            &&& abstract_op_log.op_list_committed
+                            &&& abstract_op_log.physical_op_list.len() > 0
                         }
                     }
                 }
@@ -1487,11 +1492,12 @@ verus! {
                         ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
                         ||| Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                     }
-            } ==> perm.check_permission(s2),
+            } ==> #[trigger] crash_pred(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                &&& Self::recover(s1, version_metadata, overall_metadata) == Some(old(self)@)
                 &&& Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@)
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
