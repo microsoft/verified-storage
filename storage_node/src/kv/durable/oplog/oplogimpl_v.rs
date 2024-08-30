@@ -133,6 +133,10 @@ verus! {
             self.log@
         }
 
+        pub closed spec fn spec_base_log(self) -> UntrustedLogImpl {
+            self.log
+        }
+
         pub closed spec fn crc_invariant(self) -> bool {
             &&& !self@.op_list_committed && self.log@.pending.len() > 0 ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
             &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
@@ -1150,6 +1154,50 @@ verus! {
         assert(new_log_ops.unwrap() == old_log_ops.push(new_op.unwrap()));
     }
 
+    pub exec fn abort_transaction<Perm, PM>(
+        &mut self, 
+        log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    )
+        where 
+            Perm: CheckPermission<Seq<u8>>,
+            PM: PersistentMemoryRegion,
+        requires 
+            old(self).spec_base_log().inv(old(log_wrpm)@, overall_metadata.log_area_addr as nat, 
+                overall_metadata.log_area_size as nat),
+            old(log_wrpm).inv(),
+            overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
+            overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
+            no_outstanding_writes_to_metadata(old(log_wrpm)@, overall_metadata.log_area_addr as nat),
+            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            overall_metadata.region_size == old(log_wrpm)@.len(),
+            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
+                Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+        ensures 
+            log_wrpm.constants() == old(log_wrpm).constants(),
+            log_wrpm@.len() == old(log_wrpm)@.len(), 
+            self.base_log_view().pending.len() == 0,
+            self.base_log_view().log == old(self).base_log_view().log,
+            self.base_log_view().head == old(self).base_log_view().head,
+            self.base_log_view().capacity == old(self).base_log_view().capacity,
+            log_wrpm@.no_outstanding_writes(),
+            log_wrpm.inv(),
+            Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            self.inv(log_wrpm@, version_metadata, overall_metadata), 
+            self@.physical_op_list.len() == 0,
+            views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+    {
+        assert(log_wrpm@.can_crash_as(log_wrpm@.flush().committed()));
+        self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
+        self.current_transaction_crc = CrcDigest::new();
+        self.state = Ghost(AbstractOpLogState {
+            physical_op_list: Seq::empty(),
+            op_list_committed: false
+        });
+    }
+
     // This function tentatively appends a log entry to the operation log. It does so 
     // by casting the log entry to byte slices and tentatively appending them to the 
     // base log, then updating the op log's current CRC digest to include these new bytes.
@@ -1240,12 +1288,7 @@ verus! {
             ||| log_entry.len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2
             ||| pending_len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2 - log_entry.len
         } {
-            self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
-            self.current_transaction_crc = CrcDigest::new();
-            self.state = Ghost(AbstractOpLogState {
-                physical_op_list: Seq::empty(),
-                op_list_committed: false
-            });
+            self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
             return Err(KvError::OutOfSpace);
         } 
 
@@ -1276,12 +1319,7 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
-                self.current_transaction_crc = CrcDigest::new();
-                self.state = Ghost(AbstractOpLogState {
-                    physical_op_list: Seq::empty(),
-                    op_list_committed: false
-                });
+                self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1324,12 +1362,7 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
-                self.current_transaction_crc = CrcDigest::new();
-                self.state = Ghost(AbstractOpLogState {
-                    physical_op_list: Seq::empty(),
-                    op_list_committed: false
-                });
+                self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1365,12 +1398,7 @@ verus! {
         match result {
             Ok(_) => {}
             Err(e) => {
-                self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
-                self.current_transaction_crc = CrcDigest::new();
-                self.state = Ghost(AbstractOpLogState {
-                    physical_op_list: Seq::empty(),
-                    op_list_committed: false
-                });
+                self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
                 return Err(KvError::LogErr { log_err: e });
             }
         }
