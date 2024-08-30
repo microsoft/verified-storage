@@ -1188,6 +1188,7 @@ verus! {
                         &&& self@ == old(self)@
                         &&& self.allocator_view() == old(self).allocator_view()
                         &&& self.allocator_view().len() == 0
+                        &&& wrpm_region == old(wrpm_region)
                     },
                     _ => false,
                 }
