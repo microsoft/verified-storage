@@ -10,7 +10,6 @@ use vstd::bytes::u64_to_le_bytes;
 use vstd::prelude::*;
 
 use crate::kv::durable::durablelist::durablelistimpl_v::*;
-use crate::kv::durable::durablelist::durablelistspec_t::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::durablespec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
