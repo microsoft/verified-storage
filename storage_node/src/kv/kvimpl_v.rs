@@ -22,7 +22,7 @@ use super::durable::metadata::layout_v::*;
 use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
-use super::volatile::volatilespec_t::*;
+use super::volatile::volatilespec_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;

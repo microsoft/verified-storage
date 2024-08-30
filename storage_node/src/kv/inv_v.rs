@@ -13,7 +13,7 @@ use crate::kv::kvimpl_t::*;
 use crate::kv::kvimpl_v::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::volatile::volatileimpl_v::*;
-use crate::kv::volatile::volatilespec_t::*;
+use crate::kv::volatile::volatilespec_v::*;
 use crate::pmem::pmemspec_t::*;
 use std::hash::Hash;
 

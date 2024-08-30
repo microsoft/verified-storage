@@ -23,7 +23,7 @@ use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;
-use crate::kv::volatile::volatilespec_t::*;
+use crate::kv::volatile::volatilespec_v::*;
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::log2::inv_v::*;

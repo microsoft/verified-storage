@@ -29,7 +29,7 @@ use super::durable::itemtable::layout_v::*;
 use super::kvimpl_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;
-use super::volatile::volatilespec_t::*;
+use super::volatile::volatilespec_v::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
