@@ -175,7 +175,7 @@ impl UntrustedLogImpl {
         let mem2 = wrpm2@.committed();
         lemma_establish_extract_bytes_equivalence(mem1, mem2);
 
-        lemma_same_bytes_recover_to_same_state(mem1, mem2, log_start_addr, log_size, region_size);
+        lemma_same_log_bytes_recover_to_same_state(mem1, mem2, log_start_addr, log_size, region_size);
 
         // TODO: lemma_same_bytes_recover_to_same_state also uses this same code -- refactor into its own proof
         lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
