@@ -19,10 +19,10 @@ use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
 use crate::kv::layout_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
+use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};
 
-use super::oplogspec_t::AbstractPhysicalOpLogEntry;
 
 verus! {
     // Each concrete log entry corresponds to a logical

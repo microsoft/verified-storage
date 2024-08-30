@@ -5,7 +5,6 @@ use vstd::prelude::*;
 use crate::kv::kvimpl_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::util_v::*;
 
 verus! {

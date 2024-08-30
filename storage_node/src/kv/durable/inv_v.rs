@@ -3,7 +3,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 use crate::log2::inv_v::*;
 use crate::{kv::layout_v::*, pmem::pmemspec_t::*, DurableKvStore};
-use crate::kv::durable::oplog::oplogspec_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;
 use crate::kv::durable::itemtable::layout_v::*;

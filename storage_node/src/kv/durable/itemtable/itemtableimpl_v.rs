@@ -2,7 +2,6 @@ use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::inv_v::*;
-use crate::kv::durable::oplog::oplogspec_t::AbstractOpLogState;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;

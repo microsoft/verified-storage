@@ -47,8 +47,6 @@ use std::borrow::Borrow;
 use std::hash::Hash;
 
 use super::inv_v::lemma_safe_recovery_writes;
-use super::oplog::oplogspec_t::AbstractOpLogState;
-use super::oplog::oplogspec_t::AbstractPhysicalOpLogEntry;
 
 verus! {
     #[verifier::reject_recursive_types(K)]
