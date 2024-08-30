@@ -562,7 +562,7 @@ verus! {
         {
             let mem1 = wrpm1@.committed();
             let mem2 = wrpm2@.committed();
-            lemma_same_log_bytes_recover_to_same_state(mem1, mem2, overall_metadata.log_area_addr as nat,
+            lemma_same_bytes_recover_to_same_state(mem1, mem2, overall_metadata.log_area_addr as nat,
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             self.log.lemma_same_bytes_preserve_log_invariant(wrpm1, wrpm2, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat,

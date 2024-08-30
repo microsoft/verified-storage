@@ -342,7 +342,7 @@ pub proof fn lemma_subranges_of_same_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>, a
 // subregions are equal, then the sequences recover to the same log. This is obvious
 // but the proof is non-trivial because we need to explicitly prove the equality of 
 // each relevant subrange.
-pub proof fn lemma_same_log_bytes_recover_to_same_state(
+pub proof fn lemma_same_bytes_recover_to_same_state(
     mem1: Seq<u8>,
     mem2: Seq<u8>,
     log_start_addr: nat,

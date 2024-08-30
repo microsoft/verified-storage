@@ -51,7 +51,7 @@ verus! {
             K: PmCopy + Sized,
     {
         let entry_size = ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-        forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr < idx * entry_size + entry_size ==>
+        forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
             subregion.is_writable_relative_addr(addr as int)
     }
 
@@ -189,7 +189,7 @@ verus! {
                     }
         }
 
-        pub open spec fn allocator_inv(self) -> bool
+        pub open spec fn allocator_inv(self, overall_metadata: OverallMetadata) -> bool 
         {
             &&& self.allocator_view() == self.free_indices()
         }
@@ -557,7 +557,6 @@ verus! {
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
-                        &&& main_table.allocator_inv()
                         &&& main_table.no_outstanding_writes()
                         // main table states match
                         &&& table == main_table@
@@ -1153,15 +1152,14 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires 
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                old(self).valid(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
-                old(self).allocator_inv(),
+                old(self).allocator_inv(overall_metadata),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
-                self.allocator_inv(),
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
@@ -1193,6 +1191,7 @@ verus! {
                 }
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
+            assert(self.valid(old_pm_view, overall_metadata));
             assert(self.inv(old_pm_view, overall_metadata));
 
             // 1. pop an index from the free list
@@ -1307,7 +1306,7 @@ verus! {
                     assert(false);
                 }
             }
-
+            
             assert forall|idx: u64| self.free_indices().contains(idx) implies self.allocator_view().contains(idx) by {
                 assert(old(self).free_indices().contains(idx));
                 assert(old(self).allocator_view().contains(idx));
@@ -1364,7 +1363,7 @@ verus! {
             ensures 
                 self.inv(pm_region@, overall_metadata),
                 // We've reestablished the allocator invariant
-                self.allocator_inv(),
+                self.allocator_inv(overall_metadata),
         {
             assert(self.allocator_view().subset_of(self.free_indices()));
 
