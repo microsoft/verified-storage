@@ -171,10 +171,6 @@ impl UntrustedLogImpl {
         Self::lemma_metadata_types_set_when_views_match_in_log_region(wrpm1@, wrpm2@, log_start_addr, log_size);
         self.lemma_memory_consistent_with_matching_log_region(wrpm1@, wrpm2@, log_start_addr, log_size);
         self.lemma_pm_view_can_only_crash_as_same_log_state_as_matching_view(wrpm1@, wrpm2@, log_start_addr, log_size);
-
-        assert(memory_matches_deserialized_cdb(wrpm2@, log_start_addr, self.cdb));
-        assert(metadata_consistent_with_info(wrpm2@, log_start_addr, log_size, self.cdb, self.info));
-        assert(Self::can_only_crash_as_state(wrpm2@, log_start_addr, log_size, self.state@.drop_pending_appends()));
     }
 
     proof fn lemma_memory_consistent_with_matching_log_region(
@@ -196,7 +192,8 @@ impl UntrustedLogImpl {
             memory_matches_deserialized_cdb(v2, log_start_addr, self.cdb),
             metadata_consistent_with_info(v2, log_start_addr, log_size, self.cdb, self.info)
     {
-        assume(false);
+        lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
+        Self::lemma_bytes_match_in_equal_subregions(v1, v2, log_start_addr, log_size);
     }
 
     proof fn lemma_pm_view_can_only_crash_as_same_log_state_as_matching_view(
@@ -224,11 +221,9 @@ impl UntrustedLogImpl {
         by {
             let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
                 v2, v1, s2, views_must_match_at_addr);
-
             assert forall |addr: int| log_start_addr <= addr < log_start_addr + log_size implies s1[addr] == s2[addr] by {
                 assert(views_must_match_at_addr(addr));
             }
-
             assert(extract_bytes(s1, log_start_addr, log_size) == extract_bytes(s2, log_start_addr, log_size));
             Self::lemma_same_log_bytes_recover_to_same_state(s1, s2, log_start_addr, log_size);
         }
@@ -248,7 +243,21 @@ impl UntrustedLogImpl {
         ensures 
             Self::recover(s1, log_start_addr, log_size) == Self::recover(s2, log_start_addr, log_size)
     {
-        assume(false);
+        lemma_establish_extract_bytes_equivalence(s1, s2);
+        lemma_subrange_of_extract_bytes_equal(s1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
+        let cdb = spec_check_log_cdb(s1, log_start_addr);
+        if let Some(cdb) = cdb {
+            let metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;
+            lemma_subrange_of_extract_bytes_equal(s1, log_start_addr, metadata_pos, log_size, LogMetadata::spec_size_of() + u64::spec_size_of());
+            lemma_active_metadata_bytes_equal_implies_metadata_types_set(s1, s2, log_start_addr, cdb);
+            if metadata_types_set(s1, log_start_addr) {
+                let crc_pos = spec_get_active_log_crc_pos(cdb) + log_start_addr;
+                lemma_subrange_of_extract_bytes_equal(s1, log_start_addr, crc_pos, log_size, u64::spec_size_of());
+                lemma_subrange_of_extract_bytes_equal(s1, log_start_addr, metadata_pos, log_size, LogMetadata::spec_size_of());
+                lemma_subrange_of_extract_bytes_equal(s1, log_start_addr, log_start_addr + spec_log_area_pos(), 
+                    log_size, (log_size - spec_log_area_pos()) as nat);
+            }
+        }
     }
 
     pub proof fn lemma_crash_state_with_matching_log_region_exists(
@@ -391,21 +400,17 @@ impl UntrustedLogImpl {
 
         lemma_same_log_bytes_recover_to_same_state(mem1, mem2, log_start_addr, log_size, region_size);
 
-        // TODO: lemma_same_bytes_recover_to_same_state also uses this same code -- refactor into its own proof
         lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr, log_size, u64::spec_size_of());
         let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
         if let Some(cdb1) = cdb1 {
-            let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
-                let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
             let metadata_pos = spec_get_active_log_metadata_pos(cdb1); 
             let crc_pos = metadata_pos + LogMetadata::spec_size_of();
             // Proves that metadata, CRC, and log area are the same
             lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + metadata_pos, log_size, LogMetadata::spec_size_of());
             lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + crc_pos, log_size, u64::spec_size_of());
             lemma_subrange_of_extract_bytes_equal(mem1, log_start_addr, log_start_addr + spec_log_area_pos(), log_size, (log_size - spec_log_area_pos()) as nat);
-        } else {
-            // both are None
-        }
+        } 
+        // else, notj are none.
 
         lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
 

@@ -588,8 +588,8 @@ pub proof fn lemma_metadata_matches_implies_metadata_types_set(
     lemma_active_metadata_bytes_equal_implies_metadata_types_set(pm1.committed(), pm2.committed(), log_start_addr, cdb);
 }
 
-// This lemma proves that if two sequences have equal active metadata bytes and one has its metadata types set,
-// then the other sequence also has its metadata types set.
+// This lemma proves that if two sequences have equal active metadata bytes,
+// then both either have their metadata types set, or both don't.
 pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
     mem1: Seq<u8>,
     mem2: Seq<u8>,
@@ -597,10 +597,7 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
     cdb: bool
 )
     requires 
-        // ABSOLUTE_POS_OF_LOG_AREA <= mem1.len(),
-        // ABSOLUTE_POS_OF_LOG_AREA <= mem2.len(),
         mem1.len() == mem2.len(),
-        // log_start_addr + spec_log_area_pos() <= mem1.len(),
         active_metadata_bytes_are_equal(mem1, mem2, log_start_addr),
         ({
             let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
@@ -610,10 +607,10 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
             &&& cdb ==> cdb1.unwrap() && cdb2.unwrap()
             &&& !cdb ==> !cdb1.unwrap() && !cdb2.unwrap()
         }),
-        metadata_types_set(mem1, log_start_addr),
         log_start_addr + spec_log_area_pos() <= mem1.len(),
     ensures 
-        metadata_types_set(mem2, log_start_addr),
+        metadata_types_set(mem1, log_start_addr) ==> metadata_types_set(mem2, log_start_addr),
+        !metadata_types_set(mem1, log_start_addr) ==> !metadata_types_set(mem2, log_start_addr),
 {
     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
         reveal(spec_padding_needed);
@@ -626,6 +623,43 @@ pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
     // (but we have to assert it explicitly to hit the triggers)
     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
 }
+
+// // This lemma proves that if two sequences have equal active metadata bytes 
+// // and one does not have its metadata types set, then the other sequence also 
+// // does not have its metadata types set. 
+// pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_not_types_set(
+//     mem1: Seq<u8>,
+//     mem2: Seq<u8>,
+//     log_start_addr: nat,
+//     cdb: bool
+// )
+//     requires 
+//         mem1.len() == mem2.len(),
+//         active_metadata_bytes_are_equal(mem1, mem2, log_start_addr),
+//         ({
+//             let cdb1 = spec_check_log_cdb(mem1, log_start_addr);
+//             let cdb2 = spec_check_log_cdb(mem2, log_start_addr);
+//             &&& cdb1 is Some 
+//             &&& cdb2 is Some 
+//             &&& cdb ==> cdb1.unwrap() && cdb2.unwrap()
+//             &&& !cdb ==> !cdb1.unwrap() && !cdb2.unwrap()
+//         }),
+//         !metadata_types_set(mem1, log_start_addr),
+//         log_start_addr + spec_log_area_pos() <= mem1.len(),
+//     ensures 
+//         !metadata_types_set(mem2, log_start_addr),
+// {
+//     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
+//         reveal(spec_padding_needed);
+//     }
+    
+//     lemma_establish_extract_bytes_equivalence(mem1, mem2);
+
+//     // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
+//     // so knowing that the assertions below cover subranges of larger, equal subranges is enough to establish equality
+//     // (but we have to assert it explicitly to hit the triggers)
+//     lemma_auto_smaller_range_of_seq_is_subrange(mem1);
+// }
 
 // This lemma proves that if the log metadata has been properly set up and there are no outstanding writes to 
 // metadata, then the metadata_types_set invariant holds after any crash. This is useful when proving the invariant
