@@ -13,7 +13,6 @@ use crate::kv::durable::durablelist::durablelistimpl_v::*;
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
-use crate::kv::durable::itemtable::itemtablespec_t::*;
 use crate::kv::durable::itemtable::layout_v::*;
 use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::metadata::layout_v::*;

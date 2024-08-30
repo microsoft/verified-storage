@@ -35,7 +35,7 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
-use super::itemtablespec_t::DurableItemTableView;
+use super::itemtableimpl_v::DurableItemTableView;
 
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
