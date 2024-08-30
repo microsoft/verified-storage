@@ -1484,6 +1484,7 @@ impl UntrustedLogImpl {
             log_size as int % const_persistence_chunk_size() == 0,
         ensures
             self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
+            wrpm_region.inv(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
@@ -1492,6 +1493,7 @@ impl UntrustedLogImpl {
                 Ok(()) => {
                     &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
                     &&& self@ == old(self)@.advance_head(new_head as int)
+                    &&& wrpm_region@.no_outstanding_writes()
                 },
                 Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
                     &&& self@ == old(self)@
@@ -1899,6 +1901,7 @@ impl UntrustedLogImpl {
             // old(self).state@.drop_pending_appends() == prev_state.commit(),
         ensures
             self.inv(wrpm_region@, log_start_addr as nat, log_size as nat),
+            wrpm_region.inv(),
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
             self.state == old(self).state,

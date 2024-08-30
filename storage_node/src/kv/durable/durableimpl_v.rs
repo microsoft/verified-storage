@@ -905,6 +905,7 @@ verus! {
                     assert(Self::physical_recover(current_state, version_metadata, overall_metadata) == Some(state));
                     assert(Self::physical_recover(s2, version_metadata, overall_metadata) == Some(state));
                 } else {
+                    // the log was cleared before the crash
                     assert(UntrustedOpLog::<K, L>::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
 
                     let recovered_log = AbstractOpLogState::initialize();
@@ -919,17 +920,6 @@ verus! {
                         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
                     lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                         current_state_with_log_installed, s2_with_log_installed, version_metadata, overall_metadata);
-
-                    // is this the right way to go about it? we know that the current state recovers to `state`. But we don't know
-                    // that it recovers to state when we apply an empty log...
-                    assert(Self::physical_recover(current_state, version_metadata, overall_metadata) == 
-                        Self::physical_recover_given_log(current_state, overall_metadata, AbstractOpLogState::initialize()));
-                    // aha and THAT is the problem. I think we'll need to get this from the precondition?
-                    // the caller needs to establish that playing the log is a no-op before clearing it.
-                    // that seems reasonable.
-                    
-                    assert(Self::physical_recover(current_state, version_metadata, overall_metadata) == Some(state));
-                    assert(Self::physical_recover(s2, version_metadata, overall_metadata) == Some(state));
                 }
             }
 
@@ -1251,17 +1241,23 @@ verus! {
             // We obtain physical log entries in an unparsed vector as parsing them would require an additional copy in DRAM
             let (mut op_log, phys_log) = UntrustedOpLog::<K, L>::start(&wrpm_region, version_metadata, overall_metadata)?;
             assert(op_log.inv(wrpm_region@, version_metadata, overall_metadata));
+
             // 2. Replay the log onto the entire PM region
             // Log entries are replayed blindly onto bytes; components do not have their own
             // replay functions. We only parse them after finishing log replay
+
             if phys_log.len() > 0 {
-                proof {
-                    PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, version_metadata, overall_metadata);
+                proof { PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, version_metadata, overall_metadata); 
                 }
+
                 Self::install_log(&mut wrpm_region, version_metadata, overall_metadata, phys_log, Tracked(perm));
+
                 proof { 
                     op_log.lemma_same_bytes_preserve_op_log_invariant(old_wrpm, wrpm_region, version_metadata, overall_metadata);
+                    assert(Self::apply_physical_log_entries(old_wrpm@.committed(), op_log@.physical_op_list).unwrap() == wrpm_region@.committed());
+                    assert(Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == Some(state));
                 }
+
                 assert({
                     &&& version_metadata == deserialize_version_metadata(wrpm_region@.committed())
                     &&& overall_metadata == deserialize_overall_metadata(wrpm_region@.committed(),
@@ -1270,11 +1266,8 @@ verus! {
                 let ghost recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), version_metadata, overall_metadata).unwrap();
                 let ghost physical_log_entries = recovered_log.physical_op_list;
 
-                // We can now cleard the log, since we have installed and flushed it.
+                // We can now clear the log, since we have installed and flushed it.
                 let ghost crash_pred = |s: Seq<u8>| { Self::physical_recover(s, version_metadata, overall_metadata) == Some(state) };
-                    // ||| UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) == Some(op_log@)
-                    // ||| UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
-                // };
                 proof {
                     assert(Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == Some(state));
                     assert(wrpm_region@.can_crash_as(wrpm_region@.committed()));
@@ -1285,11 +1278,19 @@ verus! {
                     Self::lemma_clear_log_is_crash_safe(wrpm_region, op_log, version_metadata,
                         overall_metadata, crash_pred, state, perm,);
                 }
-                op_log.clear_log(&mut wrpm_region, overall_metadata, version_metadata, Ghost(crash_pred), Tracked(perm))?;
-            }
 
-            assume(false);
-            
+                let ghost pre_clear_wrpm = wrpm_region;
+                op_log.clear_log(&mut wrpm_region, overall_metadata, version_metadata, Ghost(crash_pred), Tracked(perm))?;
+
+                proof {
+                    assert(states_differ_only_in_log_region(pre_clear_wrpm@.committed(), wrpm_region@.committed(), 
+                        overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
+                    lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                        pre_clear_wrpm@.committed(), wrpm_region@.committed(), version_metadata, overall_metadata);
+                    assert(Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == Some(state));
+                }
+            } 
+
             // We can now start the rest of the components. 
             // We've already played the log, so we won't do any additional writes from this point on.
             // We use read-only subregions to make reasoning about each region separately easier
@@ -1307,6 +1308,7 @@ verus! {
                 assert(main_table_region == main_table_subregion.view(pm_region).committed());
                 assert(item_table_region == item_table_subregion.view(pm_region).committed());
                 assert(list_area_region == list_area_subregion.view(pm_region).committed());
+
                 lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(mem, version_metadata, overall_metadata);
             }
             
@@ -1329,8 +1331,11 @@ verus! {
             proof {
                 let recovered_log = UntrustedOpLog::<K, L>::recover(old_wrpm@.committed(), version_metadata, overall_metadata).unwrap();
                 let physical_log_entries = recovered_log.physical_op_list;
-                // we've replayed the physical log entries
-                assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap() == wrpm_region@.committed());
+                assert(states_differ_only_in_log_region(
+                    DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(old_wrpm@.committed(), physical_log_entries).unwrap(),
+                    wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                );
+
                 // each recovered component parses correctly
                 assert(parse_metadata_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap() == main_table@);
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
@@ -1348,15 +1353,15 @@ verus! {
             let ghost logical_recovery_state = Self::logical_recover(wrpm_region@.committed(), version_metadata, overall_metadata);
             assert(physical_recovery_state == logical_recovery_state);
             */
-
-            
             
             proof {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
                     durable_kv_store.wrpm@
                 );
-                // assert(!durable_kv_store.transaction_committed() ||
-                //        durable_kv_store.log.base_log_view().log.len() == 0); // TODO @hayley
+                // TODO @hayley
+                assume(forall|s| #[trigger] durable_kv_store.wrpm@.can_crash_as(s) ==> durable_kv_store.version_metadata == deserialize_version_metadata(s));
+                assume(forall|s| #[trigger] durable_kv_store.wrpm@.can_crash_as(s) ==> 
+                    durable_kv_store.overall_metadata == deserialize_overall_metadata(s,  durable_kv_store.version_metadata.overall_metadata_addr));
                 durable_kv_store.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
             }
             
