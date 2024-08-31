@@ -1966,7 +1966,8 @@ verus! {
                 }
             }
 
-            let metadata_index = self.metadata_table.tentative_create(
+            let ghost pre_wrpm = self.wrpm;
+            let metadata_index = match self.metadata_table.tentative_create(
                 &main_table_subregion,
                 &mut self.wrpm,
                 head_index, 
@@ -1974,7 +1975,50 @@ verus! {
                 key,
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-            ); // ?;
+            ) {
+                Ok(metadata_index) => metadata_index,
+                Err(e) => {
+                    proof {
+                        main_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+                        main_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
+                            &self.wrpm, perm
+                        );
+                    }
+
+                    self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
+
+                    let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);      
+                    let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat); 
+                    let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                        self.overall_metadata.list_area_size as nat);
+
+                    proof {
+                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                            old(self).wrpm@,
+                            self.wrpm@,
+                            self.version_metadata,
+                            self.overall_metadata
+                        );
+                        self.lemma_transaction_abort(*old(self));  
+                    }
+
+                    // abort the transaction in each component to re-establish their invariants
+                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+
+                    proof {
+                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                            old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                        );
+                        assume(false); // TODO @hayley
+                        self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                    }
+                    return Err(e);
+                }
+            };
             assume(false);
 
             /*
