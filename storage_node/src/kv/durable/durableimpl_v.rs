@@ -1473,12 +1473,7 @@ verus! {
             
             proof {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
-                    durable_kv_store.wrpm@
-                );
-                // TODO @hayley
-                assume(forall|s| #[trigger] durable_kv_store.wrpm@.can_crash_as(s) ==> durable_kv_store.version_metadata == deserialize_version_metadata(s));
-                assume(forall|s| #[trigger] durable_kv_store.wrpm@.can_crash_as(s) ==> 
-                    durable_kv_store.overall_metadata == deserialize_overall_metadata(s,  durable_kv_store.version_metadata.overall_metadata_addr));
+                    durable_kv_store.wrpm@);
                 durable_kv_store.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
             }
             
