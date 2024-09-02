@@ -148,6 +148,27 @@ pub proof fn lemma_condition_sufficient_to_create_wrpm_subregion<Perm>(
     }
 }
 
+pub proof fn lemma_bytes_match_in_equal_subregions(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    start: nat,
+    len: nat,
+)
+    requires 
+        v1.len() == v2.len(),
+        v1.len() >= start + len,
+        get_subregion_view(v1, start, len) == 
+            get_subregion_view(v2, start, len),
+    ensures 
+        forall |addr: int| start <= addr < start + len ==> v1.state[addr] == v2.state[addr]
+{
+    assert forall |addr: int| start <= addr < start + len implies v1.state[addr] == v2.state[addr] by {
+        let subregion1 = get_subregion_view(v1, start, len);
+        let subregion2 = get_subregion_view(v2, start, len);
+        assert(subregion1.state[addr - start] == subregion2.state[addr - start]);
+    }
+}
+
 pub struct WriteRestrictedPersistentMemorySubregion
 {
     start_: u64,

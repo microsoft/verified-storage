@@ -2035,9 +2035,12 @@ verus! {
                        get_subregion_view(old(self).wrpm@, self.overall_metadata.log_area_addr as nat,
                                           self.overall_metadata.log_area_size as nat));
                 assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)) by {
-                    assume(false);  // TODO @hayley
-                    self.log.lemma_same_bytes_preserve_op_log_invariant(old(self).wrpm, self.wrpm, self.version_metadata,
-                                                                        self.overall_metadata);
+                    assert(0 <= self.overall_metadata.log_area_addr < 
+                        self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= 
+                        self.overall_metadata.region_size);
+                    assert(0 < spec_log_header_area_size() <= spec_log_area_pos() < self.overall_metadata.log_area_size);
+                    self.log.lemma_same_op_log_view_preserves_invariant(old(self).wrpm, self.wrpm, 
+                        self.version_metadata, self.overall_metadata);
                 }
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
