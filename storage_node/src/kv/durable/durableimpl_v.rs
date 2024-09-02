@@ -334,9 +334,13 @@ verus! {
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
-            match UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata) {
-                Some(recovered_log) => Self::physical_recover_given_log(mem, overall_metadata, recovered_log),
-                None => None,
+            if mem.len() != overall_metadata.region_size {
+                None
+            } else {
+                match UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata) {
+                    Some(recovered_log) => Self::physical_recover_given_log(mem, overall_metadata, recovered_log),
+                    None => None,
+                }
             }
         }
 
@@ -621,7 +625,73 @@ verus! {
             } implies mem1_with_log[addr] == #[trigger] mem2_with_log[addr] by {
                 Self::lemma_byte_equal_after_recovery_specific_byte(addr, mem1, mem2, version_metadata, overall_metadata, op_log);
             }
+        }
 
+        pub proof fn lemma_log_area_unchanged_by_applying_log_entries(
+            mem: Seq<u8>,
+            op_log: Seq<AbstractPhysicalOpLogEntry>,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+        )
+            requires 
+                mem.len() == overall_metadata.region_size,
+                overall_metadata.log_area_size <= mem.len(),
+                AbstractPhysicalOpLogEntry::log_inv(op_log, version_metadata, overall_metadata),
+                Self::apply_physical_log_entries(mem, op_log) is Some,
+            ensures 
+                ({
+                    let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log).unwrap();
+                    forall |addr: int| {
+                        &&& 0 <= addr < mem.len() 
+                        &&& overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size
+                    } ==> mem_with_log_installed[addr] == #[trigger] mem[addr] 
+                })
+        {
+            let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log).unwrap();
+
+            assert(forall |addr: int| {
+                &&& 0 <= addr < mem.len() 
+                &&& overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size
+            } ==> !addr_modified_by_recovery(op_log, addr));
+
+            assert forall |addr: int| {
+                &&& 0 <= addr < mem.len() 
+                &&& !addr_modified_by_recovery(op_log, addr)
+            } implies mem_with_log_installed[addr] == mem[addr] by {
+                Self::lemma_byte_unchanged_by_log_replay(addr, mem, version_metadata, overall_metadata, op_log);
+            }
+        }
+
+        pub proof fn lemma_byte_unchanged_by_log_replay(
+            addr: int,
+            mem: Seq<u8>, 
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+            op_log: Seq<AbstractPhysicalOpLogEntry>,
+        )
+            requires 
+                mem.len() == overall_metadata.region_size,
+                overall_metadata.log_area_size <= mem.len(),
+                AbstractPhysicalOpLogEntry::log_inv(op_log, version_metadata, overall_metadata),
+                Self::apply_physical_log_entries(mem, op_log) is Some,
+                !addr_modified_by_recovery(op_log, addr),
+                0 <= addr < mem.len(),
+            ensures 
+                ({
+                    let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log).unwrap();
+                    mem_with_log_installed[addr] == mem[addr] 
+                })
+            decreases op_log.len()
+        {
+            if op_log.len() == 0 {
+                // trivial
+            } else {
+                let prefix = op_log.subrange(0, op_log.len() - 1);
+                let last_op = op_log[op_log.len() - 1];
+                let mem_with_prefix = Self::apply_physical_log_entries(mem, prefix).unwrap();
+                Self::lemma_log_replay_preserves_size(mem, prefix);
+                Self::lemma_byte_unchanged_by_log_replay(addr, mem, version_metadata, overall_metadata, prefix);
+            }
         }
 
         pub proof fn lemma_log_replay_preserves_size(
@@ -849,15 +919,14 @@ verus! {
                 Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == Some(state),
                 wrpm_region@.no_outstanding_writes(),
                 forall |s| crash_pred(s) ==> perm.check_permission(s),
-                forall |s| Self::physical_recover(s, version_metadata, overall_metadata) == 
-                    Some(state) <==> crash_pred(s),
+                forall |s| (Self::physical_recover(s, version_metadata, overall_metadata) == Some(state)) <==> crash_pred(s),
                 wrpm_region@.len() >= VersionMetadata::spec_size_of(),
                 overall_metadata.list_area_addr + overall_metadata.list_area_size <= wrpm_region@.len(),
                 wrpm_region@.len() == overall_metadata.region_size,
                 AbstractPhysicalOpLogEntry::log_inv(op_log@.physical_op_list, version_metadata, overall_metadata),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
                 Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == 
-                    Self::physical_recover_given_log(wrpm_region@.committed(), overall_metadata, AbstractOpLogState::initialize())
+                    Self::physical_recover_given_log(wrpm_region@.committed(), overall_metadata, AbstractOpLogState::initialize()),
             ensures 
                 forall |s2: Seq<u8>| {
                     let current_state = wrpm_region@.flush().committed();
@@ -876,6 +945,13 @@ verus! {
                     &&& UntrustedOpLog::<K, L>::recover(s2, version_metadata, overall_metadata) == Some(op_log@)
                 } ==> #[trigger] crash_pred(s2)
         {
+            assert(forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==>
+                Self::physical_recover(s, version_metadata, overall_metadata) == Some(state) ==> {
+                    ||| UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) == Some(op_log@)
+                    ||| UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
+                }
+            );
+
             assert forall |s2: Seq<u8>| {
                 let current_state = wrpm_region@.flush().committed();
                 &&& current_state.len() == s2.len() 
@@ -923,14 +999,54 @@ verus! {
                 }
             }
 
-            // TODO @hayley
-            assume(forall |s1: Seq<u8>, s2: Seq<u8>| {
+            assert forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& UntrustedOpLog::<K, L>::recover(s1, version_metadata, overall_metadata) == Some(op_log@)
                 &&& UntrustedOpLog::<K, L>::recover(s2, version_metadata, overall_metadata) == Some(op_log@)
-            } ==> #[trigger] crash_pred(s2));
+            } implies #[trigger] crash_pred(s2) by {
+                // In this case, the log was not durably cleared before the crash, so the log recovers to its old state
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s1, version_metadata, overall_metadata, op_log@.physical_op_list);
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s2, version_metadata, overall_metadata, op_log@.physical_op_list);
+                Self::lemma_log_replay_preserves_size(s1, op_log@.physical_op_list);
+                Self::lemma_log_replay_preserves_size(s2, op_log@.physical_op_list);
+
+                // For this crash pre condition, we'll prove that recovering from s1_with_log_installed's non-log components plus op_log (which we already 
+                // know is the recovery state of its op log) is equivalent to recovering normally from s1 (which we already know, from crash_pred(s1), gives
+                // Some(state)). Then, we prove that s2 has the same non-log components after replaying op_log (which we already know is also the recovery state
+                // of its op log) as s1, which tells us that they recover to the same DurableKvStore state.
+                let s1_with_log_installed = Self::apply_physical_log_entries(s1, op_log@.physical_op_list).unwrap();
+                let main_table_region = extract_bytes(s1_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let item_table_region = extract_bytes(s1_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                let list_area_region = extract_bytes(s1_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                let main_table_view = parse_metadata_table::<K>(
+                    main_table_region, 
+                    overall_metadata.num_keys,
+                    overall_metadata.metadata_node_size
+                ).unwrap();
+                let item_table_view = parse_item_table::<I, K>(
+                    item_table_region,
+                    overall_metadata.num_keys as nat,
+                    main_table_view.valid_item_indices()
+                ).unwrap();
+                let list_view = DurableList::<K, L>::parse_all_lists(
+                    main_table_view,
+                    list_area_region,
+                    overall_metadata.list_node_size,
+                    overall_metadata.num_list_entries_per_node
+                ).unwrap();
+                assert(Some(Self::recover_from_component_views(op_log@, main_table_view, item_table_view, list_view)) == 
+                    Self::physical_recover(s1, version_metadata, overall_metadata));
+                let s2_with_log_installed = Self::apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
+                Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
+                    s1, s2, op_log@.physical_op_list, version_metadata, overall_metadata);
+                let s2_with_log_installed = Self::apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    s1_with_log_installed, s2_with_log_installed, version_metadata, overall_metadata);
+                assert(Some(Self::recover_from_component_views(op_log@, main_table_view, item_table_view, list_view)) == 
+                    Self::physical_recover(s2, version_metadata, overall_metadata));
+            }
         }
 
         proof fn lemma_version_and_overall_metadata_unchanged(
