@@ -274,7 +274,6 @@ verus! {
         {
             &&& self.metadata_table_free_list@.no_duplicates()
             &&& self.pending_allocations@.no_duplicates()
-            // &&& self.metadata_table_free_list@.len() + self.pending_allocations@.len() <= overall_metadata.num_keys
             &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
                 !self.metadata_table_free_list@.contains(#[trigger] self.pending_allocations[i])
             &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys
@@ -284,7 +283,15 @@ verus! {
                     ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Tentative(_)
                 }
             &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> 
-                    self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
+                { self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid }
+            &&& forall |idx: u64| {
+                    &&& 0 <= idx < self@.durable_metadata_table.len()
+                    &&& self.spec_outstanding_cdb_writes()[idx as int] is Some
+                } ==> #[trigger] self.pending_allocations@.contains(idx)
+            &&& forall |idx: u64| {
+                    &&& 0 <= idx < self@.durable_metadata_table.len()
+                    &&& self.spec_outstanding_entry_writes()[idx as int] is Some
+                } ==> #[trigger] self.pending_allocations@.contains(idx)
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -1351,6 +1358,8 @@ verus! {
                 },
             };
             self.pending_allocations.push(free_index);
+            assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
+            assert(forall |idx: u64| old(self).pending_allocations@.contains(idx) ==> self.pending_allocations@.contains(idx));
             
             assert(old(self).allocator_view().contains(free_index)) by {
                 assert(old(self).metadata_table_free_list@.last() == free_index);
@@ -1474,6 +1483,15 @@ verus! {
             }
 
             assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
+
+            assert forall |idx: u64| {
+                &&& 0 <= idx < self@.durable_metadata_table.len()
+                &&& self.spec_outstanding_entry_writes()[idx as int] is Some
+            } implies #[trigger] self.pending_allocations@.contains(idx) by {
+                if idx == free_index {
+                    assert(self.pending_allocations@[self.pending_allocations@.len()-1] == free_index);
+                }
+            }
 
             Ok(free_index)
         }
@@ -1731,6 +1749,7 @@ verus! {
         ) 
             requires
                 old(self).opaque_inv(overall_metadata),
+                old(self).allocator_inv(),
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 pm.len() >= overall_metadata.main_table_size,
                 old(self).spec_metadata_node_size() == overall_metadata.metadata_node_size,
@@ -1753,6 +1772,7 @@ verus! {
                 forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==> !old(self).free_indices().contains(idx)
             ensures
                 self.valid(pm, overall_metadata),
+                self.allocator_inv(),
                 self.spec_outstanding_cdb_writes() == Seq::new(
                     old(self).spec_outstanding_cdb_writes().len(),
                     |i: int| None::<bool>
@@ -1771,7 +1791,7 @@ verus! {
             self.state = Ghost(MetadataTableView {
                 durable_metadata_table: self.state@.durable_metadata_table.map_values(
                     |e| match e {
-                        DurableEntry::Tentative(_) => DurableEntry::Invalid,
+                        DurableEntry::Tentative(e) => DurableEntry::Invalid,
                         _ => e
                     }
                 )
@@ -1787,51 +1807,71 @@ verus! {
                 |i: int| None::<MetadataTableViewEntry<K>>
             ));
 
-            assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies {
-                &&& self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-                &&& self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-            } by {
-                let start = index_to_offset(i as nat, overall_metadata.metadata_node_size as nat) as int;
-                assert(i < overall_metadata.num_keys);
-                assert(i * overall_metadata.metadata_node_size <= overall_metadata.num_keys * overall_metadata.metadata_node_size) by {
-                    lemma_mul_inequality(i as int, overall_metadata.num_keys as int, overall_metadata.metadata_node_size as int);
-                }
-                assert(i * overall_metadata.metadata_node_size + overall_metadata.metadata_node_size <= overall_metadata.num_keys * overall_metadata.metadata_node_size) by {
-                    lemma_mul_inequality((i + 1) as int, overall_metadata.num_keys as int, overall_metadata.metadata_node_size as int);
-                    lemma_mul_is_distributive_add_other_way(overall_metadata.metadata_node_size as int, 1int, i as int);
-                }
-            }
-
-            assert(forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> {
-                ||| #[trigger] self.state@.durable_metadata_table[i] matches DurableEntry::Invalid 
-                ||| self.state@.durable_metadata_table[i] matches DurableEntry::Valid(_)
-            });
-
-            // need this assertion for triggers
-            assert(forall |s| #[trigger] pm.can_crash_as(s) ==> 
-                parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@));
-
-            assert forall |idx: u64| {
-                &&& 0 <= idx < self@.durable_metadata_table.len()
-                &&& self.allocator_view().contains(idx) 
-            } implies self.free_indices().contains(idx) by {
-                // The index must have been pending or free before we aborted the transaction
-                assert({
-                    ||| old(self).pending_allocations@.contains(idx) 
-                    ||| old(self).metadata_table_free_list@.contains(idx)
-                });
-            }
-
-            assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies {
-                &&& idx < overall_metadata.num_keys
-                &&& self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-            } by {
-                if !old(self).metadata_table_free_list@.contains(idx) {
-                    assert(old(self).pending_allocations@.contains(idx));
-                }
-            }
-
             proof {
+                // We now prove that aborting the transaction reestablishes invariants that 
+                // were broken.
+
+                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies {
+                    &&& self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
+                    &&& self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
+                } by {
+                    let start = index_to_offset(i as nat, overall_metadata.metadata_node_size as nat) as int;
+                    assert(i < overall_metadata.num_keys);
+                    assert(i * overall_metadata.metadata_node_size <= overall_metadata.num_keys * overall_metadata.metadata_node_size) by {
+                        lemma_mul_inequality(i as int, overall_metadata.num_keys as int, overall_metadata.metadata_node_size as int);
+                    }
+                    assert(i * overall_metadata.metadata_node_size + overall_metadata.metadata_node_size <= overall_metadata.num_keys * overall_metadata.metadata_node_size) by {
+                        lemma_mul_inequality((i + 1) as int, overall_metadata.num_keys as int, overall_metadata.metadata_node_size as int);
+                        lemma_mul_is_distributive_add_other_way(overall_metadata.metadata_node_size as int, 1int, i as int);
+                    }
+                }
+
+                assert(forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> {
+                    ||| #[trigger] self.state@.durable_metadata_table[i] matches DurableEntry::Invalid 
+                    ||| self.state@.durable_metadata_table[i] matches DurableEntry::Valid(_)
+                });
+
+                // need this assertion for triggers
+                assert(forall |s| #[trigger] pm.can_crash_as(s) ==> 
+                    parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@));
+
+                assert forall |idx: u64| self.free_indices().contains(idx) implies 
+                    self.allocator_view().contains(idx) 
+                by {
+                    assert(self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    if old(self).free_indices().contains(idx) {
+                        // index was free before the abort, so it's still free and in the allocator list now.
+                        assert(old(self).allocator_view().contains(idx));
+                        assert(forall |i: int| 0 <= i < old(self).metadata_table_free_list@.len() ==> 
+                            old(self).metadata_table_free_list@[i] == self.metadata_table_free_list@[i]);
+                        assert(self.metadata_table_free_list@.contains(idx));
+                        assert(self.allocator_view().contains(idx));
+                    } else {
+                        // We need to hit the necessary triggers to prove that the index is pending 
+                        // if it has outstanding writes.
+                        if old(self).spec_outstanding_cdb_writes()[idx as int] is Some {
+                            assert(old(self).pending_allocations@.contains(idx));
+                        } else if old(self).spec_outstanding_entry_writes()[idx as int] is Some {
+                            assert(old(self).pending_allocations@.contains(idx));
+                        }
+                        // Prove that this index would have been added to the allocator.
+                        assert(self.metadata_table_free_list@.len() == old(self).metadata_table_free_list@.len() + old(self).pending_allocations@.len());
+                        assert(forall |i: int| 0 <= i < old(self).pending_allocations@.len() ==> 
+                            old(self).pending_allocations@[i] == self.metadata_table_free_list@[i + old(self).metadata_table_free_list@.len()]);
+                    }
+                }
+
+                assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies {
+                    &&& idx < overall_metadata.num_keys
+                    &&& self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                } by {
+                    if !old(self).metadata_table_free_list@.contains(idx) {
+                        assert(old(self).pending_allocations@.contains(idx));
+                    }
+                }
+                assert(self.allocator_view() == self.free_indices());
+
+            
                 assert_sets_equal!(self@.valid_item_indices() == old(self)@.valid_item_indices(), elem => {
                     assert(forall |i: int| {
                         &&& 0 <= i < self@.durable_metadata_table.len() 

@@ -2295,13 +2295,14 @@ verus! {
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
-
+                    
                     proof {
+                        assert(!self.transaction_committed());
                         lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                             old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                         );
-                        assume(false); // TODO @hayley
                         self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                        assert(self.valid());
                     }
                     return Err(e);
                 }
@@ -2401,7 +2402,7 @@ verus! {
 
         proof fn lemma_if_every_component_recovers_to_its_current_state_then_self_does(self)
             requires
-                !self.transaction_committed() || self.log.base_log_view().log.len() == 0,
+                !self.transaction_committed(), //|| self.log.base_log_view().log.len() == 0,
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
