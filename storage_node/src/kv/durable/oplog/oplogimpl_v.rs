@@ -219,7 +219,10 @@ verus! {
                     &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                             Self::recover(s, version_metadata, overall_metadata) == Some(self@)
                 },
-        {}
+                self.spec_base_log().inv(pm_region@, overall_metadata.log_area_addr as nat,
+                                         overall_metadata.log_area_size as nat)
+        {
+        }
 
         pub closed spec fn view(self) -> AbstractOpLogState
         {

@@ -2097,6 +2097,11 @@ verus! {
                         main_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
                             &self.wrpm, perm
                         );
+                        self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
+                                                                self.overall_metadata);
+                        self.log.lemma_same_bytes_preserve_op_log_invariant(
+                            pre_wrpm, self.wrpm, self.version_metadata, self.overall_metadata
+                        );
                     }
 
                     self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
