@@ -1321,6 +1321,7 @@ verus! {
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
+                    &&& !self@.op_list_committed
                     &&& self.base_log_view().pending.len() == 0
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
