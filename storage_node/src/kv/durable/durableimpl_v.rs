@@ -591,6 +591,46 @@ verus! {
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
         }
 
+        pub proof fn lemma_metadata_unchanged_when_views_differ_only_in_log_region(
+            v1: PersistentMemoryRegionView,
+            v2: PersistentMemoryRegionView,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+        )
+            requires
+                views_differ_only_in_log_region(v1.flush(), v2, 
+                    overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                version_metadata == deserialize_version_metadata(v1.committed()),
+                overall_metadata == deserialize_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr),
+                v2.no_outstanding_writes(),
+                no_outstanding_writes_to_version_metadata(v1),
+                no_outstanding_writes_to_overall_metadata(v1, version_metadata.overall_metadata_addr as int),
+                0 < version_metadata.overall_metadata_addr < 
+                    version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
+                    overall_metadata.log_area_addr,
+                0 < VersionMetadata::spec_size_of() < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < v1.len(),
+                v1.len() == v2.len(),
+                v1.len() >= VersionMetadata::spec_size_of(),
+                v1.len() == overall_metadata.region_size,
+            ensures 
+                version_metadata == deserialize_version_metadata(v2.committed()),
+                overall_metadata == deserialize_overall_metadata(v2.committed(), version_metadata.overall_metadata_addr),
+        {
+            lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
+            lemma_establish_extract_bytes_equivalence(v1.flush().committed(), v2.committed());
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v1);
+
+            assert(version_metadata == deserialize_version_metadata(v1.committed()));
+            assert(overall_metadata == deserialize_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr));
+
+            assert(extract_version_metadata(v1.committed()) == extract_version_metadata(v2.committed()));
+            assert(extract_overall_metadata(v1.committed(), version_metadata.overall_metadata_addr) == 
+                extract_overall_metadata(v2.committed(), version_metadata.overall_metadata_addr));
+
+            assert(version_metadata == deserialize_version_metadata(v1.flush().committed()));
+            assert(overall_metadata == deserialize_overall_metadata(v1.flush().committed(), version_metadata.overall_metadata_addr));
+        }
+
         pub proof fn lemma_applying_same_log_preserves_states_differ_only_in_log_region(
             mem1: Seq<u8>,
             mem2: Seq<u8>,
@@ -1846,7 +1886,7 @@ verus! {
                            extract_bytes(alt_crash_state, log_area_addr as nat, log_area_size as nat));
                     lemma_same_log_bytes_recover_to_same_state(crash_state, alt_crash_state,
                                                                log_area_addr as nat, log_area_size as nat,
-                                                           crash_state.len());
+                                                               crash_state.len());
                 }
                 let recovered_log = UntrustedOpLog::<K, L>::recover(crash_state, self.version_metadata,
                                                                     overall_metadata);
@@ -1874,7 +1914,7 @@ verus! {
                     assert(0 <= which_entry <= u64::MAX);
                     assert(main_table_view.valid_item_indices().contains(which_entry as u64));
                     assert(self.wrpm@.can_crash_as(crash_state));
-                        lemma_subregion_view_can_crash_as_subrange(self.wrpm@, crash_state,
+                    lemma_subregion_view_can_crash_as_subrange(self.wrpm@, crash_state,
                                                                main_table_addr as nat, main_table_size as nat);
                     assert(parse_metadata_table::<K>(main_table_region, num_keys,
                                                      metadata_node_size) == Some(self.metadata_table@));
@@ -2463,7 +2503,6 @@ verus! {
             }
         }
 
-/*
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
         pub fn commit(
@@ -2569,6 +2608,8 @@ verus! {
                         self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(flushed_state, s2, crash_pred);
                     }
                 }
+
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
             }
 
             // 2. Commit the op log
@@ -2638,6 +2679,7 @@ verus! {
             assume(false);
             Ok(())
         }
+
 /*
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -3151,7 +3193,7 @@ verus! {
 
             Ok(())
         }
-        */*/
+        */
     }
     
         
