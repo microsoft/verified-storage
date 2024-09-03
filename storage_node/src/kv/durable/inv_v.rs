@@ -404,6 +404,10 @@ verus! {
                 &&& main_table_region1 == main_table_region2
                 &&& item_table_region1 == item_table_region2
                 &&& list_area_region1 == list_area_region2
+
+                &&& deserialize_version_metadata(s1) == deserialize_version_metadata(s2)
+                &&& deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == 
+                        deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr)
             })
     {
         lemma_establish_extract_bytes_equivalence(s1, s2);
