@@ -273,6 +273,8 @@ verus! {
             &&& self.wrpm@.len() == self.overall_metadata.region_size
             &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
+            &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
+            &&& no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int)
             &&& forall|s| #[trigger] pm_view.can_crash_as(s) ==> self.inv_mem(s)
             &&& self.metadata_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
@@ -1942,6 +1944,7 @@ verus! {
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
+        #[verifier::rlimit(20)]
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -2099,11 +2102,13 @@ verus! {
                         );
                         self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
                                                                 self.overall_metadata);
-                        self.log.lemma_same_bytes_preserve_op_log_invariant(
+                        self.log.lemma_same_op_log_view_preserves_invariant(
                             pre_wrpm, self.wrpm, self.version_metadata, self.overall_metadata
                         );
+                        lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
                     }
 
+                    let ghost mid_self = *self;
                     self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
 
                     let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -2115,12 +2120,12 @@ verus! {
 
                     proof {
                         lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                            old(self).wrpm@,
+                            mid_self.wrpm@,
                             self.wrpm@,
                             self.version_metadata,
                             self.overall_metadata
                         );
-                        self.lemma_transaction_abort(*old(self));  
+                        self.lemma_transaction_abort(mid_self);  
                     }
 
                     // abort the transaction in each component to re-establish their invariants

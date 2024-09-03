@@ -220,7 +220,8 @@ verus! {
                             Self::recover(s, version_metadata, overall_metadata) == Some(self@)
                 },
                 self.spec_base_log().inv(pm_region@, overall_metadata.log_area_addr as nat,
-                                         overall_metadata.log_area_size as nat)
+                                         overall_metadata.log_area_size as nat),
+                no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat),
         {
         }
 
