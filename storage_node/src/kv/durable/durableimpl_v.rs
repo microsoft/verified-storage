@@ -2635,15 +2635,23 @@ verus! {
                             self.version_metadata,
                             self.overall_metadata
                         );
-                        self.lemma_transaction_abort(*old(self));  
+                        self.lemma_transaction_abort(*old(self));
                     }
 
                     // abort the transaction in each component to re-establish their invariants
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
-                    
-                    assume(false);
+
+                    proof {
+                        assert(!self.transaction_committed());
+                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                            old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                        );
+                        self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                        assert(self.valid());
+                    }
+
                     return Err(e);
                 }
             }

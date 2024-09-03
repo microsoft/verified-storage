@@ -1549,6 +1549,7 @@ verus! {
             old(log_wrpm)@.len() >= VersionMetadata::spec_size_of(),
         ensures 
             self.inv(log_wrpm@, version_metadata, overall_metadata),
+            log_wrpm.inv(),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             match result {
@@ -1556,6 +1557,7 @@ verus! {
                     &&& self@ == old(self)@.commit_op_log()
                 }
                 Err(KvError::LogErr{log_err}) => {
+                    &&& !self@.op_list_committed
                     &&& self.base_log_view().pending.len() == 0
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
