@@ -1723,9 +1723,9 @@ verus! {
 
         spec fn get_writable_mask_for_item_table(self) -> (mask: spec_fn(int) -> bool)
         {
-            |addr: int| address_belongs_to_invalid_item_table_entry::<I, K>(addr - self.overall_metadata.item_table_addr,
-                                                                          self.overall_metadata.num_keys,
-                                                                          self.metadata_table@.valid_item_indices())
+            |addr: int| address_belongs_to_invalid_item_table_entry::<I>(addr - self.overall_metadata.item_table_addr,
+                                                                       self.overall_metadata.num_keys,
+                                                                       self.metadata_table@.valid_item_indices())
         }
 
         proof fn get_condition_suitable_for_creating_item_table_subregion(
@@ -1787,7 +1787,7 @@ verus! {
                 let ss1 = extract_bytes(s1, item_table_addr as nat, item_table_size as nat);
                 let ss2 = extract_bytes(s2, item_table_addr as nat, item_table_size as nat);
                 assert forall|addr: int| 0 <= addr < ss2.len() && ss1[addr] != #[trigger] ss2[addr] implies
-                           address_belongs_to_invalid_item_table_entry::<I, K>(
+                           address_belongs_to_invalid_item_table_entry::<I>(
                                addr, num_keys, self.metadata_table@.valid_item_indices()
                            ) by {
                 }
