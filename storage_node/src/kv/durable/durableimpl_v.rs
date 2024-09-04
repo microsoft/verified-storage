@@ -1909,7 +1909,8 @@ verus! {
 
                 assert forall|addr: int|
                     0 <= addr < main_table_region.len() && main_table_region[addr] != alt_main_table_region[addr] implies
-                    #[trigger] is_addr_part_of_invalid_entry(main_table_region, num_keys, metadata_node_size, addr) by {
+                    #[trigger] address_belongs_to_invalid_main_table_entry(addr, main_table_region, num_keys,
+                                                                           metadata_node_size) by {
                     assert(self.get_writable_mask_for_main_table()(addr + main_table_addr));
                     let which_entry = addr / metadata_node_size as int;
                     lemma_valid_entry_index(which_entry as nat, num_keys as nat, metadata_node_size as nat);

@@ -302,11 +302,11 @@ verus! {
         index * entry_size
     }
 
-    pub open spec fn is_addr_part_of_invalid_entry(
+    pub open spec fn address_belongs_to_invalid_main_table_entry(
+        addr: int,
         mem: Seq<u8>,
         num_keys: u64,
         metadata_node_size: u32,
-        addr: int,
     ) -> bool
     {
         let which_entry = addr / metadata_node_size as int;
@@ -333,7 +333,7 @@ verus! {
             metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
-                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+                       #[trigger] address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size),
             i < num_keys
         ensures
             validate_metadata_entry::<K>(extract_bytes(mem1, i * metadata_node_size as nat, metadata_node_size as nat),
@@ -374,7 +374,7 @@ verus! {
                                                        addr - i * metadata_node_size);
                 }
                 assert(addr - which_entry * metadata_node_size < u64::spec_size_of());
-                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+                assert(!address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size));
             }
             assert(cdb_bytes1 =~= cdb_bytes2);
         }
@@ -390,7 +390,7 @@ verus! {
                     lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
                                                        addr - i * metadata_node_size);
                 }
-                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+                assert(!address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size));
             }
             assert(crc_bytes1 =~= crc_bytes2);
             assert(metadata_bytes1 =~= metadata_bytes2);
@@ -412,7 +412,7 @@ verus! {
             metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
-                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+                       #[trigger] address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size),
         ensures
             validate_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat) ==
             validate_metadata_entries::<K>(mem2, num_keys as nat, metadata_node_size as nat)
@@ -464,7 +464,7 @@ verus! {
             metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
-                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+                       #[trigger] address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size),
             i < num_keys,
             validate_metadata_entry::<K>(extract_bytes(mem1, index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat),
                                          num_keys as nat),
@@ -509,7 +509,7 @@ verus! {
                                                        addr - i * metadata_node_size);
                 }
                 assert(addr - which_entry * metadata_node_size < u64::spec_size_of());
-                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+                assert(!address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size));
             }
             assert(cdb_bytes1 =~= cdb_bytes2);
         }
@@ -525,7 +525,7 @@ verus! {
                     lemma_fundamental_div_mod_converse(addr, metadata_node_size as int, i as int,
                                                        addr - i * metadata_node_size);
                 }
-                assert(!is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr));
+                assert(!address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size));
             }
             assert(crc_bytes1 =~= crc_bytes2);
             assert(metadata_bytes1 =~= metadata_bytes2);
@@ -547,7 +547,7 @@ verus! {
             metadata_node_size ==
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             forall|addr: int| 0 <= addr < mem1.len() && mem1[addr] != mem2[addr] ==>
-                       #[trigger] is_addr_part_of_invalid_entry(mem1, num_keys, metadata_node_size, addr),
+                       #[trigger] address_belongs_to_invalid_main_table_entry(addr, mem1, num_keys, metadata_node_size),
         ensures
             parse_metadata_table::<K>(mem1, num_keys, metadata_node_size) ==
             parse_metadata_table::<K>(mem2, num_keys, metadata_node_size)

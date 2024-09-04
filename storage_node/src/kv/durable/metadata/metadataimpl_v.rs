@@ -1254,7 +1254,8 @@ verus! {
             assert(validate_metadata_entry::<K>(entry_bytes, num_keys as nat));
             lemma_subrange_of_subrange_forall(crash_state1);
             assert forall|addr: int| crc_addr <= addr < end_addr implies
-                       is_addr_part_of_invalid_entry(crash_state1, num_keys, metadata_node_size, addr) by {
+                       address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys, metadata_node_size)
+            by {
                 assert(addr / metadata_node_size as int == which_entry) by {
                     lemma_fundamental_div_mod_converse(
                         addr, metadata_node_size as int, which_entry as int, addr - which_entry * metadata_node_size
@@ -1262,8 +1263,8 @@ verus! {
                 }
             }
             assert forall|addr: int| 0 <= addr < crash_state1.len() && crash_state1[addr] != crash_state2[addr] implies
-                   #[trigger] is_addr_part_of_invalid_entry(crash_state1, num_keys,
-                                                            metadata_node_size, addr) by {
+                   #[trigger] address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys,
+                                                                          metadata_node_size) by {
                 assert(can_views_differ_at_addr(addr));
             }
             lemma_parse_metadata_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
