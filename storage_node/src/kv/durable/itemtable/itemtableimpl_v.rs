@@ -414,8 +414,8 @@ verus! {
             assert forall|addr: int| {
                        &&& 0 <= addr < crash_state2.len()
                        &&& crash_state1[addr] != #[trigger] crash_state2[addr]
-                   }
-                   implies address_belongs_to_invalid_entry::<I, K>(addr, num_keys, self.spec_valid_indices())
+                   } implies
+                   address_belongs_to_invalid_item_table_entry::<I, K>(addr, num_keys, self.spec_valid_indices())
             by {
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
                 assert(can_views_differ_at_addr(addr));
@@ -448,8 +448,8 @@ verus! {
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
-                    &&& address_belongs_to_invalid_entry::<I, K>(addr, overall_metadata.num_keys,
-                                                               old(self).spec_valid_indices())
+                    &&& address_belongs_to_invalid_item_table_entry::<I, K>(addr, overall_metadata.num_keys,
+                                                                          old(self).spec_valid_indices())
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
             ensures
                 subregion.inv(wrpm_region, perm),
@@ -1223,7 +1223,11 @@ verus! {
         */
     }
 
-    pub open spec fn address_belongs_to_invalid_entry<I, K>(addr: int, num_keys: u64, valid_indices: Set<u64>) -> bool
+    pub open spec fn address_belongs_to_invalid_item_table_entry<I, K>(
+        addr: int,
+        num_keys: u64,
+        valid_indices: Set<u64>
+    ) -> bool
         where 
             I: PmCopy,
             K: PmCopy + std::fmt::Debug,
@@ -1247,7 +1251,7 @@ verus! {
             mem1.len() == mem2.len(),
             mem1.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of()),
             forall|addr: int| 0 <= addr < mem2.len() && mem1[addr] != #[trigger] mem2[addr] ==>
-                address_belongs_to_invalid_entry::<I, K>(addr, num_keys, valid_indices)
+                address_belongs_to_invalid_item_table_entry::<I, K>(addr, num_keys, valid_indices)
         ensures
             parse_item_table::<I, K>(mem1, num_keys as nat, valid_indices) ==
             parse_item_table::<I, K>(mem2, num_keys as nat, valid_indices)
