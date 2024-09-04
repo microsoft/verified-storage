@@ -1881,6 +1881,37 @@ verus! {
             }
         }
 
+        pub exec fn update_ghost_state_to_current_bytes(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        )
+            requires
+                pm.no_outstanding_writes(),
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                        overall_metadata.main_table_size as nat);
+                    parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size) is Some
+                })
+            ensures 
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                        overall_metadata.main_table_size as nat);
+                    self@ == parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap()
+                }),
+                self.allocator_view() == old(self).allocator_view(),
+                self.pending_allocations_view() == old(self).pending_allocations_view(),
+                self.spec_outstanding_cdb_writes() == Seq::new(old(self).spec_outstanding_cdb_writes().len(),
+                    |i: int| None::<bool>),
+                self.spec_outstanding_entry_writes() == Seq::new(old(self).spec_outstanding_entry_writes().len(),
+                    |i: int| None::<MetadataTableViewEntry<K>>),
+
+        {
+            assume(false); // TODO @hayley
+            let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                overall_metadata.main_table_size as nat);
+            self.state = Ghost(parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap());
+        }
 
 /* Temporarily commented out for subregion work
 

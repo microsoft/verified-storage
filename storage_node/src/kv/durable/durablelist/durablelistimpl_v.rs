@@ -613,6 +613,30 @@ verus! {
             assume(false);
         }
 
+        pub exec fn update_ghost_state_to_current_bytes(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(main_table_view): Ghost<MetadataTableView<K>>,
+        )
+            requires
+                pm.no_outstanding_writes(),
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.list_area_addr as nat,
+                        overall_metadata.list_area_size as nat);
+                    Self::parse_all_lists(main_table_view, subregion_view.committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
+                })
+            ensures 
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.list_area_addr as nat,
+                        overall_metadata.list_area_size as nat);
+                    self@ == Self::parse_all_lists(main_table_view, subregion_view.committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap()
+                }),
+                // TODO: other fields
+        {
+            assume(false); // TODO @hayley
+        }
+
         // // TODO: refactor into smaller functions
         // pub exec fn start<PM>(
         //     wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<TrustedListPermission, PM>,

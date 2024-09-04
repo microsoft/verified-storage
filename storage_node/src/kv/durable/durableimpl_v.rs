@@ -354,42 +354,45 @@ verus! {
         }
 
         pub open spec fn physical_recover_given_log(mem: Seq<u8>, overall_metadata: OverallMetadata, recovered_log: AbstractOpLogState) -> Option<DurableKvStoreView<K, I, L>> {
-            // First, replay the physical log
             let physical_log_entries = recovered_log.physical_op_list;
             let mem_with_log_installed = Self::apply_physical_log_entries(mem, physical_log_entries);
             if let Some(mem_with_log_installed) = mem_with_log_installed {
-                // Then, parse the individual components from the updated mem
-                let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+                Self::physical_recover_after_applying_log(mem_with_log_installed, overall_metadata, recovered_log)
+            } else {
+                None
+            }
+        }
 
-                let main_table_view = parse_metadata_table::<K>(
-                    main_table_region, 
-                    overall_metadata.num_keys,
-                    overall_metadata.metadata_node_size
+        pub open spec fn physical_recover_after_applying_log(mem_with_log_installed: Seq<u8>, overall_metadata: OverallMetadata, recovered_log: AbstractOpLogState) -> Option<DurableKvStoreView<K, I, L>>
+        {
+            let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+            let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+            let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+
+            let main_table_view = parse_metadata_table::<K>(
+                main_table_region, 
+                overall_metadata.num_keys,
+                overall_metadata.metadata_node_size
+            );
+            if let Some(main_table_view) = main_table_view {
+                let item_table_view = parse_item_table::<I, K>(
+                    item_table_region,
+                    overall_metadata.num_keys as nat,
+                    main_table_view.valid_item_indices()
                 );
-                if let Some(main_table_view) = main_table_view {
-                    let item_table_view = parse_item_table::<I, K>(
-                        item_table_region,
-                        overall_metadata.num_keys as nat,
-                        main_table_view.valid_item_indices()
+                if let Some(item_table_view) = item_table_view {
+                    let list_view = DurableList::<K, L>::parse_all_lists(
+                        main_table_view,
+                        list_area_region,
+                        overall_metadata.list_node_size,
+                        overall_metadata.num_list_entries_per_node
                     );
-                    if let Some(item_table_view) = item_table_view {
-                        let list_view = DurableList::<K, L>::parse_all_lists(
-                            main_table_view,
-                            list_area_region,
-                            overall_metadata.list_node_size,
-                            overall_metadata.num_list_entries_per_node
-                        );
-                        if let Some(list_view) = list_view {
-                            Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
-                        } else {
-                            None
-                        }
-                    } else { 
+                    if let Some(list_view) = list_view {
+                        Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                    } else {
                         None
                     }
-                } else {
+                } else { 
                     None
                 }
             } else {
@@ -1502,7 +1505,7 @@ verus! {
             }
 
                 let ghost pre_clear_wrpm = wrpm_region;
-                op_log.clear_log(&mut wrpm_region, overall_metadata, version_metadata, Ghost(crash_pred), Tracked(perm))?;
+                op_log.clear_log(&mut wrpm_region, version_metadata, overall_metadata, Ghost(crash_pred), Tracked(perm))?;
 
                 proof {
                     assert(states_differ_only_in_log_region(pre_clear_wrpm@.committed(), wrpm_region@.committed(), 
@@ -2667,6 +2670,8 @@ verus! {
                 }
             }
 
+            let ghost abstract_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata).unwrap();
+
             // 3. Install the physical log
             assert(PhysicalOpLogEntry::log_inv(self.pending_updates, self.version_metadata, self.overall_metadata)) by {
                 assert(AbstractPhysicalOpLogEntry::log_inv(PhysicalOpLogEntry::vec_view(self.pending_updates),
@@ -2676,7 +2681,6 @@ verus! {
             }
 
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view()) by {
-                let abstract_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata).unwrap();
                 let phys_log_view = PhysicalOpLogEntry::vec_view(self.pending_updates);
                 let old_mem_with_log_installed = Self::apply_physical_log_entries(old(self).wrpm@.flush().committed(), phys_log_view).unwrap();
                 let new_mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), phys_log_view).unwrap();
@@ -2696,9 +2700,89 @@ verus! {
                 Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> 
                     perm.check_permission(s));
 
+            let ghost pre_log_install_wrpm = self.wrpm;
+
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
 
+            // Each component stores its own version of its current durable view, which we now have to update to bring 
+            // these in line with the durable bytes after installing the log. Some functions/proofs use `extract_bytes`
+            // and some use `get_subregion_view` (depending on whether they need PersistentMemoryRegionView information or not)
+            // so we first have to prove that these are equivalent.
+            proof {
+                assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
+                lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(
+                    self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat).committed() == 
+                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat).committed() == 
+                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat).committed() == 
+                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
+            }
+
+            // Now we update each component's ghost state to match the current bytes
+            self.metadata_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
+            self.item_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
+                Ghost(self.metadata_table@.valid_item_indices()));
+            self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
+                Ghost(self.metadata_table@));
+
+            // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
+            // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
+            let ghost clear_log_crash_pred = |s: Seq<u8>| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@);
+
             // 4. Clear the log
+            proof {
+                // Next, prove that we can safely clear the log.
+                assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
+
+                // install log guarantees that pm after install is equivalent to installing the log entries
+                let current_mem = self.wrpm@.committed();
+                let old_mem_with_log_installed = Self::apply_physical_log_entries(pre_log_install_wrpm@.committed(), 
+                    abstract_op_log.physical_op_list).unwrap();
+                assert(current_mem == old_mem_with_log_installed);
+                assert(Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log) == 
+                    Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
+                assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
+                    Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
+                assert(self@ == Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log).unwrap());
+                assert(self@ == old(self).tentative_view().unwrap());
+                assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@));
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+                assert(self.wrpm@.no_outstanding_writes());
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+                assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
+
+                assert(pre_log_install_wrpm@.no_outstanding_writes());
+                assert(self.wrpm@.no_outstanding_writes());
+
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pre_log_install_wrpm@);
+
+                let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+                let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+
+                let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+                let current_extract_bytes = extract_bytes(self.wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+
+                assert(pre_install_subregion.committed() == pre_install_extract_bytes);
+                assert(current_subregion.committed() == current_extract_bytes);
+                assert forall |addr: int| 0 <= addr < self.overall_metadata.log_area_size implies 
+                    pre_install_subregion.state[addr] == current_subregion.state[addr] 
+                by {
+                    assert(pre_install_subregion.state[addr].state_at_last_flush == pre_install_extract_bytes[addr]);
+                    assert(pre_install_subregion.state[addr].outstanding_write is None);
+                    assert(current_subregion.state[addr].outstanding_write is None);
+                }
+                assert(pre_install_subregion == current_subregion);
+                self.log.lemma_same_op_log_view_preserves_invariant(pre_log_install_wrpm, self.wrpm, self.version_metadata, self.overall_metadata);
+                assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata));
+                Self::lemma_clear_log_is_crash_safe(self.wrpm, self.log, self.version_metadata,
+                    self.overall_metadata, clear_log_crash_pred, self@, perm);
+
+                assert(self.log.base_log_view().pending.len() == 0);
+            }
+            self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
 
             // 5. Finalize pending allocations and deallocations
             // TODO: need some kind of structure to track this as well.

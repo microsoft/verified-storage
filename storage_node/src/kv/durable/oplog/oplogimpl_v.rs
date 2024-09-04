@@ -1555,15 +1555,14 @@ verus! {
             log_wrpm@.no_outstanding_writes(),
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            self.base_log_view().pending.len() == 0,
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.commit_op_log()
-                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
-                            Some(self@)
+                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(self@)
                 }
                 Err(KvError::LogErr{log_err}) => {
                     &&& !self@.op_list_committed
-                    &&& self.base_log_view().pending.len() == 0
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
@@ -1665,8 +1664,8 @@ verus! {
     pub exec fn clear_log<Perm, PM>(
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-        overall_metadata: OverallMetadata,
         version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<(), KvError<K>>)

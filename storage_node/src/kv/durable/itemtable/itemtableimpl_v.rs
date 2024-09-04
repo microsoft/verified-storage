@@ -975,6 +975,41 @@ verus! {
             }
         }
 
+        pub exec fn update_ghost_state_to_current_bytes(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(valid_indices): Ghost<Set<u64>>,
+        )
+            requires
+                pm.no_outstanding_writes(),
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
+                        overall_metadata.item_table_size as nat);
+                    parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices) is Some
+                })
+            ensures 
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
+                        overall_metadata.item_table_size as nat);
+                    self@ == parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap()
+                }),
+                self.allocator_view() == old(self).allocator_view(),
+                self.pending_allocations_view() == old(self).pending_allocations_view(),
+                self.spec_outstanding_item_table() == Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None::<I>),
+                self.spec_valid_indices() == valid_indices,
+                // self.item_size == old(self).item_size,
+                // self.entry_size == old(self).entry_size,
+                // self.num_keys == old(self).num_keys,
+                // self.free_list == old(self).free_list,
+
+        {
+            assume(false); // TODO @hayley
+            // let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
+            //     overall_metadata.item_table_size as nat);
+            // self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
+        }
+
         /* temporarily commented out for subregion development 
 
         pub exec fn play_item_log<PM, L>(
