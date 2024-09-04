@@ -126,5 +126,10 @@ verus! {
                 assert(op.absolute_addr + op.len <= overall_metadata.region_size);
             }
         }
+
+        pub open spec fn vec_view(vec: Vec<Self>) -> Seq<AbstractPhysicalOpLogEntry>
+        {
+            Seq::new(vec@.len(), |i: int| vec[i]@)
+        }
     }
 }

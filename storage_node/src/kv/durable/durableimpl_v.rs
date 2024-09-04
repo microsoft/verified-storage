@@ -230,7 +230,7 @@ verus! {
         log: UntrustedOpLog<K, L>,
         metadata_table: MetadataTable<K>,
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-        pending_updates: Vec<LogicalOpLogEntry<L>>,
+        pending_updates: Vec<PhysicalOpLogEntry>,
     }
 
     impl<Perm, PM, K, I, L> DurableKvStore<Perm, PM, K, I, L>
@@ -284,7 +284,7 @@ verus! {
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
                                     self.metadata_table@, self.overall_metadata)
-            // TODO: more component invariants
+            &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
         }
 
         pub closed spec fn valid(self) -> bool 
@@ -1472,7 +1472,7 @@ verus! {
                 proof { PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(phys_log, version_metadata, overall_metadata); 
                 }
 
-                Self::install_log(&mut wrpm_region, version_metadata, overall_metadata, phys_log, Tracked(perm));
+                Self::install_log(&mut wrpm_region, version_metadata, overall_metadata, &phys_log, Tracked(perm));
 
                 proof { 
                     op_log.lemma_same_bytes_preserve_op_log_invariant(old_wrpm, wrpm_region, version_metadata, overall_metadata);
@@ -1567,6 +1567,7 @@ verus! {
                 assert(durable_kv_store@ == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
                 assert(durable_kv_store.item_table.spec_valid_indices() =~=
                        durable_kv_store.metadata_table@.valid_item_indices());
+                assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
             }
 
             /*
@@ -1593,7 +1594,7 @@ verus! {
             wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
             version_metadata: VersionMetadata,
             overall_metadata: OverallMetadata,
-            phys_log: Vec<PhysicalOpLogEntry>,
+            phys_log: &Vec<PhysicalOpLogEntry>,
             Tracked(perm): Tracked<&Perm>,
         ) 
             where 
@@ -1603,7 +1604,7 @@ verus! {
                 old(wrpm_region).inv(),
                 old(wrpm_region)@.no_outstanding_writes(),
                 old(wrpm_region)@.len() == overall_metadata.region_size,
-                PhysicalOpLogEntry::log_inv(phys_log, version_metadata, overall_metadata),
+                PhysicalOpLogEntry::log_inv(*phys_log, version_metadata, overall_metadata),
                 phys_log.len() > 0,
                 UntrustedLogImpl::recover(old(wrpm_region)@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some,
                 ({
@@ -1615,7 +1616,7 @@ verus! {
                 }),
                 forall |s| Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) == Self::physical_recover(s, version_metadata, overall_metadata) 
                     ==> perm.check_permission(s),
-                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) is Some,
             ensures 
@@ -1676,7 +1677,7 @@ verus! {
             while index < phys_log.len() 
                 invariant
                     old_wrpm.len() == wrpm_region@.len(),
-                    PhysicalOpLogEntry::log_inv(phys_log, version_metadata, overall_metadata),
+                    PhysicalOpLogEntry::log_inv(*phys_log, version_metadata, overall_metadata),
                     forall |s| Self::physical_recover(s, version_metadata, overall_metadata) == 
                         Some(final_recovery_state) ==> #[trigger] perm.check_permission(s),
                     Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == 
@@ -2230,8 +2231,6 @@ verus! {
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
-                // TODO: update once how we represent durable vs. tentative state here has stabilized
-                // we can only crash into the current durable KV store state
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
@@ -2323,7 +2322,7 @@ verus! {
             }
 
             // then append it to the operation log
-            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
             match result {
                 Ok(()) => {}
                 Err(e) => {
@@ -2347,6 +2346,10 @@ verus! {
                         self.lemma_transaction_abort(*old(self));  
                     }
 
+                    // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
+                    self.pending_updates = Vec::new();
+                    assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+
                     // abort the transaction in each component to re-establish their invariants
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
@@ -2363,6 +2366,8 @@ verus! {
                     return Err(e);
                 }
             }
+
+            self.pending_updates.push(log_entry);
 
             proof {
                 // We need to prove that the current tentative view of the KV store (i.e., the state if we commit right now)
@@ -2451,6 +2456,8 @@ verus! {
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+
+                assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
             }
             Ok(())
         }
@@ -2638,6 +2645,10 @@ verus! {
                         self.lemma_transaction_abort(*old(self));
                     }
 
+                    // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
+                    self.pending_updates = Vec::new();
+                    assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+
                     // abort the transaction in each component to re-establish their invariants
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
@@ -2657,32 +2668,40 @@ verus! {
             }
 
             // 3. Install the physical log
+            assert(PhysicalOpLogEntry::log_inv(self.pending_updates, self.version_metadata, self.overall_metadata)) by {
+                assert(AbstractPhysicalOpLogEntry::log_inv(PhysicalOpLogEntry::vec_view(self.pending_updates),
+                    self.version_metadata, self.overall_metadata));
+                PhysicalOpLogEntry::lemma_abstract_log_inv_implies_concrete_log_inv(self.pending_updates,
+                    self.version_metadata, self.overall_metadata);
+            }
+
+            assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view()) by {
+                let abstract_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata).unwrap();
+                let phys_log_view = PhysicalOpLogEntry::vec_view(self.pending_updates);
+                let old_mem_with_log_installed = Self::apply_physical_log_entries(old(self).wrpm@.flush().committed(), phys_log_view).unwrap();
+                let new_mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), phys_log_view).unwrap();
+
+                assert(abstract_op_log.physical_op_list == phys_log_view);
+                Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(old(self).wrpm@.flush().committed(), self.wrpm@.committed(),
+                    phys_log_view, self.version_metadata, self.overall_metadata);
+                Self::lemma_log_replay_preserves_size(self.wrpm@.committed(), phys_log_view);
+                assert(states_differ_only_in_log_region(old_mem_with_log_installed, new_mem_with_log_installed, 
+                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    old_mem_with_log_installed, new_mem_with_log_installed, self.version_metadata, self.overall_metadata);
+                assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
+            }
+            
+            assert(forall |s| Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
+                Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> 
+                    perm.check_permission(s));
+
+            Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
 
             // 4. Clear the log
 
             // 5. Finalize pending allocations and deallocations
-
-            // // 1. Commit the log
-            // let tracked fake_log_perm = TrustedPermission::fake_log_perm();
-            // self.log.commit_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // // 2. Play the log on each durable component
-            // let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            // let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
-            // let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
-            // // TODO: handle the ghost states properly here
-            // self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
-            //     &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
-            // self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
-            //     &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
-            // self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
-            //     Tracked(&fake_list_perm), Ghost(self.durable_list@))?;
-
-            // // 3. Clear the log
-            // self.log.clear_log(&mut self.log_wrpm, kvstore_id, Tracked(&fake_log_perm))?;
-
-            // // 4. Clear the local pending log updates list
-            // self.pending_updates.clear();
+            // TODO: need some kind of structure to track this as well.
 
             assume(false);
             Ok(())

@@ -2239,6 +2239,8 @@ impl UntrustedLogImpl {
             result is Ok,
             self@ == old(self)@.commit(),
             Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(self@),
+            views_differ_only_in_log_region(old(wrpm_region)@.flush(), wrpm_region@, 
+                log_start_addr as nat, log_size as nat),
     {
         let ghost prev_info = self.info;
         let ghost prev_state = self.state@;
@@ -2257,6 +2259,11 @@ impl UntrustedLogImpl {
         // swap the CDB to its opposite.
 
         self.update_log_metadata(wrpm_region, log_start_addr, log_size, Ghost(prev_info), Ghost(prev_state), Ghost(crash_pred), Tracked(perm));
+
+        proof {
+            lemma_if_committed_states_differ_only_in_log_region_and_no_outstanding_writes_then_views_differ_only_in_log_region(
+                old(wrpm_region)@.flush(), wrpm_region@, log_start_addr as nat, log_size as nat);
+        }
 
         Ok(())
     }

@@ -1270,7 +1270,7 @@ verus! {
     pub exec fn tentatively_append_log_entry<Perm, PM>(
         &mut self,
         log_wrpm: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
-        log_entry: PhysicalOpLogEntry,
+        log_entry: &PhysicalOpLogEntry,
         version_metadata: VersionMetadata,
         overall_metadata: OverallMetadata,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
@@ -1361,7 +1361,7 @@ verus! {
             assert(pending_len + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX);
 
             // before we append anything, prove that appending this entry will maintain the loop invariant
-            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, log_entry, version_metadata, overall_metadata);
+            self.lemma_appending_log_entry_bytes_appends_op_to_list(log_wrpm@, *log_entry, version_metadata, overall_metadata);
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
         }
 
@@ -1552,9 +1552,14 @@ verus! {
             log_wrpm.inv(),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
+            log_wrpm@.no_outstanding_writes(),
+            views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.commit_op_log()
+                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
+                            Some(self@)
                 }
                 Err(KvError::LogErr{log_err}) => {
                     &&& !self@.op_list_committed
@@ -1566,8 +1571,8 @@ verus! {
                     &&& self@.physical_op_list.len() == 0
                     &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
                             Some(AbstractOpLogState::initialize())
-                    &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                    // &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
+                    //         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(_) => false 
             }

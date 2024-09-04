@@ -1003,7 +1003,7 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
 pub open spec fn states_differ_only_in_log_region(
     s1: Seq<u8>,
     s2: Seq<u8>,
-    log_start_addr:nat,
+    log_start_addr: nat,
     log_size: nat
 ) -> bool 
 {
@@ -1016,7 +1016,7 @@ pub open spec fn states_differ_only_in_log_region(
 pub open spec fn views_differ_only_in_log_region(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
-    log_start_addr:nat,
+    log_start_addr: nat,
     log_size: nat
 ) -> bool 
 {
@@ -1026,10 +1026,26 @@ pub open spec fn views_differ_only_in_log_region(
     } ==> log_start_addr <= addr < log_start_addr + log_size
 }
 
+pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstanding_writes_then_views_differ_only_in_log_region(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat
+)
+    requires 
+        states_differ_only_in_log_region(v1.committed(), v2.committed(), log_start_addr, log_size),
+        v1.no_outstanding_writes(),
+        v2.no_outstanding_writes(),
+    ensures 
+        views_differ_only_in_log_region(v1, v2, log_start_addr, log_size),
+{
+    assume(false); // TODO @hayley
+}
+
 pub open spec fn states_differ_only_outside_log_region(
     s1: Seq<u8>,
     s2: Seq<u8>,
-    log_start_addr:nat,
+    log_start_addr: nat,
     log_size: nat
 ) -> bool 
 {

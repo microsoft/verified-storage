@@ -107,7 +107,7 @@ verus! {
         &&& phys_log.len() > 0
         &&& UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
         &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) is Some
-        &&& 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size
+        &&& 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size
         &&& 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size
         &&& abstract_op_log matches Some(abstract_op_log)
         &&& abstract_op_log.physical_op_list == phys_log
