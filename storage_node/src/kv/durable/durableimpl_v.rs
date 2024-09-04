@@ -2734,39 +2734,25 @@ verus! {
             // 4. Clear the log
             proof {
                 // Next, prove that we can safely clear the log.
-                assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
-
-                // install log guarantees that pm after install is equivalent to installing the log entries
                 let current_mem = self.wrpm@.committed();
                 let old_mem_with_log_installed = Self::apply_physical_log_entries(pre_log_install_wrpm@.committed(), 
                     abstract_op_log.physical_op_list).unwrap();
-                assert(current_mem == old_mem_with_log_installed);
+
+                // Applying the log either to pre-install PM or current PM results in the same state; we've applied the log
+                // already to the current state, and log installation is idempotent.
                 assert(Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log) == 
                     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
                 assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
                     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
-                assert(self@ == Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log).unwrap());
-                assert(self@ == old(self).tentative_view().unwrap());
-                assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@));
-                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
-                assert(self.wrpm@.no_outstanding_writes());
+
                 lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
 
-                assert(pre_log_install_wrpm@.no_outstanding_writes());
-                assert(self.wrpm@.no_outstanding_writes());
-
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pre_log_install_wrpm@);
-
                 let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
                 let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-
                 let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-                let current_extract_bytes = extract_bytes(self.wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-
-                assert(pre_install_subregion.committed() == pre_install_extract_bytes);
-                assert(current_subregion.committed() == current_extract_bytes);
+                // Next, we need to prove that the log subregions of the pre-install PM and current PM
+                // are identical, so that we can prove that the op log invariant holds after log install.
                 assert forall |addr: int| 0 <= addr < self.overall_metadata.log_area_size implies 
                     pre_install_subregion.state[addr] == current_subregion.state[addr] 
                 by {
@@ -2776,11 +2762,11 @@ verus! {
                 }
                 assert(pre_install_subregion == current_subregion);
                 self.log.lemma_same_op_log_view_preserves_invariant(pre_log_install_wrpm, self.wrpm, self.version_metadata, self.overall_metadata);
-                assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata));
+
+                // By now we've also met the preconditions of this lemma that proves that we can safely 
+                // clear the log
                 Self::lemma_clear_log_is_crash_safe(self.wrpm, self.log, self.version_metadata,
                     self.overall_metadata, clear_log_crash_pred, self@, perm);
-
-                assert(self.log.base_log_view().pending.len() == 0);
             }
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
 
