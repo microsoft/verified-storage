@@ -435,15 +435,15 @@ verus! {
             let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
             lemma_subrange_of_subrange_forall(crash_state1);
             assert forall|addr: int| {
+                       &&& 0 <= addr < crash_state2.len()
+                       &&& crash_state1[addr] != #[trigger] crash_state2[addr]
+                   }
+                   implies address_belongs_to_invalid_entry::<I, K>(addr, num_keys, self.spec_valid_indices())
+            by {
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert(can_views_differ_at_addr(addr));
                 let addrs_entry = addr / entry_size as int;
-                &&& 0 <= addr < crash_state1.len()
-                &&& addrs_entry < overall_metadata.num_keys
-                &&& self.spec_valid_indices().contains(addrs_entry as u64)
-            } implies crash_state1[addr] == crash_state2[addr] by {
-                let addrs_entry = addr / entry_size as int;
-                lemma_valid_entry_index(addrs_entry as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(addrs_entry as nat, which_entry as nat, entry_size as nat);
-                assert(!can_views_differ_at_addr(addr));
+                lemma_addr_in_entry_divided_by_entry_size(which_entry as nat, entry_size as nat, addr);
             }
             lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                 crash_state1, crash_state2, num_keys, self.spec_valid_indices()
@@ -1238,6 +1238,17 @@ verus! {
         */
     }
 
+    pub open spec fn address_belongs_to_invalid_entry<I, K>(addr: int, num_keys: u64, valid_indices: Set<u64>) -> bool
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+    {
+        let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+        let which_entry = addr / entry_size;
+        &&& 0 <= which_entry < num_keys
+        &&& !valid_indices.contains(which_entry as u64)
+    }
+
     pub proof fn lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries<I, K>(
         mem1: Seq<u8>,
         mem2: Seq<u8>,
@@ -1250,13 +1261,8 @@ verus! {
         requires
             mem1.len() == mem2.len(),
             mem1.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of()),
-            forall|addr: int| {
-                let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
-                let which_entry = addr / entry_size;
-                &&& 0 <= addr < mem1.len()
-                &&& which_entry < num_keys
-                &&& valid_indices.contains(which_entry as u64)
-            } ==> mem1[addr] == mem2[addr],
+            forall|addr: int| 0 <= addr < mem2.len() && mem1[addr] != #[trigger] mem2[addr] ==>
+                address_belongs_to_invalid_entry::<I, K>(addr, num_keys, valid_indices)
         ensures
             parse_item_table::<I, K>(mem1, num_keys as nat, valid_indices) ==
             parse_item_table::<I, K>(mem2, num_keys as nat, valid_indices)
