@@ -1997,18 +1997,6 @@ verus! {
                 Ghost(item_table_subregion_condition),
             );
 
-            assert forall|idx: u64| {
-                &&& idx < self.item_table@.len()
-                &&& !self.item_table.spec_valid_indices().contains(idx)
-            } implies #[trigger] subregion_grants_access_to_item_table_entry::<I>(item_table_subregion, idx) by {
-                let entry_size = I::spec_size_of() + u64::spec_size_of();
-                assert forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size implies
-                           item_table_subregion.is_writable_relative_addr(addr as int) by {
-                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                    lemma_addr_in_entry_divided_by_entry_size(idx as nat, entry_size, addr as int);
-                }
-            }
-
             let item_index = self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,

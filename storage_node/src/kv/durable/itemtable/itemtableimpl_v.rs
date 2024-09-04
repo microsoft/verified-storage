@@ -144,18 +144,6 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
-    pub open spec fn subregion_grants_access_to_item_table_entry<I>(
-        subregion: WriteRestrictedPersistentMemorySubregion,
-        idx: u64
-    ) -> bool
-        where
-            I: PmCopy + Sized,
-    {
-        let entry_size = I::spec_size_of() + u64::spec_size_of();
-        forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
-            subregion.is_writable_relative_addr(addr as int)
-    }
-
     pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -249,17 +237,6 @@ verus! {
             &&& self.inv(pm_view, overall_metadata)
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
                 #[trigger] self.spec_outstanding_item_table()[idx as int] is None
-        }
-
-        pub open spec fn subregion_grants_access_to_free_slots(
-            self,
-            subregion: WriteRestrictedPersistentMemorySubregion
-        ) -> bool
-        {
-            forall|idx: u64| {
-                &&& idx < self@.len()
-                &&& !self.spec_valid_indices().contains(idx)
-            } ==> #[trigger] subregion_grants_access_to_item_table_entry::<I>(subregion, idx)
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -469,7 +446,11 @@ verus! {
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
                 old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
-                old(self).subregion_grants_access_to_free_slots(*subregion),
+                forall|addr: int| {
+                    &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
+                    &&& address_belongs_to_invalid_entry::<I, K>(addr, overall_metadata.num_keys,
+                                                               old(self).spec_valid_indices())
+                } ==> #[trigger] subregion.is_writable_relative_addr(addr),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -517,7 +498,11 @@ verus! {
             self.pending_allocations.push(free_index);
 
             assert(!self.free_list@.contains(free_index));
-            assert(subregion_grants_access_to_item_table_entry::<I>(*subregion, free_index));
+            assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
+                   subregion.is_writable_relative_addr(addr) by {
+                lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
+                lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+            }
             assert(self.spec_valid_indices() == old(self).spec_valid_indices());
 
             broadcast use pmcopy_axioms;

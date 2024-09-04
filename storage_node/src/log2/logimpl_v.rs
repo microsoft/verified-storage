@@ -602,6 +602,7 @@ impl UntrustedLogImpl {
     }
 
     // This lemma proves that updating the inactive metadata and crc is crash safe.
+    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
     proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm<Perm>(
         self,
         old_pm: PersistentMemoryRegionView,
