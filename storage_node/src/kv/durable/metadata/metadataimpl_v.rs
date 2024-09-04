@@ -153,6 +153,7 @@ verus! {
         metadata_node_size: u32,
         metadata_table_free_list: Vec<u64>,
         pending_allocations: Vec<u64>,
+        pending_deallocations: Vec<u64>,
         state: Ghost<MetadataTableView<K>>,
         outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
         outstanding_entry_writes: Ghost<Seq<Option<MetadataTableViewEntry<K>>>>,
@@ -193,6 +194,11 @@ verus! {
         pub closed spec fn pending_allocations_view(self) -> Set<u64>
         {
             self.pending_allocations@.to_set()
+        }
+
+        pub closed spec fn pending_deallocations_view(self) -> Set<u64>
+        {
+            self.pending_deallocations@.to_set()
         }
 
         pub closed spec fn spec_outstanding_cdb_writes(self) -> Seq<Option<bool>>
@@ -274,16 +280,20 @@ verus! {
         {
             &&& self.metadata_table_free_list@.no_duplicates()
             &&& self.pending_allocations@.no_duplicates()
+            &&& self.pending_deallocations@.no_duplicates()
             &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
                 !self.metadata_table_free_list@.contains(#[trigger] self.pending_allocations[i])
             &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.pending_allocations@.contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.pending_deallocations@.contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.pending_allocations@.contains(idx) ==> {
                     ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
                     ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Tentative(_)
                 }
             &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> 
-                { self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid }
+                    { self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid }
+            &&& forall |idx: u64| self.pending_deallocations@.contains(idx) ==> 
+                    { self@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_) }
             &&& forall |idx: u64| {
                     &&& 0 <= idx < self@.durable_metadata_table.len()
                     &&& self.spec_outstanding_cdb_writes()[idx as int] is Some
@@ -1048,6 +1058,7 @@ verus! {
                 metadata_node_size,
                 metadata_table_free_list: metadata_allocator,
                 pending_allocations: Vec::new(),
+                pending_deallocations: Vec::new(),
                 state: Ghost(parse_metadata_table::<K>(
                     subregion.view(pm_region).committed(),
                     overall_metadata.num_keys, 
@@ -1496,87 +1507,61 @@ verus! {
             Ok(free_index)
         }
 
-        pub exec fn deallocate_entry<PM>(
+        pub exec fn tentatively_deallocate_entry<PM>(
             &mut self,
             pm_region: &PM,
             table_id: u128,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-        ) -> (result: Result<(), KvError<K>>)
+        )
             where 
                 PM: PersistentMemoryRegion,
             requires 
                 old(self).inv(pm_region@, overall_metadata),
-                pm_region@.no_outstanding_writes(),
-                // the given index is free but not in the free list 
-                0 <= index < old(self)@.len(),
-                old(self)@.len() == overall_metadata.num_keys,
-                old(self).free_indices().contains(index),
-                !old(self).allocator_view().contains(index),
+                0 <= index < overall_metadata.num_keys,
+                // the provided index is not currently free or pending (de)allocation
+                !old(self).free_indices().contains(index),
                 !old(self).pending_allocations_view().contains(index),
-                old(self).allocator_view().len() + old(self).pending_allocations_view().len() < overall_metadata.num_keys,
-                // for all indices except the one that is free but not in the allocator,
-                // the free view and the free list match
-                forall |i: u64| {
-                    &&& 0 <= i < old(self)@.len()
-                    &&& i != index
-                } ==> (old(self).allocator_view().contains(i) <==> old(self).free_indices().contains(i)),
+                !old(self).pending_deallocations_view().contains(index),
+                // and it's currently valid in the durable metadata table state
+                old(self)@.durable_metadata_table[index as int] matches DurableEntry::Valid(_),
             ensures 
+                // we maintain all invariants and move the index into 
+                // the pending deallocations set
+                self.pending_deallocations_view().contains(index),
                 self.inv(pm_region@, overall_metadata),
-                // We've reestablished the allocator invariant
-                self.allocator_inv(),
+                old(self).free_indices() == self.free_indices(),
+                old(self).pending_allocations_view() == self.pending_allocations_view(),
+                old(self)@ == self@,
+                old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
+                old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
         {
-            assert(self.allocator_view().subset_of(self.free_indices()));
-
-            self.metadata_table_free_list.push(index);
+            self.pending_deallocations.push(index);
 
             proof {
-                // Prove that the index has been added to the allocator
-                assert(self.metadata_table_free_list@.subrange(0, self.metadata_table_free_list@.len() - 1) == old(self).metadata_table_free_list@);
-                assert(self.metadata_table_free_list@[self.metadata_table_free_list@.len() - 1] == index);
-                assert(self.metadata_table_free_list@.contains(index));
-                assert(self.allocator_view() =~= self.free_indices());
-
-                old(self).metadata_table_free_list@.unique_seq_to_set();
-                self.metadata_table_free_list@.unique_seq_to_set();
-                self.pending_allocations@.unique_seq_to_set();
-                assert(old(self).metadata_table_free_list@.len() + 1 == self.metadata_table_free_list@.len());
-                assert(old(self).allocator_view().len() + 1 == self.allocator_view().len());
-
-                // all indexes in the free list are still valid
-                assert forall |idx| self.metadata_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
-                    if idx == index {
-                        assert(idx < overall_metadata.num_keys);
+                assert(self.pending_deallocations@.subrange(0, self.pending_deallocations@.len() - 1) == old(self).pending_deallocations@);
+                assert(self.pending_deallocations@[self.pending_deallocations@.len() - 1] == index);
+                assert forall |idx: u64| self.pending_deallocations@.contains(idx) implies idx < overall_metadata.num_keys by {
+                    if idx != index {
+                        assert(old(self).pending_deallocations@.contains(idx));
                     } else {
-                        assert(old(self).metadata_table_free_list@.contains(idx));
+                        assert(index < overall_metadata.num_keys);
                     }
                 }
+                assert(forall |idx: u64| 0 <= idx < overall_metadata.num_keys && self.pending_deallocations@.contains(idx) ==> {
+                    ||| old(self).pending_deallocations@.contains(idx)
+                    ||| idx == index
+                });
+                assert(forall |idx: u64| 0 <= idx < overall_metadata.num_keys && self.pending_deallocations@.contains(idx) ==>
+                    self@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_));
 
-                // We also have to prove that we have not changed any ghost state about outstanding writes
-                // to prove that we maintain the invariant
-                assert(self.outstanding_cdb_writes == old(self).outstanding_cdb_writes);
-                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) == 
-                        self.outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size));
-            
-                assert(self.outstanding_entry_writes == old(self).outstanding_entry_writes);
-                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) == 
-                        self.outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size));
-
-
-                assert(self@.durable_metadata_table[index as int] matches DurableEntry::Invalid);
-
-                assert forall |idx| self.metadata_table_free_list@.contains(idx) implies 
-                    self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
-                by {
-                    if !old(self).metadata_table_free_list@.contains(idx) {
-                        assert(idx == index);
-                    } // else, trivial
-                }
+                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                    self.outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) 
+                by { assert(old(self).outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)); }
+                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                    self.outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)
+                by { assert(old(self).outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)); }
             }
-
-            Ok(())
         }
 
         pub exec fn get_delete_log_entry<PM>(
