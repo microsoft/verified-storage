@@ -243,7 +243,7 @@ verus! {
     {
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>
         {
-            Self::recover_from_component_views(self.log@, self.metadata_table@, self.item_table@, self.durable_list@)
+            Self::recover_from_component_views(self.metadata_table@, self.item_table@, self.durable_list@)
         }
 
         pub closed spec fn tentative_view(self) -> Option<DurableKvStoreView<K, I, L>>
@@ -379,7 +379,7 @@ verus! {
                             overall_metadata.num_list_entries_per_node
                         );
                         if let Some(list_view) = list_view {
-                            Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                            Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view))
                         } else {
                             None
                         }
@@ -1038,7 +1038,7 @@ verus! {
                     overall_metadata.list_node_size,
                     overall_metadata.num_list_entries_per_node
                 ).unwrap();
-                assert(Some(Self::recover_from_component_views(op_log@, main_table_view, item_table_view, list_view)) == 
+                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view)) == 
                     Self::physical_recover(s1, version_metadata, overall_metadata));
                 let s2_with_log_installed = Self::apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
                 Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
@@ -1046,7 +1046,7 @@ verus! {
                 let s2_with_log_installed = Self::apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
                 lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                     s1_with_log_installed, s2_with_log_installed, version_metadata, overall_metadata);
-                assert(Some(Self::recover_from_component_views(op_log@, main_table_view, item_table_view, list_view)) == 
+                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view)) == 
                     Self::physical_recover(s2, version_metadata, overall_metadata));
             }
         }
@@ -1126,7 +1126,7 @@ verus! {
                             overall_metadata.num_list_entries_per_node
                         );
                         if let Some(list_view) = list_view {
-                            Some(Self::recover_from_component_views(recovered_log, main_table_view, item_table_view, list_view))
+                            Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view))
                         } else {
                             None
                         }
@@ -1144,7 +1144,6 @@ verus! {
         // Note: this fn assumes that the item and list head in the main table entry point 
         // to valid entries in the corresponding structures.
         pub open spec fn recover_from_component_views(
-            recovered_log: AbstractOpLogState, 
             recovered_main_table: MetadataTableView<K>, 
             recovered_item_table: DurableItemTableView<I>,
             recovered_lists: DurableListView<K, L>
@@ -1170,6 +1169,26 @@ verus! {
                 }
             );
             DurableKvStoreView { contents }
+        }
+
+        proof fn lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
+            recovered_main_table1: MetadataTableView<K>, 
+            recovered_main_table2: MetadataTableView<K>, 
+            recovered_item_table: DurableItemTableView<I>,
+            recovered_lists: DurableListView<K, L>
+        )
+            requires
+                recovered_main_table1.has_same_valid_items(recovered_main_table2),
+            ensures
+                Self::recover_from_component_views(recovered_main_table1, recovered_item_table, recovered_lists) ==
+                Self::recover_from_component_views(recovered_main_table2, recovered_item_table, recovered_lists)
+        {
+            match (Self::recover_from_component_views(recovered_main_table1, recovered_item_table, recovered_lists),
+                   Self::recover_from_component_views(recovered_main_table2, recovered_item_table, recovered_lists)) {
+                (DurableKvStoreView{ contents: contents1 }, DurableKvStoreView{ contents: contents2 }) => {
+                    assert(contents1 =~= contents2);
+                }
+            }
         }
 
         pub exec fn get_elements_per_node(&self) -> u64 {
@@ -1461,7 +1480,7 @@ verus! {
                 assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
-                assert(durable_kv_store@ == Self::recover_from_component_views(op_log@, main_table@, item_table@, durable_list@));
+                assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
                 assert(durable_kv_store.item_table.spec_valid_indices() =~=
                        durable_kv_store.metadata_table@.valid_item_indices());
             }
@@ -2038,7 +2057,98 @@ verus! {
             self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
         }
 
-        fn abort_after_failed_tentative_create(
+        fn abort_after_failed_item_table_tentatively_write_item(
+            &mut self,
+            Ghost(pre_self): Ghost<Self>,
+            Ghost(item_table_subregion): Ghost<WriteRestrictedPersistentMemorySubregion>,
+            Tracked(perm): Tracked<&Perm>
+        )
+            requires
+                pre_self.inv(),
+                !pre_self.transaction_committed(),
+                old(self) == (Self { item_table: old(self).item_table, wrpm: old(self).wrpm, ..pre_self }),
+                item_table_subregion.initial_region_view() == pre_self.wrpm@,
+                item_table_subregion.start() == old(self).overall_metadata.item_table_addr,
+                item_table_subregion.len() == old(self).overall_metadata.item_table_size,
+                item_table_subregion.constants() == pre_self.wrpm.constants(),
+                item_table_subregion.inv(&old(self).wrpm, perm),
+                old(self).item_table.inv(item_table_subregion.view(&old(self).wrpm), old(self).overall_metadata),
+                old(self).item_table.spec_valid_indices() == pre_self.item_table.spec_valid_indices(),
+                item_table_subregion.view(&old(self).wrpm).committed() ==
+                    item_table_subregion.initial_subregion_view().committed(),
+                old(self).item_table@ == pre_self.item_table@,
+                old(self).item_table.spec_outstanding_item_table() == pre_self.item_table.spec_outstanding_item_table(),
+                old(self).item_table.spec_free_list() == pre_self.item_table.spec_free_list(),
+                old(self).item_table.spec_free_list().len() == 0,
+                old(self).wrpm == pre_self.wrpm,
+                old(self).item_table@ == pre_self.item_table@,
+            ensures
+                self.inv(),
+                self@ == pre_self@,
+                self.constants() == pre_self.constants(),
+                self.tentative_view() ==
+                    Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
+                                                     self.spec_overall_metadata(), AbstractOpLogState::initialize()),
+                !self.transaction_committed(),
+        {
+            proof {
+                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+                item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
+                    &self.wrpm, perm
+                );
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
+                                                        self.overall_metadata);
+                self.log.lemma_same_op_log_view_preserves_invariant(
+                    pre_self.wrpm, self.wrpm, self.version_metadata, self.overall_metadata
+                );
+                lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
+            }
+
+            let ghost mid_self = *self;
+            self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
+
+            let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
+                                                                     self.overall_metadata.main_table_addr as nat,
+                                                                     self.overall_metadata.main_table_size as nat);      
+            let ghost item_table_subregion_view = get_subregion_view(self.wrpm@,
+                                                                     self.overall_metadata.item_table_addr as nat,
+                                                                     self.overall_metadata.item_table_size as nat);
+            let ghost list_area_subregion_view = get_subregion_view(self.wrpm@,
+                                                                    self.overall_metadata.list_area_addr as nat,
+                                                                    self.overall_metadata.list_area_size as nat);
+
+            proof {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    mid_self.wrpm@,
+                    self.wrpm@,
+                    self.version_metadata,
+                    self.overall_metadata
+                );
+                self.lemma_transaction_abort(mid_self);  
+            }
+
+            // abort the transaction in each component to re-establish their invariants
+            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
+                                                Ghost(self.overall_metadata));
+
+            proof {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    pre_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                );
+                self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                Self::lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
+                    self.metadata_table@, pre_self.metadata_table@, self.item_table@, self.durable_list@
+                );
+                assert(self.item_table@ == pre_self.item_table@);
+                assert(self.durable_list@ == pre_self.durable_list@);
+            }
+
+            assert(self@ == pre_self@);
+        }
+
+        fn abort_after_failed_main_table_tentative_create(
             &mut self,
             Ghost(old_self): Ghost<Self>,
             Ghost(pre_self): Ghost<Self>,
@@ -2053,6 +2163,7 @@ verus! {
                 old(self).metadata_table.allocator_view() == pre_self.metadata_table.allocator_view(),
                 old(self).metadata_table.allocator_view().len() == 0,
                 old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
+                old(self).metadata_table@.has_same_valid_items(pre_self.metadata_table@),
                 main_table_subregion.initial_region_view() == pre_self.wrpm@,
                 main_table_subregion.start() == old(self).overall_metadata.main_table_addr,
                 main_table_subregion.len() == old(self).overall_metadata.main_table_size,
@@ -2067,6 +2178,7 @@ verus! {
                 !old_self.transaction_committed(),
                 old_self.wrpm@.len() == old(self).wrpm@.len(),
                 pre_self == (Self{ item_table: pre_self.item_table, wrpm: pre_self.wrpm, ..old_self }),
+                pre_self.item_table@ == old_self.item_table@,
                 forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==>
                     old_self.wrpm@.state[addr] == pre_self.wrpm@.state[addr],
                 forall|addr: int| old(self).version_metadata.overall_metadata_addr <= addr
@@ -2074,9 +2186,11 @@ verus! {
                     old_self.wrpm@.state[addr] == pre_self.wrpm@.state[addr],
             ensures
                 self.inv(),
-                self@ == old(self)@,
+                self@ == old_self@,
                 self.constants() == pre_self.constants(),
-                self.tentative_view() == old_self.tentative_view(),
+                self.tentative_view() ==
+                    Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
+                                                     self.spec_overall_metadata(), AbstractOpLogState::initialize()),
                 !self.transaction_committed(),
         {
             proof {
@@ -2125,9 +2239,15 @@ verus! {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
-                assume(false); // TODO @hayley
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                Self::lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
+                    self.metadata_table@, old_self.metadata_table@, self.item_table@, self.durable_list@
+                );
+                assert(self.item_table@ == old_self.item_table@);
+                assert(self.durable_list@ == old_self.durable_list@);
             }
+
+            assert(self@ == old_self@);
         }
 
 
@@ -2148,8 +2268,8 @@ verus! {
                 old(self).inv(),
                 !old(self).transaction_committed(),
                 old(self).tentative_view() is Some,
-                forall|s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@) ==>
-                    #[trigger] perm.check_permission(s),
+                forall|s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata())
+                         == Some(old(self)@) ==> #[trigger] perm.check_permission(s),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
@@ -2172,7 +2292,10 @@ verus! {
                         },
                         Err(KvError::OutOfSpace) => {
                             &&& self@ == old(self)@
-                            &&& self.tentative_view() == old(self).tentative_view()
+                            &&& self.tentative_view() ==
+                                   Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
+                                                                    self.spec_overall_metadata(),
+                                                                    AbstractOpLogState::initialize())
                         },
                         Err(_) => false,
                     }
@@ -2192,13 +2315,21 @@ verus! {
                 Ghost(item_table_subregion_condition),
             );
 
-            let item_index = self.item_table.tentatively_write_item(
+            let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-            )?;
+            ) {
+                Ok(item_index) => item_index,
+                Err(e) => {
+                    self.abort_after_failed_item_table_tentatively_write_item(Ghost(*old(self)),
+                                                                              Ghost(item_table_subregion),
+                                                                              Tracked(perm));
+                    return Err(e);
+                }
+            };
 
             proof {
                 self.lemma_reestablish_inv_after_tentatively_write_item(
@@ -2240,8 +2371,8 @@ verus! {
             ) {
                 Ok(metadata_index) => metadata_index,
                 Err(e) => {
-                    self.abort_after_failed_tentative_create(Ghost(*old(self)), Ghost(pre_self),
-                                                             Ghost(main_table_subregion), Tracked(perm));
+                    self.abort_after_failed_main_table_tentative_create(Ghost(*old(self)), Ghost(pre_self),
+                                                                        Ghost(main_table_subregion), Tracked(perm));
                     return Err(e);
                 }
             };

@@ -609,6 +609,7 @@ verus! {
                 // old(self).inv(pm, main_table_view, overall_metadata)
             ensures 
                 self.inv(pm, main_table_view, overall_metadata),
+                self@ == old(self)@,
         {
             assume(false);
         }

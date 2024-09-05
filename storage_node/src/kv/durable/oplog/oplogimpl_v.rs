@@ -201,7 +201,7 @@ verus! {
                     let pending_bytes = self.base_log_view().pending;
                     let log_ops = Self::parse_log_ops(pending_bytes, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
-                    &&& log_ops is Some 
+                    &&& log_ops is Some
                     &&& log_ops.unwrap() == self@.physical_op_list
                     &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                             Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
@@ -223,6 +223,7 @@ verus! {
                                          overall_metadata.log_area_size as nat),
                 no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat),
         {
+            lemma_persistent_memory_view_can_crash_as_committed(pm_region@);
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -1240,6 +1241,7 @@ verus! {
             overall_metadata.region_size == old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            !old(self)@.op_list_committed,
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 
@@ -1254,6 +1256,7 @@ verus! {
             self@.physical_op_list.len() == 0,
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            !self@.op_list_committed,
     {
         assert(log_wrpm@.can_crash_as(log_wrpm@.flush().committed()));
         self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);

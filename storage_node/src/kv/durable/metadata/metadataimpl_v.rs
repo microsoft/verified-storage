@@ -147,6 +147,16 @@ verus! {
                 }
             )
         }
+
+        pub open spec fn has_same_valid_items(self, other: Self) -> bool
+        {
+            &&& self.durable_metadata_table.len() == other.durable_metadata_table.len()
+            &&& forall|i: int| 0 <= i < self.durable_metadata_table.len() ==>
+                   match #[trigger] self.durable_metadata_table[i] {
+                       DurableEntry::Valid(e) => other.durable_metadata_table[i] == DurableEntry::Valid(e),
+                       _ => !(other.durable_metadata_table[i] is Valid)
+                   }
+        }
     }
 
     pub struct MetadataTable<K> {
@@ -1783,6 +1793,7 @@ verus! {
                     |i: int| None::<MetadataTableViewEntry<K>>
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
+                self@.has_same_valid_items(old(self)@),
         {
             // Move all pending allocations from the pending list back into the free list
             self.metadata_table_free_list.append(&mut self.pending_allocations);

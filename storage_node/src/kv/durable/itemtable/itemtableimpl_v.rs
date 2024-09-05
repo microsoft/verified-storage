@@ -936,6 +936,7 @@ verus! {
             ensures
                 self.valid(pm, overall_metadata),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
+                self@ == old(self)@,
         {
             // Move all pending allocations back into the free list
             self.free_list.append(&mut self.pending_allocations);
