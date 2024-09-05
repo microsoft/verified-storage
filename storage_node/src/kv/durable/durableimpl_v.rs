@@ -2509,7 +2509,7 @@ verus! {
 
         proof fn lemma_if_every_component_recovers_to_its_current_state_then_self_does(self)
             requires
-                !self.transaction_committed(), //|| self.log.base_log_view().log.len() == 0,
+                !self.transaction_committed(),
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
