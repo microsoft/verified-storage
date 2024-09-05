@@ -345,27 +345,8 @@ verus! {
             let tentative_view = parse_metadata_table::<K>(tentative_state, overall_metadata.num_keys, overall_metadata.metadata_node_size);
             &&& current_view matches Some(current_view)
             &&& tentative_view matches Some(tentative_view)
-            &&& forall |idx: u64| 0 <= idx < current_view.durable_metadata_table.len() ==> {
+            &&& forall |idx: u64| 0 <= idx < current_view.durable_metadata_table.len() ==> 
                     self.pending_alloc_check(idx, current_view, tentative_view)
-                    // // if an index is valid in the current state but invalid in the tentative state,
-                    // // it is pending deallocation
-                    // &&& {
-                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
-                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                    // } <==> self.pending_deallocations_view().contains(idx)
-                    // // if an index is invalid in the current state but valid in the tentative state, 
-                    // // it is pending allocation
-                    // &&& {
-                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
-                    // } <==> self.pending_allocations_view().contains(idx)
-                    // // if an index is invalid in both the current and tentative state,
-                    // // it is in the free list
-                    // &&& {
-                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                    // } <==> self.allocator_view().contains(idx)
-                }
         }
 
         pub open spec fn pending_alloc_check(self, idx: u64, current_view: MetadataTableView<K>, tentative_view: MetadataTableView<K>) -> bool 

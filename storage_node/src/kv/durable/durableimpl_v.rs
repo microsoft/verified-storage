@@ -2485,6 +2485,39 @@ verus! {
             let ghost new_tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
 
+            proof {
+                let old_durable_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, 
+                    self.overall_metadata.main_table_size as nat);
+                let old_durable_subregion_state = extract_bytes(old(self).wrpm@.committed(), 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let old_durable_main_table_view = parse_metadata_table::<K>(old_durable_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let durable_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, 
+                    self.overall_metadata.main_table_size as nat);
+                let durable_subregion_state = extract_bytes(self.wrpm@.committed(), 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let durable_main_table_view = parse_metadata_table::<K>(durable_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let old_tentative_subregion_state = extract_bytes(tentative_view_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let tentative_subregion_state = extract_bytes(new_tentative_view_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let tentative_main_table_view = parse_metadata_table::<K>(tentative_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+
+                assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() && idx != index implies 
+                    self.metadata_table.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
+                by { assert(old(self).metadata_table.pending_alloc_check(idx, durable_main_table_view, old_tentative_main_table_view)); }
+
+                assert(!self.metadata_table.pending_deallocations_view().contains(index)) by {
+                    assert(old(self).metadata_table.pending_alloc_check(index, old_durable_main_table_view, old_tentative_main_table_view));
+                }
+                assert(old_durable_subregion_view.committed() == old_durable_subregion_state);
+                assert(old_durable_subregion_view.can_crash_as(old_durable_subregion_view.committed()));
+            }
+
             self.metadata_table.tentatively_deallocate_entry(self.wrpm.get_pm_region_ref(),
                 index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
 
