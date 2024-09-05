@@ -1984,6 +1984,7 @@ verus! {
                 item_table_subregion.initial_region_view() == old_self.wrpm@,
                 item_table_subregion.start() == self.overall_metadata.item_table_addr,
                 item_table_subregion.len() == self.overall_metadata.item_table_size,
+                item_table_subregion.constants() == old_self.wrpm.constants(),
                 item_table_subregion.inv(&self.wrpm, perm),
                 self.item_table.inv(item_table_subregion.view(&self.wrpm), self.overall_metadata),
                 self.item_table.spec_valid_indices() == old_self.item_table.spec_valid_indices(),
@@ -1999,6 +2000,8 @@ verus! {
                     old_self.item_table.spec_free_list().contains(other_index) && other_index != item_index,
             ensures
                 self.inv(),
+                self.constants() == old_self.constants(),
+                !self.transaction_committed(),
                 forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==>
                     self.wrpm@.state[addr] == old_self.wrpm@.state[addr],
                 forall|addr: int| self.version_metadata.overall_metadata_addr <= addr
@@ -2034,6 +2037,99 @@ verus! {
             );
             self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
         }
+
+        fn abort_after_failed_tentative_create(
+            &mut self,
+            Ghost(old_self): Ghost<Self>,
+            Ghost(pre_self): Ghost<Self>,
+            Ghost(main_table_subregion): Ghost<WriteRestrictedPersistentMemorySubregion>,
+            Tracked(perm): Tracked<&Perm>
+        )
+            requires
+                pre_self.inv(),
+                !pre_self.transaction_committed(),
+                old(self).inv(),
+                old(self)@ == pre_self@,
+                old(self).metadata_table.allocator_view() == pre_self.metadata_table.allocator_view(),
+                old(self).metadata_table.allocator_view().len() == 0,
+                old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
+                main_table_subregion.initial_region_view() == pre_self.wrpm@,
+                main_table_subregion.start() == old(self).overall_metadata.main_table_addr,
+                main_table_subregion.len() == old(self).overall_metadata.main_table_size,
+                main_table_subregion.constants() == pre_self.wrpm.constants(),
+                main_table_subregion.inv(&old(self).wrpm, perm),
+                old(self).metadata_table.inv(main_table_subregion.view(&old(self).wrpm), old(self).overall_metadata),
+                main_table_subregion.view(&old(self).wrpm).committed() ==
+                    main_table_subregion.initial_subregion_view().committed(),
+                old(self).metadata_table.allocator_inv(),
+                old_self.inv(),
+                old_self.constants() == pre_self.constants(),
+                !old_self.transaction_committed(),
+                old_self.wrpm@.len() == old(self).wrpm@.len(),
+                pre_self == (Self{ item_table: pre_self.item_table, wrpm: pre_self.wrpm, ..old_self }),
+                forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==>
+                    old_self.wrpm@.state[addr] == pre_self.wrpm@.state[addr],
+                forall|addr: int| old(self).version_metadata.overall_metadata_addr <= addr
+                            < old(self).version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
+                    old_self.wrpm@.state[addr] == pre_self.wrpm@.state[addr],
+            ensures
+                self.inv(),
+                self@ == old(self)@,
+                self.constants() == pre_self.constants(),
+                self.tentative_view() == old_self.tentative_view(),
+                !self.transaction_committed(),
+        {
+            proof {
+                main_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+                main_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
+                    &self.wrpm, perm
+                );
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
+                                                        self.overall_metadata);
+                self.log.lemma_same_op_log_view_preserves_invariant(
+                    pre_self.wrpm, self.wrpm, self.version_metadata, self.overall_metadata
+                );
+                lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
+            }
+
+            let ghost mid_self = *self;
+            self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
+
+            let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
+                                                                     self.overall_metadata.main_table_addr as nat,
+                                                                     self.overall_metadata.main_table_size as nat);      
+            let ghost item_table_subregion_view = get_subregion_view(self.wrpm@,
+                                                                     self.overall_metadata.item_table_addr as nat,
+                                                                     self.overall_metadata.item_table_size as nat);
+            let ghost list_area_subregion_view = get_subregion_view(self.wrpm@,
+                                                                    self.overall_metadata.list_area_addr as nat,
+                                                                    self.overall_metadata.list_area_size as nat);
+
+            proof {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    mid_self.wrpm@,
+                    self.wrpm@,
+                    self.version_metadata,
+                    self.overall_metadata
+                );
+                self.lemma_transaction_abort(mid_self);  
+            }
+
+            // abort the transaction in each component to re-establish their invariants
+            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
+                                                Ghost(self.overall_metadata));
+
+            proof {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    old_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                );
+                assume(false); // TODO @hayley
+                self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+            }
+        }
+
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
@@ -2132,7 +2228,7 @@ verus! {
                 self.lemma_main_table_subregion_grants_access_to_free_slots(main_table_subregion);
             }
 
-            let ghost pre_wrpm = self.wrpm;
+            let ghost pre_self = *self;
             let metadata_index = match self.metadata_table.tentative_create(
                 &main_table_subregion,
                 &mut self.wrpm,
@@ -2144,51 +2240,8 @@ verus! {
             ) {
                 Ok(metadata_index) => metadata_index,
                 Err(e) => {
-                    proof {
-                        main_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
-                        main_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
-                            &self.wrpm, perm
-                        );
-                        self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
-                                                                self.overall_metadata);
-                        self.log.lemma_same_op_log_view_preserves_invariant(
-                            pre_wrpm, self.wrpm, self.version_metadata, self.overall_metadata
-                        );
-                        lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
-                    }
-
-                    let ghost mid_self = *self;
-                    self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
-
-                    let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                        self.overall_metadata.main_table_size as nat);      
-                    let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                        self.overall_metadata.item_table_size as nat); 
-                    let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                        self.overall_metadata.list_area_size as nat);
-
-                    proof {
-                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                            mid_self.wrpm@,
-                            self.wrpm@,
-                            self.version_metadata,
-                            self.overall_metadata
-                        );
-                        self.lemma_transaction_abort(mid_self);  
-                    }
-
-                    // abort the transaction in each component to re-establish their invariants
-                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
-
-                    proof {
-                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                            old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
-                        );
-                        assume(false); // TODO @hayley
-                        self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                    }
+                    self.abort_after_failed_tentative_create(Ghost(*old(self)), Ghost(pre_self),
+                                                             Ghost(main_table_subregion), Tracked(perm));
                     return Err(e);
                 }
             };
