@@ -339,6 +339,57 @@ verus! {
             &&& self.allocator_view() == self.free_indices()
         }
 
+        pub open spec fn pending_alloc_inv(self, current_durable_state: Seq<u8>, tentative_state: Seq<u8>, overall_metadata: OverallMetadata) -> bool 
+        {
+            let current_view = parse_metadata_table::<K>(current_durable_state, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+            let tentative_view = parse_metadata_table::<K>(tentative_state, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+            &&& current_view matches Some(current_view)
+            &&& tentative_view matches Some(tentative_view)
+            &&& forall |idx: u64| 0 <= idx < current_view.durable_metadata_table.len() ==> {
+                    self.pending_alloc_check(idx, current_view, tentative_view)
+                    // // if an index is valid in the current state but invalid in the tentative state,
+                    // // it is pending deallocation
+                    // &&& {
+                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    // } <==> self.pending_deallocations_view().contains(idx)
+                    // // if an index is invalid in the current state but valid in the tentative state, 
+                    // // it is pending allocation
+                    // &&& {
+                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                    // } <==> self.pending_allocations_view().contains(idx)
+                    // // if an index is invalid in both the current and tentative state,
+                    // // it is in the free list
+                    // &&& {
+                    //     &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    //     &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    // } <==> self.allocator_view().contains(idx)
+                }
+        }
+
+        pub open spec fn pending_alloc_check(self, idx: u64, current_view: MetadataTableView<K>, tentative_view: MetadataTableView<K>) -> bool 
+        {
+            // if an index is valid in the current state but invalid in the tentative state,
+            // it is pending deallocation
+            &&& {
+                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+            } <==> self.pending_deallocations_view().contains(idx)
+            // if an index is invalid in the current state but valid in the tentative state, 
+            // it is pending allocation
+            &&& {
+                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+            } <==> self.pending_allocations_view().contains(idx)
+            // if an index is invalid in both the current and tentative state,
+            // it is in the free list
+            &&& {
+                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+            } <==> self.allocator_view().contains(idx)
+        }
+
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.inv(pm, overall_metadata)
@@ -1510,35 +1561,79 @@ verus! {
         pub exec fn tentatively_deallocate_entry<PM>(
             &mut self,
             pm_region: &PM,
-            table_id: u128,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             where 
                 PM: PersistentMemoryRegion,
             requires 
-                old(self).inv(pm_region@, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
                 // the provided index is not currently free or pending (de)allocation
                 !old(self).free_indices().contains(index),
-                !old(self).pending_allocations_view().contains(index),
                 !old(self).pending_deallocations_view().contains(index),
                 // and it's currently valid in the durable metadata table state
                 old(self)@.durable_metadata_table[index as int] matches DurableEntry::Valid(_),
+                ({
+                    let main_table_subregion_view = get_subregion_view(pm_region@, 
+                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    &&& old(self).inv(main_table_subregion_view, overall_metadata)
+                }),
+                // the pending alloc invariant holds for all indexes except the one we are deallocating
+                ({
+                    let durable_subregion_state = extract_bytes(pm_region@.committed(), 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let tentative_subregion_state = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let durable_main_table_view = parse_metadata_table::<K>(durable_subregion_state,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    let tentative_main_table_view = parse_metadata_table::<K>(tentative_subregion_state,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    &&& durable_main_table_view matches Some(durable_main_table_view)
+                    &&& tentative_main_table_view matches Some(tentative_main_table_view)
+                    &&& old(self)@ == durable_main_table_view
+                    // we should have already logged the deletion of this record, 
+                    // so it should be INVALID in the tentative view
+                    &&& tentative_main_table_view.durable_metadata_table[index as int] matches DurableEntry::Invalid
+                    &&& forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() && idx != index ==> {
+                            old(self).pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
+                        }
+                })
             ensures 
                 // we maintain all invariants and move the index into 
                 // the pending deallocations set
                 self.pending_deallocations_view().contains(index),
-                self.inv(pm_region@, overall_metadata),
+                ({
+                    let durable_subregion_view = get_subregion_view(pm_region@, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    self.inv(durable_subregion_view, overall_metadata)
+                }),
+                ({
+                    let durable_subregion_state = extract_bytes(pm_region@.committed(), 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let tentative_subregion_state = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    self.pending_alloc_inv(durable_subregion_state, tentative_subregion_state, overall_metadata)
+                }),
                 old(self).free_indices() == self.free_indices(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
-                old(self)@ == self@,
                 old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
                 old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
         {
             self.pending_deallocations.push(index);
 
             proof {
+                let durable_subregion_view = get_subregion_view(pm_region@, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let durable_subregion_state = extract_bytes(pm_region@.committed(), 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let durable_main_table_view = parse_metadata_table::<K>(durable_subregion_state,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                let tentative_subregion_state = extract_bytes(current_tentative_state, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let tentative_main_table_view = parse_metadata_table::<K>(tentative_subregion_state,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+
                 assert(self.pending_deallocations@.subrange(0, self.pending_deallocations@.len() - 1) == old(self).pending_deallocations@);
                 assert(self.pending_deallocations@[self.pending_deallocations@.len() - 1] == index);
                 assert forall |idx: u64| self.pending_deallocations@.contains(idx) implies idx < overall_metadata.num_keys by {
@@ -1552,17 +1647,50 @@ verus! {
                     ||| old(self).pending_deallocations@.contains(idx)
                     ||| idx == index
                 });
-                assert(forall |idx: u64| 0 <= idx < overall_metadata.num_keys && self.pending_deallocations@.contains(idx) ==>
-                    self@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_));
 
-                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
-                    self.outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size) 
-                by { assert(old(self).outstanding_cdb_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)); }
-                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
-                    self.outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)
-                by { assert(old(self).outstanding_entry_write_matches_pm_view(pm_region@, i, overall_metadata.metadata_node_size)); }
+                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
+                    old(self).outstanding_cdb_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size) ==>
+                        self.outstanding_cdb_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size));
+                assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
+                    old(self).outstanding_entry_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size) ==> 
+                        self.outstanding_entry_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size));
+                
+                assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() implies 
+                    self.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view) 
+                by {
+                    if idx != index {
+                        assert(old(self).pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view));
+                    }
+                }
             }
+           
         }
+
+        // pub exec fn finalize_pending_alloc_and_dealloc(
+        //     &mut self,
+        //     Ghost(pm): Ghost<PersistentMemoryRegionView>,
+        //     Ghost(overall_metadata): Ghost<OverallMetadata>,
+        // )
+        //     requires
+        //         pm.no_outstanding_writes(),
+        //         // entries in the pending allocations list have become
+        //         // valid in durable storage
+        //         forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==>
+        //             old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
+        //         // entries in the pending deallocations list have become
+        //         // invalid in durable storage
+        //         forall |idx: u64| old(self).pending_deallocations_view().contains(idx) ==>
+        //             old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
+        //     ensures 
+        //         self.inv(pm, overall_metadata),
+        //         self.pending_allocations_view().len() == 0,
+        //         self.pending_deallocations_view().len() == 0,
+        // {
+        //     self.pending_allocations = Vec::new();
+        //     self.pending_deallocations = Vec::new();
+
+        //     assume(false); // TODO @hayley
+        // }
 
         pub exec fn get_delete_log_entry<PM>(
             &self,

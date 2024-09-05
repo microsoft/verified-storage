@@ -292,11 +292,22 @@ verus! {
             let pm_view = self.wrpm@;
             &&& self.inv()
             &&& self.metadata_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
-                                                           self.overall_metadata.main_table_size as nat),
-                                        self.overall_metadata)
+                    self.overall_metadata.main_table_size as nat), self.overall_metadata)
             &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                                                       self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata)
+                    self.overall_metadata.item_table_size as nat), self.overall_metadata)
+        }
+
+        pub closed spec fn pending_alloc_inv(self) -> bool
+        {
+            let durable_state_bytes = self.wrpm@.committed();
+            let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list);
+            &&& tentative_state_bytes matches Some(tentative_state_bytes)
+            &&& self.metadata_table.pending_alloc_inv(
+                    extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
+                    extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
+                    self.overall_metadata
+                )
         }
 
         pub closed spec fn transaction_committed(self) -> bool
@@ -2244,8 +2255,10 @@ verus! {
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
                 ({
                     let tentative_view = old(self).tentative_view();
-                    tentative_view is Some
-                })
+                    &&& tentative_view matches Some(tentative_view)
+                    &&& tentative_view.contains_key(index as int)
+                }),
+                old(self).pending_alloc_inv(),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -2462,6 +2475,21 @@ verus! {
 
                 assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
             }
+
+            // tentatively deallocate the indexes associated with this record.
+            // they won't actually be deallocated until we commit the transaction
+            // so that we don't accidentally reallocate them while they are 
+            // still in use by a valid record.
+
+            // We have new tentative bytes since we've appended a new entry to the log
+            let ghost new_tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list).unwrap();
+
+            self.metadata_table.tentatively_deallocate_entry(self.wrpm.get_pm_region_ref(),
+                index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
+
+            assume(false);
+
             Ok(())
         }
 
@@ -2772,6 +2800,11 @@ verus! {
 
             // 5. Finalize pending allocations and deallocations
             // TODO: need some kind of structure to track this as well.
+            proof {
+
+            }
+            
+            // self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(self.wrpm@), Ghost(self.overall_metadata));
 
             assume(false);
             Ok(())
