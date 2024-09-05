@@ -1841,6 +1841,34 @@ verus! {
             condition
         }
 
+        proof fn lemma_main_table_subregion_grants_access_to_free_slots(
+            self,
+            subregion: WriteRestrictedPersistentMemorySubregion,
+        )
+            requires
+                self.inv(),
+                subregion.start() == self.overall_metadata.main_table_addr,
+                subregion.len() == self.overall_metadata.main_table_size,
+                subregion.is_writable_absolute_addr_fn() == self.get_writable_mask_for_main_table(),
+            ensures
+                self.metadata_table.subregion_grants_access_to_free_slots(subregion),
+        {
+
+            assert forall|idx: u64| {
+                &&& idx < self.metadata_table@.len()
+                &&& self.metadata_table.allocator_view().contains(idx)
+            } implies #[trigger] subregion_grants_access_to_main_table_entry::<K>(subregion, idx) by {
+                let entry_size = self.overall_metadata.metadata_node_size;
+                assert forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr
+                           < idx * entry_size + entry_size implies
+                           subregion.is_writable_relative_addr(addr as int) by {
+                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size as nat);
+                    lemma_addr_in_entry_divided_by_entry_size(idx as nat, entry_size as nat, addr as int);
+                    assert(self.get_writable_mask_for_main_table()(addr + self.overall_metadata.main_table_addr));
+                }
+            }
+        }
+
         spec fn get_writable_mask_for_item_table(self) -> (mask: spec_fn(int) -> bool)
         {
             |addr: int| address_belongs_to_invalid_item_table_entry::<I>(addr - self.overall_metadata.item_table_addr,
@@ -1941,13 +1969,78 @@ verus! {
             condition
         }
 
+        proof fn lemma_reestablish_inv_after_tentatively_write_item(
+            self,
+            old_self: Self,
+            item_table_subregion: WriteRestrictedPersistentMemorySubregion,
+            item_index: u64,
+            item: I,
+            perm: &Perm,
+        )
+            requires
+                old_self.inv(),
+                !old_self.transaction_committed(),
+                self == (Self { item_table: self.item_table, wrpm: self.wrpm, ..old_self }),
+                item_table_subregion.initial_region_view() == old_self.wrpm@,
+                item_table_subregion.start() == self.overall_metadata.item_table_addr,
+                item_table_subregion.len() == self.overall_metadata.item_table_size,
+                item_table_subregion.inv(&self.wrpm, perm),
+                self.item_table.inv(item_table_subregion.view(&self.wrpm), self.overall_metadata),
+                self.item_table.spec_valid_indices() == old_self.item_table.spec_valid_indices(),
+                item_table_subregion.view(&self.wrpm).committed() ==
+                    item_table_subregion.initial_subregion_view().committed(),
+                old_self.item_table.spec_free_list().contains(item_index),
+                self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
+                forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
+                    #[trigger] self.item_table.spec_outstanding_item_table()[i] ==
+                               old_self.item_table.spec_outstanding_item_table()[i],
+                self.item_table.spec_outstanding_item_table()[item_index as int] == Some(item),
+                forall |other_index: u64| self.item_table.spec_free_list().contains(other_index) <==>
+                    old_self.item_table.spec_free_list().contains(other_index) && other_index != item_index,
+            ensures
+                self.inv(),
+                forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==>
+                    self.wrpm@.state[addr] == old_self.wrpm@.state[addr],
+                forall|addr: int| self.version_metadata.overall_metadata_addr <= addr
+                            < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
+                    self.wrpm@.state[addr] == old_self.wrpm@.state[addr],
+        {
+            item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+            item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
+                &self.wrpm, perm
+            );
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat));
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                      self.overall_metadata.list_area_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                      self.overall_metadata.list_area_size as nat));
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                      self.overall_metadata.log_area_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                      self.overall_metadata.log_area_size as nat));
+            assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)) by {
+                assert(0 <= self.overall_metadata.log_area_addr < 
+                    self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= 
+                    self.overall_metadata.region_size);
+                assert(0 < spec_log_header_area_size() <= spec_log_area_pos() < self.overall_metadata.log_area_size);
+                self.log.lemma_same_op_log_view_preserves_invariant(old_self.wrpm, self.wrpm, 
+                    self.version_metadata, self.overall_metadata);
+            }
+            lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                old_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+            );
+            self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+        }
+
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
         // function does NOT return an error if you attempt to create two records with the same 
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        #[verifier::rlimit(20)]
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -2012,34 +2105,9 @@ verus! {
             )?;
 
             proof {
-                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
-                item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
-                    &self.wrpm, perm
+                self.lemma_reestablish_inv_after_tentatively_write_item(
+                    *old(self), item_table_subregion, item_index, *item, perm
                 );
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                          self.overall_metadata.main_table_size as nat) =~=
-                       get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
-                                          self.overall_metadata.main_table_size as nat));
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                          self.overall_metadata.list_area_size as nat) =~=
-                       get_subregion_view(old(self).wrpm@, self.overall_metadata.list_area_addr as nat,
-                                          self.overall_metadata.list_area_size as nat));
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                          self.overall_metadata.log_area_size as nat) =~=
-                       get_subregion_view(old(self).wrpm@, self.overall_metadata.log_area_addr as nat,
-                                          self.overall_metadata.log_area_size as nat));
-                assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)) by {
-                    assert(0 <= self.overall_metadata.log_area_addr < 
-                        self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= 
-                        self.overall_metadata.region_size);
-                    assert(0 < spec_log_header_area_size() <= spec_log_area_pos() < self.overall_metadata.log_area_size);
-                    self.log.lemma_same_op_log_view_preserves_invariant(old(self).wrpm, self.wrpm, 
-                        self.version_metadata, self.overall_metadata);
-                }
-                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
-                );
-                self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
             }
             
             assert(self.inv());
@@ -2060,18 +2128,8 @@ verus! {
                 Ghost(main_table_subregion_condition),
             );
 
-            assert forall|idx: u64| {
-                &&& idx < self.metadata_table@.len()
-                &&& self.metadata_table.allocator_view().contains(idx)
-            } implies #[trigger] subregion_grants_access_to_main_table_entry::<K>(main_table_subregion, idx) by {
-                let entry_size = self.overall_metadata.metadata_node_size;
-                assert forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr
-                           < idx * entry_size + entry_size implies
-                           main_table_subregion.is_writable_relative_addr(addr as int) by {
-                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size as nat);
-                    lemma_addr_in_entry_divided_by_entry_size(idx as nat, entry_size as nat, addr as int);
-                    assert(is_writable_main_table_addr(addr + self.overall_metadata.main_table_addr));
-                }
+            proof {
+                self.lemma_main_table_subregion_grants_access_to_free_slots(main_table_subregion);
             }
 
             let ghost pre_wrpm = self.wrpm;
