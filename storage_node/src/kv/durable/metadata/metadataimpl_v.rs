@@ -1579,7 +1579,8 @@ verus! {
                     &&& forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() && idx != index ==> {
                             old(self).pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
                         }
-                })
+                }),
+                old(self).allocator_inv(),
             ensures 
                 // we maintain all invariants and move the index into 
                 // the pending deallocations set
@@ -1597,9 +1598,11 @@ verus! {
                     self.pending_alloc_inv(durable_subregion_state, tentative_subregion_state, overall_metadata)
                 }),
                 old(self).free_indices() == self.free_indices(),
+                old(self).allocator_view() == self.allocator_view(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
                 old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
+                self.allocator_inv(),
         {
             self.pending_deallocations.push(index);
 

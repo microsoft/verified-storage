@@ -2521,8 +2521,6 @@ verus! {
             self.metadata_table.tentatively_deallocate_entry(self.wrpm.get_pm_region_ref(),
                 index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
 
-            assume(false);
-
             Ok(())
         }
 
