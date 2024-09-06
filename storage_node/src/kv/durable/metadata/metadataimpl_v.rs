@@ -760,6 +760,7 @@ verus! {
                             main_table.spec_outstanding_cdb_writes()[idx as int] is None
                         &&& forall|idx: u64| 0 <= idx < main_table.spec_outstanding_entry_writes().len() ==>
                             main_table.spec_outstanding_entry_writes()[idx as int] is None
+                        &&& main_table.pending_alloc_inv(subregion.view(pm_region).committed(), subregion.view(pm_region).committed(), overall_metadata)
                     }
                     Err(KvError::IndexOutOfRange) => {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
@@ -1600,6 +1601,11 @@ verus! {
                 old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
                 old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
                 self.allocator_inv(),
+                ({
+                    let tentative_subregion_state = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    self.pending_alloc_inv(pm_subregion.committed(), tentative_subregion_state, overall_metadata)
+                })
         {
             self.pending_deallocations.push(index);
 
@@ -1653,12 +1659,16 @@ verus! {
                 pm.no_outstanding_writes(),
                 // entries in the pending allocations list have become
                 // valid in durable storage
-                forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==>
-                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
+                forall |idx: u64| {
+                    &&& 0 <= idx < old(self)@.durable_metadata_table.len()
+                    &&& old(self).pending_allocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
                 // entries in the pending deallocations list have become
                 // invalid in durable storage
-                forall |idx: u64| old(self).pending_deallocations_view().contains(idx) ==>
-                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
+                forall |idx: u64| {
+                    &&& 0 <= idx < old(self)@.durable_metadata_table.len()
+                    &&& old(self).pending_deallocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
             ensures 
                 self.inv(pm, overall_metadata),
                 self.pending_allocations_view().len() == 0,
@@ -1945,7 +1955,6 @@ verus! {
                 }
                 assert(self.allocator_view() == self.free_indices());
 
-            
                 assert_sets_equal!(self@.valid_item_indices() == old(self)@.valid_item_indices(), elem => {
                     assert(forall |i: int| {
                         &&& 0 <= i < self@.durable_metadata_table.len() 

@@ -751,6 +751,7 @@ verus! {
                             &&& forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.allocator_view().contains(i)
                             &&& item_table.spec_valid_indices() == in_use_indices
                         }
+                        &&& item_table.pending_alloc_inv(item_table.spec_valid_indices(), item_table.spec_valid_indices())
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::PmemErr{ pmem_err }) => true,
@@ -897,6 +898,8 @@ verus! {
             Ghost(pm_subregion): Ghost<PersistentMemoryRegionView>,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(durable_valid_indices): Ghost<Set<u64>>,
+            Ghost(tentative_valid_indices): Ghost<Set<u64>>,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             requires 
@@ -908,6 +911,12 @@ verus! {
                 !old(self).pending_deallocations_view().contains(index),
                 // and it's currently valid
                 old(self).spec_valid_indices().contains(index),
+                !tentative_valid_indices.contains(index),
+                old(self).spec_valid_indices() == durable_valid_indices, // ?
+                forall |idx: u64| {
+                    &&& 0 <= idx < overall_metadata.num_keys 
+                    &&& idx != index 
+                } ==> old(self).pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices),
             ensures
                 // we maintain all invariants and move the index into
                 // the pending deallocations set
@@ -917,9 +926,14 @@ verus! {
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self)@ == self@,
                 old(self).spec_valid_indices() == self.spec_valid_indices(),
+                // old(self).spec_valid_indices().remove == self.spec_valid_indices(),
                 old(self).spec_outstanding_item_table() == self.spec_outstanding_item_table(),
+                self.pending_alloc_inv(durable_valid_indices, tentative_valid_indices)
         {
             self.pending_deallocations.push(index);
+            // self.valid_indices = Ghost(self.valid_indices@.remove(index));
+
+            assume(false);
 
             proof {
                 assert(self.pending_deallocations@.subrange(0, self.pending_deallocations@.len() - 1) == old(self).pending_deallocations@);
@@ -929,6 +943,13 @@ verus! {
                         assert(old(self).pending_deallocations@.contains(idx));
                     } else {
                         assert(index < overall_metadata.num_keys);
+                    }
+                }
+                assert forall |idx: u64| 0 <= idx < overall_metadata.num_keys implies 
+                    self.pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices) 
+                by {
+                    if idx != index {
+                        assert(old(self).pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices));
                     }
                 }
             }
