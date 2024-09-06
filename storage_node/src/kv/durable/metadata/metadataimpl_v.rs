@@ -1539,15 +1539,13 @@ verus! {
             Ok(free_index)
         }
 
-        pub exec fn tentatively_deallocate_entry<PM>(
+        pub exec fn tentatively_deallocate_entry(
             &mut self,
-            pm_region: &PM,
+            Ghost(pm_subregion): Ghost<PersistentMemoryRegionView>,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
-            where 
-                PM: PersistentMemoryRegion,
             requires 
                 0 <= index < overall_metadata.num_keys,
                 // the provided index is not currently free or pending (de)allocation
@@ -1555,18 +1553,12 @@ verus! {
                 !old(self).pending_deallocations_view().contains(index),
                 // and it's currently valid in the durable metadata table state
                 old(self)@.durable_metadata_table[index as int] matches DurableEntry::Valid(_),
-                ({
-                    let main_table_subregion_view = get_subregion_view(pm_region@, 
-                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    &&& old(self).inv(main_table_subregion_view, overall_metadata)
-                }),
+                old(self).inv(pm_subregion, overall_metadata),
                 // the pending alloc invariant holds for all indexes except the one we are deallocating
                 ({
-                    let durable_subregion_state = extract_bytes(pm_region@.committed(), 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let tentative_subregion_state = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let durable_main_table_view = parse_metadata_table::<K>(durable_subregion_state,
+                    let durable_main_table_view = parse_metadata_table::<K>(pm_subregion.committed(),
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
                     let tentative_main_table_view = parse_metadata_table::<K>(tentative_subregion_state,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
@@ -1585,17 +1577,11 @@ verus! {
                 // we maintain all invariants and move the index into 
                 // the pending deallocations set
                 self.pending_deallocations_view().contains(index),
+                self.inv(pm_subregion, overall_metadata),
                 ({
-                    let durable_subregion_view = get_subregion_view(pm_region@, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    self.inv(durable_subregion_view, overall_metadata)
-                }),
-                ({
-                    let durable_subregion_state = extract_bytes(pm_region@.committed(), 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let tentative_subregion_state = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    self.pending_alloc_inv(durable_subregion_state, tentative_subregion_state, overall_metadata)
+                    self.pending_alloc_inv(pm_subregion.committed(), tentative_subregion_state, overall_metadata)
                 }),
                 old(self).free_indices() == self.free_indices(),
                 old(self).allocator_view() == self.allocator_view(),
@@ -1607,10 +1593,7 @@ verus! {
             self.pending_deallocations.push(index);
 
             proof {
-                let durable_subregion_view = get_subregion_view(pm_region@, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let durable_subregion_state = extract_bytes(pm_region@.committed(), 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let durable_subregion_state = pm_subregion.committed();
                 let durable_main_table_view = parse_metadata_table::<K>(durable_subregion_state,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let tentative_subregion_state = extract_bytes(current_tentative_state, 
@@ -1633,11 +1616,11 @@ verus! {
                 });
 
                 assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_cdb_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size) ==>
-                        self.outstanding_cdb_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size));
+                    old(self).outstanding_cdb_write_matches_pm_view(pm_subregion, i, overall_metadata.metadata_node_size) ==>
+                        self.outstanding_cdb_write_matches_pm_view(pm_subregion, i, overall_metadata.metadata_node_size));
                 assert(forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    old(self).outstanding_entry_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size) ==> 
-                        self.outstanding_entry_write_matches_pm_view(durable_subregion_view, i, overall_metadata.metadata_node_size));
+                    old(self).outstanding_entry_write_matches_pm_view(pm_subregion, i, overall_metadata.metadata_node_size) ==> 
+                        self.outstanding_entry_write_matches_pm_view(pm_subregion, i, overall_metadata.metadata_node_size));
                 
                 assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() implies 
                     self.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view) 

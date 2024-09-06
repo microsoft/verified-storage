@@ -219,6 +219,9 @@ verus! {
                     &&& forall |s| #[trigger] pm_region@.can_crash_as(s) ==>
                             Self::recover(s, version_metadata, overall_metadata) == Some(self@)
                 },
+                self.spec_base_log().inv(pm_region@, overall_metadata.log_area_addr as nat,
+                    overall_metadata.log_area_size as nat),
+                no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat),
         {}
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -1250,6 +1253,7 @@ verus! {
             self@.physical_op_list.len() == 0,
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            !self@.op_list_committed,
     {
         assert(log_wrpm@.can_crash_as(log_wrpm@.flush().committed()));
         self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
