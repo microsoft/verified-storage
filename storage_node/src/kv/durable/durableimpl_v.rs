@@ -2793,9 +2793,6 @@ verus! {
                 // not identical, and we don't know exactly how the bytes were changed. However, we do know the 
                 // abstract log in both cases, so we can prove that replaying that log results in the same state.
 
-                assert(0 <= VersionMetadata::spec_size_of() < self.overall_metadata.log_area_addr as nat) by {
-                    reveal(spec_padding_needed);
-                }
                 // Keeping these in seems to *improve* our resource usage/prevent rlimit timeouts...
                 assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
                     get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
