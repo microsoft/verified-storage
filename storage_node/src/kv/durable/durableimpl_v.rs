@@ -2464,8 +2464,10 @@ verus! {
 
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
-            let log_entry = self.metadata_table.get_delete_log_entry(&metadata_table_subregion, 
-                self.wrpm.get_pm_region_ref(), index, self.version_metadata, self.overall_metadata, Ghost(tentative_view_bytes));
+            let log_entry = self.metadata_table.get_delete_log_entry(
+                Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(), metadata_table_subregion.len())),
+                Ghost(self.wrpm@), index,
+                Ghost(self.version_metadata), &self.overall_metadata, Ghost(tentative_view_bytes));
     
             let ghost crash_pred = |s: Seq<u8>| {
                 Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
