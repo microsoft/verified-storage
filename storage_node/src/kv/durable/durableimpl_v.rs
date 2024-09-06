@@ -2987,6 +2987,7 @@ verus! {
                     tentative_view is Some
                 }),
                 old(self).spec_num_log_entries_in_current_transaction() > 0,
+                old(self).pending_alloc_inv(),
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3009,6 +3010,9 @@ verus! {
                     }
                 }
         {
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap();
+
             // 1. Create the crash predicate for the commit operation.
             // This predicate will allow either the current durable state or the current tentative state
             let ghost crash_pred = |s: Seq<u8>| {
@@ -3018,9 +3022,6 @@ verus! {
 
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-
-                let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
-                    self.log@.commit_op_log().physical_op_list).unwrap();
                 Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
 
                 // Prove that we satisfy commit_log's preconditions
@@ -3130,7 +3131,7 @@ verus! {
                     self.version_metadata, self.overall_metadata);
             }
 
-            assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view()) by {
+            proof {
                 let phys_log_view = PhysicalOpLogEntry::vec_view(self.pending_updates);
                 let old_mem_with_log_installed = Self::apply_physical_log_entries(old(self).wrpm@.flush().committed(), phys_log_view).unwrap();
                 let new_mem_with_log_installed = Self::apply_physical_log_entries(self.wrpm@.committed(), phys_log_view).unwrap();
@@ -3144,12 +3145,12 @@ verus! {
                 lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                     old_mem_with_log_installed, new_mem_with_log_installed, self.version_metadata, self.overall_metadata);
                 assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
-            }
-            
-            assert(forall |s| Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> 
-                    perm.check_permission(s));
 
+                assert(forall |s| Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
+                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> 
+                        perm.check_permission(s));
+            }
+ 
             let ghost pre_log_install_wrpm = self.wrpm;
 
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
@@ -3221,13 +3222,80 @@ verus! {
             }
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
 
-            // 5. Finalize pending allocations and deallocations
-            // TODO: need some kind of structure to track this as well.
-            proof {
+            // assert(self.tentative_view().unwrap() == pre_log_install_tentative_state);
+            // assert(self@ == pre_log_install_tentative_state);
 
-            }
+            assert(self@ == old(self).tentative_view().unwrap());
             
-            // self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(self.wrpm@), Ghost(self.overall_metadata));
+            proof {
+                let old_durable_main_table_region = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let old_durable_main_table_view = parse_metadata_table::<K>(old_durable_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                
+                assert(extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) ==
+                    old_durable_main_table_region);
+                assert(extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) ==
+                    old_tentative_main_table_region);
+
+                assert(self.metadata_table@ == old_tentative_main_table_view);
+
+                assert(old(self).metadata_table.pending_alloc_inv(old_durable_main_table_region, old_tentative_main_table_region, self.overall_metadata));
+
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < self.metadata_table@.durable_metadata_table.len() 
+                    &&& self.metadata_table.pending_allocations_view().contains(idx) 
+                } implies
+                    self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                by {
+                    // we haven't modified pending allocations
+                    assert(old(self).metadata_table.pending_allocations_view().contains(idx));
+                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
+
+                    // all indices in pending allocations were invalid in the old durable state and valid 
+                    // in the tentative state. since the current durable state is now the previous tentative 
+                    // state, that means these indices are now valid.
+                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view)==>
+                        old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
+                            &&& old_durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                            &&& old_tentative_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                        }
+                    );
+                    assert(old_durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    assert(old_tentative_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_));
+                    assert(self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_));
+                }
+
+                assert(old(self).metadata_table.pending_deallocations_view() == self.metadata_table.pending_deallocations_view());
+
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < self.metadata_table@.durable_metadata_table.len() 
+                    &&& self.metadata_table.pending_deallocations_view().contains(idx)
+                } implies
+                    self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
+                by {
+                    assert(old(self).metadata_table.pending_deallocations_view().contains(idx));
+                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
+
+                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view) ==>
+                        old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
+                            &&& old_durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                            &&& old_tentative_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                        }
+                    );
+
+                    assert(old_durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_));
+                    assert(old_tentative_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    
+                    assert(self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                }
+            }
+
+            assume(false);
+            
+
+            // 5. Finalize pending allocations and deallocations
+            self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(self.wrpm@), Ghost(self.overall_metadata));
 
             assume(false);
             Ok(())

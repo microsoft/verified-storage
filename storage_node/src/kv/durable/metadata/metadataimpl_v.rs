@@ -1644,31 +1644,31 @@ verus! {
            
         }
 
-        // pub exec fn finalize_pending_alloc_and_dealloc(
-        //     &mut self,
-        //     Ghost(pm): Ghost<PersistentMemoryRegionView>,
-        //     Ghost(overall_metadata): Ghost<OverallMetadata>,
-        // )
-        //     requires
-        //         pm.no_outstanding_writes(),
-        //         // entries in the pending allocations list have become
-        //         // valid in durable storage
-        //         forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==>
-        //             old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
-        //         // entries in the pending deallocations list have become
-        //         // invalid in durable storage
-        //         forall |idx: u64| old(self).pending_deallocations_view().contains(idx) ==>
-        //             old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
-        //     ensures 
-        //         self.inv(pm, overall_metadata),
-        //         self.pending_allocations_view().len() == 0,
-        //         self.pending_deallocations_view().len() == 0,
-        // {
-        //     self.pending_allocations = Vec::new();
-        //     self.pending_deallocations = Vec::new();
+        pub exec fn finalize_pending_alloc_and_dealloc(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        )
+            requires
+                pm.no_outstanding_writes(),
+                // entries in the pending allocations list have become
+                // valid in durable storage
+                forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==>
+                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
+                // entries in the pending deallocations list have become
+                // invalid in durable storage
+                forall |idx: u64| old(self).pending_deallocations_view().contains(idx) ==>
+                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
+            ensures 
+                self.inv(pm, overall_metadata),
+                self.pending_allocations_view().len() == 0,
+                self.pending_deallocations_view().len() == 0,
+        {
+            self.pending_allocations = Vec::new();
+            self.pending_deallocations = Vec::new();
 
-        //     assume(false); // TODO @hayley
-        // }
+            assume(false); // TODO @hayley
+        }
 
         pub exec fn get_delete_log_entry(
             &self,
@@ -1975,6 +1975,7 @@ verus! {
                 }),
                 self.allocator_view() == old(self).allocator_view(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
+                self.pending_deallocations_view() == old(self).pending_deallocations_view(),
                 self.spec_outstanding_cdb_writes() == Seq::new(old(self).spec_outstanding_cdb_writes().len(),
                     |i: int| None::<bool>),
                 self.spec_outstanding_entry_writes() == Seq::new(old(self).spec_outstanding_entry_writes().len(),
