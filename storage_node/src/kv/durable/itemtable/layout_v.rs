@@ -37,10 +37,11 @@ use vstd::prelude::*;
 
 use super::itemtableimpl_v::DurableItemTableView;
 
+use crate::kv::durable::inv_v::*;
+use crate::kv::durable::util_v::*;
+use crate::log::layout_v::GlobalMetadata;
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
-use crate::log::layout_v::GlobalMetadata;
-use crate::kv::durable::util_v::*;
 
 verus! {
     // Constants
@@ -169,5 +170,84 @@ verus! {
                 Some(DurableItemTableView::new(item_table_view))
             }
         }
+    }
+
+    pub open spec fn address_belongs_to_invalid_item_table_entry<I>(
+        addr: int,
+        num_keys: u64,
+        valid_indices: Set<u64>
+    ) -> bool
+        where 
+            I: PmCopy,
+    {
+        let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
+        let which_entry = addr / entry_size;
+        &&& 0 <= which_entry < num_keys
+        &&& !valid_indices.contains(which_entry as u64)
+    }
+
+    pub proof fn lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries<I, K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        valid_indices: Set<u64>
+    )
+        where 
+            I: PmCopy,
+            K: PmCopy + std::fmt::Debug,
+        requires
+            mem1.len() == mem2.len(),
+            mem1.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of()),
+            forall|addr: int| 0 <= addr < mem2.len() && mem1[addr] != #[trigger] mem2[addr] ==>
+                address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, valid_indices)
+        ensures
+            parse_item_table::<I, K>(mem1, num_keys as nat, valid_indices) ==
+            parse_item_table::<I, K>(mem2, num_keys as nat, valid_indices)
+    {
+        if mem1.len() < num_keys * (I::spec_size_of() + u64::spec_size_of()) {
+            return;
+        }
+
+        let entry_size = I::spec_size_of() + u64::spec_size_of();
+        assert forall |i: u64| i < num_keys && valid_indices.contains(i) implies
+            extract_bytes(mem1, (i * entry_size) as nat, entry_size) ==
+            extract_bytes(mem2, (i * entry_size) as nat, entry_size) by {
+            lemma_valid_entry_index(i as nat, num_keys as nat, entry_size as nat);
+            assert forall|addr: int| i * entry_size <= addr < i * entry_size + entry_size implies mem1[addr] == mem2[addr] by {
+                assert(addr / entry_size as int == i) by {
+                    lemma_addr_in_entry_divided_by_entry_size(i as nat, entry_size as nat, addr as int);
+                }
+            }
+            assert(extract_bytes(mem1, (i * entry_size) as nat, entry_size) =~=
+                   extract_bytes(mem2, (i * entry_size) as nat, entry_size));
+
+        }
+        assert(validate_item_table_entries::<I, K>(mem1, num_keys as nat, valid_indices) =~=
+               validate_item_table_entries::<I, K>(mem2, num_keys as nat, valid_indices));
+        let item_table_view1 = Seq::new(
+            num_keys as nat,
+            |i: int| {
+                // TODO: probably can't have if {} in here
+                if i <= u64::MAX && valid_indices.contains(i as u64) {
+                    let bytes = extract_bytes(mem1, (i * entry_size) as nat, entry_size as nat);
+                    parse_item_entry::<I, K>(bytes)
+                } else {
+                    None
+                }
+            }
+        );
+        let item_table_view2 = Seq::new(
+            num_keys as nat,
+            |i: int| {
+                // TODO: probably can't have if {} in here
+                if i <= u64::MAX && valid_indices.contains(i as u64) {
+                    let bytes = extract_bytes(mem2, (i * entry_size) as nat, entry_size as nat);
+                    parse_item_entry::<I, K>(bytes)
+                } else {
+                    None
+                }
+            }
+        );
+        assert(item_table_view1 =~= item_table_view2);
     }
 }

@@ -147,6 +147,16 @@ verus! {
                 }
             )
         }
+
+        pub open spec fn has_same_valid_items(self, other: Self) -> bool
+        {
+            &&& self.durable_metadata_table.len() == other.durable_metadata_table.len()
+            &&& forall|i: int| 0 <= i < self.durable_metadata_table.len() ==>
+                   match #[trigger] self.durable_metadata_table[i] {
+                       DurableEntry::Valid(e) => other.durable_metadata_table[i] == DurableEntry::Valid(e),
+                       _ => !(other.durable_metadata_table[i] is Valid)
+                   }
+        }
     }
 
     pub struct MetadataTable<K> {
@@ -1297,7 +1307,8 @@ verus! {
             assert(validate_metadata_entry::<K>(entry_bytes, num_keys as nat));
             lemma_subrange_of_subrange_forall(crash_state1);
             assert forall|addr: int| crc_addr <= addr < end_addr implies
-                       is_addr_part_of_invalid_entry(crash_state1, num_keys, metadata_node_size, addr) by {
+                       address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys, metadata_node_size)
+            by {
                 assert(addr / metadata_node_size as int == which_entry) by {
                     lemma_fundamental_div_mod_converse(
                         addr, metadata_node_size as int, which_entry as int, addr - which_entry * metadata_node_size
@@ -1305,8 +1316,8 @@ verus! {
                 }
             }
             assert forall|addr: int| 0 <= addr < crash_state1.len() && crash_state1[addr] != crash_state2[addr] implies
-                   #[trigger] is_addr_part_of_invalid_entry(crash_state1, num_keys,
-                                                            metadata_node_size, addr) by {
+                   #[trigger] address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys,
+                                                                          metadata_node_size) by {
                 assert(can_views_differ_at_addr(addr));
             }
             lemma_parse_metadata_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
@@ -1338,8 +1349,8 @@ verus! {
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
-                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 self.allocator_inv(),
+                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
@@ -1659,26 +1670,26 @@ verus! {
         //     assume(false); // TODO @hayley
         // }
 
-        pub exec fn get_delete_log_entry<PM>(
+        pub exec fn get_delete_log_entry(
             &self,
-            subregion: &PersistentMemorySubregion,
-            pm_region: &PM,
+            Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
+            Ghost(region_view): Ghost<PersistentMemoryRegionView>,
             index: u64,
-            version_metadata: VersionMetadata,
-            overall_metadata: OverallMetadata,
+            Ghost(version_metadata): Ghost<VersionMetadata>,
+            overall_metadata: &OverallMetadata,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         ) -> (log_entry: PhysicalOpLogEntry)
-            where 
-                PM: PersistentMemoryRegion,
             requires 
-                subregion.inv(pm_region),
-                self.inv(subregion.view(pm_region), overall_metadata),
+                self.inv(subregion_view, *overall_metadata),
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry
                 self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
-                overall_metadata.main_table_addr + overall_metadata.main_table_size <= pm_region@.len() <= u64::MAX,
-                pm_region@.len() == overall_metadata.region_size,
-                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr,
+                overall_metadata.metadata_node_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                region_view.len() == overall_metadata.region_size,
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
+                    <= overall_metadata.region_size <= region_view.len() <= u64::MAX,
                 ({
                     let main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
@@ -1687,11 +1698,14 @@ verus! {
                     main_table_view is Some
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
-                overall_metadata.main_table_addr + overall_metadata.main_table_size < overall_metadata.region_size,
-                VersionMetadata::spec_size_of() < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < overall_metadata.main_table_addr,
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                    <= overall_metadata.main_table_addr,
             ensures 
-                log_entry@.inv(version_metadata, overall_metadata),
-                overall_metadata.main_table_addr <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                log_entry@.inv(version_metadata, *overall_metadata),
+                overall_metadata.main_table_addr <= log_entry.absolute_addr,
+                log_entry.absolute_addr + log_entry.len <=
+                    overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 ({
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -1708,39 +1722,28 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    &&& new_main_table_view matches Some(new_main_table_view)
-                    &&& Some(new_main_table_view) == current_main_table_view.delete(index as int)
+                    &&& new_main_table_view is Some
+                    &&& new_main_table_view == current_main_table_view.delete(index as int)
                 }),
         {
-            // We don't have to concretely read anything from PM to put together this log entry.
-            // We just need to calculate the correct offset and create the log entry with the correct
-            // values.
-
-            let entry_slot_size = traits_t::size_of::<ListEntryMetadata>() + traits_t::size_of::<u64>() * 2 + traits_t::size_of::<K>();
+            let entry_slot_size = overall_metadata.metadata_node_size;
 
             // Proves that index * entry_slot_size will not overflow
-            proof { lemma_mul_strict_inequality(index as int, overall_metadata.num_keys as int, entry_slot_size as int); }
+            proof {
+                lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
+            }
             
             let index_offset = index * entry_slot_size as u64;
             assert(index_offset == index_to_offset(index as nat, entry_slot_size as nat));
-            let absolute_addr = overall_metadata.main_table_addr + index_offset;
-
-            let bytes = slice_to_vec(CDB_FALSE.as_byte_slice());
 
             let log_entry = PhysicalOpLogEntry {
-                absolute_addr,
+                absolute_addr: overall_metadata.main_table_addr + index_offset,
                 len: traits_t::size_of::<u64>() as u64,
-                bytes
+                bytes: slice_to_vec(CDB_FALSE.as_byte_slice()),
             };
 
             proof {
                 broadcast use pmcopy_axioms;
-
-                let absolute_addr = log_entry.absolute_addr;
-                let bytes = log_entry.bytes@;
-                let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
-                lemma_mul_inequality(index + 1, overall_metadata.num_keys as int, entry_slot_size as int);
-                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
 
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -1761,63 +1764,53 @@ verus! {
                 let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size);
                 
-
-                assert forall |i: nat| i < overall_metadata.num_keys implies {
-                    &&& validate_metadata_entry::<K>(#[trigger] extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                            entry_slot_size as nat), overall_metadata.num_keys as nat)
-                    &&& i == index ==> parse_metadata_entry::<K>(extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                            entry_slot_size as nat), overall_metadata.num_keys as nat) == DurableEntry::<MetadataTableViewEntry<K>>::Invalid
-                    &&& i != index ==> parse_metadata_entry::<K>(extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                            entry_slot_size as nat), overall_metadata.num_keys as nat) == 
-                                parse_metadata_entry::<K>(extract_bytes(old_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                                    entry_slot_size as nat), overall_metadata.num_keys as nat)
+                assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
+                                                         index_to_offset(i, entry_slot_size as nat),
+                                                         entry_slot_size as nat)]
+                           i < overall_metadata.num_keys implies {
+                    let offset = index_to_offset(i, entry_slot_size as nat);
+                    let old_entry_bytes = extract_bytes(old_main_table_region, offset,
+                                                        entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    &&& validate_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat)
+                    &&& i == index ==>
+                           parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) ==
+                           DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                    &&& i != index ==> parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) == 
+                           parse_metadata_entry::<K>(old_entry_bytes, overall_metadata.num_keys as nat)
                 } by {
-                    assert(new_main_table_region.len() >= index_to_offset(i, entry_slot_size as nat) + entry_slot_size) by {
-                        lemma_mul_inequality((i + 1) as int, overall_metadata.num_keys as int, entry_slot_size as int);
-                        lemma_mul_is_distributive_add_other_way(entry_slot_size as int, i as int, 1int);
-                    }
+                    let offset = index_to_offset(i, entry_slot_size as nat);
+                    lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
+                    assert(new_main_table_region.len() >= offset + entry_slot_size);
                     // Handle the case where i != index separately from i == index.
                     if i != index {
-                        // When i != index, the entry is the same as it was before, so it's still valid.
-                        // We need to invoke some multiplication theorems to prove that the entry at i 
-                        // does not overlap with the entry at index
-                        if i < index {
-                            assert(i * entry_slot_size < i * entry_slot_size + entry_slot_size <= index * entry_slot_size) by {
-                                lemma_mul_inequality((i + 1) as int, index as int, entry_slot_size as int);
-                                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, i as int, 1int);
-                            }
+                        assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
+                               extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
                         } else {
-                            assert(index * entry_slot_size + entry_slot_size <= i * entry_slot_size) by {
-                                lemma_mul_inequality((index + 1) as int, i as int, entry_slot_size as int);
-                                lemma_mul_is_distributive_add_other_way(entry_slot_size as int, index as int, 1int);
-                            }
-                        }
-                        assert(
-                            extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                                entry_slot_size as nat) =~=
-                            extract_bytes(old_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                                entry_slot_size as nat) 
-                        );
-                    } else {
-                        // When i == index, the entry is valid because we just set its CDB to false, which makes its CDB 
-                        // a valid, parseable value. This also proves that this entry parses to an Invalid entry, since
-                        // we know that log_entry.bytes@ == CDB_FALSE.spec_to_bytes()
-                        let entry_bytes = extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                            entry_slot_size as nat);
+                        // When `i == index`, the entry is valid because we just set its CDB to false,
+                        // which makes its CDB a valid, parseable value. This also proves that this
+                        // entry parses to an Invalid entry, since we know that
+                        // `log_entry.bytes@ == CDB_FALSE.spec_to_bytes()`
+                        let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
-                        assert(cdb_bytes == log_entry.bytes@);
+                        assert(cdb_bytes =~= log_entry.bytes@);
                     }
                 }
 
+                let updated_table = old_main_table_view.durable_metadata_table.update(
+                    index as int,
+                    DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                );
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
-                    #[trigger] old_main_table_view.durable_metadata_table.update(index as int, DurableEntry::<MetadataTableViewEntry<K>>::Invalid)[i as int] == 
-                        new_main_table_view.unwrap().durable_metadata_table[i as int]
+                    #[trigger] updated_table[i as int] == new_main_table_view.unwrap().durable_metadata_table[i as int]
                 by {
-                    let new_entry = parse_metadata_entry::<K>(extract_bytes(new_main_table_region, index_to_offset(i, entry_slot_size as nat),
-                        entry_slot_size as nat), overall_metadata.num_keys as nat);
-                    assert(new_main_table_view.unwrap().durable_metadata_table[i as int] == new_entry);
+                    let offset = index_to_offset(i, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    let new_entry = parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
+                    assert(new_main_table_view.unwrap().durable_metadata_table[i as int] =~= new_entry);
                 }
-                assert(new_main_table_view.unwrap() == old_main_table_view.delete(index as int).unwrap());
+                assert(new_main_table_view.unwrap() =~= old_main_table_view.delete(index as int).unwrap());
             }
             log_entry
         }
@@ -1862,6 +1855,7 @@ verus! {
                     |i: int| None::<MetadataTableViewEntry<K>>
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
+                self@.has_same_valid_items(old(self)@),
         {
             // Move all pending allocations from the pending list back into the free list
             self.metadata_table_free_list.append(&mut self.pending_allocations);

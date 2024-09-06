@@ -222,7 +222,9 @@ verus! {
                 self.spec_base_log().inv(pm_region@, overall_metadata.log_area_addr as nat,
                     overall_metadata.log_area_size as nat),
                 no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat),
-        {}
+        {
+            lemma_persistent_memory_view_can_crash_as_committed(pm_region@);
+        }
 
         pub closed spec fn view(self) -> AbstractOpLogState
         {
@@ -1239,6 +1241,7 @@ verus! {
             overall_metadata.region_size == old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            !old(self)@.op_list_committed,
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 

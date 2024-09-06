@@ -144,18 +144,6 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
-    pub open spec fn subregion_grants_access_to_item_table_entry<I>(
-        subregion: WriteRestrictedPersistentMemorySubregion,
-        idx: u64
-    ) -> bool
-        where
-            I: PmCopy + Sized,
-    {
-        let entry_size = I::spec_size_of() + u64::spec_size_of();
-        forall|addr: u64| idx * entry_size <= addr < idx * entry_size + entry_size ==>
-            subregion.is_writable_relative_addr(addr as int)
-    }
-
     pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -280,17 +268,6 @@ verus! {
             &&& self.inv(pm_view, overall_metadata)
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
                 #[trigger] self.spec_outstanding_item_table()[idx as int] is None
-        }
-
-        pub open spec fn subregion_grants_access_to_free_slots(
-            self,
-            subregion: WriteRestrictedPersistentMemorySubregion
-        ) -> bool
-        {
-            forall|idx: u64| {
-                &&& idx < self@.len()
-                &&& !self.spec_valid_indices().contains(idx)
-            } ==> #[trigger] subregion_grants_access_to_item_table_entry::<I>(subregion, idx)
         }
 
         pub closed spec fn spec_num_keys(self) -> u64
@@ -466,23 +443,15 @@ verus! {
             let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
             lemma_subrange_of_subrange_forall(crash_state1);
             assert forall|addr: int| {
+                       &&& 0 <= addr < crash_state2.len()
+                       &&& crash_state1[addr] != #[trigger] crash_state2[addr]
+                   } implies
+                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, self.spec_valid_indices())
+            by {
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert(can_views_differ_at_addr(addr));
                 let addrs_entry = addr / entry_size as int;
-                &&& 0 <= addr < crash_state1.len()
-                &&& addrs_entry < overall_metadata.num_keys
-                &&& self.spec_valid_indices().contains(addrs_entry as u64)
-            } implies crash_state1[addr] == crash_state2[addr] by {
-                let addrs_entry = addr / entry_size as int;
-                lemma_valid_entry_index(addrs_entry as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(addrs_entry as nat, which_entry as nat, entry_size as nat);
-                if addrs_entry < which_entry {
-                    assert((addrs_entry + 1) * entry_size <= which_entry * entry_size);
-                    assert(!(start_addr <= addr < end_addr));
-                    assert(!can_views_differ_at_addr(addr));
-                } else {
-                    assert(addrs_entry > which_entry);
-                    assert((which_entry + 1) * entry_size <= addrs_entry * entry_size);
-                    assert(!can_views_differ_at_addr(addr));
-                }
+                lemma_addr_in_entry_divided_by_entry_size(which_entry as nat, entry_size as nat, addr);
             }
             lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                 crash_state1, crash_state2, num_keys, self.spec_valid_indices()
@@ -508,7 +477,11 @@ verus! {
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
                 old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
-                old(self).subregion_grants_access_to_free_slots(*subregion),
+                forall|addr: int| {
+                    &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
+                    &&& address_belongs_to_invalid_item_table_entry::<I>(addr, overall_metadata.num_keys,
+                                                                       old(self).spec_valid_indices())
+                } ==> #[trigger] subregion.is_writable_relative_addr(addr),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -556,7 +529,11 @@ verus! {
             self.pending_allocations.push(free_index);
 
             assert(!self.free_list@.contains(free_index));
-            assert(subregion_grants_access_to_item_table_entry::<I>(*subregion, free_index));
+            assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
+                   subregion.is_writable_relative_addr(addr) by {
+                lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
+                lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+            }
             assert(self.spec_valid_indices() == old(self).spec_valid_indices());
 
             broadcast use pmcopy_axioms;
@@ -1033,6 +1010,7 @@ verus! {
             ensures
                 self.valid(pm, overall_metadata),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
+                self@ == old(self)@,
         {
             // Move all pending allocations back into the free list
             self.free_list.append(&mut self.pending_allocations);
@@ -1353,75 +1331,5 @@ verus! {
             return Ok(table_metadata);
         }
         */
-    }
-
-    pub proof fn lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries<I, K>(
-        mem1: Seq<u8>,
-        mem2: Seq<u8>,
-        num_keys: u64,
-        valid_indices: Set<u64>
-    )
-        where 
-            I: PmCopy,
-            K: PmCopy + std::fmt::Debug,
-        requires
-            mem1.len() == mem2.len(),
-            mem1.len() >= num_keys * (I::spec_size_of() + u64::spec_size_of()),
-            forall|addr: int| {
-                let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
-                let which_entry = addr / entry_size;
-                &&& 0 <= addr < mem1.len()
-                &&& which_entry < num_keys
-                &&& valid_indices.contains(which_entry as u64)
-            } ==> mem1[addr] == mem2[addr],
-        ensures
-            parse_item_table::<I, K>(mem1, num_keys as nat, valid_indices) ==
-            parse_item_table::<I, K>(mem2, num_keys as nat, valid_indices)
-    {
-        if mem1.len() < num_keys * (I::spec_size_of() + u64::spec_size_of()) {
-            return;
-        }
-
-        let entry_size = I::spec_size_of() + u64::spec_size_of();
-        assert forall |i: u64| i < num_keys && valid_indices.contains(i) implies
-            extract_bytes(mem1, (i * entry_size) as nat, entry_size) ==
-            extract_bytes(mem2, (i * entry_size) as nat, entry_size) by {
-            lemma_valid_entry_index(i as nat, num_keys as nat, entry_size as nat);
-            assert forall|addr: int| i * entry_size <= addr < i * entry_size + entry_size implies mem1[addr] == mem2[addr] by {
-                assert(addr / entry_size as int == i) by {
-                    lemma_addr_in_entry_divided_by_entry_size(i as nat, entry_size as nat, addr as int);
-                }
-            }
-            assert(extract_bytes(mem1, (i * entry_size) as nat, entry_size) =~=
-                   extract_bytes(mem2, (i * entry_size) as nat, entry_size));
-
-        }
-        assert(validate_item_table_entries::<I, K>(mem1, num_keys as nat, valid_indices) =~=
-               validate_item_table_entries::<I, K>(mem2, num_keys as nat, valid_indices));
-        let item_table_view1 = Seq::new(
-            num_keys as nat,
-            |i: int| {
-                // TODO: probably can't have if {} in here
-                if i <= u64::MAX && valid_indices.contains(i as u64) {
-                    let bytes = extract_bytes(mem1, (i * entry_size) as nat, entry_size as nat);
-                    parse_item_entry::<I, K>(bytes)
-                } else {
-                    None
-                }
-            }
-        );
-        let item_table_view2 = Seq::new(
-            num_keys as nat,
-            |i: int| {
-                // TODO: probably can't have if {} in here
-                if i <= u64::MAX && valid_indices.contains(i as u64) {
-                    let bytes = extract_bytes(mem2, (i * entry_size) as nat, entry_size as nat);
-                    parse_item_entry::<I, K>(bytes)
-                } else {
-                    None
-                }
-            }
-        );
-        assert(item_table_view1 =~= item_table_view2);
     }
 }
