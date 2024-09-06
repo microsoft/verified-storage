@@ -1034,12 +1034,31 @@ pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstand
 )
     requires 
         states_differ_only_in_log_region(v1.committed(), v2.committed(), log_start_addr, log_size),
+        v1.len() == v2.len(),
         v1.no_outstanding_writes(),
         v2.no_outstanding_writes(),
     ensures 
         views_differ_only_in_log_region(v1, v2, log_start_addr, log_size),
 {
-    assume(false); // TODO @hayley
+    let s1 = v1.committed();
+    let s2 = v2.committed();
+    assert(v1.len() == s1.len());
+    assert(v2.len() == s2.len());
+
+    assert(forall |addr: int|{
+        &&& 0 <= addr < s1.len() 
+        &&& s1[addr] == #[trigger] s2[addr] 
+    } ==> v1.state[addr] == v2.state[addr]);
+
+    assert(forall |addr: int| {
+        &&& 0 <= addr < s1.len() 
+        &&& v1.state[addr] != #[trigger] v2.state[addr]
+    } ==> s1[addr] != s2[addr]);
+
+    assert(forall |addr: int|{
+        &&& 0 <= addr < v1.len() 
+        &&& v1.state[addr] != #[trigger] v2.state[addr] 
+    } ==> log_start_addr <= addr < log_start_addr + log_size);
 }
 
 pub open spec fn states_differ_only_outside_log_region(
