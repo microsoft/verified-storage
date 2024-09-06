@@ -1981,10 +1981,13 @@ verus! {
                     |i: int| None::<MetadataTableViewEntry<K>>),
 
         {
-            assume(false); // TODO @hayley
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
             self.state = Ghost(parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap());
+            self.outstanding_cdb_writes = Ghost(Seq::new(old(self).spec_outstanding_cdb_writes().len(),
+                |i: int| None::<bool>));
+            self.outstanding_entry_writes = Ghost(Seq::new(old(self).spec_outstanding_entry_writes().len(),
+                |i: int| None));
         }
 
 /* Temporarily commented out for subregion work

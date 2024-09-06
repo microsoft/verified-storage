@@ -1058,16 +1058,13 @@ verus! {
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.spec_outstanding_item_table() == Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None::<I>),
                 self.spec_valid_indices() == valid_indices,
-                // self.item_size == old(self).item_size,
-                // self.entry_size == old(self).entry_size,
-                // self.num_keys == old(self).num_keys,
-                // self.free_list == old(self).free_list,
 
         {
-            assume(false); // TODO @hayley
-            // let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
-            //     overall_metadata.item_table_size as nat);
-            // self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
+            let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
+                overall_metadata.item_table_size as nat);
+            self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
+            self.outstanding_item_table = Ghost(Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None));
+            self.valid_indices = Ghost(valid_indices);
         }
 
         /* temporarily commented out for subregion development 

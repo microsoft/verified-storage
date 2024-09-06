@@ -2612,7 +2612,7 @@ verus! {
             len: nat
         )
             requires 
-                start < start + len <= pm.len(),
+                start + len <= pm.len(),
             ensures 
                 get_subregion_view(pm, start, len).committed() == extract_bytes(pm.committed(), start, len)
         {
@@ -3162,15 +3162,16 @@ verus! {
                 assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
                 lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(
                     self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat).committed() == 
-                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat).committed() == 
-                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
-                assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat).committed() == 
-                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
+                Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
             }
 
-            // Now we update each component's ghost state to match the current bytes
+            // Now we update each component's ghost state to match the current bytes.
+            // It would be cleaner and match other methods if these took subregions rather than the entire WRPM,
+            // but this makes everything more difficult to prove (why?). Since these functions don't modify WRPM, 
+            // we don't need to reason about crash consistency, so it's fine for them to see a ghost view of the 
+            // whole devie.
             self.metadata_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
             self.item_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.metadata_table@.valid_item_indices()));
