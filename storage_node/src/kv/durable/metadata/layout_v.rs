@@ -216,11 +216,22 @@ verus! {
                 None
             }
             else {
-                Some(MetadataTableView::<K>::new(Seq::new(
+                let entries = Seq::new(
                     num_keys as nat,
                     |i: int| parse_metadata_entry(extract_bytes(mem, (i * metadata_node_size as int) as nat,
                                                               metadata_node_size as nat), num_keys as nat)
-                )))
+                );
+                // Some(MetadataTableView::<K>::new(entries))
+                if forall |i: int, j: int| {
+                    &&& 0 <= i < j < entries.len()
+                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
+                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
+                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
+                {
+                    Some(MetadataTableView::<K>::new(entries))
+                } else {
+                    None
+                }
             }
         }
     }
@@ -574,6 +585,50 @@ verus! {
             );
         }
 
+        let table1 = parse_metadata_table::<K>(mem1, num_keys, metadata_node_size);
+        let table2 = parse_metadata_table::<K>(mem2, num_keys, metadata_node_size);
+
+        // To finish the proof, we have to prove that it's impossible for one 
+        // table to parse successfully and for the other to fail the duplicate 
+        // item index check
+        match (table1, table2) {
+            (Some(table1), Some(table2)) => {
+                assert(forall |i: int| {
+                    &&& 0 <= i < num_keys 
+                    &&& #[trigger] table1.durable_metadata_table[i] matches DurableEntry::Valid(entry)
+                } ==> table2.durable_metadata_table[i] matches DurableEntry::Valid(entry));
+            }
+            (None, Some(table2)) => {
+                let entries = Seq::new(
+                    num_keys as nat,
+                    |i: int| parse_metadata_entry::<K>(extract_bytes(mem1, (i * metadata_node_size as int) as nat,
+                                                              metadata_node_size as nat), num_keys as nat)
+                );
+                assert(!(forall |i: int, j: int| {
+                    &&& 0 <= i < j < entries.len()
+                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
+                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
+                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()));
+                assert(forall |i: int| 0 <= i < num_keys ==>
+                    #[trigger] entries[i] == table2.durable_metadata_table[i]);
+            }
+            (Some(table1), None) => {
+                let entries = Seq::new(
+                    num_keys as nat,
+                    |i: int| parse_metadata_entry::<K>(extract_bytes(mem2, (i * metadata_node_size as int) as nat,
+                                                              metadata_node_size as nat), num_keys as nat)
+                );
+                assert(!(forall |i: int, j: int| {
+                    &&& 0 <= i < j < entries.len()
+                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
+                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
+                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()));
+                assert(forall |i: int| 0 <= i < num_keys ==>
+                    #[trigger] entries[i] == table1.durable_metadata_table[i]);
+            }
+            (None, None) => {}
+        }
+        
         assert(parse_metadata_table::<K>(mem1, num_keys, metadata_node_size) =~=
                parse_metadata_table::<K>(mem2, num_keys, metadata_node_size));
     }
