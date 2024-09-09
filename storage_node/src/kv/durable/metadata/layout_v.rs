@@ -197,7 +197,7 @@ verus! {
             DurableEntry::Invalid
         } else {
             // cdb == CDB_TRUE
-            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(crc, metadata, key))
+            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(cdb, crc, metadata, key))
         }
     }
 
@@ -233,6 +233,108 @@ verus! {
                     None
                 }
             }
+        }
+    }
+
+    pub open spec fn validate_metadata_entries_after_parse<K>(entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>, 
+            num_keys: nat, metadata_node_size: nat) -> bool 
+        where 
+            K: PmCopy
+    {
+        // check the contents of each entry
+        &&& forall |i: int| 0 <= i < num_keys ==> validate_metadata_entry_after_parse(#[trigger] entries[i], num_keys)
+        // check that there are no duplicate item indexes
+        &&& no_duplicate_item_indexes(entries)
+    }
+
+    pub open spec fn validate_metadata_entry_after_parse<K>(
+            entry: DurableEntry<MetadataTableViewEntry<K>>, num_keys: nat) -> bool
+        where 
+            K: PmCopy
+    {
+        match entry {
+            DurableEntry::Valid(entry) => {
+                // TODO: does it make ANY sense to check that the bytes are parseable 
+                // after they have been parsed?? 
+                let crc_bytes = entry.crc.spec_to_bytes();
+                let metadata_bytes = entry.entry.spec_to_bytes();
+                let key_bytes = entry.key.spec_to_bytes();
+
+                &&& entry.cdb == CDB_TRUE
+                &&& entry.crc == spec_crc_u64(metadata_bytes + key_bytes)
+                &&& u64::bytes_parseable(crc_bytes)
+                &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+                &&& K::bytes_parseable(key_bytes)
+                &&& 0 <= entry.entry.item_index < num_keys
+            }
+            _ => true
+        }
+    }
+
+    pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>) -> bool 
+        where 
+            K: PmCopy
+    {
+        forall |i: int, j: int| {
+            &&& 0 <= i < j < entries.len()
+            &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
+            &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
+        } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
+    }
+
+    // This function parses metadata entries before they are validated. It works the same
+    // way as the old parse-after-validate function, although we have not yet checked 
+    // that the fields are parseable or that the CDBs are correct. 
+    pub open spec fn parse_metadata_entries_before_validate<K>(mem: Seq<u8>, num_keys: u64, 
+            metadata_node_size: u32) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        where 
+            K: PmCopy
+    {
+        Seq::new(num_keys as nat, |i: int| parse_metadata_entry_before_validate(extract_bytes(mem, (i * metadata_node_size as int) as nat,
+            metadata_node_size as nat), num_keys as nat))
+    }
+
+    pub open spec fn parse_metadata_entry_before_validate<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MetadataTableViewEntry<K>>
+    where 
+        K: PmCopy
+    {
+        let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
+        let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
+        let metadata_bytes = extract_bytes(bytes, u64::spec_size_of() * 2,
+                                        ListEntryMetadata::spec_size_of());
+        let key_bytes = extract_bytes(bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of());
+
+        let cdb = u64::spec_from_bytes(cdb_bytes);
+        let crc = u64::spec_from_bytes(crc_bytes);
+        let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
+        let key = K::spec_from_bytes(key_bytes);
+        
+        if cdb == CDB_FALSE {
+            DurableEntry::Invalid
+        } else {
+            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(cdb, crc, metadata, key))
+        }
+    }
+
+    pub open spec fn parse_metadata_table2<K>(mem: Seq<u8>, num_keys: u64, 
+            metadata_node_size: u32) -> Option<MetadataTableView<K>>
+        where 
+            K: PmCopy
+    {
+        let table_entry_slot_size =
+              ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
+        
+        // Check that the sequence of bytes is large enough to parse
+        if mem.len() < num_keys * table_entry_slot_size {
+            None
+        } else {
+            // Parse the entries. These entries have not yet been validated so they may be meaningless/corrupted
+            let entries = parse_metadata_entries_before_validate(mem, num_keys, metadata_node_size);
+            if validate_metadata_entries_after_parse(entries, num_keys as nat, metadata_node_size as nat) {
+                Some(MetadataTableView::<K>::new(entries))
+            } else {
+                None
+            } 
         }
     }
 

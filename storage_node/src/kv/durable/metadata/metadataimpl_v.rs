@@ -28,14 +28,16 @@ use crate::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
+        pub cdb: u64,
         pub crc: u64,
         pub entry: ListEntryMetadata,
         pub key: K,
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+        pub open spec fn new(cdb: u64, crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
+                cdb,
                 crc,
                 entry,
                 key,
@@ -1499,7 +1501,8 @@ verus! {
                                                                                   &entry, Tracked(perm));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
 
-            let ghost metadata_table_entry = MetadataTableViewEntry{ crc, entry, key: *key };
+            // TODO @hayley -- properly deal with CDB here
+            let ghost metadata_table_entry = MetadataTableViewEntry{ cdb: 0, crc, entry, key: *key };
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
