@@ -240,11 +240,15 @@ verus! {
         pub open spec fn pending_alloc_check(self, idx: u64, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>) -> bool 
         {
             // If an index is in the current valid index set but not the tentative one, 
-            // it is pending deallocation.
+            // it is pending deallocation. We still consider this index valid because it
+            // will be valid upon recovery if we were to crash right now.
             &&& {
                 &&& current_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
-            } <==> self.pending_deallocations_view().contains(idx)
+            } <==> {
+                &&& self.pending_deallocations_view().contains(idx) 
+                &&& self.spec_valid_indices().contains(idx)
+            }
             // If an index is not in the current valid index set but is in the tentative one,
             // it is pending allocation
             &&& {
@@ -256,11 +260,14 @@ verus! {
                 &&& !current_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
             } <==> self.allocator_view().contains(idx)
-            // If the index is in both sets, it's valid
+            // If the index is in both sets, it's valid and not pending deallocation.
             &&& {
                 &&& current_valid_indices.contains(idx)
                 &&& tentative_valid_indices.contains(idx)
-            } <==> self.spec_valid_indices().contains(idx)
+            } <==> {
+                &&& !self.pending_deallocations_view().contains(idx) 
+                &&& self.spec_valid_indices().contains(idx)
+            }
         }
 
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -329,6 +336,27 @@ verus! {
                                  (index * entry_size as u64) as nat + u64::spec_size_of(),
                                  I::spec_size_of()));
             assert(validate_item_table_entry::<I, K>(entry_bytes));
+        }
+
+        pub exec fn index_pending_deallocation(&self, item_index: u64) -> (out: bool)
+            requires 
+                0 <= item_index < self.spec_num_keys()
+            ensures 
+                out == self.pending_deallocations_view().contains(item_index)
+        {
+            // self.pending_deallocations.contains(&item_index)
+            // TODO: replace loop with `contains` exec call when supported by Verus
+            let mut i = 0;
+            while i < self.pending_deallocations.len() 
+                invariant 
+                    forall |j: int| 0 <= j < i ==> self.pending_deallocations[j] != item_index,
+            {
+                if self.pending_deallocations[i] == item_index {
+                    return true;
+                }
+                i += 1;
+            }
+            false
         }
 
         // Read an item from the item table given an index. Returns `None` if the index is 

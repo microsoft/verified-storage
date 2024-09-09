@@ -79,12 +79,17 @@ verus! {
             }
         }
 
-        pub open spec fn inv(self) -> bool
+        pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
             &&& forall |i| #![trigger self.durable_metadata_table[i]] {
                   let entries = self.durable_metadata_table;
                   0 <= i < entries.len() ==> !(entries[i] is Tentative)
             }
+            &&& forall |i: nat, j: nat| i < j < overall_metadata.num_keys ==> {
+                    &&& #[trigger] self.durable_metadata_table[i as int] matches DurableEntry::Valid(entry1)
+                    &&& #[trigger] self.durable_metadata_table[j as int] matches DurableEntry::Valid(entry2)
+                } ==> self.durable_metadata_table[i as int]->Valid_0.item_index() != 
+                        self.durable_metadata_table[j as int]->Valid_0.item_index()
         }
 
         pub open spec fn len(self) -> nat
@@ -330,7 +335,7 @@ verus! {
                     self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
-            &&& self@.inv()
+            &&& self@.inv(overall_metadata)
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.allocator_view().contains(idx) ==> self.free_indices().contains(idx)
             &&& forall |idx: u64| self.pending_allocations_view().contains(idx) ==> idx < overall_metadata.num_keys
@@ -341,7 +346,6 @@ verus! {
                         DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     }
-            
         }
 
         pub open spec fn allocator_inv(self) -> bool
@@ -1693,7 +1697,7 @@ verus! {
                 self.inv(subregion_view, *overall_metadata),
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
-                // the index must refer to a currently-valid entry
+                // the index must refer to a currently-valid entry in the current durable table
                 self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
@@ -1705,7 +1709,12 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_metadata_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    main_table_view is Some
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.inv(*overall_metadata)
+                    // the index must also be valid in the tentative table
+                    &&& main_table_view.durable_metadata_table[index as int] matches DurableEntry::Valid(entry)
+                    // and match the contents in the durable table at this index
+                    &&& self@.durable_metadata_table[index as int] == main_table_view.durable_metadata_table[index as int]
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -1732,12 +1741,14 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    let item_index = self@.durable_metadata_table[index as int]->Valid_0.item_index();
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_main_table_view.delete(index as int)
+                    &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
                 }),
         {
             let entry_slot_size = overall_metadata.metadata_node_size;
-
+            let ghost item_index = self@.durable_metadata_table[index as int].unwrap_valid().item_index();
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
@@ -1820,7 +1831,19 @@ verus! {
                     let new_entry = parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
                     assert(new_main_table_view.unwrap().durable_metadata_table[i as int] =~= new_entry);
                 }
-                assert(new_main_table_view.unwrap() =~= old_main_table_view.delete(index as int).unwrap());
+                let new_main_table_view = new_main_table_view.unwrap();
+                assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
+
+                // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
+                // prove that it makes the corresponding item table index invalid.
+                assert(new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index)) by {
+                    assert(forall |idx: u64| 0 <= idx < overall_metadata.num_keys && idx != index ==>
+                        new_main_table_view.durable_metadata_table[idx as int] == old_main_table_view.durable_metadata_table[idx as int]);
+                    assert(forall |idx: u64| 
+                        (#[trigger] new_main_table_view.valid_item_indices().contains(idx) <==> 
+                            old_main_table_view.valid_item_indices().remove(item_index).contains(idx)) ==> 
+                                new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
+                }
             }
             log_entry
         }
@@ -1842,7 +1865,7 @@ verus! {
                     parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(old(self)@),
                 old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
                     old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
-                old(self)@.inv(),
+                old(self)@.inv(overall_metadata),
                 forall |idx: u64| old(self).allocator_view().contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |idx: u64| old(self).free_indices().contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |i| 0 <= i < old(self)@.durable_metadata_table.len() ==> 

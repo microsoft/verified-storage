@@ -2717,6 +2717,16 @@ verus! {
             };
             let item_index = metadata.item_index;
 
+            // check that this item index is not already pending deallocation. This could happen 
+            // if we, e.g., update the item in this same transaction. if it is, abort the 
+            // transaction.
+            // TODO: it might be fine to just ignore this? aborting the transaction 
+            // is likely overkill, but it might complicate other things to not abort
+            if self.item_table.index_pending_deallocation(item_index) {
+                self.abort_after_failed_read_operation(Tracked(perm));
+                return Err(KvError::EntryIsNotValid);
+            }
+
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
@@ -2865,6 +2875,7 @@ verus! {
                 let old_main_table_view = parse_metadata_table::<K>(old_mem_old_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                 let main_table_view = parse_metadata_table::<K>(new_mem_new_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                 assert(main_table_view == old_main_table_view.delete(index as int).unwrap());
+                assert(main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
 
                 DurableList::<K, L>::lemma_parse_all_lists_succeeds_after_record_delete(
                     old_main_table_view,
@@ -2918,14 +2929,15 @@ verus! {
 
                 assert(old(self).metadata_table.pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
                 assert(!self.metadata_table.pending_deallocations_view().contains(index));
-                assert(!self.item_table.pending_deallocations_view().contains(item_index)) by {
-                    // assert(!old(self).item_table.pending_deallocations_view().contains(item_index));
-                    assert(old(self).item_table.pending_alloc_check(
-                        item_index,
-                        durable_main_table_view.valid_item_indices(),
-                        old_tentative_main_table_view.valid_item_indices()
-                    ));
-                }
+                // assert(!self.item_table.pending_deallocations_view().contains(item_index)) by {
+                //     // assert(!old(self).item_table.pending_deallocations_view().contains(item_index));
+                //     assert(old(self).item_table.pending_alloc_check(
+                //         item_index,
+                //         durable_main_table_view.valid_item_indices(),
+                //         old_tentative_main_table_view.valid_item_indices()
+                //     ));
+                // }
+                
             }
 
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -2938,6 +2950,40 @@ verus! {
 
             self.metadata_table.tentatively_deallocate_entry(Ghost(main_table_subregion_view),
                 index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
+
+            proof {
+                let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+
+                let old_tentative_main_table_subregion_state = extract_bytes(tentative_view_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+
+                assert(self.metadata_table@.valid_item_indices() == old(self).metadata_table@.valid_item_indices());
+
+                assert(tentative_main_table_view.valid_item_indices() == old_tentative_main_table_view.valid_item_indices().remove(item_index));
+               
+                assert(self.metadata_table@ == durable_main_table_view);
+                
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < self.overall_metadata.num_keys 
+                    &&& idx != item_index  
+                } implies self.item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), 
+                    tentative_main_table_view.valid_item_indices())
+                by { 
+                    assert(old(self).item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), old_tentative_main_table_view.valid_item_indices()));
+                    assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
+                    assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
+                    assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
+                    assert(self.item_table.spec_valid_indices() == old(self).item_table.spec_valid_indices());
+                    // assert(old(self).item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), tentative_main_table_view.valid_item_indices()));
+                }
+
+                assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
+            }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
                 Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()),
                 Ghost(tentative_main_table_view.valid_item_indices()), Ghost(new_tentative_view_bytes));
