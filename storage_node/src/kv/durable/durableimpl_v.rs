@@ -2929,15 +2929,6 @@ verus! {
 
                 assert(old(self).metadata_table.pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
                 assert(!self.metadata_table.pending_deallocations_view().contains(index));
-                // assert(!self.item_table.pending_deallocations_view().contains(item_index)) by {
-                //     // assert(!old(self).item_table.pending_deallocations_view().contains(item_index));
-                //     assert(old(self).item_table.pending_alloc_check(
-                //         item_index,
-                //         durable_main_table_view.valid_item_indices(),
-                //         old_tentative_main_table_view.valid_item_indices()
-                //     ));
-                // }
-                
             }
 
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -2988,7 +2979,7 @@ verus! {
                 Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()),
                 Ghost(tentative_main_table_view.valid_item_indices()), Ghost(new_tentative_view_bytes));
 
-            assert(self.pending_alloc_inv()); // TODO @hayley
+            assert(self.pending_alloc_inv());
 
             Ok(())
         }
