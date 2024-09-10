@@ -28,16 +28,14 @@ use crate::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
-        pub cdb: u64,
         pub crc: u64,
         pub entry: ListEntryMetadata,
         pub key: K,
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub open spec fn new(cdb: u64, crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
-                cdb,
                 crc,
                 entry,
                 key,
@@ -1516,8 +1514,7 @@ verus! {
                                                                                   &entry, Tracked(perm));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
 
-            // TODO @hayley -- properly deal with CDB here
-            let ghost metadata_table_entry = MetadataTableViewEntry{ cdb: 0, crc, entry, key: *key };
+            let ghost metadata_table_entry = MetadataTableViewEntry{crc, entry, key: *key };
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
@@ -1853,10 +1850,6 @@ verus! {
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
-                    // // the index must also be valid in the tentative table
-                    // &&& main_table_view.durable_metadata_table[index as int] matches DurableEntry::Valid(entry)
-                    // // and match the contents in the durable table at this index
-                    // &&& self@.durable_metadata_table[index as int] == main_table_view.durable_metadata_table[index as int]
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -1961,6 +1954,18 @@ verus! {
                     }
                 }
 
+                // NOTE: in progress
+                assert(validate_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                    overall_metadata.metadata_node_size as nat));
+                let entries = parse_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                    overall_metadata.metadata_node_size as nat);
+                assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.metadata_node_size);
+                
+                // TODO @hayley
+                assume(no_duplicate_item_indexes(entries));
+
+                assert(new_main_table_view is Some);
+
                 let updated_table = old_main_table_view.durable_metadata_table.update(
                     index as int,
                     DurableEntry::<MetadataTableViewEntry<K>>::Invalid
@@ -1972,7 +1977,7 @@ verus! {
                     let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     let new_entry = parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
                     // TODO @hayley
-                    assume(new_main_table_view.unwrap().durable_metadata_table[i as int] =~= new_entry);
+                    assert(new_main_table_view.unwrap().durable_metadata_table[i as int] =~= new_entry);
                 }
                 let new_main_table_view = new_main_table_view.unwrap();
                 // TODO @hayley
@@ -1991,7 +1996,6 @@ verus! {
                                 new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
                 }
             }
-            assume(false); // TODO @hayley
             log_entry
         }
 
