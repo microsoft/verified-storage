@@ -270,6 +270,69 @@ verus! {
             }
         }
 
+        pub proof fn lemma_invalid_item_indices_pending_alloc_or_free(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>)
+            requires 
+                self.pending_alloc_inv(current_valid_indices, tentative_valid_indices),
+            ensures 
+                forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
+                    ||| self.pending_allocations_view().contains(idx)
+                    ||| self.allocator_view().contains(idx)
+                }
+        {
+            assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
+                self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices)
+            });
+            // Annoyingly, we need to have a trigger on `!tentative_valid_indices.contains(idx)`, which 
+            // apparently Verus can do internally, but is not syntactically legal here. So we have to 
+            // use auto-chosen triggers. 
+            // Also annoyingly, we have to have the entire alloc check specified here, presumably 
+            // to hit the proper triggers. 
+            assert(forall |idx: u64| #![auto] 0 <= idx < self.num_keys ==> 
+                self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices) ==> {
+                    &&& {
+                            &&& current_valid_indices.contains(idx)
+                            &&& !tentative_valid_indices.contains(idx)
+                        } <==> {
+                            &&& self.pending_deallocations_view().contains(idx) 
+                            &&& self.spec_valid_indices().contains(idx)
+                        }
+                    &&& {
+                            &&& !current_valid_indices.contains(idx)
+                            &&& tentative_valid_indices.contains(idx)
+                        } <==> self.pending_allocations_view().contains(idx)
+                    &&& {
+                            &&& !current_valid_indices.contains(idx)
+                            &&& !tentative_valid_indices.contains(idx)
+                        } <==> self.allocator_view().contains(idx)
+                    &&& {
+                            &&& current_valid_indices.contains(idx)
+                            &&& tentative_valid_indices.contains(idx)
+                        } <==> {
+                            &&& !self.pending_deallocations_view().contains(idx) 
+                            &&& self.spec_valid_indices().contains(idx)
+                        }
+                }
+            );
+
+            assert forall |idx: u64| 0 <= idx < self.num_keys && !self.spec_valid_indices().contains(idx) implies {
+                ||| self.pending_allocations_view().contains(idx)
+                ||| self.allocator_view().contains(idx)
+            } by {
+                assert({
+                    &&& current_valid_indices.contains(idx)
+                    &&& !tentative_valid_indices.contains(idx)
+                } <==> {
+                    &&& self.pending_deallocations_view().contains(idx) 
+                    &&& self.spec_valid_indices().contains(idx)
+                });
+                assert({!({
+                    &&& current_valid_indices.contains(idx)
+                    &&& !tentative_valid_indices.contains(idx)
+                })});
+                // Verus is able to automatically handle the rest of the cases.
+            }
+        }
+
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.inv(pm_view, overall_metadata)
@@ -530,6 +593,8 @@ verus! {
                         &&& self@ == old(self)@
                         &&& self.spec_outstanding_item_table() == old(self).spec_outstanding_item_table()
                         &&& self.allocator_view() == old(self).allocator_view()
+                        &&& self.pending_allocations_view() == old(self).pending_allocations_view()
+                        &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.allocator_view().len() == 0
                         &&& wrpm_region == old(wrpm_region)
                     },
@@ -1056,9 +1121,9 @@ verus! {
                     &&& old(self)@.durable_item_table[idx as int] is Some
                     &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
                 },
-                forall |idx: u64| old(self).allocator_view().contains(idx) <==> {
-                    &&& !old(self).spec_valid_indices().contains(idx)
-                    &&& !old(self).pending_allocations_view().contains(idx)
+                forall |idx: u64|0 <= idx < old(self).spec_num_keys() &&  !old(self).spec_valid_indices().contains(idx) ==> {
+                    ||| old(self).pending_allocations_view().contains(idx)
+                    ||| old(self).allocator_view().contains(idx)
                 },
             ensures
                 self.valid(pm, overall_metadata),
@@ -1096,13 +1161,8 @@ verus! {
                     // note: valid indices doesn't change here
                     if !self.spec_valid_indices().contains(idx) {
                         assert(!old(self).spec_valid_indices().contains(idx));
-                        assert({
-                            ||| old(self).free_list@.contains(idx)
-                            ||| old(self).pending_allocations@.contains(idx)
-                        });
                         assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
                         assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
-                        assert(self.free_list@.contains(idx));
                     }
                 }
             }
