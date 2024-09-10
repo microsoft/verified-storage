@@ -553,7 +553,7 @@ verus! {
 
         spec fn extract_cdb_for_entry(mem: Seq<u8>, k: nat, metadata_node_size: u32) -> u64
         {
-            u64::spec_from_bytes(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()))
+            u64::spec_from_bytes(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()))
         }
 
         pub exec fn setup<PM, L>(
@@ -599,7 +599,8 @@ verus! {
                     subregion.view(pm_region).no_outstanding_writes_in_range(entry_offset as int,
                                                                              subregion.view(pm_region).len() as int),
                     num_keys * metadata_node_size <= subregion.view(pm_region).len() <= u64::MAX,
-                    entry_offset == index * metadata_node_size,
+                    // entry_offset == index * metadata_node_size,
+                    entry_offset == index_to_offset(index as nat, metadata_node_size as nat),
                     metadata_node_size >= u64::spec_size_of(),
                     forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
@@ -609,7 +610,7 @@ verus! {
                         let mem = subregion.view(pm_region).flush().committed();
                         forall |k: nat| k < index ==> u64::bytes_parseable(#[trigger] extract_bytes(
                             mem,
-                            k * metadata_node_size as nat,
+                            index_to_offset(k, metadata_node_size as nat),
                             u64::spec_size_of())
                         )
                     }),
@@ -628,14 +629,14 @@ verus! {
                     let mem = subregion.view(pm_region).flush().committed();
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
-                        assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
+                        assert(index_to_offset(k, metadata_node_size as nat) + u64::spec_size_of() <= entry_offset) by {
                             lemma_metadata_fits::<K>(k as int, index as int, metadata_node_size as int);
                         }
-                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
-                               extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
+                        assert(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()) =~= 
+                               extract_bytes(v1.flush().committed(), index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()));
                     }
                     else {
-                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) ==
+                        assert(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()) ==
                                CDB_FALSE.spec_to_bytes());
                         broadcast use axiom_to_from_bytes;
                     }
@@ -650,14 +651,14 @@ verus! {
                     let mem = subregion.view(pm_region).flush().committed();
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, metadata_node_size) == CDB_FALSE);
-                        assert(k * metadata_node_size + u64::spec_size_of() <= entry_offset) by {
+                        assert(index_to_offset(k, metadata_node_size as nat) + u64::spec_size_of() <= entry_offset) by {
                             lemma_metadata_fits::<K>(k as int, index as int, metadata_node_size as int);
                         }
-                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) =~= 
+                        assert(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()) =~= 
                             extract_bytes(v1.flush().committed(), k * metadata_node_size as nat, u64::spec_size_of()));
                     }
                     else {
-                        assert(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of()) ==
+                        assert(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of()) ==
                             CDB_FALSE.spec_to_bytes());
                         broadcast use axiom_to_from_bytes;
                     }
@@ -678,12 +679,26 @@ verus! {
                 validate_metadata_entry::<K>(#[trigger] extract_bytes(mem, (k * metadata_node_size) as nat,
                         metadata_node_size as nat), num_keys as nat)
             } by {
-                assert(u64::bytes_parseable(extract_bytes(mem, k * metadata_node_size as nat, u64::spec_size_of())));
+                assert(u64::bytes_parseable(extract_bytes(mem, index_to_offset(k, metadata_node_size as nat), u64::spec_size_of())));
                 assert(Self::extract_cdb_for_entry(mem, k, metadata_node_size) == CDB_FALSE);
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
                 // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
-                lemma_subrange_of_extract_bytes_equal(mem, (k * metadata_node_size) as nat, (k * metadata_node_size) as nat, metadata_node_size as nat, u64::spec_size_of());
+                lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(k, metadata_node_size as nat), 
+                        index_to_offset(k, metadata_node_size as nat), metadata_node_size as nat, u64::spec_size_of());
+            }
+
+            proof {
+                let entries = parse_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat);
+                assert forall |i: nat| 0 <= i < entries.len() implies #[trigger] entries[i as int] matches DurableEntry::Invalid by {
+                    lemma_valid_entry_index(i, num_keys as nat, metadata_node_size as nat);
+                    lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), 
+                        index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat, u64::spec_size_of());
+                    assert(Self::extract_cdb_for_entry(mem, i, metadata_node_size) == CDB_FALSE);
+                    assert(Self::extract_cdb_for_entry(mem, i, metadata_node_size) == CDB_FALSE ==> 
+                        entries[i as int] matches DurableEntry::Invalid);
+                }
+                assert(no_duplicate_item_indexes(entries));
             }
 
             // Prove that entries with CDB of false are None in the recovery view of the table. We already know that all of the entries
@@ -691,7 +706,6 @@ verus! {
             // since all entries in both are None
             let ghost metadata_table = recovered_view.unwrap().get_durable_metadata_table();
             assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] matches DurableEntry::Invalid by {
-                assume(false); // TODO @hayley
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
                 // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
@@ -702,8 +716,7 @@ verus! {
             // We need to reveal the opaque lemma at some point to be able to prove that the general PM invariant holds;
             // it's cleaner to do that here than in the caller
             proof { subregion.lemma_reveal_opaque_inv(pm_region); }
-            // TODO @hayley
-            assume({
+            assert({
                 &&& recovered_view matches Some(recovered_view)
                 &&& recovered_view =~= MetadataTableView::<K>::init(num_keys)
             });

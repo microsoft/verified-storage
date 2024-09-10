@@ -172,6 +172,17 @@ verus! {
                                                                                         metadata_node_size), num_keys)
     }
 
+    pub open spec fn parse_metadata_entries<K>(mem: Seq<u8>, num_keys: nat, metadata_node_size: nat) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        where 
+            K: PmCopy,
+    {
+        Seq::new(
+            num_keys as nat,
+            |i: int| parse_metadata_entry(extract_bytes(mem, index_to_offset(i as nat, metadata_node_size),
+                                                      metadata_node_size as nat), num_keys as nat)
+        )
+    }
+
     pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MetadataTableViewEntry<K>>
         where 
             K: PmCopy,
@@ -216,18 +227,8 @@ verus! {
                 None
             }
             else {
-                let entries = Seq::new(
-                    num_keys as nat,
-                    |i: int| parse_metadata_entry(extract_bytes(mem, (i * metadata_node_size as int) as nat,
-                                                              metadata_node_size as nat), num_keys as nat)
-                );
-                // Some(MetadataTableView::<K>::new(entries))
-                if forall |i: int, j: int| {
-                    &&& 0 <= i < j < entries.len()
-                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
-                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
-                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
-                {
+                let entries = parse_metadata_entries(mem, num_keys as nat, metadata_node_size as nat);
+                if no_duplicate_item_indexes(entries) {
                     Some(MetadataTableView::<K>::new(entries))
                 } else {
                     None
@@ -701,30 +702,14 @@ verus! {
                 } ==> table2.durable_metadata_table[i] matches DurableEntry::Valid(entry));
             }
             (None, Some(table2)) => {
-                let entries = Seq::new(
-                    num_keys as nat,
-                    |i: int| parse_metadata_entry::<K>(extract_bytes(mem1, (i * metadata_node_size as int) as nat,
-                                                              metadata_node_size as nat), num_keys as nat)
-                );
-                assert(!(forall |i: int, j: int| {
-                    &&& 0 <= i < j < entries.len()
-                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
-                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
-                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()));
+                let entries = parse_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat);
+                assert(!no_duplicate_item_indexes(entries));
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table2.durable_metadata_table[i]);
             }
             (Some(table1), None) => {
-                let entries = Seq::new(
-                    num_keys as nat,
-                    |i: int| parse_metadata_entry::<K>(extract_bytes(mem2, (i * metadata_node_size as int) as nat,
-                                                              metadata_node_size as nat), num_keys as nat)
-                );
-                assert(!(forall |i: int, j: int| {
-                    &&& 0 <= i < j < entries.len()
-                    &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
-                    &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
-                } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()));
+                let entries = parse_metadata_entries::<K>(mem2, num_keys as nat, metadata_node_size as nat);
+                assert(!no_duplicate_item_indexes(entries));
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table1.durable_metadata_table[i]);
             }
