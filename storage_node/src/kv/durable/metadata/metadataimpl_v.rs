@@ -1961,10 +1961,21 @@ verus! {
                     overall_metadata.metadata_node_size as nat);
                 assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.metadata_node_size);
                 
-                // TODO @hayley
-                assume(no_duplicate_item_indexes(entries));
-
-                assert(new_main_table_view is Some);
+                assert(no_duplicate_item_indexes(entries)) by {
+                    assert forall|i, j| {
+                        &&& 0 <= i < entries.len()
+                        &&& 0 <= j < entries.len()
+                        &&& i != j
+                        &&& #[trigger] entries[i] is Valid
+                        &&& #[trigger] entries[j] is Valid
+                    } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index() by {
+                        let old_entries =
+                            parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                                                        overall_metadata.metadata_node_size as nat);
+                        assert(i == index ==> old_entries[j]->Valid_0.item_index() != item_index);
+                        assert(j == index ==> old_entries[i]->Valid_0.item_index() != item_index);
+                    }
+                }
 
                 let updated_table = old_main_table_view.durable_metadata_table.update(
                     index as int,

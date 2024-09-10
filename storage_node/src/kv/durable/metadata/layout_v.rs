@@ -277,9 +277,11 @@ verus! {
             K: PmCopy
     {
         forall |i: int, j: int| {
-            &&& 0 <= i < j < entries.len()
-            &&& #[trigger] entries[i] matches DurableEntry::Valid(entry1)
-            &&& #[trigger] entries[j] matches DurableEntry::Valid(entry2)
+            &&& 0 <= i < entries.len()
+            &&& 0 <= j < entries.len()
+            &&& i != j
+            &&& #[trigger] entries[i] is Valid
+            &&& #[trigger] entries[j] is Valid
         } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
     }
 
