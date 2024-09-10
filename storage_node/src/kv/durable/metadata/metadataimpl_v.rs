@@ -28,16 +28,22 @@ use crate::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
+        pub crc: u64,
         pub entry: ListEntryMetadata,
         pub key: K,
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub open spec fn new(entry: ListEntryMetadata, key: K) -> Self {
+        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
             Self {
+                crc,
                 entry,
                 key,
             }
+        }
+
+        pub closed spec fn crc(self) -> u64 {
+            self.crc
         }
 
         pub closed spec fn list_head_index(self) -> u64 {
@@ -269,18 +275,13 @@ verus! {
         {
             let start = index_to_offset(i as nat, metadata_node_size as nat) as int;
             match self.outstanding_entry_writes@[i] {
-                None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(),
-                                                         start + metadata_node_size),
+                None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + metadata_node_size),
                 Some(e) => {
-                    let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
-                    let key_bytes = K::spec_to_bytes(e.key);
-                    let crc = spec_crc_bytes(entry_bytes + key_bytes);
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), crc)
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
-                    &&& outstanding_bytes_match(
-                        pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
-                        key_bytes
-                    )
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), u64::spec_to_bytes(e.crc))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
+                                              ListEntryMetadata::spec_to_bytes(e.entry))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                                              K::spec_to_bytes(e.key))
                 },
             }
         }
@@ -442,6 +443,7 @@ verus! {
                     &&& K::bytes_parseable(key_bytes)
                     &&& cdb == CDB_TRUE
                     &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
+                    &&& crc == meta.crc
                     &&& entry == meta.entry
                     &&& key == meta.key
                 }),
@@ -1458,10 +1460,6 @@ verus! {
             let mut digest = CrcDigest::new();
             digest.write(&entry);
             digest.write(key);
-            assert(digest.bytes_in_digest().flatten() ==
-                   ListEntryMetadata::spec_to_bytes(entry) + K::spec_to_bytes(*key)) by {
-                reveal_with_fuel(Seq::<_>::flatten, 3);
-            }
             let crc = digest.sum64();
 
             broadcast use pmcopy_axioms;
@@ -1482,15 +1480,11 @@ verus! {
 
             assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
-            assume(u64::spec_to_bytes(crc) == ListEntryMetadata::spec_to_bytes(entry) + K::spec_to_bytes(*key));
-            assert(outstanding_bytes_match(subregion.view(wrpm_region), crc_addr as int, u64::spec_to_bytes(crc)));
             subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
-            assert(outstanding_bytes_match(subregion.view(wrpm_region), crc_addr as int, u64::spec_to_bytes(crc)));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
-            assert(outstanding_bytes_match(subregion.view(wrpm_region), crc_addr as int, u64::spec_to_bytes(crc)));
 
-            let ghost metadata_table_entry = MetadataTableViewEntry{ entry, key: *key };
+            let ghost metadata_table_entry = MetadataTableViewEntry{ crc, entry, key: *key };
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
@@ -1676,73 +1670,6 @@ verus! {
         //     assume(false); // TODO @hayley
         // }
 
-        pub exec fn get_make_entry_valid_log_entry(
-            &self,
-            Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
-            Ghost(region_view): Ghost<PersistentMemoryRegionView>,
-            index: u64,
-            Ghost(head_index): Ghost<u64>,
-            Ghost(item_index): Ghost<u64>,
-            Ghost(key): Ghost<K>,
-            Ghost(version_metadata): Ghost<VersionMetadata>,
-            overall_metadata: &OverallMetadata,
-            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
-        ) -> (log_entry: PhysicalOpLogEntry)
-            requires 
-                self.inv(subregion_view, *overall_metadata),
-                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
-                0 <= index < self@.len(),
-                // the index must refer to a currently-invalid entry
-                self@.durable_metadata_table[index as int] is Tentative,
-                overall_metadata.metadata_node_size ==
-                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-                region_view.len() == overall_metadata.region_size,
-                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
-                    <= overall_metadata.region_size <= region_view.len() <= u64::MAX,
-                ({
-                    let main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let main_table_view = parse_metadata_table::<K>(main_table_region,
-                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    main_table_view is Some
-                }),
-                current_tentative_state.len() == overall_metadata.region_size,
-                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
-                    <= overall_metadata.main_table_addr,
-            ensures 
-                log_entry@.inv(version_metadata, *overall_metadata),
-                overall_metadata.main_table_addr <= log_entry.absolute_addr,
-                log_entry.absolute_addr + log_entry.len <=
-                    overall_metadata.main_table_addr + overall_metadata.main_table_size,
-                ({
-                    let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
-                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
-                            log_entry.bytes[pos - log_entry.absolute_addr]
-                        } else {
-                            pre_byte
-                        }
-                    );
-                    let current_main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_metadata_table::<K>(current_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
-                    let new_main_table_region = extract_bytes(new_mem, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    &&& new_main_table_view is Some
-                    &&& new_main_table_view == current_main_table_view.delete(index as int)
-                }),
-        {
-            assume(false);
-            PhysicalOpLogEntry {
-                absolute_addr: 0,
-                len: 0,
-                bytes: vec![],
-            }
-        }
-
         pub exec fn get_delete_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
@@ -1757,7 +1684,7 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry
-                self@.durable_metadata_table[index as int] is Valid,
+                self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 region_view.len() == overall_metadata.region_size,
