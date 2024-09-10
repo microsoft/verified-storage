@@ -193,11 +193,11 @@ verus! {
         let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
         let key = K::spec_from_bytes(key_bytes);
         
-        if cdb == CDB_FALSE {
+        if cdb == CDB_FALSE || crc != spec_crc_u64(metadata_bytes + key_bytes) {
             DurableEntry::Invalid
         } else {
             // cdb == CDB_TRUE
-            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(crc, metadata, key))
+            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(metadata, key))
         }
     }
 

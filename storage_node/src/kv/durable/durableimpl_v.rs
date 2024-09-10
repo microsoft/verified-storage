@@ -2580,9 +2580,30 @@ verus! {
                     return Err(e);
                 }
             };
+
             assume(false);
 
             /*
+
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(
+                self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list
+            ).unwrap();
+            proof {
+                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(),
+                                                      self.log@.commit_op_log().physical_op_list);
+            }
+            let make_entry_valid_log_entry = self.metadata_table.get_make_entry_valid_log_entry(
+                Ghost(main_table_subregion.view(&self.wrpm)),
+                Ghost(self.wrpm@),
+                metadata_index,
+                Ghost(head_index),
+                Ghost(item_index),
+                Ghost(*key),
+                Ghost(self.version_metadata),
+                &self.overall_metadata,
+                Ghost(tentative_view_bytes),
+            );
 
             // 4. tentatively append the new item's commit op to the log. Metadata entry commit 
             // implies item commit and also makes the list accessible so we can append to it
