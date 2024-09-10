@@ -1393,6 +1393,8 @@ verus! {
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
                         &&& self.allocator_view() == old(self).allocator_view()
+                        &&& self.pending_allocations_view() == old(self).pending_allocations_view()
+                        &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.allocator_view().len() == 0
                         &&& wrpm_region == old(wrpm_region)
                     },

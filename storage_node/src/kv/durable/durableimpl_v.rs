@@ -2221,6 +2221,67 @@ verus! {
             self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
         }
 
+        // This lemma proves that after abort, indices that were pending allocation prior to the abort
+        // are invalid in the durable state. Note that this lemma should usually be called on the 
+        // *pre-abort* self, not self after we've aborted the transaction in the op log, because
+        // this lemma needs to see the pre-abort tentative state.
+        proof fn lemma_metadata_pending_allocs_are_invalid_at_abort(self)
+            requires 
+                self.wrpm@.len() >= self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size,
+                !self.transaction_committed(),
+                forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) ==>
+                    idx < self.overall_metadata.num_keys,
+                ({
+                    let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, 
+                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
+                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    let tentative_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                        self.log@.physical_op_list).unwrap();
+                    let tentative_main_table_subregion_state = extract_bytes(tentative_bytes, 
+                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    &&& self.metadata_table.pending_alloc_inv(durable_main_table_subregion_state, 
+                            tentative_main_table_subregion_state, self.overall_metadata)
+                    &&& forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> 
+                            Some(self.metadata_table@) == parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size)
+                })
+            ensures 
+                forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) ==> {
+                    self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                }
+        {
+            let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_subregion_state,
+                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+            
+            assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
+            assert(durable_main_table_subregion_view.committed() == durable_main_table_subregion_state);
+            assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> 
+                Some(self.metadata_table@) == parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size));
+            assert(durable_main_table_view == self.metadata_table@);
+
+            let tentative_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.physical_op_list).unwrap();
+            let tentative_main_table_subregion_state = extract_bytes(tentative_bytes, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_subregion_state,
+                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+
+            assert(self.metadata_table.pending_alloc_inv(durable_main_table_subregion_state, 
+                tentative_main_table_subregion_state, self.overall_metadata));
+
+            assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
+                durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+            } by {
+                assert(self.metadata_table.pending_alloc_check(idx, durable_main_table_view, 
+                    tentative_main_table_view));
+            }
+        }
+
+
         fn abort_after_failed_item_table_tentatively_write_item(
             &mut self,
             Ghost(pre_self): Ghost<Self>,
@@ -2230,6 +2291,7 @@ verus! {
             requires
                 pre_self.inv(),
                 !pre_self.transaction_committed(),
+                pre_self.pending_alloc_inv(),
                 old(self) == (Self { item_table: old(self).item_table, wrpm: old(self).wrpm, ..pre_self }),
                 item_table_subregion.initial_region_view() == pre_self.wrpm@,
                 item_table_subregion.start() == old(self).overall_metadata.item_table_addr,
@@ -2246,6 +2308,7 @@ verus! {
                 old(self).item_table.allocator_view().len() == 0,
                 old(self).wrpm == pre_self.wrpm,
                 old(self).item_table@ == pre_self.item_table@,
+                old(self).metadata_table == pre_self.metadata_table,
             ensures
                 self.inv(),
                 self@ == pre_self@,
@@ -2289,6 +2352,8 @@ verus! {
                     self.overall_metadata
                 );
                 self.lemma_transaction_abort(mid_self);  
+
+                pre_self.lemma_metadata_pending_allocs_are_invalid_at_abort();
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2296,7 +2361,6 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            assume(false); // TODO @hayley
             self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
@@ -2404,7 +2468,7 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            assume(false); // TODO @hayley
+            assume(false); // TODO @jay or 2hayley
             self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
@@ -2432,6 +2496,7 @@ verus! {
             requires 
                 old(self).inv(),
                 !old(self).transaction_committed(),
+                old(self).pending_alloc_inv(),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -2463,7 +2528,9 @@ verus! {
                     self.version_metadata,
                     self.overall_metadata
                 );
-                self.lemma_transaction_abort(*old(self));  
+                self.lemma_transaction_abort(*old(self)); 
+
+                old(self).lemma_metadata_pending_allocs_are_invalid_at_abort();
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2471,7 +2538,6 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            assume(false); // TODO @hayley
             self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
@@ -2502,6 +2568,7 @@ verus! {
         ) -> (result: Result<(u64, u64), KvError<K>>)
             requires
                 old(self).inv(),
+                old(self).pending_alloc_inv(),
                 !old(self).transaction_committed(),
                 old(self).tentative_view() is Some,
                 forall|s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata())
@@ -2660,6 +2727,7 @@ verus! {
                 old(self).valid(),
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
+                old(self).pending_alloc_inv(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
@@ -2800,7 +2868,9 @@ verus! {
                             self.version_metadata,
                             self.overall_metadata
                         );
-                        self.lemma_transaction_abort(*old(self));  
+                        self.lemma_transaction_abort(*old(self)); 
+                        
+                        old(self).lemma_metadata_pending_allocs_are_invalid_at_abort();
                     }
 
                     // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2808,7 +2878,6 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
-                    assume(false); // TODO @hayley
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
@@ -3170,6 +3239,8 @@ verus! {
                             self.overall_metadata
                         );
                         self.lemma_transaction_abort(*old(self));
+
+                        old(self).lemma_metadata_pending_allocs_are_invalid_at_abort();
                     }
 
                     // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -3177,7 +3248,6 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
-                    assume(false); // TODO @hayley
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
