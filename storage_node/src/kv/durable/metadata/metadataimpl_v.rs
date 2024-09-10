@@ -2014,6 +2014,14 @@ verus! {
                     &&& old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
                     &&& idx < overall_metadata.num_keys
                 },
+                forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==> {
+                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                },
+                forall |idx: u64| old(self).allocator_view().contains(idx) ==> {
+                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                },
+                parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, 
+                    overall_metadata.metadata_node_size) is Some,
             ensures
                 self.valid(pm, overall_metadata),
                 self.allocator_inv(),
@@ -2027,11 +2035,13 @@ verus! {
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 self@.has_same_valid_items(old(self)@),
-        {
+                self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata)
+    {
             // Move all pending allocations from the pending list back into the free list
             self.metadata_table_free_list.append(&mut self.pending_allocations);
             
             self.pending_deallocations = Vec::new();
+
             proof { 
                 self.metadata_table_free_list@.unique_seq_to_set(); 
                 self.pending_allocations@.unique_seq_to_set(); 
@@ -2141,6 +2151,12 @@ verus! {
                         &&& self@.durable_metadata_table[i] matches DurableEntry::Valid(_)
                     } ==> self@.durable_metadata_table[i] == old(self)@.durable_metadata_table[i]);
                 });
+
+                let current_table_view = parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                assert(current_table_view is Some);
+                let current_table_view = current_table_view.unwrap();
+                assert(pm.can_crash_as(pm.committed()));
+                assert(current_table_view == self@);
             }
         }
 

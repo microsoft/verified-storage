@@ -1056,13 +1056,21 @@ verus! {
                     &&& old(self)@.durable_item_table[idx as int] is Some
                     &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
                 },
+                forall |idx: u64| old(self).allocator_view().contains(idx) <==> {
+                    &&& !old(self).spec_valid_indices().contains(idx)
+                    &&& !old(self).pending_allocations_view().contains(idx)
+                },
             ensures
                 self.valid(pm, overall_metadata),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
                 self@ == old(self)@,
+                self.pending_alloc_inv(self.spec_valid_indices(), self.spec_valid_indices()),
         {
-            // Move all pending allocations back into the free list
+            // Move all pending allocations back into the free list. This also
+            // clears the pending_allocations list
             self.free_list.append(&mut self.pending_allocations);
+            // drop all pending deallocations
+            self.pending_deallocations = Vec::new();
 
             // Drop all outstanding updates from the view
             self.outstanding_item_table = Ghost(Seq::new(self.outstanding_item_table@.len(), |i: int| None));
@@ -1081,6 +1089,22 @@ verus! {
                     ||| old(self).pending_allocations@.contains(idx)
                 });
                 assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+
+                assert forall |idx: u64| 0 <= idx < self.num_keys implies
+                    self.pending_alloc_check(idx, self.spec_valid_indices(), self.spec_valid_indices())
+                by {
+                    // note: valid indices doesn't change here
+                    if !self.spec_valid_indices().contains(idx) {
+                        assert(!old(self).spec_valid_indices().contains(idx));
+                        assert({
+                            ||| old(self).free_list@.contains(idx)
+                            ||| old(self).pending_allocations@.contains(idx)
+                        });
+                        assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
+                        assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
+                        assert(self.free_list@.contains(idx));
+                    }
+                }
             }
         }
 
