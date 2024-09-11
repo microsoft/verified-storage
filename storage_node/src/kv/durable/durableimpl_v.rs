@@ -3469,6 +3469,19 @@ verus! {
                 }
             }
 
+            assert({
+                &&& deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata
+                &&& deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == self.overall_metadata
+            })
+            by {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata);
+                assert(self.wrpm@.no_outstanding_writes());
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+                assert(deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata);
+                assert(deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == self.overall_metadata);
+            }
+
             let ghost abstract_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata).unwrap();
 
             // 3. Install the physical log
@@ -3586,9 +3599,18 @@ verus! {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
                
                 assert(self.item_table.inv(durable_item_table_subregion_view, self.overall_metadata));
+
+                let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat);
+                assert(durable_list_area_subregion_view.can_crash_as(durable_list_area_subregion_view.committed()));
+                assert(durable_list_area_subregion_view.no_outstanding_writes());
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_list_area_subregion_view);
+                assert(self.durable_list.inv(durable_list_area_subregion_view, self.metadata_table@, self.overall_metadata));
             }
+            
             let ghost pre_clear_wrpm = self.wrpm@;
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
+            self.pending_updates = Vec::new();
 
             assert(self@ == old(self).tentative_view().unwrap());
             
@@ -3715,6 +3737,22 @@ verus! {
                 }
 
                 assert(self.item_table.inv(durable_item_table_subregion_view, self.overall_metadata));
+
+                let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat);
+                let pre_clear_list_area_item_table_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat);
+                assert(durable_list_area_subregion_view.no_outstanding_writes());
+                assert(pre_clear_list_area_item_table_subregion_view.no_outstanding_writes());
+                assert(extract_bytes(pre_clear_wrpm.committed(), self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat) == pre_clear_list_area_item_table_subregion_view.committed());
+                assert(extract_bytes(self.wrpm@.committed(), self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat) == durable_list_area_subregion_view.committed());
+                assert(durable_list_area_subregion_view.can_crash_as(durable_list_area_subregion_view.committed()));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_list_area_subregion_view);
+
+                assert(self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat), self.metadata_table@, self.overall_metadata));
             }
 
             // 5. Finalize pending allocations and deallocations
@@ -3723,14 +3761,40 @@ verus! {
             self.item_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                 self.overall_metadata.item_table_size as nat)), Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()));
             
-            assume(false); // TODO @hayley
-            assert(self.pending_alloc_inv()); 
-            assert(self.valid());
-            assert({
-                let old_tentative_view = old(self).tentative_view();
-                &&& old_tentative_view matches Some(old_tentative_view)
-                &&& self@ == old_tentative_view
-            });
+            proof {
+                let durable_state_bytes = self.wrpm@.committed();
+                let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap();
+                assert(durable_state_bytes == tentative_state_bytes);
+                assert(self.pending_alloc_inv()); 
+
+                assert(self.log@.physical_op_list.len() == 0);
+                assert(self.pending_updates@.len() == 0);
+                assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+
+                assert(self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices());
+                
+                assert(no_outstanding_writes_to_version_metadata(self.wrpm@));
+                assert(no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int));
+
+                assert(self.inv_mem(self.wrpm@.committed()));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+                assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
+                
+                assert(self.metadata_table.allocator_inv());
+
+                assert(self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                    self.overall_metadata.list_area_size as nat), self.metadata_table@, self.overall_metadata));
+
+                assert(self.valid());
+
+                assert({
+                    let old_tentative_view = old(self).tentative_view();
+                    &&& old_tentative_view matches Some(old_tentative_view)
+                    &&& self@ == old_tentative_view
+                });
+            }
+            
             Ok(())
         }
 

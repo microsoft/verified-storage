@@ -1714,7 +1714,7 @@ verus! {
             log_wrpm.inv(),
             log_wrpm@.no_outstanding_writes(),
             Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            states_differ_only_in_log_region(old(log_wrpm)@.committed(), log_wrpm@.committed(), 
+            views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             match result {
                 Ok(()) => {

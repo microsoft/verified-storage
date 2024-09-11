@@ -1215,13 +1215,18 @@ verus! {
             requires
                 old(self).inv(pm, overall_metadata),
                 pm.no_outstanding_writes(),
+                forall|idx: u64| idx < overall_metadata.num_keys ==>
+                    #[trigger] old(self).spec_outstanding_item_table()[idx as int] is None
             ensures 
                 self.inv(pm, overall_metadata),
                 self.pending_alloc_inv(valid_indices, valid_indices),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
+                forall|idx: u64| idx < overall_metadata.num_keys ==>
+                    #[trigger] self.spec_outstanding_item_table()[idx as int] is None,
+                self.spec_valid_indices() == old(self).spec_valid_indices(),
         {
-            assume(false);
+            assume(false); // TODO @hayley
         }
 
         /* temporarily commented out for subregion development 

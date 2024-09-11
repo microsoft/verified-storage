@@ -1741,6 +1741,8 @@ verus! {
                         _ => false
                     }
                 },
+                // TODO: do all of these have to be here
+                // @hayley
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
                     old(self).spec_outstanding_cdb_writes()[idx as int] is None,
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
@@ -1754,6 +1756,16 @@ verus! {
                 self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
+                self.allocator_inv(), // TODO @hayley ?
+                self@.valid_item_indices() == old(self)@.valid_item_indices(),
+                forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() ==> 
+                    self.spec_outstanding_cdb_writes()[idx as int] is None,
+                forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() ==> 
+                    self.spec_outstanding_entry_writes()[idx as int] is None,
+                forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> 
+                    self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
+                forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> 
+                    self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
         {
             // add the pending deallocations to the free list 
             // this also clears self.pending_deallocations
