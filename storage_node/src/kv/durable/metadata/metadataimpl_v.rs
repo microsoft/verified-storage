@@ -1833,9 +1833,36 @@ verus! {
                     assert(old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size));
                 }
 
-                // TODO @hayley
-                assume(forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys);
-                assume(self.inv(pm, overall_metadata));
+                assert(self.metadata_table_free_list@.subrange(old(self).metadata_table_free_list@.len() as int, 
+                    self.metadata_table_free_list@.len() as int) == old(self).pending_deallocations@);
+                assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
+                    if !old(self).metadata_table_free_list@.contains(idx) {
+                        assert(old(self).pending_deallocations@.contains(idx));
+                    } 
+                }
+
+                assert(forall |idx: u64| old(self).metadata_table_free_list@.contains(idx) ==> 
+                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+
+
+                assert(forall |idx: u64| {
+                    &&& 0 <= idx < old(self)@.durable_metadata_table.len()
+                    &&& old(self).pending_deallocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+
+                assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies 
+                    self.free_indices().contains(idx) 
+                by {
+                    if !old(self).metadata_table_free_list@.contains(idx) {
+                        assert(old(self).pending_deallocations_view().contains(idx));
+                        assert(forall |idx: u64| {
+                            &&& 0 <= idx < old(self)@.durable_metadata_table.len()
+                            &&& old(self).pending_deallocations_view().contains(idx) 
+                        } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                        assert(old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    }
+                    assert(self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                }
             }
         }
 
@@ -1992,13 +2019,15 @@ verus! {
                 assert(old_entries[index as int]->Valid_0.item_index() == item_index);
 
                 assert(no_duplicate_item_indexes(entries)) by {
-                    assert forall|i, j| {
+
+                    assert forall|i, j| {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
                         &&& #[trigger] entries[i] is Valid
                         &&& #[trigger] entries[j] is Valid
-                    } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index() by {
+                    } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
+ by {
                         assert(i == index ==> old_entries[j]->Valid_0.item_index() != item_index);
                         assert(j == index ==> old_entries[i]->Valid_0.item_index() != item_index);
                     }
