@@ -270,14 +270,16 @@ verus! {
             }
         }
 
-        pub proof fn lemma_invalid_item_indices_pending_alloc_or_free(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>)
+        pub proof fn lemma_valid_indices_disjoint_with_free_and_pending_alloc(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>)
             requires 
                 self.pending_alloc_inv(current_valid_indices, tentative_valid_indices),
             ensures 
                 forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
                     ||| self.pending_allocations_view().contains(idx)
                     ||| self.allocator_view().contains(idx)
-                }
+                },
+                forall|idx: u64| 0 <= idx < self.spec_num_keys() && #[trigger] self.spec_valid_indices().contains(idx) ==> 
+                    !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
         {
             assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
                 self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices)
@@ -330,6 +332,26 @@ verus! {
                     &&& !tentative_valid_indices.contains(idx)
                 })});
                 // Verus is able to automatically handle the rest of the cases.
+            }
+
+            assert forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] self.spec_valid_indices().contains(idx) implies 
+                !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
+            by {
+                assert({
+                    &&& current_valid_indices.contains(idx)
+                    &&& !tentative_valid_indices.contains(idx)
+                } <==> {
+                    &&& self.pending_deallocations_view().contains(idx) 
+                    &&& self.spec_valid_indices().contains(idx)
+                });
+                assert({
+                    &&& current_valid_indices.contains(idx)
+                    &&& tentative_valid_indices.contains(idx)
+                } <==> {
+                    &&& !self.pending_deallocations_view().contains(idx) 
+                    &&& self.spec_valid_indices().contains(idx)
+                });
+                // Again, Verus can get the rest from here.
             }
         }
 
@@ -1108,8 +1130,8 @@ verus! {
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& pm.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
-                forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
-                    !old(self).allocator_view().contains(idx),
+                // forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
+                //     !old(self).allocator_view().contains(idx),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> {
                     &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, old(self).spec_valid_indices())
                             matches Some(table_view)

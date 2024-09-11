@@ -2418,9 +2418,27 @@ verus! {
                 let pre_self_tentative_main_table_view = parse_metadata_table::<K>(pre_self_tentative_main_table_region_state,
                     self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                 
-                pre_self.item_table.lemma_invalid_item_indices_pending_alloc_or_free(
+                pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     pre_self_durable_main_table_view.valid_item_indices(), 
                     pre_self_tentative_main_table_view.valid_item_indices());
+
+                // pre_self.item_table.lemma_valid_item_indices_not_pending_alloc_or_free(
+                //     pre_self_durable_main_table_view.valid_item_indices(), 
+                //     pre_self_tentative_main_table_view.valid_item_indices());
+
+                // assert(forall|idx: u64| #[trigger] pre_self.item_table.spec_valid_indices().contains(idx) ==> 
+                //     !pre_self.item_table.allocator_view().contains(idx) && !pre_self.item_table.pending_allocations_view().contains(idx));
+
+                // assert(forall|idx: u64| #[trigger] self.item_table.spec_valid_indices().contains(idx) ==> 
+                //     !self.item_table.allocator_view().contains(idx) && !self.item_table.pending_allocations_view().contains(idx));
+
+                // assert(forall|idx: u64| 0 <= pre_self.item_table.spec_num_keys() && !pre_self.item_table.spec_valid_indices().contains(idx) ==> 
+                //     (pre_self.item_table.allocator_view().contains(idx) || pre_self.item_table.pending_allocations_view().contains(idx)));
+
+                // assert(forall|idx: u64| #[trigger] pre_self.item_table.spec_valid_indices().contains(idx) ==> 
+                //     !pre_self.item_table.allocator_view().contains(idx) && !pre_self.item_table.pending_allocations_view().contains(idx));
+                // assert(forall|idx: u64| #[trigger] self.item_table.spec_valid_indices().contains(idx) ==> 
+                //     !self.item_table.allocator_view().contains(idx) && !self.item_table.pending_allocations_view().contains(idx));
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2628,7 +2646,7 @@ verus! {
                     self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                 let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
                     self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                old(self).item_table.lemma_invalid_item_indices_pending_alloc_or_free(
+                old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
             }
 
@@ -3045,7 +3063,7 @@ verus! {
                             self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                         let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
                             self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        old(self).item_table.lemma_invalid_item_indices_pending_alloc_or_free(
+                        old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                             durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
                     }
 
@@ -3448,7 +3466,7 @@ verus! {
                             self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                         let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
                             self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        old(self).item_table.lemma_invalid_item_indices_pending_alloc_or_free(
+                        old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                             durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
                     }
 
@@ -3457,7 +3475,6 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
-                    assume(false); // TODO @hayley
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
