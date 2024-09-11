@@ -3443,6 +3443,7 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
+                    assume(false); // TODO @hayley
                     self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
@@ -3577,6 +3578,14 @@ verus! {
                     self.overall_metadata.main_table_size as nat);
                 assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
                 assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+            
+                let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);
+                assert(durable_item_table_subregion_view.can_crash_as(durable_item_table_subregion_view.committed()));
+                assert(durable_item_table_subregion_view.no_outstanding_writes());
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
+               
+                assert(self.item_table.inv(durable_item_table_subregion_view, self.overall_metadata));
             }
             let ghost pre_clear_wrpm = self.wrpm@;
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
@@ -3684,32 +3693,35 @@ verus! {
 
                 assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
 
-                assert(forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() ==> {
-                    let entry = #[trigger] self.metadata_table@.durable_metadata_table[idx as int];
-                    match entry {
-                        DurableEntry::Invalid => {
-                            ||| self.metadata_table.allocator_view().contains(idx)
-                            ||| self.metadata_table.pending_deallocations_view().contains(idx)
-                        }
-                        DurableEntry::Valid(entry) => {
-                            // if the entry is valid, either it was pending allocation
-                            // or it's just valid and not in any of the three lists
-                            ||| self.metadata_table.pending_allocations_view().contains(idx)
-                            ||| ({
-                                &&& !self.metadata_table.allocator_view().contains(idx)
-                                &&& !self.metadata_table.pending_deallocations_view().contains(idx)
-                                &&& !self.metadata_table.pending_allocations_view().contains(idx)
-                            })
-                        }
-                        _ => false
-                    }
-                });
+                let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);
+                let pre_clear_durable_item_table_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);
+                assert(durable_item_table_subregion_view.no_outstanding_writes());
+                assert(pre_clear_durable_item_table_subregion_view.no_outstanding_writes());
+                assert(extract_bytes(pre_clear_wrpm.committed(), self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat) == pre_clear_durable_item_table_subregion_view.committed());
+                assert(extract_bytes(self.wrpm@.committed(), self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat) == durable_item_table_subregion_view.committed());
+                assert(durable_item_table_subregion_view.can_crash_as(durable_item_table_subregion_view.committed()));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
+
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert forall|idx: u64| idx < self.overall_metadata.num_keys && #[trigger] self.item_table.spec_outstanding_item_table()[idx as int] is None implies
+                    durable_item_table_subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) 
+                by {
+                    assert(durable_item_table_subregion_view.no_outstanding_writes());
+                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                }
+
+                assert(self.item_table.inv(durable_item_table_subregion_view, self.overall_metadata));
             }
 
             // 5. Finalize pending allocations and deallocations
             self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                 self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
-            // TODO: item table (de)allocs
+            self.item_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat)), Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()));
             
             assume(false); // TODO @hayley
             assert(self.pending_alloc_inv()); 

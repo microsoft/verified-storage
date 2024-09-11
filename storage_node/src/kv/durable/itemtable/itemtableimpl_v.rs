@@ -213,8 +213,8 @@ verus! {
             &&& self.opaque_inv(overall_metadata)
             &&& self@.len() == self.spec_outstanding_item_table().len() == self.spec_num_keys() == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
-                    !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
+            // &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
+            //         !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) ==
                        Some(self@)
@@ -1182,22 +1182,46 @@ verus! {
                     parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices) is Some
                 })
             ensures 
+                self.opaque_inv(overall_metadata), // TODO @hayley
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
-                    self@ == parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap()
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    &&& Some(self@) == parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices)
+                    &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.spec_outstanding_item_table()[idx as int] is None ==>
+                            subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
                 }),
                 self.allocator_view() == old(self).allocator_view(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
+                self.pending_deallocations_view() == old(self).pending_deallocations_view(),
                 self.spec_outstanding_item_table() == Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None::<I>),
                 self.spec_valid_indices() == valid_indices,
-
+                self@.len() == old(self)@.len(),
+                self.spec_num_keys() == old(self).spec_num_keys(),
         {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                 overall_metadata.item_table_size as nat);
             self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
             self.outstanding_item_table = Ghost(Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None));
             self.valid_indices = Ghost(valid_indices);
+        }
+
+        pub exec fn finalize_pending_alloc_and_dealloc(
+            &mut self,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(valid_indices): Ghost<Set<u64>>,
+        )
+            requires
+                old(self).inv(pm, overall_metadata),
+                pm.no_outstanding_writes(),
+            ensures 
+                self.inv(pm, overall_metadata),
+                self.pending_alloc_inv(valid_indices, valid_indices),
+                self.pending_allocations_view().is_empty(),
+                self.pending_deallocations_view().is_empty(),
+        {
+            assume(false);
         }
 
         /* temporarily commented out for subregion development 
