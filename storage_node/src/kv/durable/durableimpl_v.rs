@@ -251,6 +251,16 @@ verus! {
             Self::physical_recover_after_committing_log(self.wrpm@.flush().committed(), self.overall_metadata, self.log@)
         }
 
+        pub closed spec fn pending_allocations(self) -> Set<u64>
+        {
+            self.metadata_table.pending_allocations_view()
+        }
+
+        pub closed spec fn pending_deallocations(self) -> Set<u64>
+        {
+            self.metadata_table.pending_deallocations_view()
+        }
+
         pub closed spec fn constants(self) -> PersistentMemoryConstants
         {
             self.wrpm.constants()
@@ -1501,6 +1511,8 @@ verus! {
                         &&& kvstore.valid()
                         &&& kvstore.wrpm@.no_outstanding_writes()
                         &&& kvstore.constants() == wrpm_region.constants()
+                        &&& kvstore.pending_allocations().is_empty()
+                        &&& kvstore.pending_deallocations().is_empty()
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -2324,6 +2336,8 @@ verus! {
                     Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                      self.spec_overall_metadata(), AbstractOpLogState::initialize()),
                 !self.transaction_committed(),
+                self.pending_allocations().is_empty(),
+                self.pending_deallocations().is_empty(),
         {
             proof {
                 item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
@@ -2460,6 +2474,8 @@ verus! {
                     Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                      self.spec_overall_metadata(), AbstractOpLogState::initialize()),
                 !self.transaction_committed(),
+                self.pending_allocations().is_empty(),
+                self.pending_deallocations().is_empty(),
         {
             proof {
                 main_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
@@ -2545,7 +2561,8 @@ verus! {
                                                     self.spec_overall_metadata(), AbstractOpLogState::initialize()),
                 !self.transaction_committed(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
-                
+                self.pending_allocations().is_empty(),
+                self.pending_deallocations().is_empty(),
         {
             proof { 
                 lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@); 
@@ -2660,6 +2677,8 @@ verus! {
                                     &&& v2.len() == v1.len() + 1
                                     &&& v2.contains_key(offset as int)
                                     &&& v2[offset as int] is Some
+                                    &&& self.pending_allocations() == old(self).pending_allocations().insert(offset)
+                                    &&& self.pending_deallocations() == old(self).pending_deallocations()
                                 }
                                 Err(_) => false
                             }
@@ -2670,6 +2689,7 @@ verus! {
                                    Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                     self.spec_overall_metadata(),
                                                                     AbstractOpLogState::initialize())
+                            &&& self.pending_deallocations().is_empty()
                         },
                         Err(_) => false,
                     }
@@ -2815,6 +2835,7 @@ verus! {
                 old(self).valid(),
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
+                !old(self).pending_deallocations().contains(index),
                 old(self).pending_alloc_inv(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
@@ -2840,13 +2861,17 @@ verus! {
                         let tentative_view = self.tentative_view();
                         &&& tentative_view matches Some(tentative_view)
                         &&& !tentative_view.contains_key(index as int)
+                        &&& self.pending_allocations() == old(self).pending_allocations()
+                        &&& self.pending_deallocations() == old(self).pending_deallocations().insert(index)
                     }
                     Err(e) => {
                         // transaction has been aborted due to an error in the log
                         // this drops all outstanding modifications to the kv store
                         let tentative_view = self.tentative_view();
-                        tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
-                            self.spec_overall_metadata(), AbstractOpLogState::initialize())
+                        &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
+                              self.spec_overall_metadata(), AbstractOpLogState::initialize())
+                        &&& self.pending_allocations().is_empty()
+                        &&& self.pending_deallocations().is_empty()
                     }
                 }
         {
@@ -2917,7 +2942,6 @@ verus! {
                                        metadata_table_subregion.len())
                 );
             }
-            assume(!self.metadata_table.pending_deallocations_view().contains(index)); // TODO @hayley
             let log_entry = self.metadata_table.get_delete_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
                                          metadata_table_subregion.len())),
@@ -3280,6 +3304,8 @@ verus! {
                 self.valid(),
                 self.constants() == old(self).constants(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                self.pending_allocations().is_empty(),
+                self.pending_deallocations().is_empty(),
                 match result {
                     Ok(()) => {
                         // The old tentative view is now our current state

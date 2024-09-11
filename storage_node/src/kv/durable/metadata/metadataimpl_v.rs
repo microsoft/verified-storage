@@ -772,6 +772,8 @@ verus! {
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
                         &&& main_table.allocator_inv()
                         &&& main_table.no_outstanding_writes()
+                        &&& main_table.pending_allocations_view().is_empty()
+                        &&& main_table.pending_deallocations_view().is_empty()
                         // main table states match
                         &&& table == main_table@
                         // the entry list corresponds to the table
@@ -1143,6 +1145,9 @@ verus! {
                 outstanding_cdb_writes: Ghost(Seq::<Option<bool>>::new(num_keys as nat, |i: int| None)),
                 outstanding_entry_writes: Ghost(Seq::<Option<MetadataTableViewEntry<K>>>::new(num_keys as nat,                                                                            |i: int| None)),
             };
+            assert(main_table.pending_deallocations_view().is_empty()) by {
+                assert(main_table.pending_deallocations_view() =~= Set::<u64>::empty());
+            }
 
             proof {
                 let key_entry_list_view = Set::new(
@@ -1634,6 +1639,7 @@ verus! {
                 old(self).free_indices() == self.free_indices(),
                 old(self).allocator_view() == self.allocator_view(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
+                self.pending_deallocations_view() == old(self).pending_deallocations_view().insert(index),
                 old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
                 old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
                 self.allocator_inv(),
@@ -1644,6 +1650,10 @@ verus! {
                 })
         {
             self.pending_deallocations.push(index);
+            assert(self.pending_deallocations_view() =~= old(self).pending_deallocations_view().insert(index)) by {
+                assert(self.pending_deallocations@.drop_last() == old(self).pending_deallocations@);
+                assert(self.pending_deallocations@.last() == index);
+            }
 
             proof {
                 let durable_subregion_state = pm_subregion.committed();
@@ -1750,8 +1760,8 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata)
                 }),
-                self.pending_allocations_view().len() == 0,
-                self.pending_deallocations_view().len() == 0,
+                self.pending_allocations_view().is_empty(),
+                self.pending_deallocations_view().is_empty(),
         {
             // add the pending deallocations to the free list 
             // this also clears self.pending_deallocations
@@ -2081,7 +2091,9 @@ verus! {
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 self@.has_same_valid_items(old(self)@),
-                self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata)
+                self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
+                self.pending_allocations_view().is_empty(),
+                self.pending_deallocations_view().is_empty(),
     {
             // Move all pending allocations from the pending list back into the free list
             self.metadata_table_free_list.append(&mut self.pending_allocations);
