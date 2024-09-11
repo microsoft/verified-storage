@@ -1474,7 +1474,7 @@ impl UntrustedLogImpl {
                     &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
                     &&& self@ == old(self)@.advance_head(new_head as int)
                     &&& wrpm_region@.no_outstanding_writes()
-                    &&& states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.committed(), 
+                    &&& views_differ_only_in_log_region(old(wrpm_region)@.flush(), wrpm_region@, 
                             log_start_addr as nat, log_size as nat)
                 },
                 Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
@@ -1888,8 +1888,8 @@ impl UntrustedLogImpl {
             self.state == old(self).state,
             wrpm_region@.no_outstanding_writes(),
             Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
-            states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.committed(), 
-                log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@.flush(), wrpm_region@, 
+                            log_start_addr as nat, log_size as nat),
     {
         broadcast use pmcopy_axioms;
 

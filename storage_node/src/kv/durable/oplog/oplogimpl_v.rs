@@ -1760,9 +1760,6 @@ verus! {
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
-
-        assert(states_differ_only_in_log_region(old(log_wrpm)@.committed(), log_wrpm@.committed(), 
-            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
         Ok(())
     }
 }
