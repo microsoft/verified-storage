@@ -1741,8 +1741,6 @@ verus! {
                         _ => false
                     }
                 },
-                // TODO: do all of these have to be here
-                // @hayley
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
                     old(self).spec_outstanding_cdb_writes()[idx as int] is None,
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
@@ -1756,7 +1754,7 @@ verus! {
                 self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
-                self.allocator_inv(), // TODO @hayley ?
+                self.allocator_inv(),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() ==> 
                     self.spec_outstanding_cdb_writes()[idx as int] is None,
@@ -1866,6 +1864,7 @@ verus! {
                     }
                     assert(self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
                 }
+                assert(self.allocator_view() == self.free_indices());
             }
         }
 
@@ -2263,13 +2262,20 @@ verus! {
         )
             requires
                 pm.no_outstanding_writes(),
+                old(self).opaque_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
                     parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size) is Some
-                })
+                }),
+                old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
+                    old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
+                pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
+                overall_metadata.metadata_node_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             ensures 
-                self.opaque_inv(overall_metadata), // TODO @hayley
+                self.opaque_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
@@ -2283,15 +2289,11 @@ verus! {
                 self.allocator_view() == old(self).allocator_view(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view(),
-                self.free_indices() == old(self).free_indices(),
+                // self.free_indices() == old(self).free_indices(),
                 self.spec_outstanding_cdb_writes() == Seq::new(old(self).spec_outstanding_cdb_writes().len(),
                     |i: int| None::<bool>),
                 self.spec_outstanding_entry_writes() == Seq::new(old(self).spec_outstanding_entry_writes().len(),
                     |i: int| None::<MetadataTableViewEntry<K>>),
-                forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
-                forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
-                    self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
                 self.spec_metadata_node_size() == old(self).spec_metadata_node_size(),
 
         {
@@ -2302,6 +2304,16 @@ verus! {
                 |i: int| None::<bool>));
             self.outstanding_entry_writes = Ghost(Seq::new(old(self).spec_outstanding_entry_writes().len(),
                 |i: int| None));
+
+            proof {
+                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                    self.outstanding_cdb_write_matches_pm_view(subregion_view, i, overall_metadata.metadata_node_size)
+                by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat); }
+                
+                assert forall |i| 0 <= i < self@.durable_metadata_table.len() implies
+                    self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.metadata_node_size)
+                by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat); }
+            }
         }
 
 /* Temporarily commented out for subregion work
