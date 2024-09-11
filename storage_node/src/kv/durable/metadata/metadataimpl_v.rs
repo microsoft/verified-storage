@@ -1839,7 +1839,6 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(20)]
         pub exec fn get_delete_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
