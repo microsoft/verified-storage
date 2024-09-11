@@ -2902,8 +2902,25 @@ verus! {
 
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
+            assert(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                      metadata_table_subregion.len()).committed() =~=
+                   extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
+                                 self.overall_metadata.main_table_size as nat));
+            assert(parse_metadata_table::<K>(
+                       get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                          metadata_table_subregion.len()).committed(),
+                       self.overall_metadata.num_keys,
+                       self.overall_metadata.metadata_node_size
+                   ) == Some(self.metadata_table@)) by {
+                lemma_persistent_memory_view_can_crash_as_committed(
+                    get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                       metadata_table_subregion.len())
+                );
+            }
+            assume(!self.metadata_table.pending_deallocations_view().contains(index)); // TODO @hayley
             let log_entry = self.metadata_table.get_delete_log_entry(
-                Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(), metadata_table_subregion.len())),
+                Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                         metadata_table_subregion.len())),
                 Ghost(self.wrpm@), index,
                 Ghost(self.version_metadata), &self.overall_metadata, Ghost(tentative_view_bytes));
     

@@ -85,9 +85,9 @@ verus! {
                   let entries = self.durable_metadata_table;
                   0 <= i < entries.len() ==> !(entries[i] is Tentative)
             }
-            &&& forall |i: nat, j: nat| i < j < overall_metadata.num_keys ==> {
-                    &&& #[trigger] self.durable_metadata_table[i as int] matches DurableEntry::Valid(entry1)
-                    &&& #[trigger] self.durable_metadata_table[j as int] matches DurableEntry::Valid(entry2)
+            &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
+                    &&& #[trigger] self.durable_metadata_table[i as int] is Valid
+                    &&& #[trigger] self.durable_metadata_table[j as int] is Valid
                 } ==> self.durable_metadata_table[i as int]->Valid_0.item_index() != 
                         self.durable_metadata_table[j as int]->Valid_0.item_index()
         }
@@ -370,21 +370,27 @@ verus! {
             // if an index is valid in the current state but invalid in the tentative state,
             // it is pending deallocation
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
-                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                &&& current_view.durable_metadata_table[idx as int] is Valid
+                &&& tentative_view.durable_metadata_table[idx as int] is Invalid
             } <==> self.pending_deallocations_view().contains(idx)
             // if an index is invalid in the current state but valid in the tentative state, 
             // it is pending allocation
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)
+                &&& current_view.durable_metadata_table[idx as int] is Invalid
+                &&& tentative_view.durable_metadata_table[idx as int] is Valid
             } <==> self.pending_allocations_view().contains(idx)
             // if an index is invalid in both the current and tentative state,
             // it is in the free list
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                &&& tentative_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                &&& current_view.durable_metadata_table[idx as int] is Invalid
+                &&& tentative_view.durable_metadata_table[idx as int] is Invalid
             } <==> self.allocator_view().contains(idx)
+            // if an index is valid in both the current and tentative state, they match
+            &&& {
+                &&& current_view.durable_metadata_table[idx as int] is Valid
+                &&& tentative_view.durable_metadata_table[idx as int] is Valid
+            } ==> current_view.durable_metadata_table[idx as int] ==
+                  tentative_view.durable_metadata_table[idx as int]
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -1823,6 +1829,7 @@ verus! {
             }
         }
 
+        #[verifier::rlimit(20)]
         pub exec fn get_delete_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
@@ -1837,7 +1844,10 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_metadata_table[index as int] matches DurableEntry::Valid(entry),
+                self@.durable_metadata_table[index as int] is Valid,
+                !self.pending_deallocations_view().contains(index),
+                parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
+                                          overall_metadata.metadata_node_size) == Some(self@),
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 region_view.len() == overall_metadata.region_size,
@@ -1848,6 +1858,7 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_metadata_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
                 }),
@@ -1915,10 +1926,13 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
 
+                let committed_main_table_view = parse_metadata_table::<K>(subregion_view.committed(),
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let old_main_table_view = parse_metadata_table::<K>(old_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                assert(self.pending_alloc_check(index, committed_main_table_view, old_main_table_view));
                 
                 assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
                                                          index_to_offset(i, entry_slot_size as nat),
@@ -1961,6 +1975,13 @@ verus! {
                     overall_metadata.metadata_node_size as nat);
                 assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.metadata_node_size);
                 
+                let old_entries =
+                    parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                                                overall_metadata.metadata_node_size as nat);
+                assert(!self.pending_deallocations_view().contains(index));
+                assert(old_entries[index as int] is Valid);
+                assert(old_entries[index as int]->Valid_0.item_index() == item_index);
+
                 assert(no_duplicate_item_indexes(entries)) by {
                     assert forall|i, j| {
                         &&& 0 <= i < entries.len()
@@ -1969,9 +1990,6 @@ verus! {
                         &&& #[trigger] entries[i] is Valid
                         &&& #[trigger] entries[j] is Valid
                     } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index() by {
-                        let old_entries =
-                            parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
-                                                        overall_metadata.metadata_node_size as nat);
                         assert(i == index ==> old_entries[j]->Valid_0.item_index() != item_index);
                         assert(j == index ==> old_entries[i]->Valid_0.item_index() != item_index);
                     }
@@ -1981,30 +1999,30 @@ verus! {
                     index as int,
                     DurableEntry::<MetadataTableViewEntry<K>>::Invalid
                 );
+                assert(updated_table.len() == old_main_table_view.durable_metadata_table.len());
+                assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
                     #[trigger] updated_table[i as int] == new_main_table_view.unwrap().durable_metadata_table[i as int]
                 by {
+                    lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     let offset = index_to_offset(i, entry_slot_size as nat);
                     let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     let new_entry = parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
-                    // TODO @hayley
                     assert(new_main_table_view.unwrap().durable_metadata_table[i as int] =~= new_entry);
                 }
                 let new_main_table_view = new_main_table_view.unwrap();
-                // TODO @hayley
-                assume(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
+
+                assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
                 // prove that it makes the corresponding item table index invalid.
                 
-                assert(new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index)) by {
-                    assume(false); // TODO @hayley
-                    assert(forall |idx: u64| 0 <= idx < overall_metadata.num_keys && idx != index ==>
-                        new_main_table_view.durable_metadata_table[idx as int] == old_main_table_view.durable_metadata_table[idx as int]);
-                    assert(forall |idx: u64| 
-                        (#[trigger] new_main_table_view.valid_item_indices().contains(idx) <==> 
-                            old_main_table_view.valid_item_indices().remove(item_index).contains(idx)) ==> 
-                                new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
+                assert(new_main_table_view.valid_item_indices() =~=
+                       old_main_table_view.valid_item_indices().remove(item_index)) by {
+                    assert forall|i: u64| old_main_table_view.valid_item_indices().remove(item_index).contains(i)
+                        implies #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
+                        assume(false); // TODO @hayley
+                    }
                 }
             }
             log_entry
