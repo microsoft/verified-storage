@@ -3494,10 +3494,9 @@ verus! {
                 assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
 
                 assert(forall |s| Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> 
-                        perm.check_permission(s));
+                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> perm.check_permission(s));
             }
- 
+
             let ghost pre_log_install_wrpm = self.wrpm;
 
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
@@ -3512,19 +3511,26 @@ verus! {
                     self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);        
             }
 
             // Now we update each component's ghost state to match the current bytes.
             // It would be cleaner and match other methods if these took subregions rather than the entire WRPM,
             // but this makes everything more difficult to prove (why?). Since these functions don't modify WRPM, 
             // we don't need to reason about crash consistency, so it's fine for them to see a ghost view of the 
-            // whole devie.
+            // whole device.
             self.metadata_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
             self.item_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.metadata_table@.valid_item_indices()));
             self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.metadata_table@));
+
+            proof {
+                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
+                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+            }
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
@@ -3566,7 +3572,13 @@ verus! {
                 // clear the log
                 Self::lemma_clear_log_is_crash_safe(self.wrpm, self.log, self.version_metadata,
                     self.overall_metadata, clear_log_crash_pred, self@, perm);
+
+                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
+                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
             }
+            let ghost pre_clear_wrpm = self.wrpm@;
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
 
             assert(self@ == old(self).tentative_view().unwrap());
@@ -3631,14 +3643,77 @@ verus! {
                     assert(old_tentative_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
                     assert(self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
                 }
+
+                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                let pre_clear_durable_main_table_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                assert(durable_main_table_subregion_view.no_outstanding_writes());
+                assert(pre_clear_durable_main_table_subregion_view.no_outstanding_writes());
+
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(pre_clear_wrpm.committed(),
+                    self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+                
+                assert(extract_bytes(pre_clear_wrpm.committed(), self.overall_metadata.main_table_addr as nat, 
+                    self.overall_metadata.main_table_size as nat) == pre_clear_durable_main_table_subregion_view.committed());
+                assert(extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat, 
+                    self.overall_metadata.main_table_size as nat) == durable_main_table_subregion_view.committed());
+                
+                assert(pre_clear_durable_main_table_subregion_view == durable_main_table_subregion_view) by {
+                    assert(pre_clear_durable_main_table_subregion_view.committed() == durable_main_table_subregion_view.committed());
+                    assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==>
+                        #[trigger] durable_main_table_subregion_view.state[i].state_at_last_flush == pre_clear_durable_main_table_subregion_view.state[i].state_at_last_flush) 
+                    by {
+                        assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==>
+                            #[trigger] pre_clear_durable_main_table_subregion_view.state[i].state_at_last_flush == pre_clear_durable_main_table_subregion_view.committed()[i]);
+                        assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==>
+                            #[trigger] durable_main_table_subregion_view.state[i].state_at_last_flush == durable_main_table_subregion_view.committed()[i]);
+                        assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==>
+                            #[trigger] pre_clear_durable_main_table_subregion_view.committed()[i] == durable_main_table_subregion_view.committed()[i]);
+                    }
+                    assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==> {
+                        &&& pre_clear_durable_main_table_subregion_view.state[i].outstanding_write == (#[trigger] durable_main_table_subregion_view.state[i]).outstanding_write
+                        &&& pre_clear_durable_main_table_subregion_view.state[i].state_at_last_flush == durable_main_table_subregion_view.state[i].state_at_last_flush
+                    });
+                    assert(forall |i| 0 <= i < durable_main_table_subregion_view.state.len() ==> {
+                        pre_clear_durable_main_table_subregion_view.state[i] == #[trigger] durable_main_table_subregion_view.state[i]
+                    });
+                    assert(pre_clear_durable_main_table_subregion_view.state == durable_main_table_subregion_view.state);
+                }
+                assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
+
+                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+
+                assert(forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() ==> {
+                    let entry = #[trigger] self.metadata_table@.durable_metadata_table[idx as int];
+                    match entry {
+                        DurableEntry::Invalid => {
+                            ||| self.metadata_table.allocator_view().contains(idx)
+                            ||| self.metadata_table.pending_deallocations_view().contains(idx)
+                        }
+                        DurableEntry::Valid(entry) => {
+                            // if the entry is valid, either it was pending allocation
+                            // or it's just valid and not in any of the three lists
+                            ||| self.metadata_table.pending_allocations_view().contains(idx)
+                            ||| ({
+                                &&& !self.metadata_table.allocator_view().contains(idx)
+                                &&& !self.metadata_table.pending_deallocations_view().contains(idx)
+                                &&& !self.metadata_table.pending_allocations_view().contains(idx)
+                            })
+                        }
+                        _ => false
+                    }
+                });
             }
 
             // 5. Finalize pending allocations and deallocations
+            self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
+            // TODO: item table (de)allocs
+            
             assume(false); // TODO @hayley
-            self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(self.wrpm@), Ghost(self.overall_metadata));
-
-            assume(self.pending_alloc_inv()); // TODO @hayley
-            assume(self.valid());
+            assert(self.pending_alloc_inv()); 
+            assert(self.valid());
             assert({
                 let old_tentative_view = old(self).tentative_view();
                 &&& old_tentative_view matches Some(old_tentative_view)

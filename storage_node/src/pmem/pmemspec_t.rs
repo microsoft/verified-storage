@@ -282,7 +282,7 @@ verus! {
 
         pub open spec fn no_outstanding_writes_in_range(self, i: int, j: int) -> bool
         {
-            forall |k| i <= k < j ==> (#[trigger] self.state[k].outstanding_write).is_none()
+            forall |k| i <= k < j ==> (#[trigger] self.state[k].outstanding_write) is None
         }
 
         pub open spec fn no_outstanding_writes(self) -> bool
