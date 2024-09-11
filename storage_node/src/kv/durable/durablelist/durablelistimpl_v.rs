@@ -635,7 +635,7 @@ verus! {
                 }),
                 // TODO: other fields
         {
-            assume(false); // TODO @hayley
+            assume(false);
         }
 
         // // TODO: refactor into smaller functions

@@ -240,11 +240,15 @@ verus! {
         pub open spec fn pending_alloc_check(self, idx: u64, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>) -> bool 
         {
             // If an index is in the current valid index set but not the tentative one, 
-            // it is pending deallocation.
+            // it is pending deallocation. We still consider this index valid because it
+            // will be valid upon recovery if we were to crash right now.
             &&& {
                 &&& current_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
-            } <==> self.pending_deallocations_view().contains(idx)
+            } <==> {
+                &&& self.pending_deallocations_view().contains(idx) 
+                &&& self.spec_valid_indices().contains(idx)
+            }
             // If an index is not in the current valid index set but is in the tentative one,
             // it is pending allocation
             &&& {
@@ -256,11 +260,77 @@ verus! {
                 &&& !current_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
             } <==> self.allocator_view().contains(idx)
-            // If the index is in both sets, it's valid
+            // If the index is in both sets, it's valid and not pending deallocation.
             &&& {
                 &&& current_valid_indices.contains(idx)
                 &&& tentative_valid_indices.contains(idx)
-            } <==> self.spec_valid_indices().contains(idx)
+            } <==> {
+                &&& !self.pending_deallocations_view().contains(idx) 
+                &&& self.spec_valid_indices().contains(idx)
+            }
+        }
+
+        pub proof fn lemma_invalid_item_indices_pending_alloc_or_free(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>)
+            requires 
+                self.pending_alloc_inv(current_valid_indices, tentative_valid_indices),
+            ensures 
+                forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
+                    ||| self.pending_allocations_view().contains(idx)
+                    ||| self.allocator_view().contains(idx)
+                }
+        {
+            assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
+                self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices)
+            });
+            // Annoyingly, we need to have a trigger on `!tentative_valid_indices.contains(idx)`, which 
+            // apparently Verus can do internally, but is not syntactically legal here. So we have to 
+            // use auto-chosen triggers. 
+            // Also annoyingly, we have to have the entire alloc check specified here, presumably 
+            // to hit the proper triggers. 
+            assert(forall |idx: u64| #![auto] 0 <= idx < self.num_keys ==> 
+                self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices) ==> {
+                    &&& {
+                            &&& current_valid_indices.contains(idx)
+                            &&& !tentative_valid_indices.contains(idx)
+                        } <==> {
+                            &&& self.pending_deallocations_view().contains(idx) 
+                            &&& self.spec_valid_indices().contains(idx)
+                        }
+                    &&& {
+                            &&& !current_valid_indices.contains(idx)
+                            &&& tentative_valid_indices.contains(idx)
+                        } <==> self.pending_allocations_view().contains(idx)
+                    &&& {
+                            &&& !current_valid_indices.contains(idx)
+                            &&& !tentative_valid_indices.contains(idx)
+                        } <==> self.allocator_view().contains(idx)
+                    &&& {
+                            &&& current_valid_indices.contains(idx)
+                            &&& tentative_valid_indices.contains(idx)
+                        } <==> {
+                            &&& !self.pending_deallocations_view().contains(idx) 
+                            &&& self.spec_valid_indices().contains(idx)
+                        }
+                }
+            );
+
+            assert forall |idx: u64| 0 <= idx < self.num_keys && !self.spec_valid_indices().contains(idx) implies {
+                ||| self.pending_allocations_view().contains(idx)
+                ||| self.allocator_view().contains(idx)
+            } by {
+                assert({
+                    &&& current_valid_indices.contains(idx)
+                    &&& !tentative_valid_indices.contains(idx)
+                } <==> {
+                    &&& self.pending_deallocations_view().contains(idx) 
+                    &&& self.spec_valid_indices().contains(idx)
+                });
+                assert({!({
+                    &&& current_valid_indices.contains(idx)
+                    &&& !tentative_valid_indices.contains(idx)
+                })});
+                // Verus is able to automatically handle the rest of the cases.
+            }
         }
 
         pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -329,6 +399,27 @@ verus! {
                                  (index * entry_size as u64) as nat + u64::spec_size_of(),
                                  I::spec_size_of()));
             assert(validate_item_table_entry::<I, K>(entry_bytes));
+        }
+
+        pub exec fn index_pending_deallocation(&self, item_index: u64) -> (out: bool)
+            requires 
+                0 <= item_index < self.spec_num_keys()
+            ensures 
+                out == self.pending_deallocations_view().contains(item_index)
+        {
+            // self.pending_deallocations.contains(&item_index)
+            // TODO: replace loop with `contains` exec call when supported by Verus
+            let mut i = 0;
+            while i < self.pending_deallocations.len() 
+                invariant 
+                    forall |j: int| 0 <= j < i ==> self.pending_deallocations[j] != item_index,
+            {
+                if self.pending_deallocations[i] == item_index {
+                    return true;
+                }
+                i += 1;
+            }
+            false
         }
 
         // Read an item from the item table given an index. Returns `None` if the index is 
@@ -502,6 +593,8 @@ verus! {
                         &&& self@ == old(self)@
                         &&& self.spec_outstanding_item_table() == old(self).spec_outstanding_item_table()
                         &&& self.allocator_view() == old(self).allocator_view()
+                        &&& self.pending_allocations_view() == old(self).pending_allocations_view()
+                        &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.allocator_view().len() == 0
                         &&& wrpm_region == old(wrpm_region)
                     },
@@ -751,6 +844,7 @@ verus! {
                             &&& forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.allocator_view().contains(i)
                             &&& item_table.spec_valid_indices() == in_use_indices
                         }
+                        &&& item_table.pending_alloc_inv(item_table.spec_valid_indices(), item_table.spec_valid_indices())
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::PmemErr{ pmem_err }) => true,
@@ -897,6 +991,8 @@ verus! {
             Ghost(pm_subregion): Ghost<PersistentMemoryRegionView>,
             index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(durable_valid_indices): Ghost<Set<u64>>,
+            Ghost(tentative_valid_indices): Ghost<Set<u64>>,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             requires 
@@ -908,6 +1004,12 @@ verus! {
                 !old(self).pending_deallocations_view().contains(index),
                 // and it's currently valid
                 old(self).spec_valid_indices().contains(index),
+                !tentative_valid_indices.contains(index),
+                old(self).spec_valid_indices() == durable_valid_indices, // ?
+                forall |idx: u64| {
+                    &&& 0 <= idx < overall_metadata.num_keys 
+                    &&& idx != index 
+                } ==> old(self).pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices),
             ensures
                 // we maintain all invariants and move the index into
                 // the pending deallocations set
@@ -917,9 +1019,14 @@ verus! {
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self)@ == self@,
                 old(self).spec_valid_indices() == self.spec_valid_indices(),
+                // old(self).spec_valid_indices().remove == self.spec_valid_indices(),
                 old(self).spec_outstanding_item_table() == self.spec_outstanding_item_table(),
+                self.pending_alloc_inv(durable_valid_indices, tentative_valid_indices)
         {
             self.pending_deallocations.push(index);
+            // self.valid_indices = Ghost(self.valid_indices@.remove(index));
+
+            assume(false);
 
             proof {
                 assert(self.pending_deallocations@.subrange(0, self.pending_deallocations@.len() - 1) == old(self).pending_deallocations@);
@@ -929,6 +1036,13 @@ verus! {
                         assert(old(self).pending_deallocations@.contains(idx));
                     } else {
                         assert(index < overall_metadata.num_keys);
+                    }
+                }
+                assert forall |idx: u64| 0 <= idx < overall_metadata.num_keys implies 
+                    self.pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices) 
+                by {
+                    if idx != index {
+                        assert(old(self).pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices));
                     }
                 }
             }
@@ -1007,13 +1121,21 @@ verus! {
                     &&& old(self)@.durable_item_table[idx as int] is Some
                     &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
                 },
+                forall |idx: u64|0 <= idx < old(self).spec_num_keys() &&  !old(self).spec_valid_indices().contains(idx) ==> {
+                    ||| old(self).pending_allocations_view().contains(idx)
+                    ||| old(self).allocator_view().contains(idx)
+                },
             ensures
                 self.valid(pm, overall_metadata),
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
                 self@ == old(self)@,
+                self.pending_alloc_inv(self.spec_valid_indices(), self.spec_valid_indices()),
         {
-            // Move all pending allocations back into the free list
+            // Move all pending allocations back into the free list. This also
+            // clears the pending_allocations list
             self.free_list.append(&mut self.pending_allocations);
+            // drop all pending deallocations
+            self.pending_deallocations = Vec::new();
 
             // Drop all outstanding updates from the view
             self.outstanding_item_table = Ghost(Seq::new(self.outstanding_item_table@.len(), |i: int| None));
@@ -1032,6 +1154,17 @@ verus! {
                     ||| old(self).pending_allocations@.contains(idx)
                 });
                 assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+
+                assert forall |idx: u64| 0 <= idx < self.num_keys implies
+                    self.pending_alloc_check(idx, self.spec_valid_indices(), self.spec_valid_indices())
+                by {
+                    // note: valid indices doesn't change here
+                    if !self.spec_valid_indices().contains(idx) {
+                        assert(!old(self).spec_valid_indices().contains(idx));
+                        assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
+                        assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
+                    }
+                }
             }
         }
 
@@ -1058,16 +1191,13 @@ verus! {
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.spec_outstanding_item_table() == Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None::<I>),
                 self.spec_valid_indices() == valid_indices,
-                // self.item_size == old(self).item_size,
-                // self.entry_size == old(self).entry_size,
-                // self.num_keys == old(self).num_keys,
-                // self.free_list == old(self).free_list,
 
         {
-            assume(false); // TODO @hayley
-            // let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
-            //     overall_metadata.item_table_size as nat);
-            // self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
+            let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
+                overall_metadata.item_table_size as nat);
+            self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
+            self.outstanding_item_table = Ghost(Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None));
+            self.valid_indices = Ghost(valid_indices);
         }
 
         /* temporarily commented out for subregion development 
