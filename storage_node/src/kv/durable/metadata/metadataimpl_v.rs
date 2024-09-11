@@ -2031,7 +2031,14 @@ verus! {
                        old_main_table_view.valid_item_indices().remove(item_index)) by {
                     assert forall|i: u64| old_main_table_view.valid_item_indices().remove(item_index).contains(i)
                         implies #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
-                        assume(false); // TODO @hayley
+                        let j = choose|j: int| {
+                            &&& 0 <= j < old_main_table_view.durable_metadata_table.len() 
+                            &&& #[trigger] old_main_table_view.durable_metadata_table[j] matches
+                                DurableEntry::Valid(entry)
+                            &&& entry.item_index() == i
+                        };
+                        assert(new_main_table_view.durable_metadata_table[j] ==
+                               old_main_table_view.durable_metadata_table[j]);
                     }
                 }
             }
