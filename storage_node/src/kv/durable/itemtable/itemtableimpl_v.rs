@@ -560,6 +560,7 @@ verus! {
             item: &I,
             Tracked(perm): Tracked<&Perm>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(tentative_valid_indices): Ghost<Set<u64>>,
         ) -> (result: Result<u64, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
@@ -573,6 +574,7 @@ verus! {
                     &&& address_belongs_to_invalid_item_table_entry::<I>(addr, overall_metadata.num_keys,
                                                                        old(self).spec_valid_indices())
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
+                old(self).pending_alloc_inv(old(self).spec_valid_indices(), tentative_valid_indices),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -620,8 +622,8 @@ verus! {
                 }
             };
             self.pending_allocations.push(free_index);
-
-            assert(!self.free_list@.contains(free_index));
+            assert(old(self).pending_alloc_check(free_index, old(self).spec_valid_indices(), tentative_valid_indices));
+            
             assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
                    subregion.is_writable_relative_addr(addr) by {
                 lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
@@ -1176,13 +1178,19 @@ verus! {
         )
             requires
                 pm.no_outstanding_writes(),
+                old(self).opaque_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
-                    parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices) is Some
-                })
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    &&& parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices) is Some
+                    &&& subregion_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
+                }),
+                pm.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
+                old(self)@.len() == old(self).spec_outstanding_item_table().len() == 
+                    old(self).spec_num_keys() == overall_metadata.num_keys,
             ensures 
-                self.opaque_inv(overall_metadata), // TODO @hayley
+                self.opaque_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
@@ -1204,6 +1212,13 @@ verus! {
             self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
             self.outstanding_item_table = Ghost(Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None));
             self.valid_indices = Ghost(valid_indices);
+
+            proof {
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.spec_outstanding_item_table()[idx as int] is None implies
+                    subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
+                by { lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat); }
+            }
         }
 
         pub exec fn finalize_pending_alloc_and_dealloc(

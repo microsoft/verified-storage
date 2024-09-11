@@ -310,6 +310,25 @@ verus! {
             &&& self.pending_alloc_inv()
         }
 
+        pub closed spec fn get_pending_valid_item_indices(self) -> Option<Set<u64>> 
+        {
+            let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list);
+            if let Some(tentative_state_bytes) = tentative_state_bytes {
+                let tentative_main_table_region = extract_bytes(tentative_state_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
+                    self.overall_metadata.metadata_node_size);
+                if let Some(tentative_main_table_view) = tentative_main_table_view {
+                    Some(tentative_main_table_view.valid_item_indices())
+                } else {
+                    None
+                }
+            } else { 
+                None
+            }
+        }
+
         pub closed spec fn pending_alloc_inv(self) -> bool
         {
             let durable_state_bytes = self.wrpm@.committed();
@@ -2695,14 +2714,6 @@ verus! {
                     }
                 })
         {
-            // proof {
-            //     let main_table_subregion_view = get_subregion_view(self.wrpm@.flush(),
-            //         self.overall_metadata.main_table_addr as nat,
-            //         self.overall_metadata.main_table_size as nat);
-            //     assert(self.metadata_table.inv(main_table_subregion_view, self.overall_metadata));
-            //     assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==>
-            //         parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) is Some);
-            // }
             // 1. find a free slot in the item table and tentatively write the new item there
 
             let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
@@ -2717,12 +2728,15 @@ verus! {
                 Ghost(item_table_subregion_condition),
             );
 
+            assert(self.get_pending_valid_item_indices() is Some);
+
             let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
+                Ghost(self.get_pending_valid_item_indices().unwrap()),
             ) {
                 Ok(item_index) => item_index,
                 Err(e) => {
