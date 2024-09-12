@@ -602,7 +602,6 @@ impl UntrustedLogImpl {
     }
 
     // This lemma proves that updating the inactive metadata and crc is crash safe.
-    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
     proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm<Perm>(
         self,
         old_pm: PersistentMemoryRegionView,
@@ -909,6 +908,7 @@ impl UntrustedLogImpl {
     // It's passed a `subregion` that frames access to only that
     // log area, and only to offsets within that log area that are
     // unreachable during recovery.
+    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
     exec fn tentatively_append_to_log<Perm, PMRegion>(
         &self,
         wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
@@ -1474,7 +1474,7 @@ impl UntrustedLogImpl {
                     &&& old(self)@.head <= new_head <= old(self)@.head + old(self)@.log.len()
                     &&& self@ == old(self)@.advance_head(new_head as int)
                     &&& wrpm_region@.no_outstanding_writes()
-                    &&& states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.committed(), 
+                    &&& views_differ_only_in_log_region(old(wrpm_region)@.flush(), wrpm_region@, 
                             log_start_addr as nat, log_size as nat)
                 },
                 Err(LogErr::CantAdvanceHeadPositionBeforeHead { head }) => {
@@ -1888,8 +1888,8 @@ impl UntrustedLogImpl {
             self.state == old(self).state,
             wrpm_region@.no_outstanding_writes(),
             Self::recover(wrpm_region@.committed(), log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()),
-            states_differ_only_in_log_region(old(wrpm_region)@.flush().committed(), wrpm_region@.committed(), 
-                log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@.flush(), wrpm_region@, 
+                            log_start_addr as nat, log_size as nat),
     {
         broadcast use pmcopy_axioms;
 

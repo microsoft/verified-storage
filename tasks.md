@@ -10,14 +10,14 @@ Starred functions * have an unverified implementation (which may be out of date 
           - [x] `start` for op log, item table, and main table
           - [ ] `start` with list area
         - [x] `install_log`
-        - [ ] `commit` * - hayley-leblanc
+        - [x] `commit` * 
         - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
         - [ ] `get_list_len` *
-        - [ ] `read_list_entry_at_index` *
         - [ ] `tentative_update_item` * 
         - [x] `tentative_delete` * 
         - [ ] `tentative_append` *
+        - [ ] `read_list_entry_at_index` *
         - [ ] `tentative_alloc_list_node` *
         - [ ] `tentative_update_list_entry_at_index` *
         - [ ] `tentative_trim_list` *
@@ -45,13 +45,13 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `overwrite_entry` *
         - [ ] `commit_entry` *
         - [x] `get_key_and_metadata_entry_at_index`
-        - [ ] `invalidate_entry` * - hayley-leblanc
+        - [x] `invalidate_entry` *
     - Item table
         - [x] Prove that table is empty at setup
         - [x] `start` *
         - [x] `tentatively_write_item` *
         - [x] `read_item` *
-        - [ ] Deallocate item table slot - hayley-leblanc
+        - [x] Deallocate item table slot
     - Lists
         - [x] Prove that lists are empty at setup
         - [ ] `start`*
