@@ -2787,6 +2787,7 @@ verus! {
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_table_subregion, item_index, *item, perm
                 );
+                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
 
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
@@ -2838,8 +2839,21 @@ verus! {
 
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
-            assume(false);
-            proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
+            proof {
+                main_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                          self.overall_metadata.log_area_size as nat) =~=
+                       get_subregion_view(old(self).wrpm@, self.overall_metadata.log_area_addr as nat,
+                                          self.overall_metadata.log_area_size as nat));
+                self.log.lemma_same_op_log_view_preserves_invariant(old(self).wrpm, self.wrpm, self.version_metadata,
+                                                                    self.overall_metadata);
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
+                    self.wrpm@.flush().committed(), self.version_metadata, self.overall_metadata,
+                    self.log@.commit_op_log().physical_op_list
+                );
+                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
+            }
 
             // To tentatively validify a record, we need to obtain a log entry representing 
             // its validification and tentatively append it to the operation log.
@@ -2858,6 +2872,7 @@ verus! {
                                        self.overall_metadata.main_table_size as nat)
                 );
             }
+            assume(false);
             let log_entry = self.metadata_table.get_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
