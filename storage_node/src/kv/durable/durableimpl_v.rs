@@ -2787,6 +2787,36 @@ verus! {
                     return Err(e);
                 }
             };
+
+
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list).unwrap();
+            assume(false);
+            proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
+
+            // To tentatively validify a record, we need to obtain a log entry representing 
+            // its validification and tentatively append it to the operation log.
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat).committed() =~=
+                   extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
+                                 self.overall_metadata.main_table_size as nat));
+            assert(parse_metadata_table::<K>(
+                       get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                          self.overall_metadata.main_table_size as nat).committed(),
+                       self.overall_metadata.num_keys,
+                       self.overall_metadata.metadata_node_size
+                   ) == Some(self.metadata_table@)) by {
+                lemma_persistent_memory_view_can_crash_as_committed(
+                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat)
+                );
+            }
+            let log_entry = self.metadata_table.get_validify_log_entry(
+                Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                         self.overall_metadata.main_table_size as nat)),
+                metadata_index,
+                Ghost(self.version_metadata), &self.overall_metadata, Ghost(tentative_view_bytes)
+            );
             assume(false);
 
             /*
