@@ -1298,8 +1298,6 @@ verus! {
                 assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
                 assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) ==
                     old(self).pending_deallocations@);
-                // assert(forall |idx| old(self).free_list@.len() <= idx < self.free_list@.len() ==>
-                //     old(self).pending_allocation)
 
                 assert forall |idx: u64| 0 <= idx < self@.durable_item_table.len() implies
                     self.pending_alloc_check(idx, self.valid_indices@, self.valid_indices@)
@@ -1315,62 +1313,15 @@ verus! {
                     } else {
                         if !old(self).spec_valid_indices().contains(idx) { 
                             assert(old(self).allocator_view().contains(idx));
-                        } else {
-                            assert(!old_self.valid_indices@.contains(idx));
-                            assert(old(self).spec_valid_indices().contains(idx));
-                            assert(self.valid_indices@.contains(idx));
-
-                            assert(old(self).pending_allocations_view().contains(idx));
-                            assert(old_self.pending_allocations_view().contains(idx));
-                            
-                            assert(!old_self.pending_deallocations_view().contains(idx));
-                            assert(!old(self).pending_deallocations_view().contains(idx));
-
-                            assert(!old(self).allocator_view().contains(idx));
-                            assert(!self.allocator_view().contains(idx));
-                        }
+                        } // else, trivial
                     }
                 }
 
                 assert(old(self).allocator_view().disjoint(old(self).pending_deallocations_view()));
-
-                assert forall |i, j| 0 <= i < j < self.free_list@.len() implies 
-                    self.free_list@[i] != self.free_list@[j] by 
-                {
-                    if j < old(self).free_list@.len() {
-                        // both were in the old free list
-                        assert(old(self).free_list@.contains(self.free_list@[i]));
-                        assert(old(self).free_list@.contains(self.free_list@[j]));
-                        assert(self.free_list@[i] != self.free_list@[j]);
-                    } else if old(self).free_list@.len() <= i {
-                        // both were in the old pending alloc set
-                        assert(old(self).pending_deallocations@.contains(self.free_list@[i]));
-                        assert(old(self).pending_deallocations@.contains(self.free_list@[j]));
-                        assert(self.free_list@[i] != self.free_list@[j]);
-                    } else {
-                        // i was free, j was pending
-                        assert(old(self).free_list@.contains(self.free_list@[i]));
-                        assert(old(self).pending_deallocations@.contains(self.free_list@[j]));
-                        assert(old(self).allocator_view().disjoint(old(self).pending_deallocations_view()));
-
-                        crate::kv::durable::util_v::lemma_concat_of_disjoint_seqs_has_no_duplicates(
-                            old(self).free_list@,
-                            old(self).pending_deallocations@
-                        );
-
-
-                        // assert(self.allocator_view() == old(self).allocator_view() + old(self).pending_deallocations_view());
-                        // vstd::set_lib::lemma_set_disjoint_lens(old(self).allocator_view(), old(self).pending_deallocations_view());
-                        // assert(forall |l| 0 <= l < old(self).pending_deallocations@.len() ==>
-                        //     !old(self).free_list@.contains(old(self).pending_deallocations@[l]));
-                        // assert(self.free_list@[i] != self.free_list@[j]);
-                    }
-                }
-
-                assert(self.free_list@.no_duplicates());
-
-
-                assert(self.inv(pm, overall_metadata)); // TODO @hayley
+                crate::kv::durable::util_v::lemma_concat_of_disjoint_seqs_has_no_duplicates(
+                    old(self).free_list@,
+                    old(self).pending_deallocations@
+                );
             }
         }
 

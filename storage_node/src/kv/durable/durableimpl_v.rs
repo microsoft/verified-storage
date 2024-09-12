@@ -2402,24 +2402,6 @@ verus! {
                 pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     pre_self_durable_main_table_view.valid_item_indices(), 
                     pre_self_tentative_main_table_view.valid_item_indices());
-
-                // pre_self.item_table.lemma_valid_item_indices_not_pending_alloc_or_free(
-                //     pre_self_durable_main_table_view.valid_item_indices(), 
-                //     pre_self_tentative_main_table_view.valid_item_indices());
-
-                // assert(forall|idx: u64| #[trigger] pre_self.item_table.spec_valid_indices().contains(idx) ==> 
-                //     !pre_self.item_table.allocator_view().contains(idx) && !pre_self.item_table.pending_allocations_view().contains(idx));
-
-                // assert(forall|idx: u64| #[trigger] self.item_table.spec_valid_indices().contains(idx) ==> 
-                //     !self.item_table.allocator_view().contains(idx) && !self.item_table.pending_allocations_view().contains(idx));
-
-                // assert(forall|idx: u64| 0 <= pre_self.item_table.spec_num_keys() && !pre_self.item_table.spec_valid_indices().contains(idx) ==> 
-                //     (pre_self.item_table.allocator_view().contains(idx) || pre_self.item_table.pending_allocations_view().contains(idx)));
-
-                // assert(forall|idx: u64| #[trigger] pre_self.item_table.spec_valid_indices().contains(idx) ==> 
-                //     !pre_self.item_table.allocator_view().contains(idx) && !pre_self.item_table.pending_allocations_view().contains(idx));
-                // assert(forall|idx: u64| #[trigger] self.item_table.spec_valid_indices().contains(idx) ==> 
-                //     !self.item_table.allocator_view().contains(idx) && !self.item_table.pending_allocations_view().contains(idx));
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -3458,6 +3440,7 @@ verus! {
             }
 
             // 2. Commit the op log
+            let ghost pre_self = *self;
             match self.log.commit_log(&mut self.wrpm, self.version_metadata, 
                 self.overall_metadata, Ghost(crash_pred), Tracked(perm)) 
             {
@@ -3618,13 +3601,6 @@ verus! {
                 let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
                 let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
 
-                // // Applying the log either to pre-install PM or current PM results in the same state; we've applied the log
-                // // already to the current state, and log installation is idempotent.
-                // assert(Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log) == 
-                //     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
-                // assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                //     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
-
                 lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
 
@@ -3671,19 +3647,6 @@ verus! {
                 let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let old_durable_main_table_view = parse_metadata_table::<K>(old_durable_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
                 let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                
-                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                    self.overall_metadata.main_table_size as nat);
-                let pre_clear_durable_main_table_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.main_table_addr as nat,
-                    self.overall_metadata.main_table_size as nat);
-                let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat);
-                let pre_clear_durable_item_table_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat);
-                let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                    self.overall_metadata.list_area_size as nat);
-                let pre_clear_durable_list_area_subregion_view = get_subregion_view(pre_clear_wrpm, self.overall_metadata.list_area_addr as nat,
-                    self.overall_metadata.list_area_size as nat);
 
                 // After replaying and clearing the log, all metadata indices pending allocation
                 // are now valid and all metadata indices pending deallocation are invalid
@@ -3697,20 +3660,10 @@ verus! {
                     assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
                 }
 
+                self.lemma_view_and_components_unchanged(pre_clear_wrpm);
                 // After clearing the log, all non-log components remain the same.
                 lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(pre_clear_wrpm.committed(),
                     self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
-                // This implies that the pre-clear and post-clear component subregion states are equivalent.
-                // Proving this explicitly helps subsequent proofs
-                assert(pre_clear_durable_main_table_subregion_view.state == durable_main_table_subregion_view.state);
-                assert(pre_clear_durable_item_table_subregion_view.state == durable_item_table_subregion_view.state);
-                assert(pre_clear_durable_list_area_subregion_view.state == durable_list_area_subregion_view.state);
-
-                // Establish that all current crash states result in the current metadata state.
-                assert(parse_metadata_table::<K>(pre_clear_durable_main_table_subregion_view.committed(), 
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@));
-                assert(durable_main_table_subregion_view.can_crash_as(pre_clear_durable_main_table_subregion_view.committed()));
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
 
                 // We now have to reestablish some facts about the relationship between the allocation-related sets
                 // and the current KV store state. The pending allocation invariants no longer hold because we have 
@@ -3788,6 +3741,78 @@ verus! {
             }
             
             Ok(())
+        }
+
+        proof fn lemma_view_and_components_unchanged(
+            self,
+            pre_state: PersistentMemoryRegionView,
+        )
+            requires 
+                views_differ_only_in_log_region(self.wrpm@, pre_state, self.overall_metadata.log_area_addr as nat,
+                    self.overall_metadata.log_area_size as nat),
+                ({
+                    let pre_durable_main_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);
+                    parse_metadata_table::<K>(pre_durable_main_table_subregion_view.committed(), 
+                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@)
+                }),
+                self.wrpm@.no_outstanding_writes(),
+                pre_state.no_outstanding_writes(),
+                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
+                    self.overall_metadata.kvstore_id),
+                pre_state.len() == self.wrpm@.len(),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+            ensures 
+                ({
+                    let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);
+                    let pre_durable_main_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);
+                    let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat);
+                    let pre_durable_item_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat);
+                    let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                        self.overall_metadata.list_area_size as nat);
+                    let pre_durable_list_area_subregion_view = get_subregion_view(pre_state, self.overall_metadata.list_area_addr as nat,
+                        self.overall_metadata.list_area_size as nat);
+                    &&& pre_durable_main_table_subregion_view.state == durable_main_table_subregion_view.state
+                    &&& pre_durable_item_table_subregion_view.state == durable_item_table_subregion_view.state
+                    &&& pre_durable_list_area_subregion_view.state == durable_list_area_subregion_view.state
+                    &&& durable_main_table_subregion_view.can_crash_as(pre_durable_main_table_subregion_view.committed())
+                    &&& forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_metadata_table::<K>(s, self.overall_metadata.num_keys, 
+                            self.overall_metadata.metadata_node_size) == Some(self.metadata_table@)
+                }),
+                extracted_regions_match(self.wrpm@.committed(), pre_state.committed(), self.overall_metadata),
+                deserialize_version_metadata(self.wrpm@.committed()) == deserialize_version_metadata(pre_state.committed()),
+                deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == 
+                        deserialize_overall_metadata(pre_state.committed(), self.version_metadata.overall_metadata_addr),
+
+        {
+            let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);
+            let pre_durable_main_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);
+            let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat);
+            let pre_durable_item_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat);
+            let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat);
+            let pre_durable_list_area_subregion_view = get_subregion_view(pre_state, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat);
+
+            lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(pre_state.committed(),
+                self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+
+            assert(pre_durable_main_table_subregion_view.state == durable_main_table_subregion_view.state);
+            assert(pre_durable_item_table_subregion_view.state == durable_item_table_subregion_view.state);
+            assert(pre_durable_list_area_subregion_view.state == durable_list_area_subregion_view.state);
+        
+            assert(durable_main_table_subregion_view.can_crash_as(pre_durable_main_table_subregion_view.committed()));
+            lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
+            assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_metadata_table::<K>(s, 
+                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@));
         }
 
 /*

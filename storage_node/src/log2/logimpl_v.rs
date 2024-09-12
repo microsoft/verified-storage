@@ -602,7 +602,6 @@ impl UntrustedLogImpl {
     }
 
     // This lemma proves that updating the inactive metadata and crc is crash safe.
-    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
     proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm<Perm>(
         self,
         old_pm: PersistentMemoryRegionView,
@@ -909,6 +908,7 @@ impl UntrustedLogImpl {
     // It's passed a `subregion` that frames access to only that
     // log area, and only to offsets within that log area that are
     // unreachable during recovery.
+    #[verifier::rlimit(20)] // TODO: @hayley - obviating this rlimit expansion
     exec fn tentatively_append_to_log<Perm, PMRegion>(
         &self,
         wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,

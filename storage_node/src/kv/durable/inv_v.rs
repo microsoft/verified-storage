@@ -392,24 +392,30 @@ verus! {
             overall_metadata.list_area_addr + overall_metadata.list_area_size <= s1.len(),
             overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
         ensures 
-            ({
-                let main_table_region1 = extract_bytes(s1, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let item_table_region1 = extract_bytes(s1, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                let list_area_region1 = extract_bytes(s1, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-
-                let main_table_region2 = extract_bytes(s2, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let item_table_region2 = extract_bytes(s2, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                let list_area_region2 = extract_bytes(s2, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-            
-                &&& main_table_region1 == main_table_region2
-                &&& item_table_region1 == item_table_region2
-                &&& list_area_region1 == list_area_region2
-
-                &&& deserialize_version_metadata(s1) == deserialize_version_metadata(s2)
-                &&& deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == 
-                        deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr)
-            })
+            extracted_regions_match(s1, s2, overall_metadata),
+            deserialize_version_metadata(s1) == deserialize_version_metadata(s2),
+            deserialize_overall_metadata(s1, version_metadata.overall_metadata_addr) == 
+                deserialize_overall_metadata(s2, version_metadata.overall_metadata_addr)
     {
         lemma_establish_extract_bytes_equivalence(s1, s2);
+    }
+
+    pub open spec fn extracted_regions_match(
+        s1: Seq<u8>,
+        s2: Seq<u8>,
+        overall_metadata: OverallMetadata, 
+    ) -> bool 
+    {
+        let main_table_region1 = extract_bytes(s1, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+        let item_table_region1 = extract_bytes(s1, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+        let list_area_region1 = extract_bytes(s1, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+
+        let main_table_region2 = extract_bytes(s2, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+        let item_table_region2 = extract_bytes(s2, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+        let list_area_region2 = extract_bytes(s2, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
+    
+        &&& main_table_region1 == main_table_region2
+        &&& item_table_region1 == item_table_region2
+        &&& list_area_region1 == list_area_region2
     }
 }
