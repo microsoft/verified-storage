@@ -3433,8 +3433,6 @@ verus! {
                 } implies perm.check_permission(s2) by {
                     let flushed_state = self.wrpm@.flush().committed();
                     assert(self.wrpm@.can_crash_as(flushed_state));
-                    // This assertion handles crash states where we have done our first flush but may or may not 
-                    // have updated the base log's CDB.
                     if UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log()) {
                         // The CDB made it to storage.
                         // In this case, the whole KV store recovers to its tentative view. 
@@ -3450,7 +3448,6 @@ verus! {
                             self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
                         lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                             flushed_state_with_log_installed, s2_with_log_installed, self.version_metadata, self.overall_metadata);
-                        
                     } else {
                         // The CDB did not make it to storage.
                         assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
@@ -3486,21 +3483,16 @@ verus! {
 
                         old(self).lemma_metadata_pending_allocs_are_invalid_at_abort();
 
-                        // TODO: refactor
                         lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                             old(self).wrpm@.flush().committed(), self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
                         let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@.flush(),
-                            self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat);
+                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                         assert(main_table_subregion_view == old_main_table_subregion_view);
                         assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
         
-                        let durable_bytes = old(self).wrpm@.committed();
-                        let tentative_bytes = Self::apply_physical_log_entries(old(self).wrpm@.flush().committed(),
-                            old(self).log@.commit_op_log().physical_op_list).unwrap();
-                        let durable_main_table_region_state = extract_bytes(durable_bytes,
+                        let durable_main_table_region_state = extract_bytes(old(self).wrpm@.committed(),
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let tentative_main_table_region_state = extract_bytes(tentative_bytes,
+                        let tentative_main_table_region_state = extract_bytes(tentative_view_bytes,
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                         let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
                             self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
@@ -3525,14 +3517,13 @@ verus! {
                             old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                         );
                         self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+
                         // These assertions help us prove that the pending allocation inv is restored
-                        let durable_state_bytes = self.wrpm@.committed();
                         let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                             self.log@.commit_op_log().physical_op_list).unwrap();
-                        let durable_main_table_region = extract_bytes(durable_state_bytes, 
+                        let durable_main_table_region = extract_bytes(self.wrpm@.committed(), 
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(durable_state_bytes == tentative_state_bytes);
-                        assert(durable_main_table_region == main_table_subregion_view.committed());
+                        assert(self.wrpm@.committed() == tentative_state_bytes);
                         assert(main_table_subregion_view.can_crash_as(durable_main_table_region));
                     }
 
@@ -3593,8 +3584,8 @@ verus! {
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
 
             proof {
-                // Some functions/proofs use `extract_bytes`
-                // and some use `get_subregion_view` (depending on whether they need PersistentMemoryRegionView information or not)
+                // Some functions/proofs use `extract_bytes`  and some use `get_subregion_view` 
+                // (depending on whether they need PersistentMemoryRegionView information or not)
                 // so we first have to prove that these are equivalent.
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
@@ -3619,23 +3610,24 @@ verus! {
             // 4. Clear the log
             proof {
                 // Next, prove that we can safely clear the log.
+
                 let current_mem = self.wrpm@.committed();
                 let old_mem_with_log_installed = Self::apply_physical_log_entries(pre_log_install_wrpm@.committed(), 
                     abstract_op_log.physical_op_list).unwrap();
+                let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+                let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+                let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
 
-                // Applying the log either to pre-install PM or current PM results in the same state; we've applied the log
-                // already to the current state, and log installation is idempotent.
-                assert(Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log) == 
-                    Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
-                assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                    Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
+                // // Applying the log either to pre-install PM or current PM results in the same state; we've applied the log
+                // // already to the current state, and log installation is idempotent.
+                // assert(Self::physical_recover_after_applying_log(current_mem, self.overall_metadata, abstract_op_log) == 
+                //     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
+                // assert(Self::physical_recover(pre_log_install_wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
+                //     Self::physical_recover_after_applying_log(old_mem_with_log_installed, self.overall_metadata, abstract_op_log));
 
                 lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
 
-                let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-                let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-                let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
                 // Next, we need to prove that the log subregions of the pre-install PM and current PM
                 // are identical, so that we can prove that the op log invariant holds after log install.
                 assert forall |addr: int| 0 <= addr < self.overall_metadata.log_area_size implies 
@@ -3655,22 +3647,19 @@ verus! {
 
                 let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat);
-                assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
-                            
                 let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);
-                assert(durable_item_table_subregion_view.can_crash_as(durable_item_table_subregion_view.committed()));
-                assert(durable_item_table_subregion_view.no_outstanding_writes());
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
-               
-                assert(self.item_table.inv(durable_item_table_subregion_view, self.overall_metadata));
-
                 let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                     self.overall_metadata.list_area_size as nat);
+                
+                // Finally, establish some facts about the possible crash states of the item table and list area
+                // to reestablish their invariants
+                // The assertions and lemmas here seem redundant, but the assertions appear to have an impact on a later proof,
+                // and the lemmas are required to reestablish the invariants.
+                assert(durable_item_table_subregion_view.can_crash_as(durable_item_table_subregion_view.committed()));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
                 assert(durable_list_area_subregion_view.can_crash_as(durable_list_area_subregion_view.committed()));
-                assert(durable_list_area_subregion_view.no_outstanding_writes());
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_list_area_subregion_view);
-                assert(self.durable_list.inv(durable_list_area_subregion_view, self.metadata_table@, self.overall_metadata));
             }
             
             let ghost pre_clear_wrpm = self.wrpm@;
