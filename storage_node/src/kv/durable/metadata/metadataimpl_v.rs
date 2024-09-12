@@ -1701,7 +1701,16 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
-                old(self).inv(pm, overall_metadata),
+                old(self).opaque_inv(overall_metadata),
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
+                pm.len() >= overall_metadata.main_table_size,
+                old(self).spec_metadata_node_size() == overall_metadata.metadata_node_size,
+                overall_metadata.metadata_node_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                forall |s| #[trigger] pm.can_crash_as(s) ==> 
+                    parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(old(self)@),
+                old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
+                    old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
                 pm.no_outstanding_writes(),
                 // entries in the pending allocations list have become
                 // valid in durable storage

@@ -215,6 +215,8 @@ verus! {
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
             // &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
             //         !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
+            &&& self.pending_allocations_view().disjoint(self.pending_deallocations_view())
+            &&& self.allocator_view().disjoint(self.pending_deallocations_view())
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) ==
                        Some(self@)
@@ -270,6 +272,7 @@ verus! {
             }
         }
 
+        // TODO @hayley look at the triggers here
         pub proof fn lemma_valid_indices_disjoint_with_free_and_pending_alloc(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>)
             requires 
                 self.pending_alloc_inv(current_valid_indices, tentative_valid_indices),
@@ -289,8 +292,9 @@ verus! {
             // use auto-chosen triggers. 
             // Also annoyingly, we have to have the entire alloc check specified here, presumably 
             // to hit the proper triggers. 
-            assert(forall |idx: u64| #![auto] 0 <= idx < self.num_keys ==> 
-                self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices) ==> {
+            assert(forall |idx: u64| #![trigger current_valid_indices.contains(idx)] #![trigger tentative_valid_indices.contains(idx)] 
+                0 <= idx < self.num_keys && 
+                    self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices) ==> {
                     &&& {
                             &&& current_valid_indices.contains(idx)
                             &&& !tentative_valid_indices.contains(idx)
@@ -1245,25 +1249,117 @@ verus! {
 
         pub exec fn finalize_pending_alloc_and_dealloc(
             &mut self,
+            Ghost(old_self): Ghost<Self>,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(valid_indices): Ghost<Set<u64>>,
+            Ghost(old_valid_indices): Ghost<Set<u64>>,
         )
             requires
                 old(self).inv(pm, overall_metadata),
                 pm.no_outstanding_writes(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
-                    #[trigger] old(self).spec_outstanding_item_table()[idx as int] is None
+                    #[trigger] old(self).spec_outstanding_item_table()[idx as int] is None,
+                old_self.pending_alloc_inv(old_valid_indices, old(self).spec_valid_indices()),
+                old_self.allocator_view() == old(self).allocator_view(),
+                old_self.pending_allocations_view() == old(self).pending_allocations_view(),
+                old_self.pending_deallocations_view() == old(self).pending_deallocations_view(),
+                old_self@.durable_item_table.len() == old(self)@.durable_item_table.len(),
+                old_self.spec_num_keys() == old(self).spec_num_keys(),
+                old_self.pending_allocations_view().disjoint(old_self.pending_deallocations_view()),
             ensures 
                 self.inv(pm, overall_metadata),
-                self.pending_alloc_inv(valid_indices, valid_indices),
+                self.pending_alloc_inv(self.spec_valid_indices(), self.spec_valid_indices()),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
                     #[trigger] self.spec_outstanding_item_table()[idx as int] is None,
                 self.spec_valid_indices() == old(self).spec_valid_indices(),
         {
-            assume(false); // TODO @hayley
+            // add the pending deallocations to the free list 
+            // this also clears self.pending_deallocations
+            self.free_list.append(&mut self.pending_deallocations);
+
+            // clear the pending allocations list
+            self.pending_allocations = Vec::new();
+
+            proof {
+                assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
+                assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) ==
+                    old(self).pending_deallocations@);
+                // assert(forall |idx| old(self).free_list@.len() <= idx < self.free_list@.len() ==>
+                //     old(self).pending_allocation)
+
+                assert forall |idx: u64| 0 <= idx < self@.durable_item_table.len() implies
+                    self.pending_alloc_check(idx, self.valid_indices@, self.valid_indices@)
+                by {
+                    assert(old_self.pending_alloc_check(idx, old_valid_indices, old(self).spec_valid_indices()));
+                    if old_self.valid_indices@.contains(idx) {
+                        if !old(self).spec_valid_indices().contains(idx) {
+                            assert(old(self).pending_deallocations_view().contains(idx));
+                            assert(self.allocator_view().contains(idx));
+                        } else {
+                            assert(self.spec_valid_indices().contains(idx));
+                        }
+                    } else {
+                        if !old(self).spec_valid_indices().contains(idx) { 
+                            assert(old(self).allocator_view().contains(idx));
+                        } else {
+                            assert(!old_self.valid_indices@.contains(idx));
+                            assert(old(self).spec_valid_indices().contains(idx));
+                            assert(self.valid_indices@.contains(idx));
+
+                            assert(old(self).pending_allocations_view().contains(idx));
+                            assert(old_self.pending_allocations_view().contains(idx));
+                            
+                            assert(!old_self.pending_deallocations_view().contains(idx));
+                            assert(!old(self).pending_deallocations_view().contains(idx));
+
+                            assert(!old(self).allocator_view().contains(idx));
+                            assert(!self.allocator_view().contains(idx));
+                        }
+                    }
+                }
+
+                assert(old(self).allocator_view().disjoint(old(self).pending_deallocations_view()));
+
+                assert forall |i, j| 0 <= i < j < self.free_list@.len() implies 
+                    self.free_list@[i] != self.free_list@[j] by 
+                {
+                    if j < old(self).free_list@.len() {
+                        // both were in the old free list
+                        assert(old(self).free_list@.contains(self.free_list@[i]));
+                        assert(old(self).free_list@.contains(self.free_list@[j]));
+                        assert(self.free_list@[i] != self.free_list@[j]);
+                    } else if old(self).free_list@.len() <= i {
+                        // both were in the old pending alloc set
+                        assert(old(self).pending_deallocations@.contains(self.free_list@[i]));
+                        assert(old(self).pending_deallocations@.contains(self.free_list@[j]));
+                        assert(self.free_list@[i] != self.free_list@[j]);
+                    } else {
+                        // i was free, j was pending
+                        assert(old(self).free_list@.contains(self.free_list@[i]));
+                        assert(old(self).pending_deallocations@.contains(self.free_list@[j]));
+                        assert(old(self).allocator_view().disjoint(old(self).pending_deallocations_view()));
+
+                        crate::kv::durable::util_v::lemma_concat_of_disjoint_seqs_has_no_duplicates(
+                            old(self).free_list@,
+                            old(self).pending_deallocations@
+                        );
+
+
+                        // assert(self.allocator_view() == old(self).allocator_view() + old(self).pending_deallocations_view());
+                        // vstd::set_lib::lemma_set_disjoint_lens(old(self).allocator_view(), old(self).pending_deallocations_view());
+                        // assert(forall |l| 0 <= l < old(self).pending_deallocations@.len() ==>
+                        //     !old(self).free_list@.contains(old(self).pending_deallocations@[l]));
+                        // assert(self.free_list@[i] != self.free_list@[j]);
+                    }
+                }
+
+                assert(self.free_list@.no_duplicates());
+
+
+                assert(self.inv(pm, overall_metadata)); // TODO @hayley
+            }
         }
 
         /* temporarily commented out for subregion development 

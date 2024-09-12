@@ -2536,7 +2536,7 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            assume(false); // TODO @jay or 2hayley
+            assume(false); // @hayley
             self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
@@ -3240,10 +3240,18 @@ verus! {
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
                     assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
                     assert(self.item_table.spec_valid_indices() == old(self).item_table.spec_valid_indices());
-                    // assert(old(self).item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), tentative_main_table_view.valid_item_indices()));
                 }
 
                 assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
+
+                // To prove that this index is not valid or pending in the current item table,
+                // we'll compare the current valid indices against the *old* tentative state's valid 
+                // item indices. The current tentative state's valid item indices have changed, but
+                // the contents of the free/valid/alloc sets have not, so we can use the fact that 
+                // the pending alloc invariant holds for the old tentative state to prove what 
+                // we need to about the current item table's indexes.
+                self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
+                    self.item_table.spec_valid_indices(), old_tentative_main_table_view.valid_item_indices());
             }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
                 Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()),
@@ -3554,6 +3562,8 @@ verus! {
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);        
             }
 
+            assert(old(self).metadata_table.free_indices() == self.metadata_table.free_indices());
+
             // Now we update each component's ghost state to match the current bytes.
             // It would be cleaner and match other methods if these took subregions rather than the entire WRPM,
             // but this makes everything more difficult to prove (why?). Since these functions don't modify WRPM, 
@@ -3565,12 +3575,17 @@ verus! {
             self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.metadata_table@));
 
-            proof {
-                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                    self.overall_metadata.main_table_size as nat);
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
-                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
-            }
+            // proof {
+            //     let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+            //         self.overall_metadata.main_table_size as nat);
+            //     lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
+            //     assert(old(self).metadata_table.allocator_view() == self.metadata_table.allocator_view());
+            //     // assert(old(self).metadata_table.free_indices() == self.metadata_table.free_indices());
+            //     assert(old(self).metadata_table.pending_allocations_view() == self.metadata_table.pending_allocations_view());
+            //     assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+            // }
+
+            // assume(false);
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
@@ -3616,7 +3631,8 @@ verus! {
                 let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat);
                 assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
-                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+                
+                // assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
             
                 let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);
@@ -3633,6 +3649,8 @@ verus! {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_list_area_subregion_view);
                 assert(self.durable_list.inv(durable_list_area_subregion_view, self.metadata_table@, self.overall_metadata));
             }
+
+            // assume(false);
             
             let ghost pre_clear_wrpm = self.wrpm@;
             self.log.clear_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, Ghost(clear_log_crash_pred), Tracked(perm))?;
@@ -3739,7 +3757,7 @@ verus! {
                 }
                 assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
 
-                assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
+                // assert(self.metadata_table.inv(durable_main_table_subregion_view, self.overall_metadata));
 
                 let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);
@@ -3779,13 +3797,104 @@ verus! {
 
                 assert(self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                     self.overall_metadata.list_area_size as nat), self.metadata_table@, self.overall_metadata));
+            
+                assert(parse_metadata_table::<K>(pre_clear_durable_main_table_subregion_view.committed(), 
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@));
+                assert(durable_main_table_subregion_view.can_crash_as(pre_clear_durable_main_table_subregion_view.committed()));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
+                assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> 
+                    parse_metadata_table::<K>(s, self.overall_metadata.num_keys, 
+                        self.overall_metadata.metadata_node_size) == Some(self.metadata_table@));
+                
+
+
+                // according to pending alloc inv for metadata,
+                // currently valid and tentatively invalid ==> pending dealloc
+                // currently invalid and tentatively valid ==> pending alloc
+                // currently invalid and tentatively invalid ==> in the free list
+
+                // we've updated the metadata table view to match the 
+                // tentative state. So,
+                // if an index is invalid, it was either pending deallocation,
+                // or it was already invalid
+                // if an index is valid, it was either pending allocation, or 
+                // it was valid before.
+                // so you have to prove all of this now.
+
+                assert forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() implies {
+                    let entry = #[trigger] self.metadata_table@.durable_metadata_table[idx as int];
+                    match entry {
+                        DurableEntry::Invalid => {
+                            ||| self.metadata_table.allocator_view().contains(idx)
+                            ||| self.metadata_table.pending_deallocations_view().contains(idx)
+                        }
+                        DurableEntry::Valid(entry) => {
+                            // if the entry is valid, either it was pending allocation
+                            // or it's just valid and not in any of the three lists
+                            ||| self.metadata_table.pending_allocations_view().contains(idx)
+                            ||| ({
+                                &&& !self.metadata_table.allocator_view().contains(idx)
+                                &&& !self.metadata_table.pending_deallocations_view().contains(idx)
+                                &&& !self.metadata_table.pending_allocations_view().contains(idx)
+                            })
+                        }
+                        _ => false
+                    }
+                } by {
+                    let original_tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);
+                    let original_durable_main_table_region = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
+                        self.overall_metadata.main_table_size as nat);
+                    let original_durable_main_table = parse_metadata_table::<K>(original_durable_main_table_region,
+                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                    let original_tentative_main_table = parse_metadata_table::<K>(original_tentative_main_table_region,
+                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                    assert(old(self).metadata_table.pending_alloc_check(idx, original_durable_main_table,
+                        original_tentative_main_table));
+                }
+
+                assert(old(self).item_table.pending_allocations_view().disjoint(old(self).item_table.pending_deallocations_view()));
+            
+                assert forall |idx| 0 <= idx < self.item_table.spec_num_keys() implies
+                    old(self).item_table.pending_alloc_check(idx, old(self).metadata_table@.valid_item_indices(),
+                        self.metadata_table@.valid_item_indices())
+                by {
+                    let durable_state_bytes = old(self).wrpm@.committed();
+
+                    let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    let durable_main_table_region_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    
+                    let tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                    
+                    let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
+                        self.overall_metadata.metadata_node_size).unwrap();
+                    let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
+                        self.overall_metadata.metadata_node_size).unwrap();
+
+                    assert(durable_main_table_region_view.committed() == durable_main_table_region);
+                    assert(durable_main_table_region_view.can_crash_as(durable_main_table_region));
+                    assert(old(self).metadata_table@ == durable_main_table_view);
+                    assert(old(self).metadata_table@.valid_item_indices() == durable_main_table_view.valid_item_indices());
+                    
+                    assert(self.metadata_table@ == tentative_main_table_view);
+                    assert(self.metadata_table@.valid_item_indices() == tentative_main_table_view.valid_item_indices());
+                }
+
+                assert(old(self).item_table.pending_alloc_inv(old(self).metadata_table@.valid_item_indices(),
+                    self.metadata_table@.valid_item_indices()));
             }
 
             // 5. Finalize pending allocations and deallocations
+            
             self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                 self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
-            self.item_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                self.overall_metadata.item_table_size as nat)), Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()));
+            self.item_table.finalize_pending_alloc_and_dealloc(
+                Ghost(old(self).item_table), 
+                Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat)), 
+                Ghost(self.overall_metadata), 
+                Ghost(old(self).metadata_table@.valid_item_indices())
+            );
             
             proof {
                 let durable_state_bytes = self.wrpm@.committed();
