@@ -2460,6 +2460,7 @@ verus! {
                 old(self).inv(),
                 old(self)@ == pre_self@,
                 old(self).metadata_table.allocator_view() == pre_self.metadata_table.allocator_view(),
+                old(self).metadata_table.pending_allocations_view() == pre_self.metadata_table.pending_allocations_view(),
                 old(self).metadata_table.allocator_view().len() == 0,
                 old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
                 old(self).metadata_table@.has_same_valid_items(pre_self.metadata_table@),
@@ -2484,6 +2485,26 @@ verus! {
                 forall|addr: int| old(self).version_metadata.overall_metadata_addr <= addr
                             < old(self).version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
                     old_self.wrpm@.state[addr] == pre_self.wrpm@.state[addr],
+
+                ({
+                    let main_table_subregion_view = get_subregion_view(old(self).wrpm@,
+                        old(self).overall_metadata.main_table_addr as nat,
+                        old(self).overall_metadata.main_table_size as nat);
+                    forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
+                        parse_metadata_table::<K>(s, old(self).overall_metadata.num_keys, 
+                            old(self).overall_metadata.metadata_node_size) is Some
+                }),
+                forall|idx: u64| #[trigger] old(self).item_table.spec_valid_indices().contains(idx) ==> 
+                    !old(self).item_table.allocator_view().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
+                forall |idx: u64|0 <= idx < old(self).item_table.spec_num_keys() && !old(self).item_table.spec_valid_indices().contains(idx) ==> {
+                    ||| old(self).item_table.pending_allocations_view().contains(idx)
+                    ||| old(self).item_table.allocator_view().contains(idx)
+                },
+                forall |idx: u64| old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
+                    &&& !old(self).metadata_table.free_indices().contains(idx)
+                    &&& old(self).metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    &&& idx < old(self).overall_metadata.num_keys
+                },
             ensures
                 self.inv(),
                 self@ == old_self@,
@@ -2529,6 +2550,15 @@ verus! {
                     self.overall_metadata
                 );
                 self.lemma_transaction_abort(mid_self);  
+
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    old(self).wrpm@.flush().committed(), self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+
+                let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@.flush(),
+                    self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                assert(main_table_subregion_view == old_main_table_subregion_view);
+                assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2536,7 +2566,6 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            assume(false); // @hayley
             self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
@@ -2732,16 +2761,19 @@ verus! {
             let ghost tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
             let ghost tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
                     self.overall_metadata.metadata_node_size).unwrap();
+            let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
 
+            // Establish some facts about the pending allocation invariants. When we tentatively write an item,
+            // we'll break the item table's pending alloc invariant, but the metadata table invariant will 
+            // be maintained.
+            assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+            assert(main_table_subregion_view.committed() == extract_bytes(self.wrpm@.committed(),
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
             assert(self.item_table.pending_alloc_inv(self.item_table.spec_valid_indices(), 
-                tentative_main_table_view.valid_item_indices())) 
-            by {
-                let durable_state_bytes = self.wrpm@.committed();
-                let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);                
-                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                assert(durable_main_table_subregion_view.committed() =~= durable_main_table_region);
-                assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
-            }
+                tentative_main_table_view.valid_item_indices()));
+            assert(self.metadata_table.pending_alloc_inv(main_table_subregion_view.committed(), 
+                tentative_main_table_region, self.overall_metadata));
 
             let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
@@ -2773,6 +2805,12 @@ verus! {
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_table_subregion, item_index, *item, perm
                 );
+
+                // We also have to reestablish that this part of the metadata table pending allocation invariant is 
+                // still true, as it is a precondition if we have to abort after a failed tentative create.
+                assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
+                    &&& self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                } by { assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@, tentative_main_table_view)); } 
             }
             
             assert(self.inv());

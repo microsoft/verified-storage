@@ -616,6 +616,12 @@ verus! {
                         &&& self.spec_outstanding_item_table()[index as int] == Some(*item)
                         &&& forall |other_index: u64| self.allocator_view().contains(other_index) <==>
                             old(self).allocator_view().contains(other_index) && other_index != index
+                        &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
+                            !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
+                        &&& forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
+                            ||| self.pending_allocations_view().contains(idx)
+                            ||| self.allocator_view().contains(idx)
+                        }
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -634,6 +640,11 @@ verus! {
                                             self.spec_valid_indices()) == Some(self@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
+
+            proof {
+                self.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
+                    self.valid_indices@, tentative_valid_indices);
+            }
             
             let entry_size = self.entry_size;
             assert(self.inv(subregion.view(wrpm_region), overall_metadata));
@@ -648,7 +659,8 @@ verus! {
                 }
             };
             self.pending_allocations.push(free_index);
-            assert(old(self).pending_alloc_check(free_index, old(self).spec_valid_indices(), tentative_valid_indices));
+            assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
+            assert(self.pending_allocations@[self.pending_allocations@.len() - 1] == free_index);
             
             assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
                    subregion.is_writable_relative_addr(addr) by {
