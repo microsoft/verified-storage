@@ -21,12 +21,14 @@ verus! {
 
     impl AbstractPhysicalOpLogEntry
     {
-        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
+        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
+        {
             &&& self.len > 0
-            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
+            &&& 0 <= self.absolute_addr
+            &&& self.absolute_addr + self.len <= overall_metadata.region_size
             &&& ({
-                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
-                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size < self.absolute_addr
+                ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
             &&& VersionMetadata::spec_size_of() <= self.absolute_addr
             &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <= self.absolute_addr
@@ -523,12 +525,12 @@ verus! {
                 ||| offset + u64::spec_size_of() * 2 > u64::MAX
                 ||| offset + u64::spec_size_of() * 2 + len > u64::MAX
                 ||| absolute_addr + len > u64::MAX
-                ||| absolute_addr + len >= region_size
+                ||| absolute_addr + len > region_size
                 ||| offset + u64::spec_size_of() * 2 > log_contents.len()
                 ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
                 ||| !({
-                    ||| absolute_addr < absolute_addr + len < log_start_addr // region end before log area
-                    ||| log_start_addr + log_size < absolute_addr < absolute_addr + len // region ends after log area
+                    ||| absolute_addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= absolute_addr // region ends after log area
                 })
                 ||| absolute_addr < VersionMetadata::spec_size_of()
                 ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of()
@@ -902,8 +904,8 @@ verus! {
                 ||| offset + traits_t::size_of::<u64>() * 2 > log_bytes.len()
                 ||| offset + traits_t::size_of::<u64>() * 2 + len as usize > log_bytes.len()
                 ||| !({
-                    ||| addr + len < log_start_addr // region end before log area
-                    ||| log_start_addr + log_size < addr // region ends after log area
+                    ||| addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= addr // region ends after log area
                 })
                 ||| len == 0
                 ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
@@ -1163,8 +1165,12 @@ verus! {
                 &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
             }),
             // log entry is valid
-            0 <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < pm_region.len() <= u64::MAX,
-            log_entry.absolute_addr + log_entry.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size < log_entry.absolute_addr,
+            0 <= log_entry.absolute_addr,
+            log_entry.absolute_addr + log_entry.len <= pm_region.len() <= u64::MAX,
+            ({
+                ||| log_entry.absolute_addr + log_entry.len <= overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= log_entry.absolute_addr
+            }),
             log_entry.bytes@.len() <= u64::MAX,
             log_entry.len != 0,
             log_entry.len == log_entry.bytes@.len(),
