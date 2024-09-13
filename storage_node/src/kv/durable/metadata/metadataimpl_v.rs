@@ -2017,7 +2017,6 @@ verus! {
                     }
                 }
 
-                // NOTE: in progress
                 assert(validate_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.metadata_node_size as nat));
                 let entries = parse_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
@@ -2205,8 +2204,62 @@ verus! {
             digest.write(&*key);
             let crc = digest.sum64();
 
-            assume(false);
-            Err(KvError::NotImplemented)
+            // Proves that index * entry_slot_size will not overflow
+            proof {
+                lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat);
+            }
+
+            // Construct the physical log entry out of the CRC and new metadata entry.
+            let index_offset = index * overall_metadata.metadata_node_size as u64;
+            assert(index_offset == index_to_offset(index as nat, overall_metadata.metadata_node_size as nat));
+
+            let mut bytes_vec = slice_to_vec(crc.as_byte_slice());
+            let mut entry_bytes_vec = slice_to_vec(new_metadata_entry.as_byte_slice());
+            bytes_vec.append(&mut entry_bytes_vec);
+
+            let log_entry = PhysicalOpLogEntry {
+                absolute_addr: overall_metadata.main_table_addr + index_offset,
+                len: (traits_t::size_of::<u64>() + traits_t::size_of::<ListEntryMetadata>()) as u64,
+                bytes: bytes_vec,
+            };
+
+            proof {
+                broadcast use pmcopy_axioms;
+
+                let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                    if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                        log_entry.bytes[pos - log_entry.absolute_addr]
+                    } else {
+                        pre_byte
+                    }
+                );
+                let subregion_view = subregion.view(pm_region);
+
+                let old_main_table_region = extract_bytes(current_tentative_state, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let new_main_table_region = extract_bytes(new_mem, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
+
+                let committed_main_table_view = parse_metadata_table::<K>(subregion_view.committed(),
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                let old_main_table_view = parse_metadata_table::<K>(old_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                let old_item_index = old_main_table_view.durable_metadata_table[index as int]->Valid_0.item_index();
+
+
+                assert(self.pending_alloc_check(index, committed_main_table_view, old_main_table_view));
+            
+                // TODO @hayley
+                assume(new_main_table_view is Some);
+                assume(new_main_table_view == old_main_table_view.update_item_index(index as int, item_index));
+                assume(new_main_table_view.unwrap().valid_item_indices() == 
+                    old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
+            }
+
+            Ok(log_entry)
         }
 
         pub exec fn abort_transaction(

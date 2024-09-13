@@ -938,7 +938,7 @@ verus! {
             perm: &Perm
         )
             requires
-                self.valid(),
+                self.inv(),
                 !self.transaction_committed(),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
@@ -2965,14 +2965,28 @@ verus! {
                 Ghost(item_table_subregion_condition),
             );
 
-            let ghost tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+            let metadata_table_subregion = PersistentMemorySubregion::new(
+                self.wrpm.get_pm_region_ref(),
+                self.overall_metadata.main_table_addr,
+                Ghost(self.overall_metadata.main_table_size as nat)
+            );
+
+            proof {
+                // Establish that we can replay the log and that this does not change its size.
+                assert(Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list) is Some);
+                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), 
+                    self.log@.commit_op_log().physical_op_list);
+            }
+
+            let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
-            let ghost tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let ghost tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
             let ghost tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
                     self.overall_metadata.metadata_node_size).unwrap();
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-
+            
             // Establish some facts about the pending allocation invariants. When we tentatively write an item,
             // we'll break the item table's pending alloc invariant, but the metadata table invariant will 
             // be maintained.
@@ -3009,24 +3023,101 @@ verus! {
                     return Err(e);
                 }
             };
-
+    
             proof {
+                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_table_subregion, item_index, *item, perm
                 );
+            }
 
-                // We also have to reestablish that this part of the metadata table pending allocation invariant is 
-                // still true, as it is a precondition if we have to abort after a failed tentative create.
-                assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
-                    &&& self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                } by { assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@, tentative_main_table_view)); } 
+            let pm = self.wrpm.get_pm_region_ref();
+            assert(metadata_table_subregion.view(pm) == main_table_subregion_view);
+
+            proof {
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+                assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@));
+            
+                // Prove that although the bytes have changed, the tentative view has not
+                assert(forall |addr: int| {
+                    ||| 0 <= addr < self.overall_metadata.item_table_addr 
+                    ||| self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size <= addr < self.wrpm@.len()
+                } ==> self.wrpm@.state[addr] == old(self).wrpm@.state[addr]);
+
+                assert(old(self).tentative_view() is Some);
+                // TODO @hayley talk to jay about this one
+                assume(old(self).tentative_view() == self.tentative_view());
+                assert(self.tentative_view() is Some);
             }
             
-            assert(self.inv());
-
             // 2. Create a log entry that will overwrite the metadata table entry
             // with a new one containing the new item table index
-            assume(false);
+            let log_entry = match self.metadata_table.create_update_item_index_log_entry(
+                &metadata_table_subregion,
+                pm,
+                offset,
+                item_index,
+                &self.overall_metadata,
+                Ghost(self.version_metadata),
+                Ghost(tentative_view_bytes), 
+            ) {
+                Ok(log_entry) => log_entry,
+                Err(e) => {
+                    // TODO @hayley
+                    // also need to handle abort cases where the failing op didn't 
+                    // change anything but there are outstanding modifications
+                    assume(false);
+                    return Err(e);
+                }
+            };
+
+            // Create a crash predicate for the append operation and prove that it ensures the append
+            // will be crash consistent.
+            let ghost crash_pred = |s: Seq<u8>| {
+                Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+            };
+            proof { self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm); }
+
+            let ghost committed_log = self.log@.commit_op_log();
+            let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
+            let ghost current_flushed_mem = self.wrpm@.flush().committed();
+
+            let ghost recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
+
+            // 3. Append the log entry to the operation log.
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            match result {
+                Ok(()) => {}
+                Err(e) => {
+                    // TODO @hayley
+                    // this is also different from the abort delete case, because 
+                    // the item table was modified too
+                    assume(false);
+                    return Err(e);
+                }
+            }
+
+            self.pending_updates.push(log_entry);
+            assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+
+            proof {
+                // TODO @hayley
+                assume(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
+                
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                );
+
+                assume(recovery_state_with_new_log.unwrap() == old(self).tentative_view().unwrap().update_item(offset as int, *item).unwrap());
+                assume(self.tentative_view() == recovery_state_with_new_log);
+                assume(self.tentative_view().unwrap().len() == old(self).tentative_view().unwrap().len());
+                
+                assume(self.inv());
+            }
+
             Ok(())
         }
 
@@ -3127,24 +3218,26 @@ verus! {
 
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
-            proof { Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list); }
+            proof { 
+                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
 
-            // To tentatively delete a record, we need to obtain a log entry representing 
-            // its deletion and tentatively append it to the operation log.
-            assert(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
-                                      metadata_table_subregion.len()).committed() =~=
-                   extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
-                                 self.overall_metadata.main_table_size as nat));
-            assert(parse_metadata_table::<K>(
-                       get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
-                                          metadata_table_subregion.len()).committed(),
-                       self.overall_metadata.num_keys,
-                       self.overall_metadata.metadata_node_size
-                   ) == Some(self.metadata_table@)) by {
-                lemma_persistent_memory_view_can_crash_as_committed(
-                    get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
-                                       metadata_table_subregion.len())
-                );
+                // To tentatively delete a record, we need to obtain a log entry representing 
+                // its deletion and tentatively append it to the operation log.
+                assert(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                        metadata_table_subregion.len()).committed() =~=
+                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
+                                    self.overall_metadata.main_table_size as nat));
+                assert(parse_metadata_table::<K>(
+                        get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                            metadata_table_subregion.len()).committed(),
+                        self.overall_metadata.num_keys,
+                        self.overall_metadata.metadata_node_size
+                ) == Some(self.metadata_table@)) by {
+                    lemma_persistent_memory_view_can_crash_as_committed(
+                        get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
+                                        metadata_table_subregion.len())
+                    );
+                }
             }
             let log_entry = self.metadata_table.create_delete_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
