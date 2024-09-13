@@ -2202,6 +2202,18 @@ verus! {
                 forall|addr: int| self.version_metadata.overall_metadata_addr <= addr
                             < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
                     self.wrpm@.state[addr] == old_self.wrpm@.state[addr],
+                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat) ==
+                    get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat),
+                get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                   self.overall_metadata.list_area_size as nat) ==
+                    get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                       self.overall_metadata.list_area_size as nat),
+                get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                   self.overall_metadata.log_area_size as nat) ==
+                    get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                       self.overall_metadata.log_area_size as nat),
         {
             item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
             item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
@@ -2787,13 +2799,15 @@ verus! {
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_table_subregion, item_index, *item, perm
                 );
-                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
 
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
                 assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
                     &&& self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
-                } by { assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@, tentative_main_table_view)); } 
+                } by {
+                    assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@,
+                                                                   tentative_main_table_view));
+                }
             }
             
             assert(self.inv());
@@ -2918,6 +2932,7 @@ verus! {
             assert(get_subregion_view(pm, start, len).committed() =~= extract_bytes(pm.committed(), start, len));
         }
 
+        #[verifier::rlimit(50)]
         pub fn tentative_delete(
             &mut self,
             index: u64,
