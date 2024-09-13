@@ -3146,7 +3146,7 @@ verus! {
                                        metadata_table_subregion.len())
                 );
             }
-            let log_entry = self.metadata_table.get_delete_log_entry(
+            let log_entry = self.metadata_table.create_delete_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
                                          metadata_table_subregion.len())),
                 Ghost(self.wrpm@), index,

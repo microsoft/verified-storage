@@ -118,31 +118,29 @@ verus! {
                 Some(Self {
                     durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
                 })
-                // match self.durable_metadata_table[index] {
-                //     DurableEntry::Valid(_) => {
-                //         Some(Self {
-                //             durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
-                //         })
-                //     }
-                //     _ => None
-                // }
-                // if self.durable_metadata_table@[i] matches DurableEntry::Invalid {
-                //     None
-                // } else {
-                //     Some(Self {
-                //         durable_metadata_table: self.durable_metadata_table.set(i, DurableEntry::Invalid)
-                //     })
-                // }
             }
         }
 
-        // pub closed spec fn spec_index(self, index: int) -> Option<MetadataTableViewEntry<K>> {
-        //     if 0 <= index < self.metadata_table.len() {
-        //         self.metadata_table[index]
-        //     } else {
-        //         None
-        //     }
-        // }
+        pub open spec fn update_item_index(self, index: int, item_index: u64) -> Option<Self>
+        {
+            if index < 0 || index >= self.durable_metadata_table.len() {
+                None 
+            } else {
+                let current_entry = self.durable_metadata_table[index as int]->Valid_0;
+                let updated_entry = ListEntryMetadata {
+                    item_index,
+                    ..current_entry.entry
+                };
+                let new_durable_entry = DurableEntry::Valid(MetadataTableViewEntry {
+                    crc: current_entry.crc,
+                    entry: updated_entry,
+                    key: current_entry.key,
+                });
+                Some(Self {
+                    durable_metadata_table: self.durable_metadata_table.update(index, new_durable_entry)
+                })
+            }
+        }
 
         pub open spec fn valid_item_indices(self) -> Set<u64> {
             Set::new(|i: u64| exists |j: int| {
@@ -319,6 +317,10 @@ verus! {
                     &&& 0 <= idx < self@.durable_metadata_table.len()
                     &&& self.spec_outstanding_entry_writes()[idx as int] is Some
                 } ==> #[trigger] self.pending_allocations@.contains(idx)
+            &&& forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() && !(#[trigger] self.pending_allocations@.contains(idx)) ==> {
+                &&& self.spec_outstanding_cdb_writes()[idx as int] is None
+                &&& self.spec_outstanding_entry_writes()[idx as int] is None
+            }
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -1877,7 +1879,7 @@ verus! {
             }
         }
 
-        pub exec fn get_delete_log_entry(
+        pub exec fn create_delete_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
             Ghost(region_view): Ghost<PersistentMemoryRegionView>,
@@ -2038,7 +2040,7 @@ verus! {
                         &&& #[trigger] entries[i] is Valid
                         &&& #[trigger] entries[j] is Valid
                     } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
- by {
+                    by {
                         assert(i == index ==> old_entries[j]->Valid_0.item_index() != item_index);
                         assert(j == index ==> old_entries[i]->Valid_0.item_index() != item_index);
                     }
@@ -2082,6 +2084,129 @@ verus! {
                 }
             }
             log_entry
+        }
+
+        pub exec fn create_update_item_index_log_entry<PM>(
+            &self,
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            index: u64,
+            item_index: u64,
+            overall_metadata: &OverallMetadata,
+            Ghost(version_metadata): Ghost<VersionMetadata>,
+            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
+        ) -> (result: Result<PhysicalOpLogEntry, KvError<K>>)
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), *overall_metadata),
+                subregion.len() == overall_metadata.main_table_size,
+                subregion.start() == overall_metadata.main_table_addr,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
+                0 <= index < self@.len(),
+                pm_region@.len() == overall_metadata.region_size,
+                // the index must refer to a currently-valid entry in the current durable table
+                self@.durable_metadata_table[index as int] is Valid,
+                overall_metadata.metadata_node_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
+                    <= overall_metadata.region_size <= u64::MAX,
+                ({
+                    let main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_metadata_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.inv(*overall_metadata)
+
+                    // the index should not be deallocated in the tentative view
+                    &&& main_table_view.durable_metadata_table[index as int] is Valid
+                }),
+                current_tentative_state.len() == overall_metadata.region_size,
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                    <= overall_metadata.main_table_addr,
+            ensures 
+                match result {
+                    Ok(log_entry) => {
+                        let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                            if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                                log_entry.bytes[pos - log_entry.absolute_addr]
+                            } else {
+                                pre_byte
+                            }
+                        );
+                        let current_main_table_region = extract_bytes(current_tentative_state, 
+                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                        let current_main_table_view = parse_metadata_table::<K>(current_main_table_region,
+                            overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                        let new_main_table_region = extract_bytes(new_mem, 
+                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                        let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
+                            overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                        let old_item_index = current_main_table_view.durable_metadata_table[index as int]->Valid_0.item_index();
+                        
+                        &&& overall_metadata.main_table_addr <= log_entry.absolute_addr
+                        &&& log_entry.absolute_addr + log_entry.len <=
+                                overall_metadata.main_table_addr + overall_metadata.main_table_size
+                        &&& log_entry@.inv(version_metadata, *overall_metadata)
+
+                        // after applying this log entry to the current tentative state,
+                        // this entry's metadata index has been updated
+                        &&& new_main_table_view is Some
+                        &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
+                        &&& new_main_table_view.unwrap().valid_item_indices() == 
+                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                    }
+                    Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                    _ => false,
+                }
+        {
+            proof {
+                // We first have to establish that this index is not pending allocation or deallocation
+                // by triggering the pending alloc check on it.
+                let subregion_view = subregion.view(pm_region);
+                let current_main_table_view = parse_metadata_table::<K>(subregion_view.committed(),
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
+                assert(subregion_view.can_crash_as(subregion_view.committed()));
+                assert(current_main_table_view == Some(self@));
+                let tentative_main_table_region = extract_bytes(current_tentative_state, 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
+                assert(self.pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view));
+            }
+
+            // For this operation, we have to log the whole new metadata table entry
+            // we don't have to log the key, as it hasn't changed, but we do need
+            // to log a CRC that covers both the metadata and the key. The CRC and 
+            // metadata are contiguous, so we only need one log entry
+            // To make things slightly easier on the caller, we'll read the required
+            // metadata table info here; since this can fail, though, this operation
+            // can return an error and require the caller to abort the transaction.
+            let result = self.get_key_and_metadata_entry_at_index(subregion, pm_region, index, Ghost(*overall_metadata));
+            let (key, metadata) = match result {
+                Ok((key, metadata)) => (key, metadata),
+                Err(e) => return Err(e),
+            };
+
+            // Next, construct the new metadata entry and obtain the CRC
+            let new_metadata_entry = ListEntryMetadata {
+                item_index,
+                ..*metadata
+            };
+
+            let mut digest = CrcDigest::new();
+            digest.write(&new_metadata_entry);
+            digest.write(&*key);
+            let crc = digest.sum64();
+
+            assume(false);
+            Err(KvError::NotImplemented)
         }
 
         pub exec fn abort_transaction(
