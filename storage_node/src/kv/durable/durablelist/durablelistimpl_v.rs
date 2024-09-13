@@ -294,14 +294,14 @@ verus! {
         }
 
         pub proof fn lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
-            metadata_entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
         )
             requires
-                forall |i: int| 0 <= i < metadata_entries.len() ==> #[trigger] metadata_entries[i] matches DurableEntry::Invalid,
+                forall |i: int| 0 <= i < metadata_entries.len() ==> #[trigger] metadata_entries[i] is None,
             ensures 
                 Self::parse_each_list(metadata_entries, mem, lists_map, list_node_size, num_list_entries_per_node) is Some 
             decreases
@@ -335,7 +335,7 @@ verus! {
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
         pub open spec fn parse_each_list(
-            metadata_entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
@@ -352,7 +352,7 @@ verus! {
                 // Unlike in the item table, where we build the view and replay the log simultaneously we will apply log entries later; we need to build the lists 
                 // before replaying log entries so that log entries can be applied to the table and the list in the correct order
                 // TODO: Valid vs. Tentative entry types?
-                if let DurableEntry::Valid(current_entry) = current_entry {
+                if let Some(current_entry) = current_entry {
                     let recovered_list = Self::parse_list(current_entry, mem, list_node_size, num_list_entries_per_node);
                     match recovered_list {
                         Some(recovered_list) => {
