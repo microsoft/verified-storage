@@ -30,7 +30,6 @@ verus! {
                 ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
                 ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
-            &&& VersionMetadata::spec_size_of() <= self.absolute_addr
             &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <= self.absolute_addr
             &&& self.len == self.bytes.len()
         }
@@ -532,7 +531,6 @@ verus! {
                     ||| absolute_addr + len <= log_start_addr // region end before log area
                     ||| log_start_addr + log_size <= absolute_addr // region ends after log area
                 })
-                ||| absolute_addr < VersionMetadata::spec_size_of()
                 ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of()
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len

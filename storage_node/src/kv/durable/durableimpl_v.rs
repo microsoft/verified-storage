@@ -1706,6 +1706,7 @@ verus! {
                 }),
                 forall |s| Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) == Self::physical_recover(s, version_metadata, overall_metadata) 
                     ==> perm.check_permission(s),
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) is Some,
@@ -1789,6 +1790,7 @@ verus! {
                         extract_bytes(old(wrpm_region)@.committed(), 0, VersionMetadata::spec_size_of()),
                     extract_bytes(wrpm_region@.committed(), version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
                         extract_bytes(old(wrpm_region)@.committed(), version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()),    
+                    VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
             {
                 let op = &phys_log[index];
 
