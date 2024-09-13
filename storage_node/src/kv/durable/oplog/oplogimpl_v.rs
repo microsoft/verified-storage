@@ -177,7 +177,7 @@ verus! {
                     let op = #[trigger] self@.physical_op_list[i];
                     op.inv(version_metadata, overall_metadata)
             } 
-            &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region.len() <= u64::MAX
+            &&& overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region.len() <= u64::MAX
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
             &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region, overall_metadata.log_area_addr as nat)
