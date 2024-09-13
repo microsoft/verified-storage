@@ -14,7 +14,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
         - [ ] `get_list_len` *
-        - [ ] `tentative_update_item` * 
+        - [ ] `tentative_update_item` * hayley-leblanc
         - [x] `tentative_delete` * 
         - [ ] `tentative_append` *
         - [ ] `read_list_entry_at_index` *
@@ -42,8 +42,8 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [x] `setup`
         - [x] `start` *
         - [x] `tentative_create` *
-        - [ ] `overwrite_entry` *
-        - [ ] `commit_entry` *
+        - ~~[ ] `overwrite_entry` *~~
+        - ~~[ ] `commit_entry` *~~
         - [x] `get_key_and_metadata_entry_at_index`
         - [x] `invalidate_entry` *
     - Item table
