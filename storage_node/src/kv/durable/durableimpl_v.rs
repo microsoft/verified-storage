@@ -3041,16 +3041,45 @@ verus! {
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
                 assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@));
             
-                // Prove that although the bytes have changed, the tentative view has not
+                // Prove that although the bytes have changed, the tentative view has not.
                 assert(forall |addr: int| {
                     ||| 0 <= addr < self.overall_metadata.item_table_addr 
                     ||| self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size <= addr < self.wrpm@.len()
                 } ==> self.wrpm@.state[addr] == old(self).wrpm@.state[addr]);
 
-                assert(old(self).tentative_view() is Some);
-                // TODO @hayley talk to jay about this one
+                // TODO I think there's a lemma that says applying the same log to the same 
+                // bytes results in the same sequence?
+
+                // 1. metadata table and list area have not been modified
+                let old_main_table_subregion = get_subregion_view(old(self).wrpm@, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let current_main_table_subregion = get_subregion_view(self.wrpm@, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                assert(old_main_table_subregion == current_main_table_subregion);
+
+                let old_list_area_subregion = get_subregion_view(old(self).wrpm@, 
+                    self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                let current_list_area_subregion = get_subregion_view(self.wrpm@, 
+                    self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                assert(old_list_area_subregion == current_list_area_subregion);
+
+
+                // 2. item table view after commit is the same
+                let old_item_table_subregion = get_subregion_view(old(self).wrpm@, 
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let current_item_table_subregion = get_subregion_view(self.wrpm@, 
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+
+                // 3. after applying log, all components recover to the same state they did before
+
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.committed(), 
+                    self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
+                let new_tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.committed(), self.log@.commit_op_log().physical_op_list);
+                assert(new_tentative_view_bytes is Some);
+
+
+                // TODO @hayley 
                 assume(old(self).tentative_view() == self.tentative_view());
-                assert(self.tentative_view() is Some);
             }
             
             // 2. Create a log entry that will overwrite the metadata table entry

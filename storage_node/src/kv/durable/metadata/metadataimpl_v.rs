@@ -2104,7 +2104,9 @@ verus! {
                 subregion.start() == overall_metadata.main_table_addr,
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
+                item_index < overall_metadata.num_keys,
                 pm_region@.len() == overall_metadata.region_size,
+                !self@.valid_item_indices().contains(item_index),
                 // the index must refer to a currently-valid entry in the current durable table
                 self@.durable_metadata_table[index as int] is Valid,
                 overall_metadata.metadata_node_size ==
@@ -2119,6 +2121,7 @@ verus! {
                     &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
+                    &&& !main_table_view.valid_item_indices().contains(item_index)
 
                     // the index should not be deallocated in the tentative view
                     &&& main_table_view.durable_metadata_table[index as int] is Valid
@@ -2204,6 +2207,14 @@ verus! {
             digest.write(&*key);
             let crc = digest.sum64();
 
+            proof {
+                // prove that the CRC is in fact the CRC of the new entry and key by invoking some lemmas
+                // about flattening sequences of sequences
+                lemma_seqs_flatten_equal_suffix(digest.bytes_in_digest());
+                digest.bytes_in_digest().subrange(0, 1).lemma_flatten_one_element();
+                assert(crc == spec_crc_u64(new_metadata_entry.spec_to_bytes() + key.spec_to_bytes())); 
+            }
+
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat);
@@ -2218,7 +2229,7 @@ verus! {
             bytes_vec.append(&mut entry_bytes_vec);
 
             let log_entry = PhysicalOpLogEntry {
-                absolute_addr: overall_metadata.main_table_addr + index_offset,
+                absolute_addr: overall_metadata.main_table_addr + index_offset + traits_t::size_of::<u64>() as u64,
                 len: (traits_t::size_of::<u64>() + traits_t::size_of::<ListEntryMetadata>()) as u64,
                 bytes: bytes_vec,
             };
@@ -2251,11 +2262,86 @@ verus! {
 
 
                 assert(self.pending_alloc_check(index, committed_main_table_view, old_main_table_view));
-            
-                // TODO @hayley
-                assume(new_main_table_view is Some);
-                assume(new_main_table_view == old_main_table_view.update_item_index(index as int, item_index));
-                assume(new_main_table_view.unwrap().valid_item_indices() == 
+                
+                let new_entry_view = MetadataTableViewEntry {
+                    crc,
+                    entry: new_metadata_entry,
+                    key: *key,
+                };
+
+                assert forall |i: nat| i < overall_metadata.num_keys implies {
+                    let new_bytes = extract_bytes(new_main_table_region,
+                        #[trigger] index_to_offset(i, overall_metadata.metadata_node_size as nat),
+                        overall_metadata.metadata_node_size as nat
+                    );
+                    let old_bytes = extract_bytes(old_main_table_region,
+                        index_to_offset(i, overall_metadata.metadata_node_size as nat),
+                        overall_metadata.metadata_node_size as nat
+                    );
+                    &&& validate_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat)
+                    &&& i == index ==> parse_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
+                            DurableEntry::Valid(new_entry_view)
+                    &&& i != index ==> parse_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
+                            parse_metadata_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
+                } by {
+                    let new_bytes = extract_bytes(new_main_table_region,
+                        index_to_offset(i, overall_metadata.metadata_node_size as nat),
+                        overall_metadata.metadata_node_size as nat
+                    );
+                    let old_bytes = extract_bytes(old_main_table_region,
+                        index_to_offset(i, overall_metadata.metadata_node_size as nat),
+                        overall_metadata.metadata_node_size as nat
+                    );
+                    lemma_valid_entry_index(i, overall_metadata.num_keys as nat, overall_metadata.metadata_node_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.metadata_node_size as nat);
+
+                    if i == index {
+                        assert(extract_bytes(new_bytes, 0, u64::spec_size_of()) == extract_bytes(old_bytes, 0, u64::spec_size_of()));
+                        assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
+                        assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
+                        assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
+                    } 
+                }
+                assert(validate_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                    overall_metadata.metadata_node_size as nat));
+
+                let old_entries = parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                    overall_metadata.metadata_node_size as nat);
+                let new_entries = parse_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                    overall_metadata.metadata_node_size as nat);
+
+                assert forall |i: int, j: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& 0 <= j < new_entries.len()
+                    &&& i != j
+                    &&& #[trigger] new_entries[i] is Valid
+                    &&& #[trigger] new_entries[j] is Valid
+                } implies new_entries[i]->Valid_0.item_index() != new_entries[j]->Valid_0.item_index() by {
+                    if i != index && j != index {
+                        assert(new_entries[i]->Valid_0.item_index() == old_entries[i]->Valid_0.item_index());
+                        assert(new_entries[j]->Valid_0.item_index() == old_entries[j]->Valid_0.item_index());
+                    }
+                }
+
+                assert(no_duplicate_item_indexes(new_entries));
+
+                assert(new_main_table_view is Some);
+
+                let new_main_table_view = new_main_table_view.unwrap();
+                let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
+
+                assert forall |idx: int| 0 <= idx < new_main_table_view.durable_metadata_table.len() implies 
+                    new_main_table_view.durable_metadata_table[idx] == updated_table_view.durable_metadata_table[idx]
+                by {
+                    // if idx == index {
+                    //     assert(new_main_table_view.durable_metadata_table[idx])
+                    // }
+                }
+
+                assert(new_main_table_view == updated_table_view);
+
+                
+                assume(new_main_table_view.valid_item_indices() == 
                     old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
             }
 

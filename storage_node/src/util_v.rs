@@ -39,4 +39,38 @@ ensures
             extract_bytes(mem, start2, len2)
     })
 {}
+
+// This helper lemma helps us prove that flattening a 2D sequence
+// is equivalent to concatenating the last sequence to all prior
+// sequences after flattening them.
+pub proof fn lemma_seqs_flatten_equal_suffix(s: Seq<Seq<u8>>)
+    requires
+        s.len() >= 1
+    ensures 
+        ({
+            let last = s[s.len() - 1];
+            let prefix = s.subrange(0, s.len() - 1);
+            s.flatten() == prefix.flatten() + last
+        })
+    decreases s.len()
+{
+    if s.len() == 1 {
+        let last = s[0];
+        assert(s == seq![last]);
+        seq![last].lemma_flatten_one_element();
+        assert(seq![last].flatten() == last);
+    }
+    else {
+        let first = s[0];
+        let last = s[s.len() - 1];
+        let middle = s.subrange(0, s.len() - 1).drop_first();
+        let suffix = s.drop_first();
+
+        assert(middle == suffix.subrange(0, suffix.len() - 1));
+
+        lemma_seqs_flatten_equal_suffix(suffix);
+        assert(suffix.flatten() == middle.flatten() + last);
+        assert(first + suffix.flatten() == first + middle.flatten() + last);
+    }
+}
 }
