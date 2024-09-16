@@ -1931,7 +1931,7 @@ verus! {
             }
         }
 
-        closed spec fn condition_preserved_by_writable_mask_for_main_table(self) -> (spec_fn(Seq<u8>) -> bool)
+        closed spec fn condition_preserved_by_subregion_masks(self) -> (spec_fn(Seq<u8>) -> bool)
         {
             let version_metadata = self.version_metadata;
             let overall_metadata = self.overall_metadata;
@@ -1954,10 +1954,33 @@ verus! {
             }
         }
 
-        proof fn lemma_condition_preserved_by_writable_mask_for_main_table_suitable_for_creating_subregion(
-            self,
-            perm: &Perm
-        )
+        proof fn lemma_condition_preserved_by_subregion_masks_preserved_by_crashing(self)
+            requires
+                self.inv(),
+                !self.log@.op_list_committed,
+            ensures
+                forall|s| self.wrpm@.can_crash_as(s) ==> self.condition_preserved_by_subregion_masks()(s)
+        {
+            let overall_metadata = self.overall_metadata;
+            let num_keys = overall_metadata.num_keys;
+            let metadata_node_size = overall_metadata.metadata_node_size;
+            let main_table_addr = overall_metadata.main_table_addr;
+            let main_table_size = overall_metadata.main_table_size;
+            let item_table_addr = overall_metadata.item_table_addr;
+            let item_table_size = overall_metadata.item_table_size;
+
+            let condition = self.condition_preserved_by_subregion_masks();
+            assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
+                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata,
+                                                                    overall_metadata);
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, overall_metadata);
+                assert(Self::apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
+                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, main_table_addr as nat, main_table_size as nat);
+                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, item_table_addr as nat, item_table_size as nat);
+            }
+        }
+
+        proof fn lemma_writable_mask_for_main_table_suitable_for_creating_subregion(self, perm: &Perm)
             requires
                 self.inv(),
                 !self.log@.op_list_committed,
@@ -1968,7 +1991,7 @@ verus! {
                     self.wrpm@, perm, self.overall_metadata.main_table_addr,
                     self.overall_metadata.main_table_size as nat,
                     self.get_writable_mask_for_main_table(),
-                    self.condition_preserved_by_writable_mask_for_main_table(),
+                    self.condition_preserved_by_subregion_masks(),
                 )
         {
             let overall_metadata = self.overall_metadata;
@@ -1983,15 +2006,8 @@ verus! {
             let log_area_addr = overall_metadata.log_area_addr;
             let log_area_size = overall_metadata.log_area_size;
 
-            let condition = self.condition_preserved_by_writable_mask_for_main_table();
-            assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
-                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata,
-                                                                    overall_metadata);
-                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, overall_metadata);
-                assert(Self::apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
-                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, main_table_addr as nat, main_table_size as nat);
-                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, item_table_addr as nat, item_table_size as nat);
-            }
+            let condition = self.condition_preserved_by_subregion_masks();
+            self.lemma_condition_preserved_by_subregion_masks_preserved_by_crashing();
             assert forall|s1: Seq<u8>, s2: Seq<u8>| {
                        &&& condition(s1)
                        &&& s1.len() == s2.len() == self.wrpm@.len()
@@ -2047,7 +2063,39 @@ verus! {
             }
         }
 
-        proof fn lemma_condition_preserved_by_writable_mask_for_main_table_preserved_after_subregion_updates(
+        spec fn main_table_view_matches(self, pm_view: PersistentMemoryRegionView) -> bool
+        {
+            get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                               self.overall_metadata.main_table_size as nat) ==
+                get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat)
+        }
+
+        spec fn item_table_view_matches(self, pm_view: PersistentMemoryRegionView) -> bool
+        {
+            get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                               self.overall_metadata.item_table_size as nat) ==
+                get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
+                                   self.overall_metadata.item_table_size as nat)
+        }
+
+        spec fn log_area_view_matches(self, pm_view: PersistentMemoryRegionView) -> bool
+        {
+            get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                               self.overall_metadata.log_area_size as nat) ==
+                get_subregion_view(pm_view, self.overall_metadata.log_area_addr as nat,
+                                   self.overall_metadata.log_area_size as nat)
+        }
+
+        spec fn list_area_view_matches(self, pm_view: PersistentMemoryRegionView) -> bool
+        {
+            get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                               self.overall_metadata.list_area_size as nat) ==
+                get_subregion_view(pm_view, self.overall_metadata.list_area_addr as nat,
+                                   self.overall_metadata.list_area_size as nat)
+        }
+
+        proof fn lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
             self,
             old_self: Self,
             perm: &Perm,
@@ -2060,7 +2108,7 @@ verus! {
                     old_self.wrpm@, perm, old_self.overall_metadata.main_table_addr,
                     old_self.overall_metadata.main_table_size as nat,
                     old_self.get_writable_mask_for_main_table(),
-                    old_self.condition_preserved_by_writable_mask_for_main_table(),
+                    old_self.condition_preserved_by_subregion_masks(),
                 ),
                 subregion.constants() == old_self.wrpm.constants(),
                 subregion.start() == old_self.overall_metadata.main_table_addr,
@@ -2077,27 +2125,18 @@ verus! {
                                                          self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat,
                                                          old_self.get_writable_mask_for_main_table()),
-                get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                   self.overall_metadata.item_table_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                       self.overall_metadata.item_table_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                   self.overall_metadata.list_area_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                       self.overall_metadata.list_area_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                   self.overall_metadata.log_area_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                       self.overall_metadata.log_area_size as nat),
+                self.item_table_view_matches(old_self.wrpm@),
+                self.list_area_view_matches(old_self.wrpm@),
+                self.log_area_view_matches(old_self.wrpm@),
                 ({
-                    let condition = old_self.condition_preserved_by_writable_mask_for_main_table();
+                    let condition = old_self.condition_preserved_by_subregion_masks();
                     &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
                     &&& condition(self.wrpm@.committed())
                 })
         {
             subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
 
-            let condition = old_self.condition_preserved_by_writable_mask_for_main_table();
+            let condition = old_self.condition_preserved_by_subregion_masks();
             assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
                 let s_old = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
                     self.wrpm@,
@@ -2169,10 +2208,10 @@ verus! {
                                                                        self.metadata_table@.valid_item_indices())
         }
 
-        proof fn get_condition_suitable_for_creating_item_table_subregion(
+        proof fn lemma_writable_mask_for_item_table_suitable_for_creating_subregion(
             self,
             perm: &Perm
-        ) -> (condition: spec_fn(Seq<u8>) -> bool)
+        )
             requires
                 self.inv(),
                 !self.log@.op_list_committed,
@@ -2183,7 +2222,7 @@ verus! {
                     self.wrpm@, perm, self.overall_metadata.item_table_addr,
                     self.overall_metadata.item_table_size as nat,
                     self.get_writable_mask_for_item_table(),
-                    condition
+                    self.condition_preserved_by_subregion_masks(),
                 )
         {
             let item_entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -2199,25 +2238,8 @@ verus! {
             let log_area_addr = overall_metadata.log_area_addr;
             let log_area_size = overall_metadata.log_area_size;
 
-            let condition = |s: Seq<u8>| {
-                &&& UntrustedOpLog::<K, L>::recover(s, self.version_metadata, overall_metadata) ==
-                      Some(AbstractOpLogState::initialize())
-                &&& parse_metadata_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
-                                             num_keys, metadata_node_size) ==
-                      Some(self.metadata_table@)
-                &&& parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.metadata_table@.valid_item_indices()) ==
-                      Some(self.item_table@)
-                &&& Self::physical_recover(s, self.version_metadata, overall_metadata) == Some(self@)
-            };
-            assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
-                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata,
-                                                                    overall_metadata);
-                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, overall_metadata);
-                assert(Self::apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
-                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, main_table_addr as nat, main_table_size as nat);
-                lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, item_table_addr as nat, item_table_size as nat);
-            }
+            let condition = self.condition_preserved_by_subregion_masks();
+            self.lemma_condition_preserved_by_subregion_masks_preserved_by_crashing();
             assert forall|s1: Seq<u8>, s2: Seq<u8>| {
                        &&& condition(s1)
                        &&& s1.len() == s2.len() == self.wrpm@.len()
@@ -2259,30 +2281,113 @@ verus! {
                        extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
                 assert(Self::physical_recover(s2, self.version_metadata, overall_metadata) == Some(self@));
             }
-            condition
+        }
+
+        proof fn lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+            self,
+            old_self: Self,
+            perm: &Perm,
+            subregion: WriteRestrictedPersistentMemorySubregion,
+        )
+            requires
+                old_self.inv(),
+                !old_self.log@.op_list_committed,
+                condition_sufficient_to_create_wrpm_subregion(
+                    old_self.wrpm@, perm, old_self.overall_metadata.item_table_addr,
+                    old_self.overall_metadata.item_table_size as nat,
+                    old_self.get_writable_mask_for_item_table(),
+                    old_self.condition_preserved_by_subregion_masks(),
+                ),
+                subregion.constants() == old_self.wrpm.constants(),
+                subregion.start() == old_self.overall_metadata.item_table_addr,
+                subregion.len() == old_self.overall_metadata.item_table_size,
+                subregion.initial_region_view() == old_self.wrpm@,
+                subregion.is_writable_absolute_addr_fn() == old_self.get_writable_mask_for_item_table(),
+                subregion.inv(&self.wrpm, perm),
+                self == (Self{ wrpm: self.wrpm, item_table: self.item_table, ..old_self }),
+            ensures
+                self.wrpm.inv(),
+                self.wrpm.constants() == old_self.wrpm.constants(),
+                self.wrpm@.len() == subregion.initial_region_view().len(),
+                views_differ_only_where_subregion_allows(subregion.initial_region_view(), self.wrpm@,
+                                                         self.overall_metadata.item_table_addr as nat,
+                                                         self.overall_metadata.item_table_size as nat,
+                                                         old_self.get_writable_mask_for_item_table()),
+                self.main_table_view_matches(old_self.wrpm@),
+                self.list_area_view_matches(old_self.wrpm@),
+                self.log_area_view_matches(old_self.wrpm@),
+                ({
+                    let condition = old_self.condition_preserved_by_subregion_masks();
+                    &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
+                    &&& condition(self.wrpm@.committed())
+                })
+        {
+            subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+
+            let condition = old_self.condition_preserved_by_subregion_masks();
+            assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
+                let s_old = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
+                    self.wrpm@,
+                    old_self.wrpm@,
+                    s,
+                    old_self.overall_metadata.item_table_addr as nat,
+                    old_self.overall_metadata.item_table_size as nat,
+                    old_self.get_writable_mask_for_item_table()
+                );
+                assert(condition(s_old));
+                assert(s_old.len() == s.len() == old_self.wrpm@.len());
+                assert(memories_differ_only_where_subregion_allows(
+                    s_old, s,
+                    old_self.overall_metadata.item_table_addr as nat,
+                    old_self.overall_metadata.item_table_size as nat,
+                    old_self.get_writable_mask_for_item_table()
+                ));
+            }
+
+            lemma_persistent_memory_view_can_crash_as_committed(self.wrpm@);
+
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                      self.overall_metadata.main_table_size as nat));
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                      self.overall_metadata.list_area_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                                      self.overall_metadata.list_area_size as nat));
+            assert(get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                      self.overall_metadata.log_area_size as nat) =~=
+                   get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
+                                      self.overall_metadata.log_area_size as nat));
         }
 
         proof fn lemma_reestablish_inv_after_tentatively_write_item(
             self,
             old_self: Self,
-            item_table_subregion: WriteRestrictedPersistentMemorySubregion,
             item_index: u64,
             item: I,
-            perm: &Perm,
         )
             requires
                 old_self.inv(),
                 !old_self.transaction_committed(),
                 self == (Self { item_table: self.item_table, wrpm: self.wrpm, ..old_self }),
-                item_table_subregion.initial_region_view() == old_self.wrpm@,
-                item_table_subregion.start() == self.overall_metadata.item_table_addr,
-                item_table_subregion.len() == self.overall_metadata.item_table_size,
-                item_table_subregion.constants() == old_self.wrpm.constants(),
-                item_table_subregion.inv(&self.wrpm, perm),
-                self.item_table.inv(item_table_subregion.view(&self.wrpm), self.overall_metadata),
+                self.wrpm.inv(),
+                self.wrpm.constants() == old_self.wrpm.constants(),
+                views_differ_only_where_subregion_allows(old_self.wrpm@, self.wrpm@,
+                                                         self.overall_metadata.item_table_addr as nat,
+                                                         self.overall_metadata.item_table_size as nat,
+                                                         old_self.get_writable_mask_for_item_table()),
+                self.main_table_view_matches(old_self.wrpm@),
+                self.list_area_view_matches(old_self.wrpm@),
+                self.log_area_view_matches(old_self.wrpm@),
+                ({
+                    let condition = old_self.condition_preserved_by_subregion_masks();
+                    &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
+                    &&& condition(self.wrpm@.committed())
+                }),
+                self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                                       self.overall_metadata.item_table_size as nat),
+                                    self.overall_metadata),
                 self.item_table.spec_valid_indices() == old_self.item_table.spec_valid_indices(),
-                item_table_subregion.view(&self.wrpm).committed() ==
-                    item_table_subregion.initial_subregion_view().committed(),
                 old_self.item_table.allocator_view().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
@@ -2300,35 +2405,10 @@ verus! {
                 forall|addr: int| self.version_metadata.overall_metadata_addr <= addr
                             < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
                     self.wrpm@.state[addr] == old_self.wrpm@.state[addr],
-                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                       self.overall_metadata.main_table_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                   self.overall_metadata.list_area_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                       self.overall_metadata.list_area_size as nat),
-                get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                   self.overall_metadata.log_area_size as nat) ==
-                    get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                       self.overall_metadata.log_area_size as nat),
+                self.main_table_view_matches(old_self.wrpm@),
+                self.list_area_view_matches(old_self.wrpm@),
+                self.log_area_view_matches(old_self.wrpm@),
         {
-            item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
-            item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
-                &self.wrpm, perm
-            );
-            assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                      self.overall_metadata.main_table_size as nat) =~=
-                   get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                      self.overall_metadata.main_table_size as nat));
-            assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                      self.overall_metadata.list_area_size as nat) =~=
-                   get_subregion_view(old_self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                                      self.overall_metadata.list_area_size as nat));
-            assert(get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                      self.overall_metadata.log_area_size as nat) =~=
-                   get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
-                                      self.overall_metadata.log_area_size as nat));
             assert(self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)) by {
                 assert(0 <= self.overall_metadata.log_area_addr < 
                     self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size <= 
@@ -2406,7 +2486,6 @@ verus! {
         fn abort_after_failed_item_table_tentatively_write_item(
             &mut self,
             Ghost(pre_self): Ghost<Self>,
-            Ghost(item_table_subregion): Ghost<WriteRestrictedPersistentMemorySubregion>,
             Tracked(perm): Tracked<&Perm>
         )
             requires
@@ -2414,15 +2493,20 @@ verus! {
                 !pre_self.transaction_committed(),
                 pre_self.pending_alloc_inv(),
                 old(self) == (Self { item_table: old(self).item_table, wrpm: old(self).wrpm, ..pre_self }),
-                item_table_subregion.initial_region_view() == pre_self.wrpm@,
-                item_table_subregion.start() == old(self).overall_metadata.item_table_addr,
-                item_table_subregion.len() == old(self).overall_metadata.item_table_size,
-                item_table_subregion.constants() == pre_self.wrpm.constants(),
-                item_table_subregion.inv(&old(self).wrpm, perm),
-                old(self).item_table.inv(item_table_subregion.view(&old(self).wrpm), old(self).overall_metadata),
+                old(self).item_table_view_matches(pre_self.wrpm@),
+                old(self).list_area_view_matches(pre_self.wrpm@),
+                old(self).log_area_view_matches(pre_self.wrpm@),
+                ({
+                    let condition = pre_self.condition_preserved_by_subregion_masks();
+                    &&& forall|s| old(self).wrpm@.can_crash_as(s) ==> condition(s)
+                    &&& condition(old(self).wrpm@.committed())
+                }),
+                old(self).item_table.inv(
+                    get_subregion_view(old(self).wrpm@, old(self).overall_metadata.item_table_addr as nat,
+                                       old(self).overall_metadata.item_table_size as nat),
+                    old(self).overall_metadata
+                ),
                 old(self).item_table.spec_valid_indices() == pre_self.item_table.spec_valid_indices(),
-                item_table_subregion.view(&old(self).wrpm).committed() ==
-                    item_table_subregion.initial_subregion_view().committed(),
                 old(self).item_table@ == pre_self.item_table@,
                 old(self).item_table.spec_outstanding_item_table() == pre_self.item_table.spec_outstanding_item_table(),
                 old(self).item_table.allocator_view() == pre_self.item_table.allocator_view(),
@@ -2450,10 +2534,6 @@ verus! {
                 self.pending_deallocations().is_empty(),
         {
             proof {
-                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
-                item_table_subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(
-                    &self.wrpm, perm
-                );
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
                                                         self.overall_metadata);
                 self.log.lemma_same_op_log_view_preserves_invariant(
@@ -2555,7 +2635,7 @@ verus! {
                 old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
                 old(self).metadata_table@.has_same_valid_items(pre_self.metadata_table@),
                 ({
-                    let condition = old_self.condition_preserved_by_writable_mask_for_main_table();
+                    let condition = old_self.condition_preserved_by_subregion_masks();
                     &&& forall|s| old(self).wrpm@.can_crash_as(s) ==> condition(s)
                     &&& condition(old(self).wrpm@.committed())
                 }),
@@ -2831,8 +2911,10 @@ verus! {
             // 1. find a free slot in the item table and tentatively write the new item there
 
             let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
-            let ghost item_table_subregion_condition =
-                self.get_condition_suitable_for_creating_item_table_subregion(perm);
+            let ghost item_table_subregion_condition = self.condition_preserved_by_subregion_masks();
+            proof {
+                self.lemma_writable_mask_for_item_table_suitable_for_creating_subregion(perm);
+            }
             let item_table_subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition::<Perm, PM>(
                 &self.wrpm,
                 Tracked(perm),
@@ -2861,6 +2943,7 @@ verus! {
             assert(self.metadata_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
 
+            let ghost self_before_tentative_item_write = *self;
             let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,
@@ -2872,25 +2955,23 @@ verus! {
                 Ok(item_index) => item_index,
                 Err(e) => {
                     proof {
-                        let main_table_subregion_view = get_subregion_view(self.wrpm@,
-                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==>
-                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) is Some);
+                        self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                            self_before_tentative_item_write, perm, item_table_subregion
+                        );
                         assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                         assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
                     }
-                    self.abort_after_failed_item_table_tentatively_write_item(Ghost(*old(self)),
-                                                                              Ghost(item_table_subregion),
-                                                                              Tracked(perm));
+                    self.abort_after_failed_item_table_tentatively_write_item(Ghost(*old(self)), Tracked(perm));
                     return Err(e);
                 }
             };
 
             proof {
-                self.lemma_reestablish_inv_after_tentatively_write_item(
-                    *old(self), item_table_subregion, item_index, *item, perm
+                self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                    self_before_tentative_item_write, perm, item_table_subregion
                 );
+                self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
 
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
@@ -2909,9 +2990,9 @@ verus! {
 
             // 3. find a free slot in the metadata table and tentatively write a new entry to it
             let ghost is_writable_main_table_addr = self.get_writable_mask_for_main_table();
-            let ghost main_table_subregion_condition = self.condition_preserved_by_writable_mask_for_main_table();
+            let ghost main_table_subregion_condition = self.condition_preserved_by_subregion_masks();
             proof {
-                self.lemma_condition_preserved_by_writable_mask_for_main_table_suitable_for_creating_subregion(perm);
+                self.lemma_writable_mask_for_main_table_suitable_for_creating_subregion(perm);
             }
             let main_table_subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition::<Perm, PM>(
                 &self.wrpm,
@@ -2926,7 +3007,7 @@ verus! {
                 self.lemma_main_table_subregion_grants_access_to_free_slots(main_table_subregion);
             }
 
-            let ghost pre_self = *self;
+            let ghost self_before_main_table_create = *self;
             let metadata_index = match self.metadata_table.tentative_create(
                 &main_table_subregion,
                 &mut self.wrpm,
@@ -2939,11 +3020,12 @@ verus! {
                 Ok(metadata_index) => metadata_index,
                 Err(e) => {
                     proof {
-                        self.lemma_condition_preserved_by_writable_mask_for_main_table_preserved_after_subregion_updates(
-                            pre_self, perm, main_table_subregion
+                        self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
+                            self_before_main_table_create, perm, main_table_subregion
                         );
                     }
-                    self.abort_after_failed_main_table_tentative_create(Ghost(*old(self)), Ghost(pre_self));
+                    self.abort_after_failed_main_table_tentative_create(Ghost(*old(self)),
+                                                                        Ghost(self_before_main_table_create));
                     return Err(e);
                 }
             };
@@ -2952,8 +3034,8 @@ verus! {
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof {
-                self.lemma_condition_preserved_by_writable_mask_for_main_table_preserved_after_subregion_updates(
-                    pre_self, perm, main_table_subregion
+                self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
+                    self_before_main_table_create, perm, main_table_subregion
                 );
                 self.log.lemma_same_op_log_view_preserves_invariant(old(self).wrpm, self.wrpm, self.version_metadata,
                                                                     self.overall_metadata);
