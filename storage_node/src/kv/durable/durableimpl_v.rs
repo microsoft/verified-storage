@@ -3640,6 +3640,85 @@ verus! {
             assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
 
+        proof fn lemma_can_clear_op_log_after_commit(
+            self,
+            old_self: Self,
+            pre_log_install_wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            pre_log_install_op_log: AbstractOpLogState,
+            crash_pred: spec_fn(Seq<u8>) -> bool,
+            perm: &Perm,
+        )
+            requires
+                self.wrpm.inv(),
+                pre_log_install_wrpm.inv(),
+                self.log.inv(pre_log_install_wrpm@, self.version_metadata, self.overall_metadata),
+                forall |s: Seq<u8>| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) <==> crash_pred(s),
+                forall |s| #[trigger] crash_pred(s) ==> perm.check_permission(s),
+                self.wrpm@.no_outstanding_writes(),
+                pre_log_install_wrpm@.no_outstanding_writes(),
+                crash_pred(self.wrpm@.committed()),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() == pre_log_install_wrpm@.len(),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() == pre_log_install_wrpm@.len(),
+                self.transaction_committed(),
+                overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr, self.overall_metadata.kvstore_id),
+                UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self.log@),
+                AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat) ==
+                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+                Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
+                    Self::physical_recover_given_log(self.wrpm@.committed(), self.overall_metadata, AbstractOpLogState::initialize()),
+            ensures 
+                forall |s2: Seq<u8>| {
+                    let current_state = self.wrpm@.flush().committed();
+                    &&& current_state.len() == s2.len() 
+                    &&& states_differ_only_in_log_region(s2, current_state, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& {
+                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@)
+                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                        }
+                } ==> #[trigger] crash_pred(s2),
+                forall |s1: Seq<u8>, s2: Seq<u8>| {
+                    &&& s1.len() == s2.len() 
+                    &&& #[trigger] crash_pred(s1)
+                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(self.log@)
+                    &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@)
+                } ==> #[trigger] crash_pred(s2),
+                self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> crash_pred(s),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> UntrustedOpLog::<K, L>::recover(s, self.version_metadata, self.overall_metadata) == Some(self.log@),
+        {
+            let current_mem = self.wrpm@.committed();
+            let old_mem_with_log_installed = Self::apply_physical_log_entries(pre_log_install_wrpm@.committed(), 
+                pre_log_install_op_log.physical_op_list).unwrap();
+            let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+            let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+            let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
+
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+            assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
+
+            // Next, we need to prove that the log subregions of the pre-install PM and current PM
+            // are identical, so that we can prove that the op log invariant holds after log install.
+            assert forall |addr: int| 0 <= addr < self.overall_metadata.log_area_size implies 
+                pre_install_subregion.state[addr] == current_subregion.state[addr] 
+            by {
+                assert(pre_install_subregion.state[addr].state_at_last_flush == pre_install_extract_bytes[addr]);
+                assert(pre_install_subregion.state[addr].outstanding_write is None);
+                assert(current_subregion.state[addr].outstanding_write is None);
+            }
+            assert(pre_install_subregion == current_subregion);
+            self.log.lemma_same_op_log_view_preserves_invariant(pre_log_install_wrpm, self.wrpm, self.version_metadata, self.overall_metadata);
+
+            // By now we've also met the preconditions of this lemma that proves that we can safely 
+            // clear the log
+            Self::lemma_clear_log_is_crash_safe(self.wrpm, self.log, self.version_metadata,
+                self.overall_metadata, crash_pred, self@, perm);
+        }
+
+
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
         pub fn commit(
@@ -3785,8 +3864,7 @@ verus! {
             assert({
                 &&& deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata
                 &&& deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == self.overall_metadata
-            })
-            by {
+            }) by {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata);
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
@@ -3860,42 +3938,15 @@ verus! {
             // 4. Clear the log
             proof {
                 // Next, prove that we can safely clear the log.
+                self.lemma_can_clear_op_log_after_commit(*old(self), pre_log_install_wrpm, 
+                    abstract_op_log, clear_log_crash_pred, &perm);
 
-                let current_mem = self.wrpm@.committed();
-                let old_mem_with_log_installed = Self::apply_physical_log_entries(pre_log_install_wrpm@.committed(), 
-                    abstract_op_log.physical_op_list).unwrap();
-                let pre_install_subregion = get_subregion_view(pre_log_install_wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-                let current_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-                let pre_install_extract_bytes = extract_bytes(pre_log_install_wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat);
-
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
-                assert(forall |s| self.wrpm@.can_crash_as(s) ==> s == self.wrpm@.committed());
-
-                // Next, we need to prove that the log subregions of the pre-install PM and current PM
-                // are identical, so that we can prove that the op log invariant holds after log install.
-                assert forall |addr: int| 0 <= addr < self.overall_metadata.log_area_size implies 
-                    pre_install_subregion.state[addr] == current_subregion.state[addr] 
-                by {
-                    assert(pre_install_subregion.state[addr].state_at_last_flush == pre_install_extract_bytes[addr]);
-                    assert(pre_install_subregion.state[addr].outstanding_write is None);
-                    assert(current_subregion.state[addr].outstanding_write is None);
-                }
-                assert(pre_install_subregion == current_subregion);
-                self.log.lemma_same_op_log_view_preserves_invariant(pre_log_install_wrpm, self.wrpm, self.version_metadata, self.overall_metadata);
-
-                // By now we've also met the preconditions of this lemma that proves that we can safely 
-                // clear the log
-                Self::lemma_clear_log_is_crash_safe(self.wrpm, self.log, self.version_metadata,
-                    self.overall_metadata, clear_log_crash_pred, self@, perm);
-
-                let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                    self.overall_metadata.main_table_size as nat);
                 let durable_item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat);
                 let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                     self.overall_metadata.list_area_size as nat);
                 
-                // Finally, establish some facts about the possible crash states of the item table and list area
+                // Establish some facts about the possible crash states of the item table and list area
                 // to reestablish their invariants
                 // The assertions and lemmas here seem redundant, but the assertions appear to have an impact on a later proof,
                 // and the lemmas are required to reestablish the invariants.
