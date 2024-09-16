@@ -608,7 +608,9 @@ verus! {
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
+                        &&& index < overall_metadata.num_keys
                         &&& old(self).allocator_view().contains(index)
+                        &&& self.pending_allocations_view().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self.spec_outstanding_item_table()[i] ==

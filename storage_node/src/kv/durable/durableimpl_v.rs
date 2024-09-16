@@ -3047,9 +3047,6 @@ verus! {
                     ||| self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size <= addr < self.wrpm@.len()
                 } ==> self.wrpm@.state[addr] == old(self).wrpm@.state[addr]);
 
-                // TODO I think there's a lemma that says applying the same log to the same 
-                // bytes results in the same sequence?
-
                 // 1. metadata table and list area have not been modified
                 let old_main_table_subregion = get_subregion_view(old(self).wrpm@, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
@@ -3071,12 +3068,37 @@ verus! {
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
 
                 // 3. after applying log, all components recover to the same state they did before
-
                 Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.committed(), 
                     self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
                 let new_tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.committed(), self.log@.commit_op_log().physical_op_list);
                 assert(new_tentative_view_bytes is Some);
 
+
+                let old_main_table = parse_metadata_table::<K>(old_main_table_subregion.committed(), 
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let tentative_main_table = parse_metadata_table::<K>(extract_bytes(tentative_view_bytes,
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                assert(self.metadata_table@ == old_main_table);
+                assert(self.metadata_table@.valid_item_indices() == old_main_table.valid_item_indices());
+
+                let old_item_table = parse_item_table::<I, K>(old_item_table_subregion.committed(), 
+                    self.overall_metadata.num_keys as nat, old_main_table.valid_item_indices()).unwrap();
+
+                let tentative_item_table = parse_item_table::<I, K>(extract_bytes(tentative_view_bytes,
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat),
+                    self.overall_metadata.num_keys as nat, tentative_main_table.valid_item_indices()).unwrap();
+                
+                assert(old_item_table_subregion.can_crash_as(old_item_table_subregion.committed()));
+                assert(old_item_table_subregion.committed() == extract_bytes(old(self).wrpm@.committed(),
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                
+                
+                assert(old(self).item_table@ == old_item_table);
+
+                // the pending alloc check holds for this index, which proves that it is now pending allocation
+                assert(old(self).item_table.pending_alloc_check(item_index, old_main_table.valid_item_indices(),
+                    tentative_main_table.valid_item_indices()));
 
                 // TODO @hayley 
                 assume(old(self).tentative_view() == self.tentative_view());
