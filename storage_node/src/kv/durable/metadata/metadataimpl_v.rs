@@ -2230,15 +2230,14 @@ metadata_allocator@.contains(i)
                         &&& i != j
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
-                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
- by {
+                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index() 
+                    by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
                     }
                 }
 
-                let updated_table = old_main_table_view.durable_metadata_table.update(
-index as int, None);
+                let updated_table = old_main_table_view.durable_metadata_table.update(index as int, None);
                 assert(updated_table.len() == old_main_table_view.durable_metadata_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
