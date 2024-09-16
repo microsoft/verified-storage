@@ -1907,7 +1907,6 @@ metadata_allocator@.contains(i)
                     &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(*overall_metadata)
-                    &&& crc_bytes == entry.crc.spec_to_bytes()
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
