@@ -60,7 +60,7 @@ verus! {
 
     #[verifier::ext_equal]
     pub struct MetadataTableView<K> {
-        pub durable_metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>,
+        pub durable_metadata_table: Seq<Option<MetadataTableViewEntry<K>>>,
     }
 
     impl<K> MetadataTableView<K>
@@ -69,21 +69,17 @@ verus! {
     {
         pub open spec fn init(num_keys: u64) -> Self {
             Self {
-                durable_metadata_table: Seq::new(num_keys as nat, |i: int| DurableEntry::Invalid),
+                durable_metadata_table: Seq::new(num_keys as nat, |i: int| None),
             }
         }
 
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
-            &&& forall |i| #![trigger self.durable_metadata_table[i]] {
-                  let entries = self.durable_metadata_table;
-                  0 <= i < entries.len() ==> !(entries[i] is Tentative)
-            }
             &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& #[trigger] self.durable_metadata_table[i as int] is Valid
-                    &&& #[trigger] self.durable_metadata_table[j as int] is Valid
-                } ==> self.durable_metadata_table[i as int]->Valid_0.item_index() != 
-                        self.durable_metadata_table[j as int]->Valid_0.item_index()
+                    &&& #[trigger] self.durable_metadata_table[i as int] is Some
+                    &&& #[trigger] self.durable_metadata_table[j as int] is Some
+                } ==> self.durable_metadata_table[i as int].unwrap().item_index() != 
+                        self.durable_metadata_table[j as int].unwrap().item_index()
         }
 
         pub open spec fn len(self) -> nat
@@ -92,14 +88,14 @@ verus! {
         }
 
         pub open spec fn new(
-            metadata_table: Seq<DurableEntry<MetadataTableViewEntry<K>>>
+            metadata_table: Seq<Option<MetadataTableViewEntry<K>>>
         ) -> Self {
             Self {
                 durable_metadata_table: metadata_table,
             }
         }
 
-        pub open spec fn get_durable_metadata_table(self) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+        pub open spec fn get_durable_metadata_table(self) -> Seq<Option<MetadataTableViewEntry<K>>>
         {
             self.durable_metadata_table
         }
@@ -110,7 +106,7 @@ verus! {
                 None 
             } else {
                 Some(Self {
-                    durable_metadata_table: self.durable_metadata_table.update(index, DurableEntry::Invalid)
+                    durable_metadata_table: self.durable_metadata_table.update(index, None)
                 })
             }
         }
@@ -120,12 +116,12 @@ verus! {
             if index < 0 || index >= self.durable_metadata_table.len() {
                 None 
             } else {
-                let current_entry = self.durable_metadata_table[index as int]->Valid_0;
+                let current_entry = self.durable_metadata_table[index as int].unwrap();
                 let updated_entry = ListEntryMetadata {
                     item_index,
                     ..current_entry.entry
                 };
-                let new_durable_entry = DurableEntry::Valid(MetadataTableViewEntry {
+                let new_durable_entry = Some(MetadataTableViewEntry {
                     entry: updated_entry,
                     key: current_entry.key,
                 });
@@ -138,21 +134,12 @@ verus! {
         pub open spec fn valid_item_indices(self) -> Set<u64> {
             Set::new(|i: u64| exists |j: int| {
                     &&& 0 <= j < self.durable_metadata_table.len() 
-                    &&& #[trigger] self.durable_metadata_table[j] matches DurableEntry::Valid(entry)
+                    &&& #[trigger] self.durable_metadata_table[j] matches Some(entry)
                     &&& entry.item_index() == i
                 }
             )
         }
 
-        pub open spec fn has_same_valid_items(self, other: Self) -> bool
-        {
-            &&& self.durable_metadata_table.len() == other.durable_metadata_table.len()
-            &&& forall|i: int| 0 <= i < self.durable_metadata_table.len() ==>
-                   match #[trigger] self.durable_metadata_table[i] {
-                       DurableEntry::Valid(e) => other.durable_metadata_table[i] == DurableEntry::Valid(e),
-                       _ => !(other.durable_metadata_table[i] is Valid)
-                   }
-        }
     }
 
     pub struct MetadataTable<K> {
@@ -248,7 +235,7 @@ verus! {
                 &&& 0 <= i < self@.durable_metadata_table.len() 
                 &&& self.spec_outstanding_cdb_writes()[i as int] is None
                 &&& self.spec_outstanding_entry_writes()[i as int] is None
-                &&& self@.durable_metadata_table[i as int] matches DurableEntry::Invalid
+                &&& self@.durable_metadata_table[i as int] is None
             })
         }
 
@@ -294,11 +281,11 @@ verus! {
             &&& forall |idx: u64| self.pending_allocations@.contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.pending_deallocations@.contains(idx) ==> idx < overall_metadata.num_keys
             // &&& forall |idx: u64| self.pending_allocations@.contains(idx) ==> {
-            //         ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
+            //         ||| self@.durable_metadata_table[idx as int] is None 
             //         ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Tentative(_)
             //     }
             // &&& forall |idx: u64| self.metadata_table_free_list@.contains(idx) ==> 
-            //         { self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid }
+            //         { self@.durable_metadata_table[idx as int] is None }
             // &&& forall |idx: u64| self.pending_deallocations@.contains(idx) ==> 
             //         { self@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_) }
             &&& forall |idx: u64| {
@@ -339,8 +326,8 @@ verus! {
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==> 
                     match #[trigger] self@.durable_metadata_table[i] {
-                        DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
-                        _ => true
+                        Some(entry) => entry.entry.item_index < overall_metadata.num_keys,
+                        None => true
                     }
         }
 
@@ -364,25 +351,25 @@ verus! {
             // if an index is valid in the current state but invalid in the tentative state,
             // it is pending deallocation
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] is Valid
-                &&& tentative_view.durable_metadata_table[idx as int] is Invalid
+                &&& current_view.durable_metadata_table[idx as int] is Some
+                &&& tentative_view.durable_metadata_table[idx as int] is None
             } <==> self.pending_deallocations_view().contains(idx)
             // if an index is invalid in the current state but valid in the tentative state, 
             // it is pending allocation
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] is Invalid
-                &&& tentative_view.durable_metadata_table[idx as int] is Valid
+                &&& current_view.durable_metadata_table[idx as int] is None
+                &&& tentative_view.durable_metadata_table[idx as int] is Some
             } <==> self.pending_allocations_view().contains(idx)
             // if an index is invalid in both the current and tentative state,
             // it is in the free list
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] is Invalid
-                &&& tentative_view.durable_metadata_table[idx as int] is Invalid
+                &&& current_view.durable_metadata_table[idx as int] is None
+                &&& tentative_view.durable_metadata_table[idx as int] is None
             } <==> self.allocator_view().contains(idx)
             // if an index is valid in both the current and tentative state, they match
             &&& {
-                &&& current_view.durable_metadata_table[idx as int] is Valid
-                &&& tentative_view.durable_metadata_table[idx as int] is Valid
+                &&& current_view.durable_metadata_table[idx as int] is Some
+                &&& tentative_view.durable_metadata_table[idx as int] is Some
             } ==> current_view.durable_metadata_table[idx as int] ==
                   tentative_view.durable_metadata_table[idx as int]
         }
@@ -414,7 +401,7 @@ verus! {
             requires
                 self.inv(pm, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
-                self@.durable_metadata_table[index as int] is Valid,
+                self@.durable_metadata_table[index as int] is Some,
             ensures
                 ({
                     let cdb_bytes = extract_bytes(
@@ -442,7 +429,7 @@ verus! {
                         K::spec_size_of() as nat,
                     );
                     let key = K::spec_from_bytes(key_bytes);
-                    let meta = self@.durable_metadata_table[index as int]->Valid_0;
+                    let meta = self@.durable_metadata_table[index as int].unwrap();
                     &&& u64::bytes_parseable(cdb_bytes)
                     &&& u64::bytes_parseable(crc_bytes)
                     &&& ListEntryMetadata::bytes_parseable(entry_bytes)
@@ -687,13 +674,13 @@ verus! {
 
             proof {
                 let entries = parse_metadata_entries::<K>(mem, num_keys as nat, metadata_node_size as nat);
-                assert forall |i: nat| 0 <= i < entries.len() implies #[trigger] entries[i as int] matches DurableEntry::Invalid by {
+                assert forall |i: nat| 0 <= i < entries.len() implies #[trigger] entries[i as int] is None by {
                     lemma_valid_entry_index(i, num_keys as nat, metadata_node_size as nat);
                     lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, metadata_node_size as nat), 
                         index_to_offset(i, metadata_node_size as nat), metadata_node_size as nat, u64::spec_size_of());
                     assert(Self::extract_cdb_for_entry(mem, i, metadata_node_size) == CDB_FALSE);
                     assert(Self::extract_cdb_for_entry(mem, i, metadata_node_size) == CDB_FALSE ==> 
-                        entries[i as int] matches DurableEntry::Invalid);
+                           entries[i as int] is None);
                 }
                 assert(no_duplicate_item_indexes(entries));
             }
@@ -702,7 +689,7 @@ verus! {
             // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
             // since all entries in both are None
             let ghost metadata_table = recovered_view.unwrap().get_durable_metadata_table();
-            assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] matches DurableEntry::Invalid by {
+            assert forall |k: nat| k < num_keys implies #[trigger] metadata_table[k as int] is None by {
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, metadata_node_size as nat);
                 // Prove that the subranges used by validate_metadata_entry and extract_cdb_for_entry to check CDB are the same
@@ -756,7 +743,7 @@ verus! {
                             |val: (K, u64, u64)| {
                                 exists |j: u64| {
                                     &&& 0 <= j < table.durable_metadata_table.len()
-                                    &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry)
+                                    &&& #[trigger] table.durable_metadata_table[j as int] matches Some(entry)
                                     &&& val == (entry.key(), j, entry.item_index())
                         }});
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
@@ -853,8 +840,8 @@ verus! {
                     metadata_node_size == overall_metadata.metadata_node_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
-                        entry matches DurableEntry::Invalid <==> 
-                            metadata_allocator@.contains(i)
+                        entry is None <==> 
+metadata_allocator@.contains(i)
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     forall |i: int, j: int| 0 <= i < metadata_allocator.len() && 0 <= j < metadata_allocator.len() && i != j ==>
@@ -864,12 +851,12 @@ verus! {
                         let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
                         &&& forall |i: u64| 0 <= i < index ==> {
                                 let entry = #[trigger] table.durable_metadata_table[i as int];
-                                entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
+                                entry matches Some(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
                             }
                         &&& forall |i: int| 0 <= i < entry_list_view.len() ==> {
                                 let table_index = entry_list_view[i].1;
                                 let item_index = entry_list_view[i].2;
-                                &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                                &&& table.durable_metadata_table[table_index as int] matches Some(valid_entry)
                                 &&& valid_entry.key() == #[trigger] entry_list_view[i].0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
@@ -888,10 +875,10 @@ verus! {
                     // no duplicate item indexes in the main table
                     // TODO: could/should this go in `parse_metadata_table` instead?
                     forall |i: nat, j: nat| i < j < index ==> {
-                        &&& #[trigger] table.durable_metadata_table[i as int] matches DurableEntry::Valid(entry1)
-                        &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry2)
-                    } ==> table.durable_metadata_table[i as int]->Valid_0.item_index() != 
-                            table.durable_metadata_table[j as int]->Valid_0.item_index()
+                        &&& #[trigger] table.durable_metadata_table[i as int] is Some
+                        &&& #[trigger] table.durable_metadata_table[j as int] is Some
+                    } ==> table.durable_metadata_table[i as int].unwrap().item_index() != 
+                            table.durable_metadata_table[j as int].unwrap().item_index()
             {
                 let ghost old_entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
 
@@ -1043,7 +1030,7 @@ verus! {
                             let entry = #[trigger] old_entry_list_view[i];
                             let table_index = entry.1;
                             let item_index = entry.2;
-                            &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                            &&& table.durable_metadata_table[table_index as int] matches Some(valid_entry)
                             &&& valid_entry.item_index() == item_index
                         });
 
@@ -1062,7 +1049,7 @@ verus! {
                                 let entry = #[trigger] entry_list_view[i];
                                 let table_index = entry.1;
                                 let item_index = entry.2;
-                                &&& table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry)
+                                &&& table.durable_metadata_table[table_index as int] matches Some(valid_entry)
                                 &&& valid_entry.key() == entry.0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_metadata_table.len()
@@ -1076,22 +1063,22 @@ verus! {
                                 assert(item_index == new_item_index_view[i]);
                                 if i < entry_list_view.len() - 1 {
                                     assert(entry == old_entry_list_view[i]);
-                                    assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
+                                    assert(table.durable_metadata_table[table_index as int] matches Some(valid_entry));
                                 }
 
-                                assert(table.durable_metadata_table[table_index as int] matches DurableEntry::Valid(valid_entry));
+                                assert(table.durable_metadata_table[table_index as int] matches Some(valid_entry));
                             }
 
                             // This witness and the following few assertions help us maintain the loop invariant that 
                             // the set of valid item indices we are constructing is a subset of table.valid_item_indices()
                             let witness = table.durable_metadata_table[index as int];
-                            assert(witness matches DurableEntry::Valid(valid_entry));
-                            if let DurableEntry::Valid(valid_entry) = witness {
+                            assert(witness matches Some(valid_entry));
+                            if let Some(valid_entry) = witness {
                                 assert(valid_entry.item_index() == metadata.item_index);
                             }
                             assert(exists |j: int| {
                                 &&& 0 <= j < table.durable_metadata_table.len() 
-                                &&& #[trigger] table.durable_metadata_table[j] matches DurableEntry::Valid(valid_entry) 
+                                &&& #[trigger] table.durable_metadata_table[j] matches Some(valid_entry) 
                                 &&& valid_entry.item_index() == metadata.item_index
                             }); 
                             assert(table.valid_item_indices().contains(metadata.item_index));
@@ -1107,7 +1094,7 @@ verus! {
                 
                     assert forall |i: u64| 0 <= i <= index implies {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
-                        entry matches DurableEntry::Valid(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
+                        entry matches Some(valid_entry) ==> entry_list_view.contains((valid_entry.key(), i, valid_entry.item_index()))
                     } by {
                         // We already know this is true for values less than index from the loop invariant.
                         // To help Verus prove this, we need to establish that the part of the entry list we are making an assertion about has not
@@ -1116,7 +1103,7 @@ verus! {
                         // Prove that the assertion holds when i == index
                         if i == index {
                             let entry = table.durable_metadata_table[i as int];
-                            if let DurableEntry::Valid(valid_entry) = entry {
+                            if let Some(valid_entry) = entry {
                                 assert(entry_list_view[entry_list_view.len() - 1] == (valid_entry.key(), index, valid_entry.item_index()));
                             }
                         }
@@ -1147,7 +1134,7 @@ verus! {
                     |val: (K, u64, u64)| {
                         exists |j: u64| {
                             &&& 0 <= j < table.durable_metadata_table.len()
-                            &&& #[trigger] table.durable_metadata_table[j as int] matches DurableEntry::Valid(entry)
+                            &&& #[trigger] table.durable_metadata_table[j as int] matches Some(entry)
                             &&& val == (entry.key(), j, entry.item_index())
                 }});
                 let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
@@ -1192,14 +1179,14 @@ verus! {
                 subregion.inv(pm_region),
                 self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
-                self@.durable_metadata_table[metadata_index as int] is Valid,
+                self@.durable_metadata_table[metadata_index as int] is Some,
                 self.spec_outstanding_cdb_writes()[metadata_index as int] is None,
                 self.spec_outstanding_entry_writes()[metadata_index as int] is None,
             ensures
                 ({
                     match result {
                         Ok((key, entry)) => {
-                            let meta = self@.durable_metadata_table[metadata_index as int]->Valid_0;
+                            let meta = self@.durable_metadata_table[metadata_index as int].unwrap();
                             &&& meta.key == key
                             &&& meta.entry == entry
                         },
@@ -1460,7 +1447,7 @@ verus! {
             }
 
             // assert forall |idx: u64| self.pending_allocations@.contains(idx) implies {
-            //     ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
+            //     ||| self@.durable_metadata_table[idx as int] is None 
             //     ||| self@.durable_metadata_table[idx as int] matches DurableEntry::Tentative(_)
             // } by {
             //     if !old(self).pending_allocations@.contains(idx) {
@@ -1469,7 +1456,7 @@ verus! {
             // }
 
             // assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies 
-            //     self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid 
+            //     self@.durable_metadata_table[idx as int] is None 
             // by { assert(old(self).metadata_table_free_list@.contains(idx)); }
 
             proof {
@@ -1598,7 +1585,7 @@ verus! {
                 !old(self).pending_deallocations_view().contains(index),
                 !old(self).pending_allocations_view().contains(index),
                 // and it's currently valid in the durable metadata table state
-                old(self)@.durable_metadata_table[index as int] matches DurableEntry::Valid(_),
+                old(self)@.durable_metadata_table[index as int] is Some,
                 old(self).inv(pm_subregion, overall_metadata),
                 // the pending alloc invariant holds for all indexes except the one we are deallocating
                 ({
@@ -1613,7 +1600,7 @@ verus! {
                     &&& old(self)@ == durable_main_table_view
                     // we should have already logged the deletion of this record, 
                     // so it should be INVALID in the tentative view
-                    &&& tentative_main_table_view.durable_metadata_table[index as int] matches DurableEntry::Invalid
+                    &&& tentative_main_table_view.durable_metadata_table[index as int] is None
                     &&& forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() && idx != index ==> {
                             old(self).pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
                         }
@@ -1709,14 +1696,14 @@ verus! {
                 // valid in durable storage
                 forall |idx: u64| {
                     &&& 0 <= idx < old(self)@.durable_metadata_table.len()
-                    &&& old(self).pending_allocations_view().contains(idx) 
-                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_),
+                    &&& #[trigger] old(self).pending_allocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] is Some,
                 // entries in the pending deallocations list have become
                 // invalid in durable storage
                 forall |idx: u64| {
                     &&& 0 <= idx < old(self)@.durable_metadata_table.len()
-                    &&& old(self).pending_deallocations_view().contains(idx) 
-                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid,
+                    &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] is None,
                 parse_metadata_table::<K>(pm.committed(), 
                     overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(old(self)@),
                 // the pending alloc invariant doesn't hold right now because we have 
@@ -1726,11 +1713,12 @@ verus! {
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> {
                     let entry = #[trigger] old(self)@.durable_metadata_table[idx as int];
                     match entry {
-                        DurableEntry::Invalid => {
+                        None => {
                             ||| old(self).allocator_view().contains(idx)
                             ||| old(self).pending_deallocations_view().contains(idx)
                         }
-                        DurableEntry::Valid(entry) => {
+,
+                        Some(entry) => {
                             // if the entry is valid, either it was pending allocation
                             // or it's just valid and not in any of the three lists
                             ||| old(self).pending_allocations_view().contains(idx)
@@ -1740,7 +1728,7 @@ verus! {
                                 &&& !old(self).pending_allocations_view().contains(idx)
                             })
                         }
-                        _ => false
+,
                     }
                 },
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
@@ -1797,7 +1785,7 @@ verus! {
                 by {
                     let entry = current_view.durable_metadata_table[idx as int];
                     match entry {
-                        DurableEntry::Invalid => {
+                        None => {
                             // this index was either pending deallocation or it was already free
                             assert({
                                 ||| old(self).metadata_table_free_list@.contains(idx)
@@ -1807,7 +1795,8 @@ verus! {
                             assert(self.metadata_table_free_list@.contains(idx));
                             assert(self.allocator_view().contains(idx));
                         }
-                        DurableEntry::Valid(entry) => {
+,
+                        Some(entry) => {
                             // This index was either pending allocation or already allocated
                             assert({
                                 ||| old(self).pending_allocations_view().contains(idx)
@@ -1823,7 +1812,7 @@ verus! {
                                 assert(!self.allocator_view().contains(idx));
                             } // else, trivial -- it wasn't in any of the sets before so it isn't now
                         }
-                        _ => assert(false)
+,
                     }
                 }
                 assert(self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata));
@@ -1844,14 +1833,14 @@ verus! {
                     } 
                 }
 
-                assert(forall |idx: u64| old(self).metadata_table_free_list@.contains(idx) ==> 
-                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                assert(forall |idx: u64| #[trigger] old(self).metadata_table_free_list@.contains(idx) ==> 
+                    old(self)@.durable_metadata_table[idx as int] is None);
 
 
                 assert(forall |idx: u64| {
                     &&& 0 <= idx < old(self)@.durable_metadata_table.len()
-                    &&& old(self).pending_deallocations_view().contains(idx) 
-                } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+                } ==> old(self)@.durable_metadata_table[idx as int] is None);
 
                 assert forall |idx: u64| self.metadata_table_free_list@.contains(idx) implies 
                     self.free_indices().contains(idx) 
@@ -1860,11 +1849,11 @@ verus! {
                         assert(old(self).pending_deallocations_view().contains(idx));
                         assert(forall |idx: u64| {
                             &&& 0 <= idx < old(self)@.durable_metadata_table.len()
-                            &&& old(self).pending_deallocations_view().contains(idx) 
-                        } ==> old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
-                        assert(old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                            &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+                        } ==> old(self)@.durable_metadata_table[idx as int] is None);
+                        assert(old(self)@.durable_metadata_table[idx as int] is None);
                     }
-                    assert(self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    assert(self@.durable_metadata_table[idx as int] is None);
                 }
                 assert(self.allocator_view() == self.free_indices());
             }
@@ -1884,7 +1873,7 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_metadata_table[index as int] is Valid,
+                self@.durable_metadata_table[index as int] is Some,
                 !self.pending_deallocations_view().contains(index),
                 parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
                                           overall_metadata.metadata_node_size) == Some(self@),
@@ -1927,14 +1916,14 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    let item_index = self@.durable_metadata_table[index as int]->Valid_0.item_index();
+                    let item_index = self@.durable_metadata_table[index as int].unwrap().item_index();
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_main_table_view.delete(index as int)
                     &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
                 }),
         {
             let entry_slot_size = overall_metadata.metadata_node_size;
-            let ghost item_index = self@.durable_metadata_table[index as int].unwrap_valid().item_index();
+            let ghost item_index = self@.durable_metadata_table[index as int].unwrap().item_index();
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
@@ -1984,8 +1973,7 @@ verus! {
                     let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     &&& validate_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat)
                     &&& i == index ==>
-                           parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) ==
-                           DurableEntry::<MetadataTableViewEntry<K>>::Invalid
+                           parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) is None
                     &&& i != index ==> parse_metadata_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) == 
                            parse_metadata_entry::<K>(old_entry_bytes, overall_metadata.num_keys as nat)
                 } by {
@@ -2018,8 +2006,8 @@ verus! {
                     parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
                                                 overall_metadata.metadata_node_size as nat);
                 assert(!self.pending_deallocations_view().contains(index));
-                assert(old_entries[index as int] is Valid);
-                assert(old_entries[index as int]->Valid_0.item_index() == item_index);
+                assert(old_entries[index as int] is Some);
+                assert(old_entries[index as int].unwrap().item_index() == item_index);
 
                 assert(no_duplicate_item_indexes(entries)) by {
 
@@ -2027,19 +2015,16 @@ verus! {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
-                        &&& #[trigger] entries[i] is Valid
-                        &&& #[trigger] entries[j] is Valid
-                    } implies entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
-                    by {
-                        assert(i == index ==> old_entries[j]->Valid_0.item_index() != item_index);
-                        assert(j == index ==> old_entries[i]->Valid_0.item_index() != item_index);
+                        &&& #[trigger] entries[i] is Some
+                        &&& #[trigger] entries[j] is Some
+                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
+                by {
+                        assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
+                        assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
                     }
                 }
 
-                let updated_table = old_main_table_view.durable_metadata_table.update(
-                    index as int,
-                    DurableEntry::<MetadataTableViewEntry<K>>::Invalid
-                );
+                let updated_table = old_main_table_view.durable_metadata_table.update(index as int, None);
                 assert(updated_table.len() == old_main_table_view.durable_metadata_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
@@ -2065,7 +2050,7 @@ verus! {
                         let j = choose|j: int| {
                             &&& 0 <= j < old_main_table_view.durable_metadata_table.len() 
                             &&& #[trigger] old_main_table_view.durable_metadata_table[j] matches
-                                DurableEntry::Valid(entry)
+                                Some(entry)
                             &&& entry.item_index() == i
                         };
                         assert(new_main_table_view.durable_metadata_table[j] ==
@@ -2099,7 +2084,7 @@ verus! {
                 pm_region@.len() == overall_metadata.region_size,
                 !self@.valid_item_indices().contains(item_index),
                 // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_metadata_table[index as int] is Valid,
+                self@.durable_metadata_table[index as int] is Some,
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
@@ -2115,7 +2100,7 @@ verus! {
                     &&& !main_table_view.valid_item_indices().contains(item_index)
 
                     // the index should not be deallocated in the tentative view
-                    &&& main_table_view.durable_metadata_table[index as int] is Valid
+                    &&& main_table_view.durable_metadata_table[index as int] is Some
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2139,7 +2124,7 @@ verus! {
                             overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                         let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                             overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                        let old_item_index = current_main_table_view.durable_metadata_table[index as int]->Valid_0.item_index();
+                        let old_item_index = current_main_table_view.durable_metadata_table[index as int].unwrap().item_index();
                         
                         &&& overall_metadata.main_table_addr <= log_entry.absolute_addr
                         &&& log_entry.absolute_addr + log_entry.len <=
@@ -2247,7 +2232,7 @@ verus! {
                     overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                let old_item_index = old_main_table_view.durable_metadata_table[index as int]->Valid_0.item_index();
+                let old_item_index = old_main_table_view.durable_metadata_table[index as int].unwrap().item_index();
                 
                 let new_entry_view = MetadataTableViewEntry {
                     entry: new_metadata_entry,
@@ -2268,7 +2253,7 @@ verus! {
                     );
                     &&& validate_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat)
                     &&& i == index ==> parse_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
-                            DurableEntry::Valid(new_entry_view)
+                            Some(new_entry_view)
                     &&& i != index ==> parse_metadata_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                             parse_metadata_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
                 } by {
@@ -2302,12 +2287,12 @@ verus! {
                     &&& 0 <= i < new_entries.len()
                     &&& 0 <= j < new_entries.len()
                     &&& i != j
-                    &&& #[trigger] new_entries[i] is Valid
-                    &&& #[trigger] new_entries[j] is Valid
-                } implies new_entries[i]->Valid_0.item_index() != new_entries[j]->Valid_0.item_index() by {
+                    &&& #[trigger] new_entries[i] is Some
+                    &&& #[trigger] new_entries[j] is Some
+                } implies new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() by {
                     if i != index && j != index {
-                        assert(new_entries[i]->Valid_0.item_index() == old_entries[i]->Valid_0.item_index());
-                        assert(new_entries[j]->Valid_0.item_index() == old_entries[j]->Valid_0.item_index());
+                        assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
+                        assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
                     }
                 }
 
@@ -2328,7 +2313,7 @@ verus! {
                     // the entry at index now contains the new item index, which means it has replaced the old item index
                     // in new_main_table_view.valid_item_indices()
                     assert({
-                        &&& #[trigger] updated_table_view.durable_metadata_table[index as int] matches DurableEntry::Valid(entry) 
+                        &&& #[trigger] updated_table_view.durable_metadata_table[index as int] matches Some(entry)
                         &&& entry.item_index() == item_index
                     });
                 }
@@ -2359,21 +2344,21 @@ verus! {
                 forall |idx: u64| old(self).free_indices().contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |i| 0 <= i < old(self)@.durable_metadata_table.len() ==> 
                     match #[trigger] old(self)@.durable_metadata_table[i] {
-                        DurableEntry::Valid(entry) => entry.entry.item_index < overall_metadata.num_keys,
+                        Some(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     },
                 pm.no_outstanding_writes(),
                 forall |idx: u64| old(self).allocator_view().contains(idx) ==> old(self).free_indices().contains(idx),
-                forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==> {
+                forall |idx: u64| #[trigger] old(self).pending_allocations_view().contains(idx) ==> {
                     &&& !old(self).free_indices().contains(idx)
-                    &&& old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    &&& old(self)@.durable_metadata_table[idx as int] is None
                     &&& idx < overall_metadata.num_keys
                 },
-                forall |idx: u64| old(self).pending_allocations_view().contains(idx) ==> {
-                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                forall |idx: u64| #[trigger] old(self).pending_allocations_view().contains(idx) ==> {
+                    old(self)@.durable_metadata_table[idx as int] is None
                 },
-                forall |idx: u64| old(self).allocator_view().contains(idx) ==> {
-                    old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                forall |idx: u64| #[trigger] old(self).allocator_view().contains(idx) ==> {
+                    old(self)@.durable_metadata_table[idx as int] is None
                 },
                 parse_metadata_table::<K>(pm.committed(), overall_metadata.num_keys, 
                     overall_metadata.metadata_node_size) is Some,
@@ -2389,7 +2374,7 @@ verus! {
                     |i: int| None::<MetadataTableViewEntry<K>>
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
-                self@.has_same_valid_items(old(self)@),
+                self@ == old(self)@,
                 self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
@@ -2414,17 +2399,6 @@ verus! {
                     }
                 }
             }
-
-            // Mark all tentative entries as Invalid in ghost state. The fact that they have a new entry 
-            // that has not been made valid yet no longer matters.
-            self.state = Ghost(MetadataTableView {
-                durable_metadata_table: self.state@.durable_metadata_table.map_values(
-                    |e| match e {
-                        DurableEntry::Tentative(e) => DurableEntry::Invalid,
-                        _ => e
-                    }
-                )
-            });
 
             // Drop all outstanding updates from the view
             self.outstanding_cdb_writes = Ghost(Seq::new(
@@ -2456,8 +2430,8 @@ verus! {
                 }
 
                 assert(forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> {
-                    ||| #[trigger] self.state@.durable_metadata_table[i] matches DurableEntry::Invalid 
-                    ||| self.state@.durable_metadata_table[i] matches DurableEntry::Valid(_)
+                    ||| #[trigger] self.state@.durable_metadata_table[i] is None 
+                    ||| self.state@.durable_metadata_table[i] is Some
                 });
 
                 // need this assertion for triggers
@@ -2467,7 +2441,7 @@ verus! {
                 assert forall |idx: u64| self.free_indices().contains(idx) implies 
                     self.allocator_view().contains(idx) 
                 by {
-                    assert(self@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                    assert(self@.durable_metadata_table[idx as int] is None);
                     if old(self).free_indices().contains(idx) {
                         // index was free before the abort, so it's still free and in the allocator list now.
                         assert(old(self).allocator_view().contains(idx));
@@ -2497,7 +2471,8 @@ verus! {
                         assert(old(self).allocator_view().contains(idx) ==> old(self).free_indices().contains(idx));
                     } else {
                         assert(old(self).pending_allocations@.contains(idx));
-                        assert(old(self)@.durable_metadata_table[idx as int] matches DurableEntry::Invalid);
+                        assert(old(self).pending_allocations_view().contains(idx));
+                        assert(old(self)@.durable_metadata_table[idx as int] is None);
                     }
                 }
                 assert(self.allocator_view() == self.free_indices());
@@ -2505,7 +2480,7 @@ verus! {
                 assert_sets_equal!(self@.valid_item_indices() == old(self)@.valid_item_indices(), elem => {
                     assert(forall |i: int| {
                         &&& 0 <= i < self@.durable_metadata_table.len() 
-                        &&& self@.durable_metadata_table[i] matches DurableEntry::Valid(_)
+                        &&& self@.durable_metadata_table[i] is Some
                     } ==> self@.durable_metadata_table[i] == old(self)@.durable_metadata_table[i]);
                 });
 

@@ -172,7 +172,7 @@ verus! {
                                                                                         metadata_node_size), num_keys)
     }
 
-    pub open spec fn parse_metadata_entries<K>(mem: Seq<u8>, num_keys: nat, metadata_node_size: nat) -> Seq<DurableEntry<MetadataTableViewEntry<K>>>
+    pub open spec fn parse_metadata_entries<K>(mem: Seq<u8>, num_keys: nat, metadata_node_size: nat) -> Seq<Option<MetadataTableViewEntry<K>>>
         where 
             K: PmCopy,
     {
@@ -183,7 +183,7 @@ verus! {
         )
     }
 
-    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MetadataTableViewEntry<K>>
+    pub open spec fn parse_metadata_entry<K>(bytes: Seq<u8>, num_keys: nat) -> Option<MetadataTableViewEntry<K>>
         where 
             K: PmCopy,
         recommends
@@ -205,10 +205,10 @@ verus! {
         let key = K::spec_from_bytes(key_bytes);
         
         if cdb == CDB_FALSE {
-            DurableEntry::Invalid
+            None
         } else {
             // cdb == CDB_TRUE
-            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(metadata, key))
+            Some(MetadataTableViewEntry::<K>::new(metadata, key))
         }
     }
 
@@ -272,7 +272,7 @@ verus! {
     //     }
     // }
 
-    pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<DurableEntry<MetadataTableViewEntry<K>>>) -> bool 
+    pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<Option<MetadataTableViewEntry<K>>>) -> bool 
         where 
             K: PmCopy
     {
@@ -280,9 +280,9 @@ verus! {
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
-            &&& #[trigger] entries[i] is Valid
-            &&& #[trigger] entries[j] is Valid
-        } ==> entries[i]->Valid_0.item_index() != entries[j]->Valid_0.item_index()
+            &&& #[trigger] entries[i] is Some
+            &&& #[trigger] entries[j] is Some
+        } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
     }
 
     // // This function parses metadata entries before they are validated. It works the same
@@ -700,8 +700,8 @@ verus! {
             (Some(table1), Some(table2)) => {
                 assert(forall |i: int| {
                     &&& 0 <= i < num_keys 
-                    &&& #[trigger] table1.durable_metadata_table[i] matches DurableEntry::Valid(entry)
-                } ==> table2.durable_metadata_table[i] matches DurableEntry::Valid(entry));
+                    &&& #[trigger] table1.durable_metadata_table[i] is Some
+                } ==> table2.durable_metadata_table[i] is Some);
             }
             (None, Some(table2)) => {
                 let entries = parse_metadata_entries::<K>(mem1, num_keys as nat, metadata_node_size as nat);
