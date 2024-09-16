@@ -1295,9 +1295,9 @@ verus! {
         ) -> DurableKvStoreView<K, I, L>
         {
             let contents = Map::new(
-                |i: int| 0 <= i < recovered_main_table.durable_metadata_table.len() && recovered_main_table.durable_metadata_table[i] matches DurableEntry::Valid(_),
+                |i: int| 0 <= i < recovered_main_table.durable_metadata_table.len() && recovered_main_table.durable_metadata_table[i] is Some,
                 |i: int| {
-                    let main_table_entry = recovered_main_table.durable_metadata_table[i].unwrap_valid();
+                    let main_table_entry = recovered_main_table.durable_metadata_table[i].unwrap();
                     let item_index = main_table_entry.item_index();
                     let list_head_index = main_table_entry.list_head_index();
                     let key = main_table_entry.key();
@@ -1314,26 +1314,6 @@ verus! {
                 }
             );
             DurableKvStoreView { contents }
-        }
-
-        proof fn lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
-            recovered_main_table1: MetadataTableView<K>, 
-            recovered_main_table2: MetadataTableView<K>, 
-            recovered_item_table: DurableItemTableView<I>,
-            recovered_lists: DurableListView<K, L>
-        )
-            requires
-                recovered_main_table1.has_same_valid_items(recovered_main_table2),
-            ensures
-                Self::recover_from_component_views(recovered_main_table1, recovered_item_table, recovered_lists) ==
-                Self::recover_from_component_views(recovered_main_table2, recovered_item_table, recovered_lists)
-        {
-            match (Self::recover_from_component_views(recovered_main_table1, recovered_item_table, recovered_lists),
-                   Self::recover_from_component_views(recovered_main_table2, recovered_item_table, recovered_lists)) {
-                (DurableKvStoreView{ contents: contents1 }, DurableKvStoreView{ contents: contents2 }) => {
-                    assert(contents1 =~= contents2);
-                }
-            }
         }
 
         pub exec fn get_elements_per_node(&self) -> u64 {
@@ -1450,7 +1430,7 @@ verus! {
                 let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
                 
-                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().get_durable_metadata_table().len() ==> #[trigger] recovered_main_table.unwrap().get_durable_metadata_table()[i] matches DurableEntry::Invalid);
+                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().get_durable_metadata_table().len() ==> #[trigger] recovered_main_table.unwrap().get_durable_metadata_table()[i] is None);
 
                 DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
                     recovered_main_table.unwrap().get_durable_metadata_table(),
@@ -1706,6 +1686,7 @@ verus! {
                 }),
                 forall |s| Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) == Self::physical_recover(s, version_metadata, overall_metadata) 
                     ==> perm.check_permission(s),
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) is Some,
@@ -1789,6 +1770,7 @@ verus! {
                         extract_bytes(old(wrpm_region)@.committed(), 0, VersionMetadata::spec_size_of()),
                     extract_bytes(wrpm_region@.committed(), version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
                         extract_bytes(old(wrpm_region)@.committed(), version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()),    
+                    VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
             {
                 let op = &phys_log[index];
 
@@ -2024,12 +2006,12 @@ verus! {
                     lemma_valid_entry_index(which_entry as nat, num_keys as nat, metadata_node_size as nat);
                     assert(self.metadata_table.allocator_view().contains(which_entry as u64));
                     assert(self.metadata_table.free_indices().contains(which_entry as u64));
-                    assert(self.metadata_table@.durable_metadata_table[which_entry as int] is Invalid);
+                    assert(self.metadata_table@.durable_metadata_table[which_entry as int] is None);
                     let entry_bytes = extract_bytes(ss1,
                                                     index_to_offset(which_entry as nat, metadata_node_size as nat),
                                                     metadata_node_size as nat);
                     assert(validate_metadata_entry::<K>(entry_bytes, num_keys as nat));
-                    assert(parse_metadata_entry::<K>(entry_bytes, num_keys as nat) is Invalid);
+                    assert(parse_metadata_entry::<K>(entry_bytes, num_keys as nat) is None);
                     let cdb_bytes = extract_bytes(ss1,
                                                   index_to_offset(which_entry as nat, metadata_node_size as nat),
                                                   u64::spec_size_of());
@@ -2448,8 +2430,8 @@ verus! {
                             Some(self.metadata_table@) == parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size)
                 })
             ensures 
-                forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) ==> {
-                    self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) ==> {
+                    self.metadata_table@.durable_metadata_table[idx as int] is None
                 }
         {
             let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, 
@@ -2475,8 +2457,8 @@ verus! {
             assert(self.metadata_table.pending_alloc_inv(durable_main_table_subregion_state, 
                 tentative_main_table_subregion_state, self.overall_metadata));
 
-            assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
-                durable_main_table_view.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+            assert forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) implies {
+                durable_main_table_view.durable_metadata_table[idx as int] is None
             } by {
                 assert(self.metadata_table.pending_alloc_check(idx, durable_main_table_view, 
                     tentative_main_table_view));
@@ -2609,9 +2591,7 @@ verus! {
                     pre_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                Self::lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
-                    self.metadata_table@, pre_self.metadata_table@, self.item_table@, self.durable_list@
-                );
+                assert(self.metadata_table@ == pre_self.metadata_table@);
                 assert(self.item_table@ == pre_self.item_table@);
                 assert(self.durable_list@ == pre_self.durable_list@);
             }
@@ -2633,7 +2613,6 @@ verus! {
                 old(self).metadata_table.pending_allocations_view() == pre_self.metadata_table.pending_allocations_view(),
                 old(self).metadata_table.allocator_view().len() == 0,
                 old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
-                old(self).metadata_table@.has_same_valid_items(pre_self.metadata_table@),
                 ({
                     let condition = old_self.condition_preserved_by_subregion_masks();
                     &&& forall|s| old(self).wrpm@.can_crash_as(s) ==> condition(s)
@@ -2644,6 +2623,7 @@ verus! {
                                        old(self).overall_metadata.main_table_size as nat),
                     old(self).overall_metadata
                 ),
+                old(self).metadata_table@ == pre_self.metadata_table@,
                 old(self).metadata_table.allocator_inv(),
                 old_self.inv(),
                 old_self.constants() == pre_self.constants(),
@@ -2671,9 +2651,9 @@ verus! {
                     ||| old(self).item_table.pending_allocations_view().contains(idx)
                     ||| old(self).item_table.allocator_view().contains(idx)
                 },
-                forall |idx: u64| old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
+                forall |idx: u64| #[trigger] old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
                     &&& !old(self).metadata_table.free_indices().contains(idx)
-                    &&& old(self).metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+                    &&& old(self).metadata_table@.durable_metadata_table[idx as int] is None
                     &&& idx < old(self).overall_metadata.num_keys
                 },
             ensures
@@ -2742,9 +2722,7 @@ verus! {
                     old_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                Self::lemma_recover_from_component_views_same_if_main_table_has_same_valid_items(
-                    self.metadata_table@, old_self.metadata_table@, self.item_table@, self.durable_list@
-                );
+                assert(self.metadata_table@ == old_self.metadata_table@);
                 assert(self.item_table@ == old_self.item_table@);
                 assert(self.durable_list@ == old_self.durable_list@);
             }
@@ -2975,12 +2953,12 @@ verus! {
 
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
-                assert forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) implies {
-                    &&& self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid
+
+                assert forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) implies {
+                    &&& self.metadata_table@.durable_metadata_table[idx as int] is None
                 } by {
-                    assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@,
-                                                                   tentative_main_table_view));
-                }
+                    assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@, tentative_main_table_view));
+                } 
             }
             
             assert(self.inv());
@@ -3890,10 +3868,10 @@ verus! {
                 // After replaying and clearing the log, all metadata indices pending allocation
                 // are now valid and all metadata indices pending deallocation are invalid
                 assert forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() implies {
-                    &&& self.metadata_table.pending_allocations_view().contains(idx) ==> 
-                            {self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_)}
+                    &&& #[trigger] self.metadata_table.pending_allocations_view().contains(idx) ==> 
+                            {self.metadata_table@.durable_metadata_table[idx as int] is Some}
                     &&& self.metadata_table.pending_deallocations_view().contains(idx) ==> 
-                            {self.metadata_table@.durable_metadata_table[idx as int] matches DurableEntry::Invalid}
+                            {self.metadata_table@.durable_metadata_table[idx as int] is None}
                 } by {
                     // trigger the pending alloc check
                     assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
@@ -3911,11 +3889,11 @@ verus! {
                 assert forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() implies {
                     let entry = #[trigger] self.metadata_table@.durable_metadata_table[idx as int];
                     match entry {
-                        DurableEntry::Invalid => {
+                        None => {
                             ||| self.metadata_table.allocator_view().contains(idx)
                             ||| self.metadata_table.pending_deallocations_view().contains(idx)
-                        }
-                        DurableEntry::Valid(entry) => {
+                        },
+                        Some(entry) => {
                             // if the entry is valid, either it was pending allocation
                             // or it's just valid and not in any of the three lists
                             ||| self.metadata_table.pending_allocations_view().contains(idx)
@@ -3924,8 +3902,7 @@ verus! {
                                 &&& !self.metadata_table.pending_deallocations_view().contains(idx)
                                 &&& !self.metadata_table.pending_allocations_view().contains(idx)
                             })
-                        }
-                        _ => false
+                        },
                     }
                 } by {
                     assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view,

@@ -21,14 +21,15 @@ verus! {
 
     impl AbstractPhysicalOpLogEntry
     {
-        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool {
+        pub open spec fn inv(self, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
+        {
             &&& self.len > 0
-            &&& 0 <= self.absolute_addr < self.absolute_addr + self.len < overall_metadata.region_size
+            &&& 0 <= self.absolute_addr
+            &&& self.absolute_addr + self.len <= overall_metadata.region_size
             &&& ({
-                ||| self.absolute_addr + self.len < overall_metadata.log_area_addr
-                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size < self.absolute_addr
+                ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
-            &&& VersionMetadata::spec_size_of() <= self.absolute_addr
             &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <= self.absolute_addr
             &&& self.len == self.bytes.len()
         }
@@ -138,8 +139,7 @@ verus! {
         }
 
         pub closed spec fn crc_invariant(self) -> bool {
-            &&& !self@.op_list_committed && self.log@.pending.len() > 0 ==> self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
-            &&& self.log@.pending.len() == 0 ==> self.current_transaction_crc.bytes_in_digest().len() == 0
+            self.current_transaction_crc.bytes_in_digest().flatten() == self.log@.pending
         }
 
         pub closed spec fn inv(self, pm_region: PersistentMemoryRegionView, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> bool
@@ -177,7 +177,7 @@ verus! {
                     let op = #[trigger] self@.physical_op_list[i];
                     op.inv(version_metadata, overall_metadata)
             } 
-            &&& overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region.len() <= u64::MAX
+            &&& overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region.len() <= u64::MAX
             &&& overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0
             &&& overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0
             &&& no_outstanding_writes_to_metadata(pm_region, overall_metadata.log_area_addr as nat)
@@ -523,14 +523,13 @@ verus! {
                 ||| offset + u64::spec_size_of() * 2 > u64::MAX
                 ||| offset + u64::spec_size_of() * 2 + len > u64::MAX
                 ||| absolute_addr + len > u64::MAX
-                ||| absolute_addr + len >= region_size
+                ||| absolute_addr + len > region_size
                 ||| offset + u64::spec_size_of() * 2 > log_contents.len()
                 ||| offset + u64::spec_size_of() * 2 + len > log_contents.len()
                 ||| !({
-                    ||| absolute_addr < absolute_addr + len < log_start_addr // region end before log area
-                    ||| log_start_addr + log_size < absolute_addr < absolute_addr + len // region ends after log area
+                    ||| absolute_addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= absolute_addr // region ends after log area
                 })
-                ||| absolute_addr < VersionMetadata::spec_size_of()
                 ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of()
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len
@@ -902,8 +901,8 @@ verus! {
                 ||| offset + traits_t::size_of::<u64>() * 2 > log_bytes.len()
                 ||| offset + traits_t::size_of::<u64>() * 2 + len as usize > log_bytes.len()
                 ||| !({
-                    ||| addr + len < log_start_addr // region end before log area
-                    ||| log_start_addr + log_size < addr // region ends after log area
+                    ||| addr + len <= log_start_addr // region end before log area
+                    ||| log_start_addr + log_size <= addr // region ends after log area
                 })
                 ||| len == 0
                 ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
@@ -1163,8 +1162,12 @@ verus! {
                 &&& pending_bytes.len() + u64::spec_size_of() * 2 + log_entry.len <= u64::MAX
             }),
             // log entry is valid
-            0 <= log_entry.absolute_addr < log_entry.absolute_addr + log_entry.len < pm_region.len() <= u64::MAX,
-            log_entry.absolute_addr + log_entry.len < overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size < log_entry.absolute_addr,
+            0 <= log_entry.absolute_addr,
+            log_entry.absolute_addr + log_entry.len <= pm_region.len() <= u64::MAX,
+            ({
+                ||| log_entry.absolute_addr + log_entry.len <= overall_metadata.log_area_addr
+                ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= log_entry.absolute_addr
+            }),
             log_entry.bytes@.len() <= u64::MAX,
             log_entry.len != 0,
             log_entry.len == log_entry.bytes@.len(),
@@ -1401,18 +1404,10 @@ verus! {
             let bytes = absolute_addr.spec_to_bytes();
             assert(current_digest == old_digest.push(bytes));
             assert(self.log@.pending == old_pending + bytes);
-            // The proof is slightly different if the log was empty before this operation.
-            // The other proofs about CRC digest bytes for the other appends don't need 
-            // to consider this because we will have appended to the log by then.
-            if old_pending.len() > 0 {
-                assert(old_digest.flatten() == old_pending);
-                Self::lemma_seqs_flatten_equal_suffix(current_digest);
-                assert(current_digest[current_digest.len() - 1] == bytes);
-                assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
-            } else {
-                assert(current_digest.len() == 1);
-                current_digest.lemma_flatten_one_element();
-            }
+            assert(old_digest.flatten() == old_pending);
+            Self::lemma_seqs_flatten_equal_suffix(current_digest);
+            assert(current_digest[current_digest.len() - 1] == bytes);
+            assert(current_digest.subrange(0, current_digest.len() - 1) == old_digest);
             assert(current_digest.flatten() == old_digest.flatten() + bytes);
         }
 
@@ -1759,7 +1754,7 @@ verus! {
         assert(Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
 
         assert(self.log@.pending.len() == 0);
-        assert(self.current_transaction_crc.bytes_in_digest().len() == 0);
+        assert(self.current_transaction_crc.bytes_in_digest().flatten() =~= self.log@.pending);
         Ok(())
     }
 }
