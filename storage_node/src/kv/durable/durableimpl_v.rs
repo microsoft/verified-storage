@@ -3547,6 +3547,99 @@ verus! {
             }
         }
 
+        proof fn lemma_commit_log_precondition(
+            self,
+            crash_pred: spec_fn(Seq<u8>) -> bool,
+            perm: &Perm,
+        )
+            requires 
+                self.valid(),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
+                forall |s| crash_pred(s) ==> perm.check_permission(s),
+                forall |s: Seq<u8>| {
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                } <==> crash_pred(s),
+                self.tentative_view() is Some,
+                !self.transaction_committed(),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
+                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@),
+                forall |s| {
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                } ==> #[trigger] perm.check_permission(s),
+                self.spec_num_log_entries_in_current_transaction() > 0,
+                !self.transaction_committed(),
+                no_outstanding_writes_to_version_metadata(self.wrpm@),
+                no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
+                self.wrpm@.len() >= VersionMetadata::spec_size_of(),
+            ensures
+                forall |s1: Seq<u8>, s2: Seq<u8>| {
+                    &&& s1.len() == s2.len() 
+                    &&& #[trigger] crash_pred(s1)
+                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                } ==> #[trigger] crash_pred(s2),
+                forall |s2: Seq<u8>| {
+                    let flushed_state = self.wrpm@.flush().committed();
+                    &&& flushed_state.len() == s2.len() 
+                    &&& states_differ_only_in_log_region(flushed_state, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& {
+                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log())
+                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                    }
+                } ==> perm.check_permission(s2),
+        {
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
+
+            // Prove that the crash predicate satisfies the preconditions about it, which specify how we can crash
+            // before and after `commit_log` flushes the device.
+            assert forall |s1: Seq<u8>, s2: Seq<u8>| {
+                    &&& s1.len() == s2.len() 
+                    &&& #[trigger] crash_pred(s1)
+                    &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                    &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+            } implies #[trigger] crash_pred(s2) by { self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(s1, s2, crash_pred); }
+            
+            assert forall |s2: Seq<u8>| {
+                let flushed_state = self.wrpm@.flush().committed();
+                &&& flushed_state.len() == s2.len() 
+                &&& states_differ_only_in_log_region(flushed_state, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
+                &&& {
+                        ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log())
+                        ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
+                }
+            } implies perm.check_permission(s2) by {
+                let flushed_state = self.wrpm@.flush().committed();
+                assert(self.wrpm@.can_crash_as(flushed_state));
+                if UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log()) {
+                    // The CDB made it to storage.
+                    // In this case, the whole KV store recovers to its tentative view. 
+                    let committed_log = self.log@.commit_op_log();
+
+                    Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
+                        flushed_state, s2, committed_log.physical_op_list, self.version_metadata, self.overall_metadata);
+                    Self::lemma_log_replay_preserves_size(s2, committed_log.physical_op_list);
+                    let flushed_state_with_log_installed = Self::apply_physical_log_entries(flushed_state, committed_log.physical_op_list).unwrap();
+                    let s2_with_log_installed = Self::apply_physical_log_entries(s2, committed_log.physical_op_list).unwrap();
+
+                    assert(states_differ_only_in_log_region(flushed_state_with_log_installed, s2_with_log_installed, 
+                        self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+                    lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                        flushed_state_with_log_installed, s2_with_log_installed, self.version_metadata, self.overall_metadata);
+                } else {
+                    // The CDB did not make it to storage.
+                    assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+                    self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(flushed_state, s2, crash_pred);
+                }
+            }
+            assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+        }
+
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
         pub fn commit(
@@ -3609,50 +3702,7 @@ verus! {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
                 Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
-
-                // Prove that we satisfy commit_log's preconditions
-
-                // Prove that the crash predicate satisfies the preconditions about it, which specify how we can crash
-                // before and after `commit_log` flushes the device.
-                assert forall |s1: Seq<u8>, s2: Seq<u8>| {
-                        &&& s1.len() == s2.len() 
-                        &&& #[trigger] crash_pred(s1)
-                        &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                        &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                        &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                } implies #[trigger] crash_pred(s2) by { self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(s1, s2, crash_pred); }
-                assert forall |s2: Seq<u8>| {
-                    let flushed_state = self.wrpm@.flush().committed();
-                    &&& flushed_state.len() == s2.len() 
-                    &&& states_differ_only_in_log_region(flushed_state, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                    &&& {
-                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log())
-                            ||| UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-                    }
-                } implies perm.check_permission(s2) by {
-                    let flushed_state = self.wrpm@.flush().committed();
-                    assert(self.wrpm@.can_crash_as(flushed_state));
-                    if UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(self.log@.commit_op_log()) {
-                        // The CDB made it to storage.
-                        // In this case, the whole KV store recovers to its tentative view. 
-                        let committed_log = self.log@.commit_op_log();
-
-                        Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
-                            flushed_state, s2, committed_log.physical_op_list, self.version_metadata, self.overall_metadata);
-                        Self::lemma_log_replay_preserves_size(s2, committed_log.physical_op_list);
-                        let flushed_state_with_log_installed = Self::apply_physical_log_entries(flushed_state, committed_log.physical_op_list).unwrap();
-                        let s2_with_log_installed = Self::apply_physical_log_entries(s2, committed_log.physical_op_list).unwrap();
-
-                        assert(states_differ_only_in_log_region(flushed_state_with_log_installed, s2_with_log_installed, 
-                            self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
-                        lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
-                            flushed_state_with_log_installed, s2_with_log_installed, self.version_metadata, self.overall_metadata);
-                    } else {
-                        // The CDB did not make it to storage.
-                        assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
-                        self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(flushed_state, s2, crash_pred);
-                    }
-                }
+                self.lemma_commit_log_precondition(crash_pred, perm);
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
             }
 
