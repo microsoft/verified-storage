@@ -2080,8 +2080,8 @@ verus! {
         proof fn lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
             self,
             old_self: Self,
-            perm: &Perm,
             subregion: WriteRestrictedPersistentMemorySubregion,
+            perm: &Perm,
         )
             requires
                 old_self.inv(),
@@ -2268,8 +2268,8 @@ verus! {
         proof fn lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
             self,
             old_self: Self,
-            perm: &Perm,
             subregion: WriteRestrictedPersistentMemorySubregion,
+            perm: &Perm,
         )
             requires
                 old_self.inv(),
@@ -2934,7 +2934,7 @@ verus! {
                 Err(e) => {
                     proof {
                         self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                            self_before_tentative_item_write, perm, item_table_subregion
+                            self_before_tentative_item_write, item_table_subregion, perm
                         );
                         assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                         assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
@@ -2947,7 +2947,7 @@ verus! {
 
             proof {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                    self_before_tentative_item_write, perm, item_table_subregion
+                    self_before_tentative_item_write, item_table_subregion, perm
                 );
                 self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
 
@@ -2999,7 +2999,7 @@ verus! {
                 Err(e) => {
                     proof {
                         self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
-                            self_before_main_table_create, perm, main_table_subregion
+                            self_before_main_table_create, main_table_subregion, perm
                         );
                     }
                     self.abort_after_failed_main_table_tentative_create(Ghost(*old(self)),
@@ -3013,7 +3013,7 @@ verus! {
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
-                    self_before_main_table_create, perm, main_table_subregion
+                    self_before_main_table_create, main_table_subregion, perm
                 );
                 self.log.lemma_same_op_log_view_preserves_invariant(old(self).wrpm, self.wrpm, self.version_metadata,
                                                                     self.overall_metadata);
