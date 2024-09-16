@@ -2989,6 +2989,33 @@ verus! {
                 tentative_main_table.valid_item_indices()));
         }
 
+        proof fn lemma_reestablish_inv_after_logging_tentative_item_update(
+            self,
+            old_self: Self,
+            index: u64,
+            item_index: u64,
+            item: I,
+            item_table_subregion: WriteRestrictedPersistentMemorySubregion,
+            tentative_view_bytes: Seq<u8>,
+            perm: &Perm
+        )
+            requires 
+
+            ensures 
+                self.inv(),
+                old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len(),
+                self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap(),
+        {
+            // TODO @hayley
+            assume(false);
+
+            // assume(recovery_state_with_new_log.unwrap() == old(self).tentative_view().unwrap().update_item(offset as int, *item).unwrap());
+            // assume(self.tentative_view() == recovery_state_with_new_log);
+            // assume(self.tentative_view().unwrap().len() == old(self).tentative_view().unwrap().len());
+            
+            // assume(self.inv());
+        }
+
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -3190,20 +3217,12 @@ verus! {
 
             proof {
                 // TODO @hayley
-
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
 
-                // assert(Self::physical_recover(old(self).wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                //     Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata));
-                assume(false);
-
-                assume(recovery_state_with_new_log.unwrap() == old(self).tentative_view().unwrap().update_item(offset as int, *item).unwrap());
-                assume(self.tentative_view() == recovery_state_with_new_log);
-                assume(self.tentative_view().unwrap().len() == old(self).tentative_view().unwrap().len());
-                
-                assume(self.inv());
+                self.lemma_reestablish_inv_after_logging_tentative_item_update(*old(self), offset, item_index,
+                    *item, item_table_subregion, tentative_view_bytes, perm);
             }
 
             Ok(())
