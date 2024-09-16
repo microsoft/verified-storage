@@ -301,10 +301,9 @@ impl WriteRestrictedPersistentMemorySubregion
         get_subregion_view(wrpm@, self.start(), self.len())
     }
 
-    pub closed spec fn opaque_inv<Perm, PMRegion>(
+    pub closed spec fn opaque_relation_with_wrpm<Perm, PMRegion>(
         self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: &Perm
     ) -> bool
         where
             Perm: CheckPermission<Seq<u8>>,
@@ -313,11 +312,16 @@ impl WriteRestrictedPersistentMemorySubregion
         &&& wrpm.inv()
         &&& wrpm.constants() == self.constants()
         &&& wrpm@.len() == self.initial_region_view().len()
-        &&& self.initial_region_view().len() <= u64::MAX
         &&& self.start() + self.len() <= wrpm@.len()
         &&& self.view(wrpm).len() == self.len()
         &&& views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(),
                                                    self.len(), self.is_writable_absolute_addr_fn())
+    }
+
+    pub closed spec fn opaque_relation_with_perm<Perm>(self, perm: &Perm) -> bool
+        where
+            Perm: CheckPermission<Seq<u8>>,
+    {
         &&& forall |alt_region_view: PersistentMemoryRegionView, alt_crash_state: Seq<u8>| {
               &&& #[trigger] alt_region_view.can_crash_as(alt_crash_state)
               &&& self.initial_region_view().len() == alt_region_view.len()
@@ -337,7 +341,9 @@ impl WriteRestrictedPersistentMemorySubregion
             PMRegion: PersistentMemoryRegion,
     {
         &&& self.view(wrpm).len() == self.len()
-        &&& self.opaque_inv(wrpm, perm)
+        &&& self.initial_region_view().len() <= u64::MAX
+        &&& self.opaque_relation_with_wrpm(wrpm)
+        &&& self.opaque_relation_with_perm(perm)
     }
 
     pub exec fn read_relative_unaligned<Perm, PMRegion>(
@@ -679,13 +685,12 @@ impl WriteRestrictedPersistentMemorySubregion
     pub proof fn lemma_reveal_opaque_inv<Perm, PMRegion>(
         self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: &Perm
     )
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(wrpm, perm),
+            self.opaque_relation_with_wrpm(wrpm),
         ensures
             wrpm.inv(),
             wrpm.constants() == self.constants(),
@@ -701,13 +706,12 @@ impl WriteRestrictedPersistentMemorySubregion
     pub proof fn lemma_if_committed_subview_unchanged_then_committed_view_unchanged<Perm, PMRegion>(
         self,
         wrpm: &WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>,
-        perm: &Perm
     )
         where
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
         requires
-            self.inv(wrpm, perm),
+            self.opaque_relation_with_wrpm(wrpm),
             self.view(wrpm).committed() == self.initial_subregion_view().committed(),
         ensures
             wrpm@.committed() == self.initial_region_view().committed(),

@@ -2116,7 +2116,7 @@ verus! {
                     &&& condition(self.wrpm@.committed())
                 })
         {
-            subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+            subregion.lemma_reveal_opaque_inv(&self.wrpm);
 
             let condition = old_self.condition_preserved_by_subregion_masks();
             assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
@@ -2304,7 +2304,7 @@ verus! {
                     &&& condition(self.wrpm@.committed())
                 })
         {
-            subregion.lemma_reveal_opaque_inv(&self.wrpm, perm);
+            subregion.lemma_reveal_opaque_inv(&self.wrpm);
 
             let condition = old_self.condition_preserved_by_subregion_masks();
             assert forall|s| self.wrpm@.can_crash_as(s) implies condition(s) by {
