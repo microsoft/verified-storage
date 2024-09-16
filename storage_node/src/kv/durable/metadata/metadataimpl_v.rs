@@ -28,22 +28,16 @@ use crate::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
-        pub crc: u64,
         pub entry: ListEntryMetadata,
         pub key: K,
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+        pub open spec fn new(entry: ListEntryMetadata, key: K) -> Self {
             Self {
-                crc,
                 entry,
                 key,
             }
-        }
-
-        pub closed spec fn crc(self) -> u64 {
-            self.crc
         }
 
         pub closed spec fn list_head_index(self) -> u64 {
@@ -155,7 +149,8 @@ verus! {
                 }
             )
         }
-    }
+
+    }
 
     pub struct MetadataTable<K> {
         metadata_node_size: u32,
@@ -275,7 +270,6 @@ verus! {
             match self.outstanding_entry_writes@[i] {
                 None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + metadata_node_size),
                 Some(e) => {
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), u64::spec_to_bytes(e.crc))
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
                                               ListEntryMetadata::spec_to_bytes(e.entry))
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
@@ -448,7 +442,6 @@ verus! {
                     &&& K::bytes_parseable(key_bytes)
                     &&& cdb == CDB_TRUE
                     &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
-                    &&& crc == meta.crc
                     &&& entry == meta.entry
                     &&& key == meta.key
                 }),
@@ -853,7 +846,8 @@ verus! {
                     metadata_node_size == overall_metadata.metadata_node_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_metadata_table[i as int];
-                        entry is None <==> metadata_allocator@.contains(i)
+                        entry is None <==> 
+metadata_allocator@.contains(i)
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     forall |i: int, j: int| 0 <= i < metadata_allocator.len() && 0 <= j < metadata_allocator.len() && i != j ==>
@@ -1517,7 +1511,7 @@ verus! {
                                                                                   &entry, Tracked(perm));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
 
-            let ghost metadata_table_entry = MetadataTableViewEntry{crc, entry, key: *key };
+            let ghost metadata_table_entry = MetadataTableViewEntry{entry, key: *key };
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
@@ -1728,7 +1722,8 @@ verus! {
                         None => {
                             ||| old(self).allocator_view().contains(idx)
                             ||| old(self).pending_deallocations_view().contains(idx)
-                        },
+                        }
+,
                         Some(entry) => {
                             // if the entry is valid, either it was pending allocation
                             // or it's just valid and not in any of the three lists
@@ -1738,7 +1733,8 @@ verus! {
                                 &&& !old(self).pending_deallocations_view().contains(idx)
                                 &&& !old(self).pending_allocations_view().contains(idx)
                             })
-                        },
+                        }
+,
                     }
                 },
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
@@ -1804,7 +1800,8 @@ verus! {
                             
                             assert(self.metadata_table_free_list@.contains(idx));
                             assert(self.allocator_view().contains(idx));
-                        },
+                        }
+,
                         Some(entry) => {
                             // This index was either pending allocation or already allocated
                             assert({
@@ -1820,7 +1817,8 @@ verus! {
                                 assert(!old(self).pending_deallocations_view().contains(idx));
                                 assert(!self.allocator_view().contains(idx));
                             } // else, trivial -- it wasn't in any of the sets before so it isn't now
-                        },
+                        }
+,
                     }
                 }
                 assert(self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata));
@@ -2240,7 +2238,8 @@ verus! {
                     }
                 }
 
-                let updated_table = old_main_table_view.durable_metadata_table.update(index as int, None);
+                let updated_table = old_main_table_view.durable_metadata_table.update(
+index as int, None);
                 assert(updated_table.len() == old_main_table_view.durable_metadata_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 

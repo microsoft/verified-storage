@@ -208,7 +208,7 @@ verus! {
             None
         } else {
             // cdb == CDB_TRUE
-            Some(MetadataTableViewEntry::<K>::new(crc, metadata, key))
+            Some(MetadataTableViewEntry::<K>::new(metadata, key))
         }
     }
 
