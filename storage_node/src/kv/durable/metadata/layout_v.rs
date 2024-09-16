@@ -208,7 +208,7 @@ verus! {
             DurableEntry::Invalid
         } else {
             // cdb == CDB_TRUE
-            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(crc, metadata, key))
+            DurableEntry::Valid(MetadataTableViewEntry::<K>::new(metadata, key))
         }
     }
 

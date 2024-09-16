@@ -28,22 +28,16 @@ use crate::util_v::*;
 
 verus! {
     pub struct MetadataTableViewEntry<K> {
-        pub crc: u64,
         pub entry: ListEntryMetadata,
         pub key: K,
     }
 
     impl<K> MetadataTableViewEntry<K> {
-        pub open spec fn new(crc: u64, entry: ListEntryMetadata, key: K) -> Self {
+        pub open spec fn new(entry: ListEntryMetadata, key: K) -> Self {
             Self {
-                crc,
                 entry,
                 key,
             }
-        }
-
-        pub closed spec fn crc(self) -> u64 {
-            self.crc
         }
 
         pub closed spec fn list_head_index(self) -> u64 {
@@ -132,7 +126,6 @@ verus! {
                     ..current_entry.entry
                 };
                 let new_durable_entry = DurableEntry::Valid(MetadataTableViewEntry {
-                    crc: current_entry.crc,
                     entry: updated_entry,
                     key: current_entry.key,
                 });
@@ -280,7 +273,6 @@ verus! {
             match self.outstanding_entry_writes@[i] {
                 None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + metadata_node_size),
                 Some(e) => {
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), u64::spec_to_bytes(e.crc))
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
                                               ListEntryMetadata::spec_to_bytes(e.entry))
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
@@ -457,7 +449,6 @@ verus! {
                     &&& K::bytes_parseable(key_bytes)
                     &&& cdb == CDB_TRUE
                     &&& crc_bytes == spec_crc_bytes(entry_bytes + key_bytes)
-                    &&& crc == meta.crc
                     &&& entry == meta.entry
                     &&& key == meta.key
                 }),
@@ -1527,7 +1518,7 @@ verus! {
                                                                                   &entry, Tracked(perm));
             subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
 
-            let ghost metadata_table_entry = MetadataTableViewEntry{crc, entry, key: *key };
+            let ghost metadata_table_entry = MetadataTableViewEntry{entry, key: *key };
             self.outstanding_entry_writes =
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(metadata_table_entry)));
 
@@ -2252,23 +2243,20 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
 
-                let committed_main_table_view = parse_metadata_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let old_main_table_view = parse_metadata_table::<K>(old_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap();
                 let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.metadata_node_size);
                 let old_item_index = old_main_table_view.durable_metadata_table[index as int]->Valid_0.item_index();
-
-
-                assert(self.pending_alloc_check(index, committed_main_table_view, old_main_table_view));
                 
                 let new_entry_view = MetadataTableViewEntry {
-                    crc,
                     entry: new_metadata_entry,
                     key: *key,
                 };
 
+                // Prove that parsing each entry individually gives the expected entries.
+                // This helps prove that parsing the entire table suceeds and also that we 
+                // get the expected table contents.
                 assert forall |i: nat| i < overall_metadata.num_keys implies {
                     let new_bytes = extract_bytes(new_main_table_region,
                         #[trigger] index_to_offset(i, overall_metadata.metadata_node_size as nat),
@@ -2302,14 +2290,14 @@ verus! {
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
                     } 
                 }
-                assert(validate_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
-                    overall_metadata.metadata_node_size as nat));
 
                 let old_entries = parse_metadata_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.metadata_node_size as nat);
                 let new_entries = parse_metadata_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.metadata_node_size as nat);
 
+                // Prove that there are no duplicate entries. This is required
+                // to prove that the table parses successfully.
                 assert forall |i: int, j: int| {
                     &&& 0 <= i < new_entries.len()
                     &&& 0 <= j < new_entries.len()
@@ -2323,26 +2311,27 @@ verus! {
                     }
                 }
 
-                assert(no_duplicate_item_indexes(new_entries));
-
-                assert(new_main_table_view is Some);
-
                 let new_main_table_view = new_main_table_view.unwrap();
                 let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
 
-                assert forall |idx: int| 0 <= idx < new_main_table_view.durable_metadata_table.len() implies 
-                    new_main_table_view.durable_metadata_table[idx] == updated_table_view.durable_metadata_table[idx]
-                by {
-                    // if idx == index {
-                    //     assert(new_main_table_view.durable_metadata_table[idx])
-                    // }
-                }
-
+                // Prove that the new main table view is equivalent to updating the old table with the new item index.
+                assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_metadata_table.len() ==> 
+                    new_main_table_view.durable_metadata_table[idx] == updated_table_view.durable_metadata_table[idx]);
                 assert(new_main_table_view == updated_table_view);
 
-                
-                assume(new_main_table_view.valid_item_indices() == 
-                    old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
+                assert(new_main_table_view.valid_item_indices() =~= 
+                    old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)) 
+                by {
+                    // all indexes besides the one we are updating are unchanged
+                    assert(forall |i: int| 0 <= i < updated_table_view.durable_metadata_table.len() && i != index ==> 
+                        old_main_table_view.durable_metadata_table[i] == updated_table_view.durable_metadata_table[i]);
+                    // the entry at index now contains the new item index, which means it has replaced the old item index
+                    // in new_main_table_view.valid_item_indices()
+                    assert({
+                        &&& #[trigger] updated_table_view.durable_metadata_table[index as int] matches DurableEntry::Valid(entry) 
+                        &&& entry.item_index() == item_index
+                    });
+                }
             }
 
             Ok(log_entry)
