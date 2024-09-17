@@ -1582,6 +1582,10 @@ verus! {
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
             let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
 
+            assert(main_table@.valid_item_indices() == Seq::new(entry_list@.len(), |i: int| entry_list[i].2).to_set());
+            assert(item_table.valid_indices@ == Set::new(|i: u64| 0 <= i < overall_metadata.num_keys && key_index_info_contains_index(entry_list@, i)));
+            assert(main_table@.valid_item_indices() =~= item_table.valid_indices@);
+
             let durable_kv_store = Self {
                 version_metadata,
                 overall_metadata,
