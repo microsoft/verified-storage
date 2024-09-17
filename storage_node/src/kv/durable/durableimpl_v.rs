@@ -3528,20 +3528,12 @@ verus! {
             let ghost crash_pred = |s: Seq<u8>| {
                 Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
             };
-            proof { 
-                // self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-
-                assert(self_before_tentative_item_write.metadata_table@ == self.metadata_table@);
-                assert(self_before_tentative_item_write.item_table@ == self.item_table@);
-                assert(self_before_tentative_item_write.log@ == self.log@);
-                assert(self_before_tentative_item_write.durable_list@ == self.durable_list@);
-
+            proof {
                 let committed_log = self.log@.commit_op_log();
                 let flushed_mem = self.wrpm@.flush().committed();
 
                 Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(flushed_mem,
                     self.version_metadata, self.overall_metadata, committed_log.physical_op_list);
-                
                 self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm); 
             }
 
@@ -3568,11 +3560,9 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             proof {
-                // TODO @hayley
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
-
                 self.lemma_reestablish_inv_after_logging_tentative_item_update(*old(self), offset, item_index,
                     *item, item_table_subregion, tentative_view_bytes, perm);
             }
