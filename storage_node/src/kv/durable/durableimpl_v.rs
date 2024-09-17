@@ -2832,6 +2832,117 @@ verus! {
             }
         }
 
+        exec fn abort_after_failed_op_log_append(
+            &mut self,
+            Ghost(pre_self): Ghost<Self>,
+            Tracked(perm): Tracked<&Perm>,
+        )
+            requires 
+                pre_self.inv(),
+                !pre_self.transaction_committed(),
+                !old(self).transaction_committed(),
+                pre_self.pending_alloc_inv(),
+                old(self).metadata_table.allocator_inv(),
+                old(self).wrpm.inv(),
+                old(self).overall_metadata == pre_self.overall_metadata,
+                old(self).version_metadata == pre_self.version_metadata,
+                old(self).wrpm@.len() == pre_self.wrpm@.len(),
+                old(self).wrpm@.no_outstanding_writes(),
+                views_differ_only_in_log_region(pre_self.wrpm@.flush(), old(self).wrpm@,
+                    old(self).overall_metadata.log_area_addr as nat, old(self).overall_metadata.log_area_size as nat),
+                UntrustedOpLog::<K, L>::recover(old(self).wrpm@.committed(), old(self).version_metadata, 
+                    old(self).overall_metadata) == Some(AbstractOpLogState::initialize()),
+                pre_self.item_table.spec_valid_indices() == old(self).item_table.spec_valid_indices(),
+                old(self).log@.physical_op_list.len() == 0,
+                old(self).metadata_table.spec_metadata_node_size() == old(self).overall_metadata.metadata_node_size,
+                old(self).metadata_table == pre_self.metadata_table,
+                old(self).item_table == pre_self.item_table,
+                old(self).log.inv(old(self).wrpm@, old(self).version_metadata, old(self).overall_metadata),
+            ensures 
+                self.valid(),
+                self.constants() == old(self).constants(),
+                self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                ({
+                    let tentative_view = self.tentative_view();
+                    &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
+                            self.spec_overall_metadata(), AbstractOpLogState::initialize())
+                    &&& self.pending_allocations().is_empty()
+                    &&& self.pending_deallocations().is_empty()
+                }),
+        {
+            // If the append failed, we need to abort the transaction and prove that the durable KV store as a whole
+            // aborts the current transaction. The abort has already been initiated
+
+            let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.overall_metadata.main_table_size as nat);      
+            let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                self.overall_metadata.item_table_size as nat); 
+            let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
+                self.overall_metadata.list_area_size as nat);
+
+            proof {
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    pre_self.wrpm@,
+                    self.wrpm@,
+                    self.version_metadata,
+                    self.overall_metadata
+                );
+                self.lemma_transaction_abort(pre_self); 
+                
+                pre_self.lemma_metadata_pending_allocs_are_invalid_at_abort();
+
+                // TODO: refactor
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    pre_self.wrpm@.flush().committed(), self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+                let old_main_table_subregion_view = get_subregion_view(pre_self.wrpm@.flush(),
+                    self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                assert(main_table_subregion_view == old_main_table_subregion_view);
+                assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
+
+                let durable_bytes = pre_self.wrpm@.committed();
+                let tentative_bytes = Self::apply_physical_log_entries(pre_self.wrpm@.flush().committed(),
+                    pre_self.log@.commit_op_log().physical_op_list).unwrap();
+                let durable_main_table_region_state = extract_bytes(durable_bytes,
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let tentative_main_table_region_state = extract_bytes(tentative_bytes,
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
+                    durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
+            }
+
+            // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
+            self.pending_updates = Vec::new();
+            assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+
+            // abort the transaction in each component to re-establish their invariants
+            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+
+            proof {
+                assert(!self.transaction_committed());
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
+                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
+                );
+                self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+                
+                // These assertions help us prove that the pending allocation inv is restored
+                let durable_state_bytes = self.wrpm@.committed();
+                let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap();
+                let durable_main_table_region = extract_bytes(durable_state_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                assert(durable_state_bytes == tentative_state_bytes);
+                assert(durable_main_table_region == main_table_subregion_view.committed());
+                assert(main_table_subregion_view.can_crash_as(durable_main_table_region));
+            }
+        }
+
         // Creates a new durable record in the KV store. Note that since the durable KV store 
         // identifies records by their metadata table index, rather than their key, this 
         // function does NOT return an error if you attempt to create two records with the same 
@@ -3476,81 +3587,13 @@ verus! {
             }
 
             // then append it to the operation log
+            let ghost pre_self = *self;
             let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata, self.overall_metadata, Ghost(crash_pred), Tracked(perm));
             match result {
                 Ok(()) => {}
                 Err(e) => {
-                    // If the append failed, we need to abort the transaction and prove that the durable KV store as a whole
-                    // aborts the current transaction.
 
-                    let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                        self.overall_metadata.main_table_size as nat);      
-                    let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                        self.overall_metadata.item_table_size as nat); 
-                    let ghost list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
-                        self.overall_metadata.list_area_size as nat);
-
-                    proof {
-                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                            old(self).wrpm@,
-                            self.wrpm@,
-                            self.version_metadata,
-                            self.overall_metadata
-                        );
-                        self.lemma_transaction_abort(*old(self)); 
-                        
-                        old(self).lemma_metadata_pending_allocs_are_invalid_at_abort();
-
-                        // TODO: refactor
-                        lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
-                            old(self).wrpm@.flush().committed(), self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
-                        let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@.flush(),
-                            self.overall_metadata.main_table_addr as nat,
-                            self.overall_metadata.main_table_size as nat);
-                        assert(main_table_subregion_view == old_main_table_subregion_view);
-                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
-        
-                        let durable_bytes = old(self).wrpm@.committed();
-                        let tentative_bytes = Self::apply_physical_log_entries(old(self).wrpm@.flush().committed(),
-                            old(self).log@.commit_op_log().physical_op_list).unwrap();
-                        let durable_main_table_region_state = extract_bytes(durable_bytes,
-                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let tentative_main_table_region_state = extract_bytes(tentative_bytes,
-                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                            durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
-                    }
-
-                    // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
-                    self.pending_updates = Vec::new();
-                    assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
-
-                    // abort the transaction in each component to re-establish their invariants
-                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
-                    
-                    proof {
-                        assert(!self.transaction_committed());
-                        lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                            old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
-                        );
-                        self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                        
-                        // These assertions help us prove that the pending allocation inv is restored
-                        let durable_state_bytes = self.wrpm@.committed();
-                        let tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
-                            self.log@.commit_op_log().physical_op_list).unwrap();
-                        let durable_main_table_region = extract_bytes(durable_state_bytes, 
-                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(durable_state_bytes == tentative_state_bytes);
-                        assert(durable_main_table_region == main_table_subregion_view.committed());
-                        assert(main_table_subregion_view.can_crash_as(durable_main_table_region));
-                    }
+                    self.abort_after_failed_op_log_append(Ghost(pre_self), Tracked(perm));
                     return Err(e);
                 }
             }
