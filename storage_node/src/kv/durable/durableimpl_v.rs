@@ -949,7 +949,8 @@ verus! {
                 no_outstanding_writes_to_version_metadata(self.wrpm@),
                 no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
                 self.wrpm@.len() >= VersionMetadata::spec_size_of(),
-                self.tentative_view() is Some,
+                Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list) is Some,
                 forall |s| crash_pred(s) ==> perm.check_permission(s),
                 forall |s| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) <==> crash_pred(s),
             ensures
@@ -3414,7 +3415,7 @@ verus! {
             proof {
                 self.lemma_writable_mask_for_item_table_suitable_for_creating_subregion(perm);
             }
-            assume(false);
+
             let item_table_subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition::<Perm, PM>(
                 &self.wrpm,
                 Tracked(perm),
@@ -3457,6 +3458,7 @@ verus! {
             assert(self.metadata_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
 
+            let ghost self_before_tentative_item_write = *self;
             let item_index = match self.item_table.tentatively_write_item(
                 &item_table_subregion,
                 &mut self.wrpm,
@@ -3468,10 +3470,9 @@ verus! {
                 Ok(item_index) => item_index,
                 Err(e) => {
                     proof {
-                        let main_table_subregion_view = get_subregion_view(self.wrpm@,
-                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==>
-                            parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) is Some);
+                        self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                            self_before_tentative_item_write, item_table_subregion, perm
+                        );
                         assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                         assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
@@ -3483,6 +3484,8 @@ verus! {
             };
     
             proof {
+                self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                    self_before_tentative_item_write, item_table_subregion, perm);
                 item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_index, *item
@@ -3497,9 +3500,6 @@ verus! {
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
                 self.lemma_update_item_index_log_entry_precondition(*old(self), offset, item_index, 
                     item_table_subregion, tentative_view_bytes, perm);
-
-                // TODO @hayley 
-                assume(old(self).tentative_view() == self.tentative_view());
             }
             
             // 2. Create a log entry that will overwrite the metadata table entry
@@ -3528,7 +3528,22 @@ verus! {
             let ghost crash_pred = |s: Seq<u8>| {
                 Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
             };
-            proof { self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm); }
+            proof { 
+                // self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+
+                assert(self_before_tentative_item_write.metadata_table@ == self.metadata_table@);
+                assert(self_before_tentative_item_write.item_table@ == self.item_table@);
+                assert(self_before_tentative_item_write.log@ == self.log@);
+                assert(self_before_tentative_item_write.durable_list@ == self.durable_list@);
+
+                let committed_log = self.log@.commit_op_log();
+                let flushed_mem = self.wrpm@.flush().committed();
+
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(flushed_mem,
+                    self.version_metadata, self.overall_metadata, committed_log.physical_op_list);
+                
+                self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm); 
+            }
 
             let ghost committed_log = self.log@.commit_op_log();
             let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
