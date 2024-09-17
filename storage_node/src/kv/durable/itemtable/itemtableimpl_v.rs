@@ -1,4 +1,4 @@
-use crate::kv::durable::itemtable::layout_v::*;
+use crate::kv::durable::itemtablelayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::*;
@@ -818,8 +818,7 @@ verus! {
                 ({ 
                     let mem = subregion.view(pm_region).committed();
                     let item_entry_size = I::spec_size_of() + u64::spec_size_of();
-                    &&& num_keys * item_entry_size <= mem.len()
-                    &&& mem.len() >= ABSOLUTE_POS_OF_TABLE_AREA
+                    num_keys * item_entry_size <= mem.len()
                 }),
             ensures
                 ({

@@ -18,43 +18,6 @@ use deps_hack::{PmSafe, PmSized};
 
 verus! {
     // Metadata region
-    // Starts with a metadata header that is written at setup and
-    // subsequently immutable.
-    pub const ABSOLUTE_POS_OF_METADATA_HEADER: u64 = 0;
-    pub const RELATIVE_POS_OF_ELEMENT_SIZE: u64 = 0;
-    pub const RELATIVE_POS_OF_NODE_SIZE: u64 = 4;
-    pub const RELATIVE_POS_OF_NUM_KEYS: u64 = 8;
-    pub const RELATIVE_POS_OF_VERSION_NUMBER: u64 = 16;
-    pub const RELATIVE_POS_OF_PADDING: u64 = 24;
-    pub const RELATIVE_POS_OF_PROGRAM_GUID: u64 = 32;
-    pub const ABSOLUTE_POS_OF_HEADER_CRC: u64 = 48;
-
-    pub const ABSOLUTE_POS_OF_METADATA_TABLE: u64 = 56;
-
-    // The current version number, and the only one whose contents
-    // this program can read, is the following:
-    pub const METADATA_TABLE_VERSION_NUMBER: u64 = 1;
-
-    // This GUID was generated randomly and is meant to describe the
-    // durable list program, even if it has future versions.
-    pub const METADATA_TABLE_PROGRAM_GUID: u128 = 0xC357BD8AA950BDA76345F1DCEC7DBF3Fu128;
-
-    // TODO: we use node size in some places and elements per node in others
-    // should probably standardize this
-    #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
-    pub struct MetadataTableHeader
-    {
-        pub element_size: u32, // NOTE: this includes the CRC of each element
-        pub node_size: u32,
-        pub num_keys: u64,
-        pub version_number: u64,
-        pub _padding: u64, // TODO: this should be item size
-        pub program_guid: u128,
-    }
-
-    // TODO: should this be trusted?
-    impl PmCopy for MetadataTableHeader {}
 
     // Per-entry relative offsets for list entry metadata
     // The list metadata region is an array of list entry metadata
@@ -76,8 +39,7 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, 
-        Copy, Clone, Debug)]
+    #[derive(PmSized, PmSafe, Copy, Clone, Debug)]
     pub struct ListEntryMetadata
     {
         pub head: u64,

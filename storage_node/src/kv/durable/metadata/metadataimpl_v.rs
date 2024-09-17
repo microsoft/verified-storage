@@ -11,7 +11,7 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
-use crate::kv::durable::metadata::layout_v::*;
+use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::layout_v::*;

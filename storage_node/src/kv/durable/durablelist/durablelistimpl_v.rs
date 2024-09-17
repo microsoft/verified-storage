@@ -1,7 +1,8 @@
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::oplog::{logentry_v::*, oplogimpl_v::*};
 use crate::kv::durable::itemtable::itemtableimpl_v::*;
-use crate::kv::durable::metadata::{layout_v::*, metadataimpl_v::*};
+use crate::kv::durable::maintablelayout_v::*;
+use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
@@ -504,7 +505,7 @@ verus! {
                     let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
-                    &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                    &&& metadata_slot_size * num_keys <= u64::MAX
                     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
                 }),
                 L::spec_size_of() + u64::spec_size_of() < u32::MAX, // size_of is u64, but we store it in a u32 here

@@ -17,7 +17,7 @@ use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
-use crate::kv::durable::metadata::layout_v::*;
+use crate::kv::durable::maintablelayout_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};

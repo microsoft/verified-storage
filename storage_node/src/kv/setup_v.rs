@@ -9,7 +9,7 @@ use core::hash::Hash;
 use std::f64::MIN;
 use std::num;
 use crate::kv::durable::durableimpl_v::DurableKvStore;
-use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
+use crate::kv::durable::maintablelayout_v::ListEntryMetadata;
 use crate::kv::layout_v::*;
 use crate::log2::layout_v::*;
 use crate::pmem::pmemspec_t::*;
