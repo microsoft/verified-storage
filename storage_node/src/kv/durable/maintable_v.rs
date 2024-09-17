@@ -153,13 +153,13 @@ verus! {
     }
 
     pub struct MetadataTable<K> {
-        metadata_node_size: u32,
-        metadata_table_free_list: Vec<u64>,
-        pending_allocations: Vec<u64>,
-        pending_deallocations: Vec<u64>,
-        state: Ghost<MetadataTableView<K>>,
-        outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
-        outstanding_entry_writes: Ghost<Seq<Option<MetadataTableViewEntry<K>>>>,
+        pub metadata_node_size: u32,
+        pub metadata_table_free_list: Vec<u64>,
+        pub pending_allocations: Vec<u64>,
+        pub pending_deallocations: Vec<u64>,
+        pub state: Ghost<MetadataTableView<K>>,
+        pub outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
+        pub outstanding_entry_writes: Ghost<Seq<Option<MetadataTableViewEntry<K>>>>,
     }
 
     pub closed spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
@@ -184,45 +184,30 @@ verus! {
         where 
             K: PmCopy + std::fmt::Debug,
     {
-        pub closed spec fn view(self) -> MetadataTableView<K> 
+        pub open spec fn view(self) -> MetadataTableView<K> 
         {
             self.state@
         }
 
-        pub closed spec fn allocator_view(self) -> Set<u64>
+        pub open spec fn allocator_view(self) -> Set<u64>
         {
             self.metadata_table_free_list@.to_set()
         }
 
-        pub closed spec fn pending_allocations_view(self) -> Set<u64>
+        pub open spec fn pending_allocations_view(self) -> Set<u64>
         {
             self.pending_allocations@.to_set()
         }
 
-        pub closed spec fn pending_deallocations_view(self) -> Set<u64>
+        pub open spec fn pending_deallocations_view(self) -> Set<u64>
         {
             self.pending_deallocations@.to_set()
         }
 
-        pub closed spec fn spec_outstanding_cdb_writes(self) -> Seq<Option<bool>>
-        {
-            self.outstanding_cdb_writes@
-        }
-
-        pub closed spec fn spec_outstanding_entry_writes(self) -> Seq<Option<MetadataTableViewEntry<K>>>
-        {
-            self.outstanding_entry_writes@
-        }
-
-        pub closed spec fn spec_metadata_node_size(self) -> u32 
-        {
-            self.metadata_node_size
-        }
-
         pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
         {
-            &&& self.spec_outstanding_cdb_writes()[idx] is None
-            &&& self.spec_outstanding_entry_writes()[idx] is None
+            &&& self.outstanding_cdb_writes@[idx] is None
+            &&& self.outstanding_entry_writes@[idx] is None
         }
 
         pub open spec fn no_outstanding_writes_except_to_index(self, idx: int) -> bool
@@ -243,14 +228,14 @@ verus! {
         pub open spec fn free_indices(self) -> Set<u64> {
             Set::new(|i: u64| {
                 &&& 0 <= i < self@.durable_metadata_table.len() 
-                &&& self.spec_outstanding_cdb_writes()[i as int] is None
-                &&& self.spec_outstanding_entry_writes()[i as int] is None
+                &&& self.outstanding_cdb_writes@[i as int] is None
+                &&& self.outstanding_entry_writes@[i as int] is None
                 &&& self@.durable_metadata_table[i as int] is None
             })
         }
 
-        pub closed spec fn outstanding_cdb_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
-                                                                 metadata_node_size: u32) -> bool
+        pub open spec fn outstanding_cdb_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
+                                                               metadata_node_size: u32) -> bool
         {
             let start = index_to_offset(i as nat, metadata_node_size as nat) as int;
             match self.outstanding_cdb_writes@[i] {
@@ -263,8 +248,8 @@ verus! {
             }
         }
 
-        pub closed spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
-                                                                   metadata_node_size: u32) -> bool
+        pub open spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
+                                                                 metadata_node_size: u32) -> bool
         {
             let start = index_to_offset(i as nat, metadata_node_size as nat) as int;
             match self.outstanding_entry_writes@[i] {
@@ -278,7 +263,7 @@ verus! {
             }
         }
 
-        pub closed spec fn opaque_inv(self, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn opaquable_inv(self, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.metadata_table_free_list@.no_duplicates()
             &&& self.pending_allocations@.no_duplicates()
@@ -300,26 +285,26 @@ verus! {
             //         { self@.durable_metadata_table[idx as int] matches DurableEntry::Valid(_) }
             &&& forall |idx: u64| {
                     &&& 0 <= idx < self@.durable_metadata_table.len()
-                    &&& self.spec_outstanding_cdb_writes()[idx as int] is Some
+                    &&& self.outstanding_cdb_writes@[idx as int] is Some
                 } ==> #[trigger] self.pending_allocations@.contains(idx)
             &&& forall |idx: u64| {
                     &&& 0 <= idx < self@.durable_metadata_table.len()
-                    &&& self.spec_outstanding_entry_writes()[idx as int] is Some
+                    &&& self.outstanding_entry_writes@[idx as int] is Some
                 } ==> #[trigger] self.pending_allocations@.contains(idx)
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
-            &&& self.opaque_inv(overall_metadata)
+            &&& self.opaquable_inv(overall_metadata)
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
             &&& pm.len() >= overall_metadata.main_table_size
-            &&& self.spec_metadata_node_size() == overall_metadata.metadata_node_size
+            &&& self.metadata_node_size == overall_metadata.metadata_node_size
             &&& overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(self@)
-            &&& self@.durable_metadata_table.len() == self.spec_outstanding_cdb_writes().len() ==
-                    self.spec_outstanding_entry_writes().len() == overall_metadata.num_keys
+            &&& self@.durable_metadata_table.len() == self.outstanding_cdb_writes@.len() ==
+                    self.outstanding_entry_writes@.len() == overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
                     self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size)
             &&& forall |i| 0 <= i < self@.durable_metadata_table.len() ==>
@@ -342,17 +327,25 @@ verus! {
             &&& self.allocator_view() == self.free_indices()
         }
 
-        pub open spec fn pending_alloc_inv(self, current_durable_state: Seq<u8>, tentative_state: Seq<u8>, overall_metadata: OverallMetadata) -> bool 
+        pub open spec fn pending_alloc_inv(
+            self,
+            current_durable_state: Seq<u8>,
+            tentative_state: Seq<u8>,
+            overall_metadata: OverallMetadata
+        ) -> bool 
         {
-            let current_view = parse_metadata_table::<K>(current_durable_state, overall_metadata.num_keys, overall_metadata.metadata_node_size);
-            let tentative_view = parse_metadata_table::<K>(tentative_state, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+            let current_view = parse_metadata_table::<K>(current_durable_state, overall_metadata.num_keys,
+                                                         overall_metadata.metadata_node_size);
+            let tentative_view = parse_metadata_table::<K>(tentative_state, overall_metadata.num_keys,
+                                                           overall_metadata.metadata_node_size);
             &&& current_view matches Some(current_view)
             &&& tentative_view matches Some(tentative_view)
             &&& forall |idx: u64| 0 <= idx < current_view.durable_metadata_table.len() ==> 
                     self.pending_alloc_check(idx, current_view, tentative_view)
         }
 
-        pub open spec fn pending_alloc_check(self, idx: u64, current_view: MetadataTableView<K>, tentative_view: MetadataTableView<K>) -> bool 
+        pub open spec fn pending_alloc_check(self, idx: u64, current_view: MetadataTableView<K>,
+                                             tentative_view: MetadataTableView<K>) -> bool 
         {
             // if an index is valid in the current state but invalid in the tentative state,
             // it is pending deallocation
@@ -383,8 +376,8 @@ verus! {
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.inv(pm, overall_metadata)
-            &&& forall |i| 0 <= i < self.spec_outstanding_cdb_writes().len() ==> self.spec_outstanding_cdb_writes()[i] is None
-            &&& forall |i| 0 <= i < self.spec_outstanding_entry_writes().len() ==> self.spec_outstanding_entry_writes()[i] is None
+            &&& forall |i| 0 <= i < self.outstanding_cdb_writes@.len() ==> self.outstanding_cdb_writes@[i] is None
+            &&& forall |i| 0 <= i < self.outstanding_entry_writes@.len() ==> self.outstanding_entry_writes@[i] is None
         }
 
         pub open spec fn subregion_grants_access_to_free_slots(
@@ -770,10 +763,10 @@ verus! {
                             &&& 0 <= entry_list[i].2 < overall_metadata.num_keys
                         }
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
-                        &&& forall|idx: u64| 0 <= idx < main_table.spec_outstanding_cdb_writes().len() ==>
-                            main_table.spec_outstanding_cdb_writes()[idx as int] is None
-                        &&& forall|idx: u64| 0 <= idx < main_table.spec_outstanding_entry_writes().len() ==>
-                            main_table.spec_outstanding_entry_writes()[idx as int] is None
+                        &&& forall|idx: u64| 0 <= idx < main_table.outstanding_cdb_writes@.len() ==>
+                            main_table.outstanding_cdb_writes@[idx as int] is None
+                        &&& forall|idx: u64| 0 <= idx < main_table.outstanding_entry_writes@.len() ==>
+                            main_table.outstanding_entry_writes@[idx as int] is None
                         &&& main_table.pending_alloc_inv(subregion.view(pm_region).committed(), subregion.view(pm_region).committed(), overall_metadata)
                     }
                     Err(KvError::IndexOutOfRange) => {
@@ -1186,8 +1179,8 @@ metadata_allocator@.contains(i)
                 self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
                 self@.durable_metadata_table[metadata_index as int] is Some,
-                self.spec_outstanding_cdb_writes()[metadata_index as int] is None,
-                self.spec_outstanding_entry_writes()[metadata_index as int] is None,
+                self.outstanding_cdb_writes@[metadata_index as int] is None,
+                self.outstanding_entry_writes@[metadata_index as int] is None,
             ensures
                 ({
                     match result {
@@ -1382,15 +1375,15 @@ metadata_allocator@.contains(i)
                         &&& forall|other_index: u64| self.allocator_view().contains(other_index) <==>
                             old(self).allocator_view().contains(other_index) && other_index != index
                         &&& self@.durable_metadata_table == old(self)@.durable_metadata_table
-                        &&& self.spec_outstanding_cdb_writes().len() == self.spec_outstanding_entry_writes().len() ==
+                        &&& self.outstanding_cdb_writes@.len() == self.outstanding_entry_writes@.len() ==
                             overall_metadata.num_keys
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys ==>
-                            #[trigger] self.spec_outstanding_cdb_writes()[i] ==
-                            old(self).spec_outstanding_cdb_writes()[i]
+                            #[trigger] self.outstanding_cdb_writes@[i] ==
+                            old(self).outstanding_cdb_writes@[i]
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.spec_outstanding_entry_writes()[i] ==
-                            old(self).spec_outstanding_entry_writes()[i]
-                        &&& self.spec_outstanding_entry_writes()[index as int] matches Some(e)
+                            #[trigger] self.outstanding_entry_writes@[i] ==
+                            old(self).outstanding_entry_writes@[i]
+                        &&& self.outstanding_entry_writes@[index as int] matches Some(e)
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
                         &&& e.entry.tail == list_node_index
@@ -1495,7 +1488,7 @@ metadata_allocator@.contains(i)
             let metadata_node_size = self.metadata_node_size;
             proof {
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, metadata_node_size as nat);
-                assert(old(self).spec_outstanding_entry_writes()[free_index as int] is None);
+                assert(old(self).outstanding_entry_writes@[free_index as int] is None);
                 assert(old(self).outstanding_entry_write_matches_pm_view(old_pm_view, free_index as int,
                                                                        metadata_node_size));
             }
@@ -1567,7 +1560,7 @@ metadata_allocator@.contains(i)
 
             assert forall |idx: u64| {
                 &&& 0 <= idx < self@.durable_metadata_table.len()
-                &&& self.spec_outstanding_entry_writes()[idx as int] is Some
+                &&& self.outstanding_entry_writes@[idx as int] is Some
             } implies #[trigger] self.pending_allocations@.contains(idx) by {
                 if idx == free_index {
                     assert(self.pending_allocations@[self.pending_allocations@.len()-1] == free_index);
@@ -1626,8 +1619,8 @@ metadata_allocator@.contains(i)
                 old(self).allocator_view() == self.allocator_view(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view().insert(index),
-                old(self).spec_outstanding_cdb_writes() == self.spec_outstanding_cdb_writes(),
-                old(self).spec_outstanding_entry_writes() == self.spec_outstanding_entry_writes(),
+                old(self).outstanding_cdb_writes@ == self.outstanding_cdb_writes@,
+                old(self).outstanding_entry_writes@ == self.outstanding_entry_writes@,
                 self.allocator_inv(),
                 ({
                     let tentative_subregion_state = extract_bytes(current_tentative_state, 
@@ -1687,16 +1680,16 @@ metadata_allocator@.contains(i)
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
-                old(self).opaque_inv(overall_metadata),
+                old(self).opaquable_inv(overall_metadata),
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 pm.len() >= overall_metadata.main_table_size,
-                old(self).spec_metadata_node_size() == overall_metadata.metadata_node_size,
+                old(self).metadata_node_size == overall_metadata.metadata_node_size,
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(old(self)@),
-                old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
-                    old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
+                old(self)@.durable_metadata_table.len() == old(self).outstanding_cdb_writes@.len() ==
+                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
                 pm.no_outstanding_writes(),
                 // entries in the pending allocations list have become
                 // valid in durable storage
@@ -1738,9 +1731,9 @@ metadata_allocator@.contains(i)
                     }
                 },
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
-                    old(self).spec_outstanding_cdb_writes()[idx as int] is None,
+                    old(self).outstanding_cdb_writes@[idx as int] is None,
                 forall |idx: u64| 0 <= idx < old(self)@.durable_metadata_table.len() ==> 
-                    old(self).spec_outstanding_entry_writes()[idx as int] is None,
+                    old(self).outstanding_entry_writes@[idx as int] is None,
                 forall |i: int| 0 <= i < old(self)@.durable_metadata_table.len() ==> 
                     old(self).outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
                 forall |i: int| 0 <= i < old(self)@.durable_metadata_table.len() ==> 
@@ -1753,9 +1746,9 @@ metadata_allocator@.contains(i)
                 self.allocator_inv(),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() ==> 
-                    self.spec_outstanding_cdb_writes()[idx as int] is None,
+                    self.outstanding_cdb_writes@[idx as int] is None,
                 forall |idx: u64| 0 <= idx < self@.durable_metadata_table.len() ==> 
-                    self.spec_outstanding_entry_writes()[idx as int] is None,
+                    self.outstanding_entry_writes@[idx as int] is None,
                 forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> 
                     self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.metadata_node_size),
                 forall |i: int| 0 <= i < self@.durable_metadata_table.len() ==> 
@@ -1879,7 +1872,7 @@ metadata_allocator@.contains(i)
                 0 <= index < self@.len(),
                 // the index must refer to a currently-invalid entry in the current durable table
                 self@.durable_metadata_table[index as int] is None,
-                self.spec_outstanding_entry_writes()[index as int] is Some,
+                self.outstanding_entry_writes@[index as int] is Some,
                 parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
                                           overall_metadata.metadata_node_size) == Some(self@),
                 overall_metadata.metadata_node_size ==
@@ -1902,7 +1895,7 @@ metadata_allocator@.contains(i)
                     let key_bytes = extract_bytes(
                         entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
                     );
-                    let entry = self.spec_outstanding_entry_writes()[index as int].unwrap();
+                    let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     let item_index = entry.entry.item_index;
                     &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view is Some
@@ -1936,14 +1929,14 @@ metadata_allocator@.contains(i)
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.metadata_node_size);
-                    let entry = self.spec_outstanding_entry_writes()[index as int].unwrap();
+                    let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     &&& new_main_table_view == Some(current_main_table_view.insert(index as int, entry))
                     &&& new_main_table_view.unwrap().valid_item_indices() ==
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
                 }),
         {
             let entry_slot_size = overall_metadata.metadata_node_size;
-            let ghost entry = self.spec_outstanding_entry_writes()[index as int].unwrap();
+            let ghost entry = self.outstanding_entry_writes@[index as int].unwrap();
             let ghost item_index = entry.entry.item_index;
             // Proves that index * entry_slot_size will not overflow
             proof {
@@ -2280,17 +2273,17 @@ metadata_allocator@.contains(i)
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         ) 
             requires
-                old(self).opaque_inv(overall_metadata),
+                old(self).opaquable_inv(overall_metadata),
                 old(self).allocator_inv(),
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 pm.len() >= overall_metadata.main_table_size,
-                old(self).spec_metadata_node_size() == overall_metadata.metadata_node_size,
+                old(self).metadata_node_size == overall_metadata.metadata_node_size,
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_metadata_table::<K>(s, overall_metadata.num_keys, overall_metadata.metadata_node_size) == Some(old(self)@),
-                old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
-                    old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
+                old(self)@.durable_metadata_table.len() == old(self).outstanding_cdb_writes@.len() ==
+                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
                 old(self)@.inv(overall_metadata),
                 forall |idx: u64| old(self).allocator_view().contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |idx: u64| old(self).free_indices().contains(idx) ==> idx < overall_metadata.num_keys,
@@ -2317,12 +2310,12 @@ metadata_allocator@.contains(i)
             ensures
                 self.valid(pm, overall_metadata),
                 self.allocator_inv(),
-                self.spec_outstanding_cdb_writes() == Seq::new(
-                    old(self).spec_outstanding_cdb_writes().len(),
+                self.outstanding_cdb_writes@ == Seq::new(
+                    old(self).outstanding_cdb_writes@.len(),
                     |i: int| None::<bool>
                 ),
-                self.spec_outstanding_entry_writes() == Seq::new(
-                    old(self).spec_outstanding_entry_writes().len(),
+                self.outstanding_entry_writes@ == Seq::new(
+                    old(self).outstanding_entry_writes@.len(),
                     |i: int| None::<MetadataTableViewEntry<K>>
                 ),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
@@ -2404,9 +2397,9 @@ metadata_allocator@.contains(i)
                     } else {
                         // We need to hit the necessary triggers to prove that the index is pending 
                         // if it has outstanding writes.
-                        if old(self).spec_outstanding_cdb_writes()[idx as int] is Some {
+                        if old(self).outstanding_cdb_writes@[idx as int] is Some {
                             assert(old(self).pending_allocations@.contains(idx));
-                        } else if old(self).spec_outstanding_entry_writes()[idx as int] is Some {
+                        } else if old(self).outstanding_entry_writes@[idx as int] is Some {
                             assert(old(self).pending_allocations@.contains(idx));
                         }
                         // Prove that this index would have been added to the allocator.
@@ -2451,20 +2444,20 @@ metadata_allocator@.contains(i)
         )
             requires
                 pm.no_outstanding_writes(),
-                old(self).opaque_inv(overall_metadata),
+                old(self).opaquable_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
                     parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size) is Some
                 }),
-                old(self)@.durable_metadata_table.len() == old(self).spec_outstanding_cdb_writes().len() ==
-                    old(self).spec_outstanding_entry_writes().len() == overall_metadata.num_keys,
+                old(self)@.durable_metadata_table.len() == old(self).outstanding_cdb_writes@.len() ==
+                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size,
                 overall_metadata.metadata_node_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
             ensures 
-                self.opaque_inv(overall_metadata),
+                self.opaquable_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
@@ -2478,19 +2471,19 @@ metadata_allocator@.contains(i)
                 self.allocator_view() == old(self).allocator_view(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view(),
-                self.spec_outstanding_cdb_writes() == Seq::new(old(self).spec_outstanding_cdb_writes().len(),
+                self.outstanding_cdb_writes@ == Seq::new(old(self).outstanding_cdb_writes@.len(),
                     |i: int| None::<bool>),
-                self.spec_outstanding_entry_writes() == Seq::new(old(self).spec_outstanding_entry_writes().len(),
+                self.outstanding_entry_writes@ == Seq::new(old(self).outstanding_entry_writes@.len(),
                     |i: int| None::<MetadataTableViewEntry<K>>),
-                self.spec_metadata_node_size() == old(self).spec_metadata_node_size(),
+                self.metadata_node_size == old(self).metadata_node_size,
 
         {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
             self.state = Ghost(parse_metadata_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap());
-            self.outstanding_cdb_writes = Ghost(Seq::new(old(self).spec_outstanding_cdb_writes().len(),
+            self.outstanding_cdb_writes = Ghost(Seq::new(old(self).outstanding_cdb_writes@.len(),
                 |i: int| None::<bool>));
-            self.outstanding_entry_writes = Ghost(Seq::new(old(self).spec_outstanding_entry_writes().len(),
+            self.outstanding_entry_writes = Ghost(Seq::new(old(self).outstanding_entry_writes@.len(),
                 |i: int| None));
 
             proof {
