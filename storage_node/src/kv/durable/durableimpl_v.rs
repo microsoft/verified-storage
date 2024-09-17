@@ -9,8 +9,8 @@ use vstd::bytes::u64_from_le_bytes;
 use vstd::bytes::u64_to_le_bytes;
 use vstd::prelude::*;
 
-use crate::kv::durable::durablelist::durablelistimpl_v::*;
-use crate::kv::durable::durablelist::layout_v::*;
+use crate::kv::durable::list_v::*;
+use crate::kv::durable::listlayout_v::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::itemtable_v::*;
 use crate::kv::durable::itemtablelayout_v::*;

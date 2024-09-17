@@ -12,7 +12,7 @@
 
 use builtin::*;
 use builtin_macros::*;
-use kv::durable::durablelist::durablelistimpl_v::*;
+use kv::durable::list_v::*;
 use kv::durable::itemtable_v::*;
 use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
