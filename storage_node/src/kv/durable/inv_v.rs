@@ -327,10 +327,10 @@ verus! {
                 let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                &&& parse_metadata_table::<K>(
+                &&& parse_main_table::<K>(
                         main_table_region, 
                         overall_metadata.num_keys,
-                        overall_metadata.metadata_node_size
+                        overall_metadata.main_table_entry_size
                     ) matches Some(main_table)
                 &&& parse_item_table::<I, K>(
                         item_table_region,

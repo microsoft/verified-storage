@@ -64,7 +64,7 @@ verus! {
     pub struct OverallMetadata {
         pub key_size: u32, // K::size_of()
         pub list_element_size: u32, // L::size_of()
-        pub metadata_node_size: u32,
+        pub main_table_entry_size: u32,
         pub log_entry_size: u32,
         pub num_list_entries_per_node: u32,
         pub item_size: u64, // I::size_of()

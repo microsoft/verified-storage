@@ -1530,7 +1530,7 @@ verus! {
 
             // read in the metadata structure and its CRC, make sure it has not been corrupted
 
-            let ghost true_metadata_table = ItemTableMetadata::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of()));
+            let ghost true_main_table = ItemTableMetadata::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_METADATA_HEADER as int, ABSOLUTE_POS_OF_METADATA_HEADER + ItemTableMetadata::spec_size_of()));
             let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_HEADER_CRC as int, ABSOLUTE_POS_OF_HEADER_CRC + u64::spec_size_of()));
 
             let metadata_header_addr = ABSOLUTE_POS_OF_METADATA_HEADER;
@@ -1553,7 +1553,7 @@ verus! {
             }
 
             let table_metadata = table_metadata.extract_init_val(
-                Ghost(true_metadata_table),
+                Ghost(true_main_table),
                 Ghost(true_header_bytes),
                 Ghost(pm_region.constants().impervious_to_corruption),
             );

@@ -228,7 +228,7 @@ verus! {
         item_table: DurableItemTable<K, I>,
         durable_list: DurableList<K, L>,
         log: UntrustedOpLog<K, L>,
-        metadata_table: MetadataTable<K>,
+        main_table: MainTable<K>,
         wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         pending_updates: Vec<PhysicalOpLogEntry>,
     }
@@ -243,7 +243,7 @@ verus! {
     {
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>
         {
-            Self::recover_from_component_views(self.metadata_table@, self.item_table@, self.durable_list@)
+            Self::recover_from_component_views(self.main_table@, self.item_table@, self.durable_list@)
         }
 
         pub closed spec fn tentative_view(self) -> Option<DurableKvStoreView<K, I, L>>
@@ -253,12 +253,12 @@ verus! {
 
         pub closed spec fn pending_allocations(self) -> Set<u64>
         {
-            self.metadata_table.pending_allocations_view()
+            self.main_table.pending_allocations_view()
         }
 
         pub closed spec fn pending_deallocations(self) -> Set<u64>
         {
-            self.metadata_table.pending_deallocations_view()
+            self.main_table.pending_deallocations_view()
         }
 
         pub closed spec fn constants(self) -> PersistentMemoryConstants
@@ -281,21 +281,21 @@ verus! {
             &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                 self.overall_metadata.kvstore_id)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
-            &&& self.item_table.valid_indices@ == self.metadata_table@.valid_item_indices()
+            &&& self.item_table.valid_indices@ == self.main_table@.valid_item_indices()
             &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
             &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
             &&& no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int)
             &&& forall|s| #[trigger] pm_view.can_crash_as(s) ==> self.inv_mem(s)
-            &&& self.metadata_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+            &&& self.main_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
                                       self.overall_metadata)
-            &&& self.metadata_table.allocator_inv()
+            &&& self.main_table.allocator_inv()
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata)
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
-                                    self.metadata_table@, self.overall_metadata)
+                                    self.main_table@, self.overall_metadata)
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
         }
 
@@ -303,7 +303,7 @@ verus! {
         {
             let pm_view = self.wrpm@;
             &&& self.inv()
-            &&& self.metadata_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
+            &&& self.main_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat), self.overall_metadata)
             &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat), self.overall_metadata)
@@ -318,13 +318,13 @@ verus! {
             if let Some(tentative_state_bytes) = tentative_state_bytes {
                 let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
-                    self.overall_metadata.metadata_node_size);
-                let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
-                    self.overall_metadata.metadata_node_size);
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
+                    self.overall_metadata.main_table_entry_size);
+                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
+                    self.overall_metadata.main_table_entry_size);
                 &&& durable_main_table_view matches Some(durable_main_table_view)
                 &&& tentative_main_table_view matches Some(tentative_main_table_view)
-                &&& self.metadata_table.pending_alloc_inv(
+                &&& self.main_table.pending_alloc_inv(
                         durable_main_table_region,
                         tentative_main_table_region,
                         self.overall_metadata
@@ -408,10 +408,10 @@ verus! {
             let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
             let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
 
-            let main_table_view = parse_metadata_table::<K>(
+            let main_table_view = parse_main_table::<K>(
                 main_table_region, 
                 overall_metadata.num_keys,
-                overall_metadata.metadata_node_size
+                overall_metadata.main_table_entry_size
             );
             if let Some(main_table_view) = main_table_view {
                 let item_table_view = parse_item_table::<I, K>(
@@ -504,7 +504,7 @@ verus! {
                 let log_replay_state = if logical_entry matches LogicalOpLogEntry::UpdateListElement{..} {
                     DurableList::<K, L>::apply_log_op_to_list_node_mem(mem, overall_metadata.list_node_size, logical_entry)
                 } else {
-                    MetadataTable::<K>::apply_log_op_to_metadata_table_mem(mem, logical_entry)
+                    MainTable::<K>::apply_log_op_to_main_table_mem(mem, logical_entry)
                 };
                 phys_replay_state == log_replay_state
             } else {
@@ -569,7 +569,7 @@ verus! {
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);      
                     forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
-                        parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@)
+                        parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@)
                 }),
                 ({
                     let old_item_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
@@ -627,8 +627,8 @@ verus! {
             assert(list_area_region_view_with_log_installed == list_area_subregion_view.committed());
     
             assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
-                parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(old_self.metadata_table@));
-            assert(forall |idx: u64| old_self.metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
+                parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@));
+            assert(forall |idx: u64| old_self.main_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
 
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
         }
@@ -1107,10 +1107,10 @@ verus! {
                 let main_table_region = extract_bytes(s1_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let item_table_region = extract_bytes(s1_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let list_area_region = extract_bytes(s1_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
-                let main_table_view = parse_metadata_table::<K>(
+                let main_table_view = parse_main_table::<K>(
                     main_table_region, 
                     overall_metadata.num_keys,
-                    overall_metadata.metadata_node_size
+                    overall_metadata.main_table_entry_size
                 ).unwrap();
                 let item_table_view = parse_item_table::<I, K>(
                     item_table_region,
@@ -1246,11 +1246,11 @@ verus! {
                     Self::phys_log_corresponds_to_logical_log(mem, recovered_log.physical_op_list, logical_log, version_metadata, overall_metadata);
                 // recover main table from logical log
                 let main_table_region = extract_bytes(mem, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let main_table_region = MetadataTable::<K>::spec_replay_log_metadata_table(main_table_region, logical_log_entries);
-                let main_table_view = parse_metadata_table::<K>(
+                let main_table_region = MainTable::<K>::spec_replay_log_main_table(main_table_region, logical_log_entries);
+                let main_table_view = parse_main_table::<K>(
                     main_table_region, 
                     overall_metadata.num_keys,
-                    overall_metadata.metadata_node_size
+                    overall_metadata.main_table_entry_size
                 );
                 if let Some(main_table_view) = main_table_view {
                     // recover item table. This does not involve the logical log, so we can just directly parse it
@@ -1289,15 +1289,15 @@ verus! {
         // Note: this fn assumes that the item and list head in the main table entry point 
         // to valid entries in the corresponding structures.
         pub open spec fn recover_from_component_views(
-            recovered_main_table: MetadataTableView<K>, 
+            recovered_main_table: MainTableView<K>, 
             recovered_item_table: DurableItemTableView<I>,
             recovered_lists: DurableListView<K, L>
         ) -> DurableKvStoreView<K, I, L>
         {
             let contents = Map::new(
-                |i: int| 0 <= i < recovered_main_table.durable_metadata_table.len() && recovered_main_table.durable_metadata_table[i] is Some,
+                |i: int| 0 <= i < recovered_main_table.durable_main_table.len() && recovered_main_table.durable_main_table[i] is Some,
                 |i: int| {
-                    let main_table_entry = recovered_main_table.durable_metadata_table[i].unwrap();
+                    let main_table_entry = recovered_main_table.durable_main_table[i].unwrap();
                     let item_index = main_table_entry.item_index();
                     let list_head_index = main_table_entry.list_head_index();
                     let key = main_table_entry.key();
@@ -1356,7 +1356,7 @@ verus! {
                 Ghost(overall_metadata.main_table_size as nat),
                 Ghost(writable_addr_fn)
             );
-            MetadataTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.metadata_node_size)?;
+            MainTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.main_table_entry_size)?;
             proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
 
             proof {
@@ -1381,7 +1381,7 @@ verus! {
                 Ghost(writable_addr_fn)
             );
             proof { DurableList::<K, L>::lemma_list_is_empty_at_setup(&list_area_subregion, pm_region, AbstractOpLogState::initialize(), num_keys, 
-                overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MetadataTableView::<K>::init(num_keys)) }
+                overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node, overall_metadata.num_list_nodes, MainTableView::<K>::init(num_keys)) }
 
             let ghost pre_log_setup_bytes = pm_region@.flush().committed();
 
@@ -1417,8 +1417,8 @@ verus! {
                 let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let logical_log = choose |logical_log: Seq<LogicalOpLogEntry<L>>| 
                     Self::phys_log_corresponds_to_logical_log(bytes, recovered_log.physical_op_list, logical_log, version_metadata, overall_metadata);
-                let post_install_main_table_bytes = MetadataTable::<K>::spec_replay_log_metadata_table(main_table_bytes, logical_log);
-                let recovered_main_table = parse_metadata_table::<K>(post_install_main_table_bytes, overall_metadata.num_keys, overall_metadata.metadata_node_size);
+                let post_install_main_table_bytes = MainTable::<K>::spec_replay_log_main_table(main_table_bytes, logical_log);
+                let recovered_main_table = parse_main_table::<K>(post_install_main_table_bytes, overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.main_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.main_table_size as nat);
 
                 // Item table recover succeeds
@@ -1430,10 +1430,10 @@ verus! {
                 let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
                 
-                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().get_durable_metadata_table().len() ==> #[trigger] recovered_main_table.unwrap().get_durable_metadata_table()[i] is None);
+                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().get_durable_main_table().len() ==> #[trigger] recovered_main_table.unwrap().get_durable_main_table()[i] is None);
 
                 DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
-                    recovered_main_table.unwrap().get_durable_metadata_table(),
+                    recovered_main_table.unwrap().get_durable_main_table(),
                     list_area_bytes,
                     Map::empty(),
                     overall_metadata.list_node_size,
@@ -1578,7 +1578,7 @@ verus! {
             }
             
             // start each region
-            let (main_table, entry_list) = MetadataTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
+            let (main_table, entry_list) = MainTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
             let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
 
@@ -1592,7 +1592,7 @@ verus! {
                 item_table,
                 durable_list,
                 log: op_log,
-                metadata_table: main_table,
+                main_table: main_table,
                 wrpm: wrpm_region,
                 pending_updates: Vec::new(),
             };
@@ -1607,16 +1607,16 @@ verus! {
 
                 let durable_main_table_region = extract_bytes(durable_state_bytes, durable_kv_store.overall_metadata.main_table_addr as nat, 
                     durable_kv_store.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region, durable_kv_store.overall_metadata.num_keys,
-                    durable_kv_store.overall_metadata.metadata_node_size).unwrap();
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, durable_kv_store.overall_metadata.num_keys,
+                    durable_kv_store.overall_metadata.main_table_entry_size).unwrap();
 
                 assert(durable_main_table_region == main_table_subregion.view(pm_region).committed());
-                assert(durable_main_table_view == durable_kv_store.metadata_table@);
+                assert(durable_main_table_view == durable_kv_store.main_table@);
                 assert(durable_main_table_view.valid_item_indices() == item_table.valid_indices@);
 
-                assert(durable_kv_store.metadata_table.pending_alloc_inv(main_table_subregion.view(pm_region).committed(),
+                assert(durable_kv_store.main_table.pending_alloc_inv(main_table_subregion.view(pm_region).committed(),
                     main_table_subregion.view(pm_region).committed(), overall_metadata));
-                assert(durable_kv_store.metadata_table.pending_alloc_inv(durable_main_table_region,
+                assert(durable_kv_store.main_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
                 assert(durable_kv_store.item_table.pending_alloc_inv(
                     item_table.valid_indices@,
@@ -1633,14 +1633,14 @@ verus! {
                 );
 
                 // each recovered component parses correctly
-                assert(parse_metadata_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.metadata_node_size).unwrap() == main_table@);
+                assert(parse_main_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap() == main_table@);
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
                 assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
                 assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
                 assert(durable_kv_store.item_table.valid_indices@ =~=
-                       durable_kv_store.metadata_table@.valid_item_indices());
+                       durable_kv_store.main_table@.valid_item_indices());
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
             }
 
@@ -1873,13 +1873,13 @@ verus! {
             assert(metadata_index < self.overall_metadata.num_keys);
 
             let pm = self.wrpm.get_pm_region_ref();
-            let metadata_table_subregion = PersistentMemorySubregion::new(
+            let main_table_subregion = PersistentMemorySubregion::new(
                 pm,
                 self.overall_metadata.main_table_addr,
                 Ghost(self.overall_metadata.main_table_size as nat)
             );
-            let (key, metadata) = match self.metadata_table.get_key_and_metadata_entry_at_index(
-                &metadata_table_subregion,
+            let (key, metadata) = match self.main_table.get_key_and_metadata_entry_at_index(
+                &main_table_subregion,
                 pm,
                 metadata_index,
                 Ghost(self.overall_metadata),
@@ -1905,15 +1905,15 @@ verus! {
         {
             let main_table_addr = self.overall_metadata.main_table_addr as int;
             let main_table_size = self.overall_metadata.main_table_size as int;
-            let metadata_node_size = self.overall_metadata.metadata_node_size;
+            let main_table_entry_size = self.overall_metadata.main_table_entry_size;
             |addr: int| {
                 let relative_addr = addr - main_table_addr;
-                let which_entry = relative_addr / metadata_node_size as int;
-                let entry_offset = index_to_offset(which_entry as nat, metadata_node_size as nat);
+                let which_entry = relative_addr / main_table_entry_size as int;
+                let entry_offset = index_to_offset(which_entry as nat, main_table_entry_size as nat);
                 &&& 0 <= relative_addr < main_table_size
                 &&& 0 <= which_entry < self.overall_metadata.num_keys
-                &&& entry_offset + u64::spec_size_of() <= relative_addr < entry_offset + metadata_node_size
-                &&& self.metadata_table.allocator_view().contains(which_entry as u64)
+                &&& entry_offset + u64::spec_size_of() <= relative_addr < entry_offset + main_table_entry_size
+                &&& self.main_table.allocator_view().contains(which_entry as u64)
             }
         }
 
@@ -1926,15 +1926,15 @@ verus! {
             let item_table_addr = overall_metadata.item_table_addr;
             let item_table_size = overall_metadata.item_table_size;
             let num_keys = overall_metadata.num_keys;
-            let metadata_node_size = overall_metadata.metadata_node_size;
+            let main_table_entry_size = overall_metadata.main_table_entry_size;
             |s: Seq<u8>| {
                 &&& UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) ==
                       Some(AbstractOpLogState::initialize())
-                &&& parse_metadata_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
-                                             num_keys, metadata_node_size) ==
-                      Some(self.metadata_table@)
+                &&& parse_main_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
+                                             num_keys, main_table_entry_size) ==
+                      Some(self.main_table@)
                 &&& parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.metadata_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
                       Some(self.item_table@)
                 &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(self@)
             }
@@ -1949,7 +1949,7 @@ verus! {
         {
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
-            let metadata_node_size = overall_metadata.metadata_node_size;
+            let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
             let item_table_addr = overall_metadata.item_table_addr;
@@ -1982,7 +1982,7 @@ verus! {
         {
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
-            let metadata_node_size = overall_metadata.metadata_node_size;
+            let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
             let item_table_addr = overall_metadata.item_table_addr;
@@ -2004,25 +2004,25 @@ verus! {
                 let ss1 = extract_bytes(s1, main_table_addr as nat, main_table_size as nat);
                 let ss2 = extract_bytes(s2, main_table_addr as nat, main_table_size as nat);
                 assert forall|addr: int| 0 <= addr < ss1.len() && ss1[addr] != #[trigger] ss2[addr] implies
-                           address_belongs_to_invalid_main_table_entry(addr, ss1, num_keys, metadata_node_size) by {
+                           address_belongs_to_invalid_main_table_entry(addr, ss1, num_keys, main_table_entry_size) by {
                     assert(self.get_writable_mask_for_main_table()(addr + main_table_addr));
-                    let which_entry = addr / metadata_node_size as int;
-                    lemma_valid_entry_index(which_entry as nat, num_keys as nat, metadata_node_size as nat);
-                    assert(self.metadata_table.allocator_view().contains(which_entry as u64));
-                    assert(self.metadata_table.free_indices().contains(which_entry as u64));
-                    assert(self.metadata_table@.durable_metadata_table[which_entry as int] is None);
+                    let which_entry = addr / main_table_entry_size as int;
+                    lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
+                    assert(self.main_table.allocator_view().contains(which_entry as u64));
+                    assert(self.main_table.free_indices().contains(which_entry as u64));
+                    assert(self.main_table@.durable_main_table[which_entry as int] is None);
                     let entry_bytes = extract_bytes(ss1,
-                                                    index_to_offset(which_entry as nat, metadata_node_size as nat),
-                                                    metadata_node_size as nat);
+                                                    index_to_offset(which_entry as nat, main_table_entry_size as nat),
+                                                    main_table_entry_size as nat);
                     assert(validate_metadata_entry::<K>(entry_bytes, num_keys as nat));
                     assert(parse_metadata_entry::<K>(entry_bytes, num_keys as nat) is None);
                     let cdb_bytes = extract_bytes(ss1,
-                                                  index_to_offset(which_entry as nat, metadata_node_size as nat),
+                                                  index_to_offset(which_entry as nat, main_table_entry_size as nat),
                                                   u64::spec_size_of());
                     assert(cdb_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
                 }
-                lemma_parse_metadata_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
-                    ss1, ss2, num_keys, metadata_node_size
+                lemma_parse_main_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
+                    ss1, ss2, num_keys, main_table_entry_size
                 );
                 assert(UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, overall_metadata) ==
                        UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, overall_metadata))
@@ -2034,14 +2034,14 @@ verus! {
                 }
                 let recovered_log = UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, overall_metadata);
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, overall_metadata);
-                assert(parse_metadata_table::<K>(extract_bytes(s2, main_table_addr as nat, main_table_size as nat),
-                                                 num_keys, metadata_node_size) ==
-                       Some(self.metadata_table@));
+                assert(parse_main_table::<K>(extract_bytes(s2, main_table_addr as nat, main_table_size as nat),
+                                                 num_keys, main_table_entry_size) ==
+                       Some(self.main_table@));
                 assert(Self::apply_physical_log_entries(s2, recovered_log.unwrap().physical_op_list) == Some(s2));
                 assert(extract_bytes(s1, item_table_addr as nat, item_table_size as nat) =~=
                        extract_bytes(s2, item_table_addr as nat, item_table_size as nat));
                 assert(parse_item_table::<I, K>(extract_bytes(s2, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.metadata_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
                       Some(self.item_table@));
                 assert(extract_bytes(s1, list_area_addr as nat, list_area_size as nat) =~=
                        extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
@@ -2102,7 +2102,7 @@ verus! {
                 subregion.initial_region_view() == old_self.wrpm@,
                 subregion.is_writable_absolute_addr_fn() == old_self.get_writable_mask_for_main_table(),
                 subregion.inv(&self.wrpm, perm),
-                self == (Self{ wrpm: self.wrpm, metadata_table: self.metadata_table, ..old_self }),
+                self == (Self{ wrpm: self.wrpm, main_table: self.main_table, ..old_self }),
             ensures
                 self.wrpm.inv(),
                 self.wrpm.constants() == old_self.wrpm.constants(),
@@ -2168,15 +2168,15 @@ verus! {
                 subregion.len() == self.overall_metadata.main_table_size,
                 subregion.is_writable_absolute_addr_fn() == self.get_writable_mask_for_main_table(),
             ensures
-                self.metadata_table.subregion_grants_access_to_free_slots(subregion),
+                self.main_table.subregion_grants_access_to_free_slots(subregion),
 
         {
 
             assert forall|idx: u64| {
-                &&& idx < self.metadata_table@.len()
-                &&& self.metadata_table.allocator_view().contains(idx)
+                &&& idx < self.main_table@.len()
+                &&& self.main_table.allocator_view().contains(idx)
             } implies #[trigger] subregion_grants_access_to_main_table_entry::<K>(subregion, idx) by {
-                let entry_size = self.overall_metadata.metadata_node_size;
+                let entry_size = self.overall_metadata.main_table_entry_size;
                 assert forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr
                            < idx * entry_size + entry_size implies
                            subregion.is_writable_relative_addr(addr as int) by {
@@ -2191,7 +2191,7 @@ verus! {
         {
             |addr: int| address_belongs_to_invalid_item_table_entry::<I>(addr - self.overall_metadata.item_table_addr,
                                                                        self.overall_metadata.num_keys,
-                                                                       self.metadata_table@.valid_item_indices())
+                                                                       self.main_table@.valid_item_indices())
         }
 
         proof fn lemma_writable_mask_for_item_table_suitable_for_creating_subregion(
@@ -2214,7 +2214,7 @@ verus! {
             let item_entry_size = I::spec_size_of() + u64::spec_size_of();
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
-            let metadata_node_size = overall_metadata.metadata_node_size;
+            let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
             let item_table_addr = overall_metadata.item_table_addr;
@@ -2237,12 +2237,12 @@ verus! {
                 let ss2 = extract_bytes(s2, item_table_addr as nat, item_table_size as nat);
                 assert forall|addr: int| 0 <= addr < ss2.len() && ss1[addr] != #[trigger] ss2[addr] implies
                            address_belongs_to_invalid_item_table_entry::<I>(
-                               addr, num_keys, self.metadata_table@.valid_item_indices()
+                               addr, num_keys, self.main_table@.valid_item_indices()
                            ) by {
                 }
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     ss1, ss2, num_keys,
-                    self.metadata_table@.valid_item_indices()
+                    self.main_table@.valid_item_indices()
                 );
                 assert(UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, overall_metadata) ==
                        UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, overall_metadata))
@@ -2257,11 +2257,11 @@ verus! {
                 assert(Self::apply_physical_log_entries(s2, recovered_log.unwrap().physical_op_list) == Some(s2));
                 assert(extract_bytes(s1, main_table_addr as nat, main_table_size as nat) =~=
                        extract_bytes(s2, main_table_addr as nat, main_table_size as nat));
-                assert(parse_metadata_table::<K>(extract_bytes(s2, main_table_addr as nat, main_table_size as nat),
-                                                 num_keys, metadata_node_size) ==
-                       Some(self.metadata_table@));
+                assert(parse_main_table::<K>(extract_bytes(s2, main_table_addr as nat, main_table_size as nat),
+                                                 num_keys, main_table_entry_size) ==
+                       Some(self.main_table@));
                 assert(parse_item_table::<I, K>(extract_bytes(s2, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.metadata_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
                       Some(self.item_table@));
                 assert(extract_bytes(s1, list_area_addr as nat, list_area_size as nat) =~=
                        extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
@@ -2417,7 +2417,7 @@ verus! {
             requires 
                 self.wrpm@.len() >= self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size,
                 !self.transaction_committed(),
-                forall |idx: u64| self.metadata_table.pending_allocations_view().contains(idx) ==>
+                forall |idx: u64| self.main_table.pending_allocations_view().contains(idx) ==>
                     idx < self.overall_metadata.num_keys,
                 ({
                     let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, 
@@ -2428,43 +2428,43 @@ verus! {
                         self.log@.physical_op_list).unwrap();
                     let tentative_main_table_subregion_state = extract_bytes(tentative_bytes, 
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    &&& self.metadata_table.pending_alloc_inv(durable_main_table_subregion_state, 
+                    &&& self.main_table.pending_alloc_inv(durable_main_table_subregion_state, 
                             tentative_main_table_subregion_state, self.overall_metadata)
                     &&& forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> 
-                            Some(self.metadata_table@) == parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size)
+                            Some(self.main_table@) == parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size)
                 })
             ensures 
-                forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) ==> {
-                    self.metadata_table@.durable_metadata_table[idx as int] is None
+                forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) ==> {
+                    self.main_table@.durable_main_table[idx as int] is None
                 }
         {
             let durable_main_table_subregion_view = get_subregion_view(self.wrpm@, 
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
             let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_subregion_state,
-                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+            let durable_main_table_view = parse_main_table::<K>(durable_main_table_subregion_state,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
             
             assert(durable_main_table_subregion_view.can_crash_as(durable_main_table_subregion_view.committed()));
             assert(durable_main_table_subregion_view.committed() == durable_main_table_subregion_state);
             assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> 
-                Some(self.metadata_table@) == parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size));
-            assert(durable_main_table_view == self.metadata_table@);
+                Some(self.main_table@) == parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size));
+            assert(durable_main_table_view == self.main_table@);
 
             let tentative_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.physical_op_list).unwrap();
             let tentative_main_table_subregion_state = extract_bytes(tentative_bytes, 
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_subregion_state,
-                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+            let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_subregion_state,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
-            assert(self.metadata_table.pending_alloc_inv(durable_main_table_subregion_state, 
+            assert(self.main_table.pending_alloc_inv(durable_main_table_subregion_state, 
                 tentative_main_table_subregion_state, self.overall_metadata));
 
-            assert forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) implies {
-                durable_main_table_view.durable_metadata_table[idx as int] is None
+            assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies {
+                durable_main_table_view.durable_main_table[idx as int] is None
             } by {
-                assert(self.metadata_table.pending_alloc_check(idx, durable_main_table_view, 
+                assert(self.main_table.pending_alloc_check(idx, durable_main_table_view, 
                     tentative_main_table_view));
             }
         }
@@ -2500,13 +2500,13 @@ verus! {
                 old(self).item_table.allocator_view().len() == 0,
                 old(self).wrpm == pre_self.wrpm,
                 old(self).item_table@ == pre_self.item_table@,
-                old(self).metadata_table == pre_self.metadata_table,
+                old(self).main_table == pre_self.main_table,
                 ({
                     let main_table_subregion_view = get_subregion_view(old(self).wrpm@.flush(),
                         old(self).overall_metadata.main_table_addr as nat,
                         old(self).overall_metadata.main_table_size as nat);
-                    parse_metadata_table::<K>(main_table_subregion_view.committed(), old(self).overall_metadata.num_keys, 
-                        old(self).overall_metadata.metadata_node_size) is Some
+                    parse_main_table::<K>(main_table_subregion_view.committed(), old(self).overall_metadata.num_keys, 
+                        old(self).overall_metadata.main_table_entry_size) is Some
                 }),
             ensures
                 self.inv(),
@@ -2570,10 +2570,10 @@ verus! {
                 let pre_self_tentative_main_table_region_state = extract_bytes(pre_self_tentative_bytes,
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 
-                let pre_self_durable_main_table_view = parse_metadata_table::<K>(pre_self_durable_main_table_region_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                let pre_self_tentative_main_table_view = parse_metadata_table::<K>(pre_self_tentative_main_table_region_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let pre_self_durable_main_table_view = parse_main_table::<K>(pre_self_durable_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                let pre_self_tentative_main_table_view = parse_main_table::<K>(pre_self_tentative_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 
                 pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     pre_self_durable_main_table_view.valid_item_indices(), 
@@ -2585,9 +2585,9 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
             proof {
@@ -2595,7 +2595,7 @@ verus! {
                     pre_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                assert(self.metadata_table@ == pre_self.metadata_table@);
+                assert(self.main_table@ == pre_self.main_table@);
                 assert(self.item_table@ == pre_self.item_table@);
                 assert(self.durable_list@ == pre_self.durable_list@);
             }
@@ -2613,22 +2613,22 @@ verus! {
                 !pre_self.transaction_committed(),
                 old(self).inv(),
                 old(self)@ == pre_self@,
-                old(self).metadata_table.allocator_view() == pre_self.metadata_table.allocator_view(),
-                old(self).metadata_table.pending_allocations_view() == pre_self.metadata_table.pending_allocations_view(),
-                old(self).metadata_table.allocator_view().len() == 0,
-                old(self) == (Self{ metadata_table: old(self).metadata_table, ..pre_self }),
+                old(self).main_table.allocator_view() == pre_self.main_table.allocator_view(),
+                old(self).main_table.pending_allocations_view() == pre_self.main_table.pending_allocations_view(),
+                old(self).main_table.allocator_view().len() == 0,
+                old(self) == (Self{ main_table: old(self).main_table, ..pre_self }),
                 ({
                     let condition = old_self.condition_preserved_by_subregion_masks();
                     &&& forall|s| old(self).wrpm@.can_crash_as(s) ==> condition(s)
                     &&& condition(old(self).wrpm@.committed())
                 }),
-                old(self).metadata_table.inv(
+                old(self).main_table.inv(
                     get_subregion_view(old(self).wrpm@, old(self).overall_metadata.main_table_addr as nat,
                                        old(self).overall_metadata.main_table_size as nat),
                     old(self).overall_metadata
                 ),
-                old(self).metadata_table@ == pre_self.metadata_table@,
-                old(self).metadata_table.allocator_inv(),
+                old(self).main_table@ == pre_self.main_table@,
+                old(self).main_table.allocator_inv(),
                 old_self.inv(),
                 old_self.constants() == pre_self.constants(),
                 !old_self.transaction_committed(),
@@ -2646,8 +2646,8 @@ verus! {
                         old(self).overall_metadata.main_table_addr as nat,
                         old(self).overall_metadata.main_table_size as nat);
                     forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
-                        parse_metadata_table::<K>(s, old(self).overall_metadata.num_keys, 
-                            old(self).overall_metadata.metadata_node_size) is Some
+                        parse_main_table::<K>(s, old(self).overall_metadata.num_keys, 
+                            old(self).overall_metadata.main_table_entry_size) is Some
                 }),
                 forall|idx: u64| #[trigger] old(self).item_table.valid_indices@.contains(idx) ==> 
                     !old(self).item_table.allocator_view().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
@@ -2655,9 +2655,9 @@ verus! {
                     ||| old(self).item_table.pending_allocations_view().contains(idx)
                     ||| old(self).item_table.allocator_view().contains(idx)
                 },
-                forall |idx: u64| #[trigger] old(self).metadata_table.pending_allocations_view().contains(idx) ==> {
-                    &&& !old(self).metadata_table.free_indices().contains(idx)
-                    &&& old(self).metadata_table@.durable_metadata_table[idx as int] is None
+                forall |idx: u64| #[trigger] old(self).main_table.pending_allocations_view().contains(idx) ==> {
+                    &&& !old(self).main_table.free_indices().contains(idx)
+                    &&& old(self).main_table@.durable_main_table[idx as int] is None
                     &&& idx < old(self).overall_metadata.num_keys
                 },
             ensures
@@ -2716,9 +2716,9 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@),
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
             proof {
@@ -2726,7 +2726,7 @@ verus! {
                     old_self.wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                assert(self.metadata_table@ == old_self.metadata_table@);
+                assert(self.main_table@ == old_self.main_table@);
                 assert(self.item_table@ == old_self.item_table@);
                 assert(self.durable_list@ == old_self.durable_list@);
             }
@@ -2745,8 +2745,8 @@ verus! {
                 ({
                     let main_table_subregion_view = get_subregion_view(old(self).wrpm@.flush(), old(self).overall_metadata.main_table_addr as nat,
                         old(self).overall_metadata.main_table_size as nat);
-                    parse_metadata_table::<K>(main_table_subregion_view.committed(), old(self).overall_metadata.num_keys, 
-                        old(self).overall_metadata.metadata_node_size) is Some
+                    parse_main_table::<K>(main_table_subregion_view.committed(), old(self).overall_metadata.num_keys, 
+                        old(self).overall_metadata.main_table_entry_size) is Some
                 })
             ensures 
                 self.valid(),
@@ -2800,10 +2800,10 @@ verus! {
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let tentative_main_table_region_state = extract_bytes(tentative_bytes,
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
             }
@@ -2813,9 +2813,9 @@ verus! {
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             // abort the transaction in each component to re-establish their invariants
-            self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+            self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+            self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
             
             proof {
                 assert(!self.transaction_committed());
@@ -2909,8 +2909,8 @@ verus! {
             let ghost tentative_state_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             let ghost tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let ghost tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
-                    self.overall_metadata.metadata_node_size).unwrap();
+            let ghost tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
+                    self.overall_metadata.main_table_entry_size).unwrap();
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
 
@@ -2922,7 +2922,7 @@ verus! {
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
             assert(self.item_table.pending_alloc_inv(self.item_table.valid_indices@, 
                 tentative_main_table_view.valid_item_indices()));
-            assert(self.metadata_table.pending_alloc_inv(main_table_subregion_view.committed(), 
+            assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
 
             let ghost self_before_tentative_item_write = *self;
@@ -2958,10 +2958,10 @@ verus! {
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
 
-                assert forall |idx: u64| #[trigger] self.metadata_table.pending_allocations_view().contains(idx) implies {
-                    &&& self.metadata_table@.durable_metadata_table[idx as int] is None
+                assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies {
+                    &&& self.main_table@.durable_main_table[idx as int] is None
                 } by {
-                    assert(self.metadata_table.pending_alloc_check(idx, self.metadata_table@, tentative_main_table_view));
+                    assert(self.main_table.pending_alloc_check(idx, self.main_table@, tentative_main_table_view));
                 } 
             }
             
@@ -2990,7 +2990,7 @@ verus! {
             }
 
             let ghost self_before_main_table_create = *self;
-            let metadata_index = match self.metadata_table.tentative_create(
+            let metadata_index = match self.main_table.tentative_create(
                 &main_table_subregion,
                 &mut self.wrpm,
                 head_index, 
@@ -3036,19 +3036,19 @@ verus! {
                                       self.overall_metadata.main_table_size as nat).committed() =~=
                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
                                  self.overall_metadata.main_table_size as nat));
-            assert(parse_metadata_table::<K>(
+            assert(parse_main_table::<K>(
                        get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                           self.overall_metadata.main_table_size as nat).committed(),
                        self.overall_metadata.num_keys,
-                       self.overall_metadata.metadata_node_size
-                   ) == Some(self.metadata_table@)) by {
+                       self.overall_metadata.main_table_entry_size
+                   ) == Some(self.main_table@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(
                     get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                        self.overall_metadata.main_table_size as nat)
                 );
             }
             assume(false);
-            let log_entry = self.metadata_table.get_validify_log_entry(
+            let log_entry = self.main_table.get_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
                 metadata_index,
@@ -3062,7 +3062,7 @@ verus! {
             // implies item commit and also makes the list accessible so we can append to it
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
             let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_metadata_table_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_main_table_perm = TrustedMetadataPermission::fake_metadata_perm();
 
             let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
             let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
@@ -3128,7 +3128,7 @@ verus! {
                 log_entry.absolute_addr + log_entry.len <=
                     self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size,
                 old_self.tentative_view() matches Some(tentative_view) && tentative_view.contains_key(index as int),
-                0 <= index < self.metadata_table@.durable_metadata_table.len(),
+                0 <= index < self.main_table@.durable_main_table.len(),
                 ({
                     let old_flushed_mem = old_self.wrpm@.flush().committed();
                     let old_op_log = old_self.log@.commit_op_log().physical_op_list;
@@ -3148,13 +3148,13 @@ verus! {
                     );
                     let current_main_table_region = extract_bytes(tentative_view_bytes, 
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_metadata_table::<K>(current_main_table_region,
-                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                    let current_main_table_view = parse_main_table::<K>(current_main_table_region,
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                     let new_main_table_region = extract_bytes(new_mem, 
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let new_main_table_view = parse_metadata_table::<K>(new_main_table_region,
-                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size);
-                    let item_index = self.metadata_table@.durable_metadata_table[index as int].unwrap().item_index();
+                    let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+                    let item_index = self.main_table@.durable_main_table[index as int].unwrap().item_index();
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_main_table_view.delete(index as int)
                     &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
@@ -3187,10 +3187,10 @@ verus! {
                     let new_mem_new_log_list_area_region = extract_bytes(new_mem_with_new_log_installed, 
                         self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
 
-                    let old_main_table_view = parse_metadata_table::<K>(old_mem_old_log_main_table_region, 
-                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                    let main_table_view = parse_metadata_table::<K>(new_mem_new_log_main_table_region, 
-                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                    let old_main_table_view = parse_main_table::<K>(old_mem_old_log_main_table_region, 
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                    let main_table_view = parse_main_table::<K>(new_mem_new_log_main_table_region, 
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
                     
                     &&& old_mem_old_log_item_table_region == old_mem_new_log_item_table_region
@@ -3249,8 +3249,8 @@ verus! {
             assume(old_mem_old_log_item_table_region == old_mem_new_log_item_table_region);
             assume(old_mem_old_log_list_area_region == old_mem_new_log_list_area_region);
 
-            let old_main_table_view = parse_metadata_table::<K>(old_mem_old_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-            let main_table_view = parse_metadata_table::<K>(new_mem_new_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+            let old_main_table_view = parse_main_table::<K>(old_mem_old_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+            let main_table_view = parse_main_table::<K>(new_mem_new_log_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
         
             assume(main_table_view == old_main_table_view.delete(index as int).unwrap());
             assume(main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
@@ -3316,9 +3316,9 @@ verus! {
                     }
                 }
         {
-            assert(forall |idx: u64| old(self).metadata_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
+            assert(forall |idx: u64| old(self).main_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
             let pm = self.wrpm.get_pm_region_ref();
-            let metadata_table_subregion = PersistentMemorySubregion::new(
+            let main_table_subregion = PersistentMemorySubregion::new(
                 pm,
                 self.overall_metadata.main_table_addr,
                 Ghost(self.overall_metadata.main_table_size as nat)
@@ -3332,7 +3332,7 @@ verus! {
                 let main_table_subregion_view = get_subregion_view(self.wrpm@,
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==>
-                    parse_metadata_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) is Some);
+                    parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) is Some);
                 assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                 assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
@@ -3341,8 +3341,8 @@ verus! {
             // We have to read the current item index from the entry so that we can 
             // properly deallocate it later.
             // TODO: could the caller pass this in? Would it be easier/faster?
-            let (key, metadata) = match self.metadata_table.get_key_and_metadata_entry_at_index(
-                &metadata_table_subregion, pm, index, Ghost(self.overall_metadata)) 
+            let (key, metadata) = match self.main_table.get_key_and_metadata_entry_at_index(
+                &main_table_subregion, pm, index, Ghost(self.overall_metadata)) 
             {
                 Ok((key, metadata)) => (key, metadata),
                 Err(e) => {
@@ -3368,19 +3368,19 @@ verus! {
 
             // To tentatively delete a record, we need to obtain a log entry representing 
             // its deletion and tentatively append it to the operation log.
-            assert(get_subregion_view(self.wrpm@, metadata_table_subregion.start(), metadata_table_subregion.len()).committed() =~=
+            assert(get_subregion_view(self.wrpm@, main_table_subregion.start(), main_table_subregion.len()).committed() =~=
                 extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-            assert(parse_metadata_table::<K>(get_subregion_view(self.wrpm@, metadata_table_subregion.start(), metadata_table_subregion.len()).committed(),
-                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@)) 
+            assert(parse_main_table::<K>(get_subregion_view(self.wrpm@, main_table_subregion.start(), main_table_subregion.len()).committed(),
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(self.main_table@)) 
             by {
                 lemma_persistent_memory_view_can_crash_as_committed(
-                    get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
-                                       metadata_table_subregion.len())
+                    get_subregion_view(self.wrpm@, main_table_subregion.start(),
+                                       main_table_subregion.len())
                 );
             }
-            let log_entry = self.metadata_table.get_delete_log_entry(
-                Ghost(get_subregion_view(self.wrpm@, metadata_table_subregion.start(),
-                                         metadata_table_subregion.len())),
+            let log_entry = self.main_table.get_delete_log_entry(
+                Ghost(get_subregion_view(self.wrpm@, main_table_subregion.start(),
+                                         main_table_subregion.len())),
                 Ghost(self.wrpm@), index,
                 Ghost(self.version_metadata), &self.overall_metadata, Ghost(tentative_view_bytes));
     
@@ -3450,10 +3450,10 @@ verus! {
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                         let tentative_main_table_region_state = extract_bytes(tentative_bytes,
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                        let durable_main_table_view = parse_main_table::<K>(durable_main_table_region_state,
+                            self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                        let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
+                            self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                         old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                             durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
                     }
@@ -3463,9 +3463,9 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
-                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+                    self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
                     
                     proof {
                         assert(!self.transaction_committed());
@@ -3529,14 +3529,14 @@ verus! {
                 self.log@.commit_op_log().physical_op_list).unwrap();
             let ghost tentative_main_table_subregion_state = extract_bytes(new_tentative_view_bytes, 
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-            let ghost tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_subregion_state,
-                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+            let ghost tentative_main_table_view = parse_main_table::<K>(tentative_main_table_subregion_state,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
             proof {
                 let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_subregion_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(old(self).wrpm@, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
@@ -3545,15 +3545,15 @@ verus! {
 
                 let old_tentative_main_table_subregion_state = extract_bytes(tentative_view_bytes, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_subregion_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
-                assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_metadata_table.len() && idx != index implies 
-                    self.metadata_table.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
-                by { assert(old(self).metadata_table.pending_alloc_check(idx, durable_main_table_view, old_tentative_main_table_view)); }
+                assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_main_table.len() && idx != index implies 
+                    self.main_table.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
+                by { assert(old(self).main_table.pending_alloc_check(idx, durable_main_table_view, old_tentative_main_table_view)); }
 
-                assert(old(self).metadata_table.pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
-                assert(!self.metadata_table.pending_deallocations_view().contains(index));
+                assert(old(self).main_table.pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
+                assert(!self.main_table.pending_deallocations_view().contains(index));
             }
 
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -3564,33 +3564,33 @@ verus! {
                 self.overall_metadata.list_area_size as nat);
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
 
-            self.metadata_table.tentatively_deallocate_entry(Ghost(main_table_subregion_view),
+            self.main_table.tentatively_deallocate_entry(Ghost(main_table_subregion_view),
                 index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
 
             proof {
                 let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_subregion_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
                 let old_tentative_main_table_subregion_state = extract_bytes(tentative_view_bytes, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_subregion_state,
-                    self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_subregion_state,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
-                assert(self.metadata_table@.valid_item_indices() == old(self).metadata_table@.valid_item_indices());
+                assert(self.main_table@.valid_item_indices() == old(self).main_table@.valid_item_indices());
 
                 assert(tentative_main_table_view.valid_item_indices() == old_tentative_main_table_view.valid_item_indices().remove(item_index));
                
-                assert(self.metadata_table@ == durable_main_table_view);
+                assert(self.main_table@ == durable_main_table_view);
                 
                 assert forall |idx: u64| {
                     &&& 0 <= idx < self.overall_metadata.num_keys 
                     &&& idx != item_index  
-                } implies self.item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), 
+                } implies self.item_table.pending_alloc_check(idx, self.main_table@.valid_item_indices(), 
                     tentative_main_table_view.valid_item_indices())
                 by { 
-                    assert(old(self).item_table.pending_alloc_check(idx, self.metadata_table@.valid_item_indices(), old_tentative_main_table_view.valid_item_indices()));
+                    assert(old(self).item_table.pending_alloc_check(idx, self.main_table@.valid_item_indices(), old_tentative_main_table_view.valid_item_indices()));
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
                     assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
@@ -3609,7 +3609,7 @@ verus! {
                     self.item_table.valid_indices@, old_tentative_main_table_view.valid_item_indices());
             }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
-                Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()),
+                Ghost(self.overall_metadata), Ghost(self.main_table@.valid_item_indices()),
                 Ghost(tentative_main_table_view.valid_item_indices()), Ghost(new_tentative_view_bytes));
 
             assert(self.pending_alloc_inv());
@@ -3623,9 +3623,9 @@ verus! {
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
-                self.item_table.valid_indices@ == self.metadata_table@.valid_item_indices(),
+                self.item_table.valid_indices@ == self.main_table@.valid_item_indices(),
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
-                self.metadata_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                self.main_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                                            self.overall_metadata.main_table_size as nat),
                                         self.overall_metadata),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
@@ -3633,7 +3633,7 @@ verus! {
                                     self.overall_metadata),
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),
-                                      self.metadata_table@, self.overall_metadata),
+                                      self.main_table@, self.overall_metadata),
                 forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.version_metadata == deserialize_version_metadata(s),
                 forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==>
                     self.overall_metadata == deserialize_overall_metadata(
@@ -3941,10 +3941,10 @@ verus! {
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                         let tentative_main_table_region_state = extract_bytes(tentative_view_bytes,
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                        let durable_main_table_view = parse_metadata_table::<K>(durable_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                        let tentative_main_table_view = parse_metadata_table::<K>(tentative_main_table_region_state,
-                            self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                        let durable_main_table_view = parse_main_table::<K>(durable_main_table_region_state,
+                            self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                        let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
+                            self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                         old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                             durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
                     }
@@ -3954,9 +3954,9 @@ verus! {
                     assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
                     // abort the transaction in each component to re-establish their invariants
-                    self.metadata_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
+                    self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.metadata_table@), Ghost(self.overall_metadata));
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
                     proof {
                         assert(!self.transaction_committed());
@@ -4043,11 +4043,11 @@ verus! {
             // but this makes everything more difficult to prove (why?). Since these functions don't modify WRPM, 
             // we don't need to reason about crash consistency, so it's fine for them to see a ghost view of the 
             // whole device.
-            self.metadata_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
+            self.main_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
             self.item_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
-                Ghost(self.metadata_table@.valid_item_indices()));
+                Ghost(self.main_table@.valid_item_indices()));
             self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
-                Ghost(self.metadata_table@));
+                Ghost(self.main_table@));
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
@@ -4081,19 +4081,19 @@ verus! {
             proof {
                 let old_durable_main_table_region = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let old_durable_main_table_view = parse_metadata_table::<K>(old_durable_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
-                let old_tentative_main_table_view = parse_metadata_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size).unwrap();
+                let old_durable_main_table_view = parse_main_table::<K>(old_durable_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
                 // After replaying and clearing the log, all metadata indices pending allocation
                 // are now valid and all metadata indices pending deallocation are invalid
-                assert forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() implies {
-                    &&& #[trigger] self.metadata_table.pending_allocations_view().contains(idx) ==> 
-                            {self.metadata_table@.durable_metadata_table[idx as int] is Some}
-                    &&& self.metadata_table.pending_deallocations_view().contains(idx) ==> 
-                            {self.metadata_table@.durable_metadata_table[idx as int] is None}
+                assert forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() implies {
+                    &&& #[trigger] self.main_table.pending_allocations_view().contains(idx) ==> 
+                            {self.main_table@.durable_main_table[idx as int] is Some}
+                    &&& self.main_table.pending_deallocations_view().contains(idx) ==> 
+                            {self.main_table@.durable_main_table[idx as int] is None}
                 } by {
                     // trigger the pending alloc check
-                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
+                    assert(old(self).main_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
                 }
 
                 self.lemma_view_and_components_unchanged(pre_clear_wrpm);
@@ -4105,52 +4105,52 @@ verus! {
                 // and the current KV store state. The pending allocation invariants no longer hold because we have 
                 // installed operations that cause durable allocation/deallocation but we have not yet updated
                 // the corresponding durable structures.
-                assert forall |idx: u64| 0 <= idx < self.metadata_table@.durable_metadata_table.len() implies {
-                    let entry = #[trigger] self.metadata_table@.durable_metadata_table[idx as int];
+                assert forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() implies {
+                    let entry = #[trigger] self.main_table@.durable_main_table[idx as int];
                     match entry {
                         None => {
-                            ||| self.metadata_table.allocator_view().contains(idx)
-                            ||| self.metadata_table.pending_deallocations_view().contains(idx)
+                            ||| self.main_table.allocator_view().contains(idx)
+                            ||| self.main_table.pending_deallocations_view().contains(idx)
                         },
                         Some(entry) => {
                             // if the entry is valid, either it was pending allocation
                             // or it's just valid and not in any of the three lists
-                            ||| self.metadata_table.pending_allocations_view().contains(idx)
+                            ||| self.main_table.pending_allocations_view().contains(idx)
                             ||| ({
-                                &&& !self.metadata_table.allocator_view().contains(idx)
-                                &&& !self.metadata_table.pending_deallocations_view().contains(idx)
-                                &&& !self.metadata_table.pending_allocations_view().contains(idx)
+                                &&& !self.main_table.allocator_view().contains(idx)
+                                &&& !self.main_table.pending_deallocations_view().contains(idx)
+                                &&& !self.main_table.pending_allocations_view().contains(idx)
                             })
                         },
                     }
                 } by {
-                    assert(old(self).metadata_table.pending_alloc_check(idx, old_durable_main_table_view,
+                    assert(old(self).main_table.pending_alloc_check(idx, old_durable_main_table_view,
                         old_tentative_main_table_view));
                 }
             
                 assert forall |idx| 0 <= idx < self.item_table.num_keys implies
-                    old(self).item_table.pending_alloc_check(idx, old(self).metadata_table@.valid_item_indices(),
-                        self.metadata_table@.valid_item_indices())
+                    old(self).item_table.pending_alloc_check(idx, old(self).main_table@.valid_item_indices(),
+                        self.main_table@.valid_item_indices())
                 by {
                     let durable_main_table_region_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
 
                     assert(durable_main_table_region_view.committed() == old_durable_main_table_region);
                     assert(durable_main_table_region_view.can_crash_as(old_durable_main_table_region));
-                    assert(old(self).metadata_table@ == old_durable_main_table_view);
-                    assert(old(self).metadata_table@.valid_item_indices() == old_durable_main_table_view.valid_item_indices());
+                    assert(old(self).main_table@ == old_durable_main_table_view);
+                    assert(old(self).main_table@.valid_item_indices() == old_durable_main_table_view.valid_item_indices());
                 }
             }
 
             // 5. Finalize pending allocations and deallocations. This will reestablish the pending allocation invariant
             // for each component.
-            self.metadata_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+            self.main_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                 self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
             self.item_table.finalize_pending_alloc_and_dealloc(
                 Ghost(old(self).item_table), 
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat)), 
                 Ghost(self.overall_metadata), 
-                Ghost(old(self).metadata_table@.valid_item_indices())
+                Ghost(old(self).main_table@.valid_item_indices())
             );
             
             proof {
@@ -4188,8 +4188,8 @@ verus! {
                 ({
                     let pre_durable_main_table_subregion_view = get_subregion_view(pre_state, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat);
-                    parse_metadata_table::<K>(pre_durable_main_table_subregion_view.committed(), 
-                        self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@)
+                    parse_main_table::<K>(pre_durable_main_table_subregion_view.committed(), 
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(self.main_table@)
                 }),
                 self.wrpm@.no_outstanding_writes(),
                 pre_state.no_outstanding_writes(),
@@ -4215,8 +4215,8 @@ verus! {
                     &&& pre_durable_item_table_subregion_view.state == durable_item_table_subregion_view.state
                     &&& pre_durable_list_area_subregion_view.state == durable_list_area_subregion_view.state
                     &&& durable_main_table_subregion_view.can_crash_as(pre_durable_main_table_subregion_view.committed())
-                    &&& forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_metadata_table::<K>(s, self.overall_metadata.num_keys, 
-                            self.overall_metadata.metadata_node_size) == Some(self.metadata_table@)
+                    &&& forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_main_table::<K>(s, self.overall_metadata.num_keys, 
+                            self.overall_metadata.main_table_entry_size) == Some(self.main_table@)
                 }),
                 extracted_regions_match(self.wrpm@.committed(), pre_state.committed(), self.overall_metadata),
                 deserialize_version_metadata(self.wrpm@.committed()) == deserialize_version_metadata(pre_state.committed()),
@@ -4246,8 +4246,8 @@ verus! {
         
             assert(durable_main_table_subregion_view.can_crash_as(pre_durable_main_table_subregion_view.committed()));
             lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_main_table_subregion_view);
-            assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_metadata_table::<K>(s, 
-                self.overall_metadata.num_keys, self.overall_metadata.metadata_node_size) == Some(self.metadata_table@));
+            assert(forall |s| #[trigger] durable_main_table_subregion_view.can_crash_as(s) ==> parse_main_table::<K>(s, 
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(self.main_table@));
         }
 
 /*
@@ -4311,7 +4311,7 @@ verus! {
 
             // 3. find a free slot in the metadata table and tentatively write a new entry to it
             let tracked fake_metadata_perm = TrustedMetadataPermission::fake_metadata_perm();
-            let metadata_index = self.metadata_table.tentative_create(
+            let metadata_index = self.main_table.tentative_create(
                 &mut self.metadata_wrpm, 
                 Ghost(kvstore_id), 
                 head_index, 
@@ -4324,7 +4324,7 @@ verus! {
             // implies item commit and also makes the list accessible so we can append to it
             let tracked fake_log_perm = TrustedPermission::fake_log_perm();
             let tracked fake_item_table_perm = TrustedItemTablePermission::fake_item_perm();
-            let tracked fake_metadata_table_perm = TrustedMetadataPermission::fake_metadata_perm();
+            let tracked fake_main_table_perm = TrustedMetadataPermission::fake_metadata_perm();
 
             let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
             let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
@@ -4366,8 +4366,8 @@ verus! {
             let tracked fake_item_perm = TrustedItemTablePermission::fake_item_perm();
             let tracked fake_list_perm = TrustedListPermission::fake_list_perm();
             // TODO: handle the ghost states properly here
-            self.metadata_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
-                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.metadata_table@))?;
+            self.main_table.play_metadata_log(&mut self.metadata_wrpm, kvstore_id, 
+                &self.pending_updates, Tracked(&fake_metadata_perm), Ghost(self.main_table@))?;
             self.item_table.play_item_log(&mut self.item_table_wrpm, kvstore_id, 
                 &self.pending_updates, Tracked(&fake_item_perm), Ghost(self.item_table@))?;
             self.durable_list.play_log_list(&mut self.list_wrpm, kvstore_id, &self.pending_updates, 
@@ -4393,7 +4393,7 @@ verus! {
                 // TODO 
         {
             assume(false);
-            let (_, metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (_, metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
             Ok(metadata.length)
         }
@@ -4456,7 +4456,7 @@ verus! {
         {
             assume(false);
             // 1. Look up current index of the item via the metadata table
-            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (key, mut metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
 
             let old_item_index = metadata.item_index;
@@ -4527,7 +4527,7 @@ verus! {
             // TODO: DEALLOCATE LIST NODES
 
             // 1. look up the item index so that we can invalidate it 
-            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (key, mut metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
             let item_index = metadata.item_index;
 
@@ -4579,7 +4579,7 @@ verus! {
 
             assume(false);
             // 1. look up list metadata
-            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (key, mut metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
             
             // 2. append the new list element to the list. This is a tentative write and does not need to be logged.
@@ -4619,7 +4619,7 @@ verus! {
         {
             assume(false);
             // 1. Look up metadata
-            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (key, mut metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
 
             // 2. Tentatively allocate and initialize an unused list node
@@ -4726,7 +4726,7 @@ verus! {
             assume(false);
 
             // 1. Look up list metadata
-            let (key, mut metadata) = self.metadata_table.get_key_and_metadata_entry_at_index(
+            let (key, mut metadata) = self.main_table.get_key_and_metadata_entry_at_index(
                 self.metadata_wrpm.get_pm_region_ref(), kvstore_id, metadata_index)?;
 
             if trim_len > metadata.length {
