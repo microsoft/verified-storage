@@ -149,16 +149,16 @@ verus! {
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             I: PmCopy + Sized + std::fmt::Debug,
     {
-        item_size: u64,
-        entry_size: u64,
-        num_keys: u64,
-        free_list: Vec<u64>,
-        pending_allocations: Vec<u64>,
-        pending_deallocations: Vec<u64>,
-        valid_indices: Ghost<Set<u64>>,
-        outstanding_item_table: Ghost<Seq<Option<I>>>,
-        state: Ghost<DurableItemTableView<I>>,
-        _phantom: Ghost<Option<K>>,
+        pub item_size: u64,
+        pub entry_size: u64,
+        pub num_keys: u64,
+        pub free_list: Vec<u64>,
+        pub pending_allocations: Vec<u64>,
+        pub pending_deallocations: Vec<u64>,
+        pub valid_indices: Ghost<Set<u64>>,
+        pub outstanding_item_table: Ghost<Seq<Option<I>>>,
+        pub state: Ghost<DurableItemTableView<I>>,
+        pub _phantom: Ghost<Option<K>>,
     }
 
     impl<K, I> DurableItemTable<K, I>
@@ -166,22 +166,17 @@ verus! {
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             I: PmCopy + Sized + std::fmt::Debug,
     {
-        pub closed spec fn view(self) -> DurableItemTableView<I>
+        pub open spec fn view(self) -> DurableItemTableView<I>
         {
             self.state@
         }
 
-        pub closed spec fn allocator_view(self) -> Set<u64>
+        pub open spec fn allocator_view(self) -> Set<u64>
         {
             self.free_list@.to_set()
         }
         
-        pub closed spec fn spec_outstanding_item_table(self) -> Seq<Option<I>>
-        {
-            self.outstanding_item_table@
-        }
-
-        pub closed spec fn opaque_inv(self, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn opaquable_inv(self, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             &&& self.item_size == overall_metadata.item_size
@@ -203,28 +198,28 @@ verus! {
                     self.free_list@[i] != self.free_list@[j]
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.free_list@[i] < overall_metadata.num_keys
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
-                    self.spec_outstanding_item_table()[#[trigger] self.free_list@[i] as int] is None
+                    self.outstanding_item_table@[#[trigger] self.free_list@[i] as int] is None
         }
 
         // TODO: this needs to say something about pending allocations
         pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
-            &&& self.opaque_inv(overall_metadata)
-            &&& self@.len() == self.spec_outstanding_item_table().len() == self.spec_num_keys() == overall_metadata.num_keys
+            &&& self.opaquable_inv(overall_metadata)
+            &&& self@.len() == self.outstanding_item_table@.len() == self.num_keys == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            // &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
+            // &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> 
             //         !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
             &&& self.pending_allocations_view().disjoint(self.pending_deallocations_view())
             &&& self.allocator_view().disjoint(self.pending_deallocations_view())
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
-                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) ==
+                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.valid_indices@) ==
                        Some(self@)
-            &&& self.spec_outstanding_item_table().len() == self@.durable_item_table.len()
+            &&& self.outstanding_item_table@.len() == self@.durable_item_table.len()
             &&& forall|idx: u64| idx < overall_metadata.num_keys &&
-                #[trigger] self.spec_outstanding_item_table()[idx as int] is None ==>
+                #[trigger] self.outstanding_item_table@[idx as int] is None ==>
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
-            &&& forall|idx: u64| self.spec_valid_indices().contains(idx) ==> {
+            &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
@@ -235,7 +230,7 @@ verus! {
 
         pub open spec fn pending_alloc_inv(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>) -> bool
         {
-            forall |idx: u64| 0 <= idx < self.spec_num_keys() ==> 
+            forall |idx: u64| 0 <= idx < self.num_keys ==> 
                 self.pending_alloc_check(idx, current_valid_indices, tentative_valid_indices)
         }
 
@@ -249,7 +244,7 @@ verus! {
                 &&& !tentative_valid_indices.contains(idx)
             } <==> {
                 &&& self.pending_deallocations_view().contains(idx) 
-                &&& self.spec_valid_indices().contains(idx)
+                &&& self.valid_indices@.contains(idx)
             }
             // If an index is not in the current valid index set but is in the tentative one,
             // it is pending allocation
@@ -268,7 +263,7 @@ verus! {
                 &&& tentative_valid_indices.contains(idx)
             } <==> {
                 &&& !self.pending_deallocations_view().contains(idx) 
-                &&& self.spec_valid_indices().contains(idx)
+                &&& self.valid_indices@.contains(idx)
             }
         }
 
@@ -277,11 +272,11 @@ verus! {
             requires 
                 self.pending_alloc_inv(current_valid_indices, tentative_valid_indices),
             ensures 
-                forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
+                forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] self.valid_indices@.contains(idx)) ==> {
                     ||| self.pending_allocations_view().contains(idx)
                     ||| self.allocator_view().contains(idx)
                 },
-                forall|idx: u64| 0 <= idx < self.spec_num_keys() && #[trigger] self.spec_valid_indices().contains(idx) ==> 
+                forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] self.valid_indices@.contains(idx) ==> 
                     !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
         {
             assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
@@ -300,7 +295,7 @@ verus! {
                             &&& !tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& self.pending_deallocations_view().contains(idx) 
-                            &&& self.spec_valid_indices().contains(idx)
+                            &&& self.valid_indices@.contains(idx)
                         }
                     &&& {
                             &&& !current_valid_indices.contains(idx)
@@ -315,12 +310,12 @@ verus! {
                             &&& tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& !self.pending_deallocations_view().contains(idx) 
-                            &&& self.spec_valid_indices().contains(idx)
+                            &&& self.valid_indices@.contains(idx)
                         }
                 }
             );
 
-            assert forall |idx: u64| 0 <= idx < self.num_keys && !self.spec_valid_indices().contains(idx) implies {
+            assert forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] self.valid_indices@.contains(idx)) implies {
                 ||| self.pending_allocations_view().contains(idx)
                 ||| self.allocator_view().contains(idx)
             } by {
@@ -329,7 +324,7 @@ verus! {
                     &&& !tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& self.pending_deallocations_view().contains(idx) 
-                    &&& self.spec_valid_indices().contains(idx)
+                    &&& self.valid_indices@.contains(idx)
                 });
                 assert({!({
                     &&& current_valid_indices.contains(idx)
@@ -338,7 +333,7 @@ verus! {
                 // Verus is able to automatically handle the rest of the cases.
             }
 
-            assert forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] self.spec_valid_indices().contains(idx) implies 
+            assert forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] self.valid_indices@.contains(idx) implies 
                 !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
             by {
                 assert({
@@ -346,14 +341,14 @@ verus! {
                     &&& !tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& self.pending_deallocations_view().contains(idx) 
-                    &&& self.spec_valid_indices().contains(idx)
+                    &&& self.valid_indices@.contains(idx)
                 });
                 assert({
                     &&& current_valid_indices.contains(idx)
                     &&& tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& !self.pending_deallocations_view().contains(idx) 
-                    &&& self.spec_valid_indices().contains(idx)
+                    &&& self.valid_indices@.contains(idx)
                 });
                 // Again, Verus can get the rest from here.
             }
@@ -363,27 +358,17 @@ verus! {
         {
             &&& self.inv(pm_view, overall_metadata)
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
-                #[trigger] self.spec_outstanding_item_table()[idx as int] is None
+                #[trigger] self.outstanding_item_table@[idx as int] is None
         }
 
-        pub closed spec fn spec_num_keys(self) -> u64
-        {
-            self.num_keys
-        }
-
-        pub closed spec fn pending_allocations_view(self) -> Set<u64>
+        pub open spec fn pending_allocations_view(self) -> Set<u64>
         {
             self.pending_allocations@.to_set()
         }
 
-        pub closed spec fn pending_deallocations_view(self) -> Set<u64>
+        pub open spec fn pending_deallocations_view(self) -> Set<u64>
         {
             self.pending_deallocations@.to_set()
-        }
-
-        pub closed spec fn spec_valid_indices(self) -> Set<u64>
-        {
-            self.valid_indices@
         }
 
         proof fn lemma_establish_bytes_parseable_for_valid_item(
@@ -395,7 +380,7 @@ verus! {
             requires
                 self.valid(pm, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
-                self.spec_valid_indices().contains(index),
+                self.valid_indices@.contains(index),
                 self@.durable_item_table[index as int] is Some,
             ensures
                 ({
@@ -429,7 +414,7 @@ verus! {
 
         pub exec fn index_pending_deallocation(&self, item_index: u64) -> (out: bool)
             requires 
-                0 <= item_index < self.spec_num_keys()
+                0 <= item_index < self.num_keys
             ensures 
                 out == self.pending_deallocations_view().contains(item_index)
         {
@@ -463,9 +448,9 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 self.valid(subregion.view(pm_region), overall_metadata),
-                item_table_index < self.spec_num_keys(),
-                self.spec_valid_indices().contains(item_table_index),
-                self.spec_outstanding_item_table()[item_table_index as int] is None,
+                item_table_index < self.num_keys,
+                self.valid_indices@.contains(item_table_index),
+                self.outstanding_item_table@[item_table_index as int] is None,
             ensures
                 match result {
                     Ok(item) => item == self@.durable_item_table[item_table_index as int].unwrap(),
@@ -532,7 +517,7 @@ verus! {
         )
             requires
                 self.inv(v1, overall_metadata),
-                !self.spec_valid_indices().contains(which_entry),
+                !self.valid_indices@.contains(which_entry),
                 v1.len() == v2.len(),
                 v2.can_crash_as(crash_state2),
                 which_entry < overall_metadata.num_keys,
@@ -545,7 +530,7 @@ verus! {
                 } ==> v2.state[addr] == v1.state[addr],
             ensures
                 parse_item_table::<I, K>(crash_state2, overall_metadata.num_keys as nat,
-                                         self.spec_valid_indices()) == Some(self@),
+                                         self.valid_indices@) == Some(self@),
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             let num_keys = overall_metadata.num_keys;
@@ -555,7 +540,7 @@ verus! {
             let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
                 v2, v1, crash_state2, can_views_differ_at_addr
             );
-            assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, self.spec_valid_indices()) == Some(self@));
+            assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, self.valid_indices@) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, entry_size as nat);
             let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
             lemma_subrange_of_subrange_forall(crash_state1);
@@ -563,7 +548,7 @@ verus! {
                        &&& 0 <= addr < crash_state2.len()
                        &&& crash_state1[addr] != #[trigger] crash_state2[addr]
                    } implies
-                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, self.spec_valid_indices())
+                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, self.valid_indices@)
             by {
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
                 assert(can_views_differ_at_addr(addr));
@@ -571,7 +556,7 @@ verus! {
                 lemma_addr_in_entry_divided_by_entry_size(which_entry as nat, entry_size as nat, addr);
             }
             lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
-                crash_state1, crash_state2, num_keys, self.spec_valid_indices()
+                crash_state1, crash_state2, num_keys, self.valid_indices@
             );
         }
 
@@ -598,34 +583,34 @@ verus! {
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
                     &&& address_belongs_to_invalid_item_table_entry::<I>(addr, overall_metadata.num_keys,
-                                                                       old(self).spec_valid_indices())
+                                                                       old(self).valid_indices@)
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
-                old(self).pending_alloc_inv(old(self).spec_valid_indices(), tentative_valid_indices),
+                old(self).pending_alloc_inv(old(self).valid_indices@, tentative_valid_indices),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
-                self.spec_valid_indices() == old(self).spec_valid_indices(),
+                self.valid_indices@ == old(self).valid_indices@,
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
                         &&& old(self).allocator_view().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.spec_outstanding_item_table()[i] ==
-                            old(self).spec_outstanding_item_table()[i]
-                        &&& self.spec_outstanding_item_table()[index as int] == Some(*item)
+                            #[trigger] self.outstanding_item_table@[i] ==
+                            old(self).outstanding_item_table@[i]
+                        &&& self.outstanding_item_table@[index as int] == Some(*item)
                         &&& forall |other_index: u64| self.allocator_view().contains(other_index) <==>
                             old(self).allocator_view().contains(other_index) && other_index != index
-                        &&& forall|idx: u64| #[trigger] self.spec_valid_indices().contains(idx) ==> 
+                        &&& forall|idx: u64| #[trigger] self.valid_indices@.contains(idx) ==> 
                             !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
-                        &&& forall |idx: u64| 0 <= idx < self.spec_num_keys() && !self.spec_valid_indices().contains(idx) ==> {
+                        &&& forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] self.valid_indices@.contains(idx)) ==> {
                             ||| self.pending_allocations_view().contains(idx)
                             ||| self.allocator_view().contains(idx)
                         }
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
-                        &&& self.spec_outstanding_item_table() == old(self).spec_outstanding_item_table()
+                        &&& self.outstanding_item_table@ == old(self).outstanding_item_table@
                         &&& self.allocator_view() == old(self).allocator_view()
                         &&& self.pending_allocations_view() == old(self).pending_allocations_view()
                         &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
@@ -637,7 +622,7 @@ verus! {
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(parse_item_table::<I, K>(old_pm_view.committed(), overall_metadata.num_keys as nat,
-                                            self.spec_valid_indices()) == Some(self@)) by {
+                                            self.valid_indices@) == Some(self@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
 
@@ -667,13 +652,13 @@ verus! {
                 lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
             }
-            assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+            assert(self.valid_indices@ == old(self).valid_indices@);
 
             broadcast use pmcopy_axioms;
             
             proof {
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                assert(self.spec_outstanding_item_table()[free_index as int] is None);
+                assert(self.outstanding_item_table@[free_index as int] is None);
             }
 
             let crc_addr = free_index * (entry_size as u64);
@@ -690,12 +675,12 @@ verus! {
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() =~= old_pm_view.committed());
             assert forall|idx: u64| idx < overall_metadata.num_keys &&
-                   #[trigger] self.spec_outstanding_item_table()[idx as int] is None implies
+                   #[trigger] self.outstanding_item_table@[idx as int] is None implies
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
             }
-            assert forall|idx: u64| self.spec_valid_indices().contains(idx) implies {
+            assert forall|idx: u64| self.valid_indices@.contains(idx) implies {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
@@ -721,7 +706,7 @@ verus! {
             }
 
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
-                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.spec_valid_indices()) == Some(self@)
+                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.valid_indices@) == Some(self@)
             } by {
                 old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
                     old_pm_view, pm_view, s, overall_metadata, free_index
@@ -881,9 +866,9 @@ verus! {
                             let free_indices = all_possible_indices - in_use_indices;
                             // all free indexes are in the free list
                             &&& forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.allocator_view().contains(i)
-                            &&& item_table.spec_valid_indices() == in_use_indices
+                            &&& item_table.valid_indices@ == in_use_indices
                         }
-                        &&& item_table.pending_alloc_inv(item_table.spec_valid_indices(), item_table.spec_valid_indices())
+                        &&& item_table.pending_alloc_inv(item_table.valid_indices@, item_table.valid_indices@)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(KvError::PmemErr{ pmem_err }) => true,
@@ -1007,7 +992,7 @@ verus! {
                 }
 
                 assert forall|idx: u64| idx < num_keys &&
-                           #[trigger] item_table.spec_outstanding_item_table()[idx as int] is None implies
+                           #[trigger] item_table.outstanding_item_table@[idx as int] is None implies
                     pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 }
@@ -1019,7 +1004,7 @@ verus! {
                 lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
                 assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.committed());
                 assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
-                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, item_table.spec_valid_indices()) == Some(item_table@));
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, item_table.valid_indices@) == Some(item_table@));
             }
 
             Ok(item_table)
@@ -1042,9 +1027,9 @@ verus! {
                 !old(self).pending_allocations_view().contains(index),
                 !old(self).pending_deallocations_view().contains(index),
                 // and it's currently valid
-                old(self).spec_valid_indices().contains(index),
+                old(self).valid_indices@.contains(index),
                 !tentative_valid_indices.contains(index),
-                old(self).spec_valid_indices() == durable_valid_indices, // ?
+                old(self).valid_indices@ == durable_valid_indices, // ?
                 forall |idx: u64| {
                     &&& 0 <= idx < overall_metadata.num_keys 
                     &&& idx != index 
@@ -1057,9 +1042,9 @@ verus! {
                 old(self).allocator_view() == self.allocator_view(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self)@ == self@,
-                old(self).spec_valid_indices() == self.spec_valid_indices(),
-                // old(self).spec_valid_indices().remove == self.spec_valid_indices(),
-                old(self).spec_outstanding_item_table() == self.spec_outstanding_item_table(),
+                old(self).valid_indices@ == self.valid_indices@,
+                // old(self).valid_indices@.remove == self.valid_indices@,
+                old(self).outstanding_item_table@ == self.outstanding_item_table@,
                 self.pending_alloc_inv(durable_valid_indices, tentative_valid_indices)
         {
             self.pending_deallocations.push(index);
@@ -1102,21 +1087,21 @@ verus! {
         //         wrpm_region@.no_outstanding_writes(),
         //         // the given index is free (i.e. not valid) but not in the free list
         //         0 <= item_table_index < old(self)@.len(),
-        //         !old(self).spec_valid_indices().contains(item_table_index),
+        //         !old(self).valid_indices@.contains(item_table_index),
         //         !old(self).allocator_view().contains(item_table_index),
         //         !old(self).pending_allocations_view().contains(item_table_index),
-        //         old(self).spec_outstanding_item_table()[item_table_index as int] is None,
+        //         old(self).outstanding_item_table@[item_table_index as int] is None,
         //         old(self)@.durable_item_table[item_table_index as int] is None,
         //         // the allocator contains all invalid indices except for item_table_index
         //         forall |i: u64| {
         //             &&& 0 <= i < old(self)@.len()
         //             &&& i != item_table_index
-        //         } ==> (!old(self).spec_valid_indices().contains(i) <==> old(self).allocator_view().contains(i))
+        //         } ==> (!old(self).valid_indices@.contains(i) <==> old(self).allocator_view().contains(i))
         //     ensures 
         //         self.inv(wrpm_region@, overall_metadata),
         // {
         //     assert(forall |i: u64| 0 <= i < self@.len() && i != item_table_index ==> 
-        //             (!self.spec_valid_indices().contains(i) <==> self.allocator_view().contains(i)));
+        //             (!self.valid_indices@.contains(i) <==> self.allocator_view().contains(i)));
 
         //     self.free_list.push(item_table_index);
 
@@ -1137,22 +1122,22 @@ verus! {
         )
             requires 
                 pm.no_outstanding_writes(),
-                old(self).opaque_inv(overall_metadata),
-                forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
+                old(self).opaquable_inv(overall_metadata),
+                forall|idx: u64| #[trigger] old(self).valid_indices@.contains(idx) ==> 
                     !old(self).allocator_view().contains(idx) && !old(self).pending_allocations_view().contains(idx),
-                old(self)@.len() == old(self).spec_outstanding_item_table().len() == old(self).spec_num_keys() == overall_metadata.num_keys,
+                old(self)@.len() == old(self).outstanding_item_table@.len() == old(self).num_keys == overall_metadata.num_keys,
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& pm.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
-                // forall|idx: u64| #[trigger] old(self).spec_valid_indices().contains(idx) ==> 
+                // forall|idx: u64| #[trigger] old(self).valid_indices@.contains(idx) ==> 
                 //     !old(self).allocator_view().contains(idx),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> {
-                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, old(self).spec_valid_indices())
+                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, old(self).valid_indices@)
                             matches Some(table_view)
                     &&& table_view.durable_item_table == old(self)@.durable_item_table
                 },
-                forall|idx: u64| old(self).spec_valid_indices().contains(idx) ==> {
+                forall|idx: u64| old(self).valid_indices@.contains(idx) ==> {
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     let entry_bytes = extract_bytes(pm.committed(), (idx * entry_size) as nat, entry_size as nat);
                     &&& idx < overall_metadata.num_keys
@@ -1160,15 +1145,15 @@ verus! {
                     &&& old(self)@.durable_item_table[idx as int] is Some
                     &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
                 },
-                forall |idx: u64|0 <= idx < old(self).spec_num_keys() &&  !old(self).spec_valid_indices().contains(idx) ==> {
+                forall |idx: u64|0 <= idx < old(self).num_keys &&  !(#[trigger] old(self).valid_indices@.contains(idx)) ==> {
                     ||| old(self).pending_allocations_view().contains(idx)
                     ||| old(self).allocator_view().contains(idx)
                 },
             ensures
                 self.valid(pm, overall_metadata),
-                self.spec_valid_indices() == old(self).spec_valid_indices(),
+                self.valid_indices@ == old(self).valid_indices@,
                 self@ == old(self)@,
-                self.pending_alloc_inv(self.spec_valid_indices(), self.spec_valid_indices()),
+                self.pending_alloc_inv(self.valid_indices@, self.valid_indices@),
         {
             // Move all pending allocations back into the free list. This also
             // clears the pending_allocations list
@@ -1183,7 +1168,7 @@ verus! {
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
                 assert forall|idx: u64| {
                     &&& idx < overall_metadata.num_keys
-                    &&& #[trigger] self.spec_outstanding_item_table()[idx as int] is None 
+                    &&& #[trigger] self.outstanding_item_table@[idx as int] is None 
                 } implies pm.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                     lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                     assert(overall_metadata.num_keys * entry_size <= pm.len());
@@ -1192,14 +1177,14 @@ verus! {
                     ||| old(self).free_list@.contains(idx)
                     ||| old(self).pending_allocations@.contains(idx)
                 });
-                assert(self.spec_valid_indices() == old(self).spec_valid_indices());
+                assert(self.valid_indices@ == old(self).valid_indices@);
 
                 assert forall |idx: u64| 0 <= idx < self.num_keys implies
-                    self.pending_alloc_check(idx, self.spec_valid_indices(), self.spec_valid_indices())
+                    self.pending_alloc_check(idx, self.valid_indices@, self.valid_indices@)
                 by {
                     // note: valid indices doesn't change here
-                    if !self.spec_valid_indices().contains(idx) {
-                        assert(!old(self).spec_valid_indices().contains(idx));
+                    if !self.valid_indices@.contains(idx) {
+                        assert(!old(self).valid_indices@.contains(idx));
                         assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
                         assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
                     }
@@ -1215,7 +1200,7 @@ verus! {
         )
             requires
                 pm.no_outstanding_writes(),
-                old(self).opaque_inv(overall_metadata),
+                old(self).opaquable_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
@@ -1224,35 +1209,35 @@ verus! {
                     &&& subregion_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
                 pm.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
-                old(self)@.len() == old(self).spec_outstanding_item_table().len() == 
-                    old(self).spec_num_keys() == overall_metadata.num_keys,
+                old(self)@.len() == old(self).outstanding_item_table@.len() == 
+                    old(self).num_keys == overall_metadata.num_keys,
             ensures 
-                self.opaque_inv(overall_metadata),
+                self.opaquable_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& Some(self@) == parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices)
-                    &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.spec_outstanding_item_table()[idx as int] is None ==>
+                    &&& forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.outstanding_item_table@[idx as int] is None ==>
                             subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
                 }),
                 self.allocator_view() == old(self).allocator_view(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view(),
-                self.spec_outstanding_item_table() == Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None::<I>),
-                self.spec_valid_indices() == valid_indices,
+                self.outstanding_item_table@ == Seq::new(old(self).outstanding_item_table@.len(), |i: int| None::<I>),
+                self.valid_indices@ == valid_indices,
                 self@.len() == old(self)@.len(),
-                self.spec_num_keys() == old(self).spec_num_keys(),
+                self.num_keys == old(self).num_keys,
         {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                 overall_metadata.item_table_size as nat);
             self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices).unwrap());
-            self.outstanding_item_table = Ghost(Seq::new(old(self).spec_outstanding_item_table().len(), |i: int| None));
+            self.outstanding_item_table = Ghost(Seq::new(old(self).outstanding_item_table@.len(), |i: int| None));
             self.valid_indices = Ghost(valid_indices);
 
             proof {
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
-                assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.spec_outstanding_item_table()[idx as int] is None implies
+                assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.outstanding_item_table@[idx as int] is None implies
                     subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
                 by { lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat); }
             }
@@ -1269,22 +1254,22 @@ verus! {
                 old(self).inv(pm, overall_metadata),
                 pm.no_outstanding_writes(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
-                    #[trigger] old(self).spec_outstanding_item_table()[idx as int] is None,
-                old_self.pending_alloc_inv(old_valid_indices, old(self).spec_valid_indices()),
+                    #[trigger] old(self).outstanding_item_table@[idx as int] is None,
+                old_self.pending_alloc_inv(old_valid_indices, old(self).valid_indices@),
                 old_self.allocator_view() == old(self).allocator_view(),
                 old_self.pending_allocations_view() == old(self).pending_allocations_view(),
                 old_self.pending_deallocations_view() == old(self).pending_deallocations_view(),
                 old_self@.durable_item_table.len() == old(self)@.durable_item_table.len(),
-                old_self.spec_num_keys() == old(self).spec_num_keys(),
+                old_self.num_keys == old(self).num_keys,
                 old_self.pending_allocations_view().disjoint(old_self.pending_deallocations_view()),
             ensures 
                 self.inv(pm, overall_metadata),
-                self.pending_alloc_inv(self.spec_valid_indices(), self.spec_valid_indices()),
+                self.pending_alloc_inv(self.valid_indices@, self.valid_indices@),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
-                    #[trigger] self.spec_outstanding_item_table()[idx as int] is None,
-                self.spec_valid_indices() == old(self).spec_valid_indices(),
+                    #[trigger] self.outstanding_item_table@[idx as int] is None,
+                self.valid_indices@ == old(self).valid_indices@,
         {
             // add the pending deallocations to the free list 
             // this also clears self.pending_deallocations
@@ -1301,16 +1286,16 @@ verus! {
                 assert forall |idx: u64| 0 <= idx < self@.durable_item_table.len() implies
                     self.pending_alloc_check(idx, self.valid_indices@, self.valid_indices@)
                 by {
-                    assert(old_self.pending_alloc_check(idx, old_valid_indices, old(self).spec_valid_indices()));
+                    assert(old_self.pending_alloc_check(idx, old_valid_indices, old(self).valid_indices@));
                     if old_self.valid_indices@.contains(idx) {
-                        if !old(self).spec_valid_indices().contains(idx) {
+                        if !old(self).valid_indices@.contains(idx) {
                             assert(old(self).pending_deallocations_view().contains(idx));
                             assert(self.allocator_view().contains(idx));
                         } else {
-                            assert(self.spec_valid_indices().contains(idx));
+                            assert(self.valid_indices@.contains(idx));
                         }
                     } else {
-                        if !old(self).spec_valid_indices().contains(idx) { 
+                        if !old(self).valid_indices@.contains(idx) { 
                             assert(old(self).allocator_view().contains(idx));
                         } // else, trivial
                     }
@@ -1417,13 +1402,13 @@ verus! {
             requires
                 old(wrpm_region).inv(),
                 forall |i: int|  0 <= i < old(self).allocator_view().len() ==>
-                    0 <= #[trigger] old(self).allocator_view()[i] < old(self).spec_num_keys(),
+                    0 <= #[trigger] old(self).allocator_view()[i] < old(self).num_keys,
                 ({
                     let item_slot_size = old(self).spec_item_size() + u64::spec_size_of() + u64::spec_size_of();
                     let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < usize::MAX
-                    &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
-                    &&& 0 <= metadata_header_size + (item_slot_size * old(self).spec_num_keys()) < usize::MAX
+                    &&& 0 <= item_slot_size * old(self).num_keys < usize::MAX
+                    &&& 0 <= metadata_header_size + (item_slot_size * old(self).num_keys) < usize::MAX
                 })
                 // TODO
             ensures
@@ -1468,8 +1453,8 @@ verus! {
                     let item_slot_size = old(self).spec_item_size() + u64::spec_size_of() + u64::spec_size_of();
                     let metadata_header_size = ItemTableMetadata::spec_size_of() + u64::spec_size_of();
                     &&& 0 <= item_slot_size < usize::MAX
-                    &&& 0 <= item_slot_size * old(self).spec_num_keys() < usize::MAX
-                    &&& 0 <= metadata_header_size + (item_slot_size * old(self).spec_num_keys()) < usize::MAX
+                    &&& 0 <= item_slot_size * old(self).num_keys < usize::MAX
+                    &&& 0 <= metadata_header_size + (item_slot_size * old(self).num_keys) < usize::MAX
                 })
                 // TODO: item update must have been logged
             ensures

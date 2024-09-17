@@ -281,7 +281,7 @@ verus! {
             &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                 self.overall_metadata.kvstore_id)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
-            &&& self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices()
+            &&& self.item_table.valid_indices@ == self.metadata_table@.valid_item_indices()
             &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
             &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
             &&& no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int)
@@ -563,7 +563,7 @@ verus! {
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
-                old_self.item_table.spec_valid_indices() == self.item_table.spec_valid_indices()
+                old_self.item_table.valid_indices@ == self.item_table.valid_indices@
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -577,7 +577,7 @@ verus! {
                     let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                         self.overall_metadata.item_table_size as nat);      
                     &&& forall |s| #[trigger] item_table_subregion_view.can_crash_as(s) ==> 
-                            parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat, self.item_table.spec_valid_indices()) == Some(old_self.item_table@)
+                            parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat, self.item_table.valid_indices@) == Some(old_self.item_table@)
                     &&& old_item_table_subregion_view.can_crash_as(item_table_subregion_view.committed())
                 }),
                 Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some,
@@ -1608,15 +1608,15 @@ verus! {
 
                 assert(durable_main_table_region == main_table_subregion.view(pm_region).committed());
                 assert(durable_main_table_view == durable_kv_store.metadata_table@);
-                assert(durable_main_table_view.valid_item_indices() == item_table.spec_valid_indices());
+                assert(durable_main_table_view.valid_item_indices() == item_table.valid_indices@);
 
                 assert(durable_kv_store.metadata_table.pending_alloc_inv(main_table_subregion.view(pm_region).committed(),
                     main_table_subregion.view(pm_region).committed(), overall_metadata));
                 assert(durable_kv_store.metadata_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
                 assert(durable_kv_store.item_table.pending_alloc_inv(
-                    item_table.spec_valid_indices(),
-                    item_table.spec_valid_indices(),
+                    item_table.valid_indices@,
+                    item_table.valid_indices@,
                 ));
             }
 
@@ -1635,7 +1635,7 @@ verus! {
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
                 assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
-                assert(durable_kv_store.item_table.spec_valid_indices() =~=
+                assert(durable_kv_store.item_table.valid_indices@ =~=
                        durable_kv_store.metadata_table@.valid_item_indices());
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
             }
@@ -2369,13 +2369,13 @@ verus! {
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata),
-                self.item_table.spec_valid_indices() == old_self.item_table.spec_valid_indices(),
+                self.item_table.valid_indices@ == old_self.item_table.valid_indices@,
                 old_self.item_table.allocator_view().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
-                    #[trigger] self.item_table.spec_outstanding_item_table()[i] ==
-                               old_self.item_table.spec_outstanding_item_table()[i],
-                self.item_table.spec_outstanding_item_table()[item_index as int] == Some(item),
+                    #[trigger] self.item_table.outstanding_item_table@[i] ==
+                               old_self.item_table.outstanding_item_table@[i],
+                self.item_table.outstanding_item_table@[item_index as int] == Some(item),
                 forall |other_index: u64| self.item_table.allocator_view().contains(other_index) <==>
                     old_self.item_table.allocator_view().contains(other_index) && other_index != item_index,
             ensures
@@ -2488,9 +2488,9 @@ verus! {
                                        old(self).overall_metadata.item_table_size as nat),
                     old(self).overall_metadata
                 ),
-                old(self).item_table.spec_valid_indices() == pre_self.item_table.spec_valid_indices(),
+                old(self).item_table.valid_indices@ == pre_self.item_table.valid_indices@,
                 old(self).item_table@ == pre_self.item_table@,
-                old(self).item_table.spec_outstanding_item_table() == pre_self.item_table.spec_outstanding_item_table(),
+                old(self).item_table.outstanding_item_table@ == pre_self.item_table.outstanding_item_table@,
                 old(self).item_table.allocator_view() == pre_self.item_table.allocator_view(),
                 old(self).item_table.pending_allocations_view() == pre_self.item_table.pending_allocations_view(),
                 old(self).item_table.allocator_view().len() == 0,
@@ -2645,9 +2645,9 @@ verus! {
                         parse_metadata_table::<K>(s, old(self).overall_metadata.num_keys, 
                             old(self).overall_metadata.metadata_node_size) is Some
                 }),
-                forall|idx: u64| #[trigger] old(self).item_table.spec_valid_indices().contains(idx) ==> 
+                forall|idx: u64| #[trigger] old(self).item_table.valid_indices@.contains(idx) ==> 
                     !old(self).item_table.allocator_view().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
-                forall |idx: u64|0 <= idx < old(self).item_table.spec_num_keys() && !old(self).item_table.spec_valid_indices().contains(idx) ==> {
+                forall |idx: u64|0 <= idx < old(self).item_table.num_keys && !(#[trigger] old(self).item_table.valid_indices@.contains(idx)) ==> {
                     ||| old(self).item_table.pending_allocations_view().contains(idx)
                     ||| old(self).item_table.allocator_view().contains(idx)
                 },
@@ -2916,7 +2916,7 @@ verus! {
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
             assert(main_table_subregion_view.committed() == extract_bytes(self.wrpm@.committed(),
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-            assert(self.item_table.pending_alloc_inv(self.item_table.spec_valid_indices(), 
+            assert(self.item_table.pending_alloc_inv(self.item_table.valid_indices@, 
                 tentative_main_table_view.valid_item_indices()));
             assert(self.metadata_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
@@ -3590,7 +3590,7 @@ verus! {
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
                     assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
-                    assert(self.item_table.spec_valid_indices() == old(self).item_table.spec_valid_indices());
+                    assert(self.item_table.valid_indices@ == old(self).item_table.valid_indices@);
                 }
 
                 assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
@@ -3602,7 +3602,7 @@ verus! {
                 // the pending alloc invariant holds for the old tentative state to prove what 
                 // we need to about the current item table's indexes.
                 self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    self.item_table.spec_valid_indices(), old_tentative_main_table_view.valid_item_indices());
+                    self.item_table.valid_indices@, old_tentative_main_table_view.valid_item_indices());
             }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
                 Ghost(self.overall_metadata), Ghost(self.metadata_table@.valid_item_indices()),
@@ -3619,7 +3619,7 @@ verus! {
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
-                self.item_table.spec_valid_indices() == self.metadata_table@.valid_item_indices(),
+                self.item_table.valid_indices@ == self.metadata_table@.valid_item_indices(),
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 self.metadata_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                                            self.overall_metadata.main_table_size as nat),
@@ -4124,7 +4124,7 @@ verus! {
                         old_tentative_main_table_view));
                 }
             
-                assert forall |idx| 0 <= idx < self.item_table.spec_num_keys() implies
+                assert forall |idx| 0 <= idx < self.item_table.num_keys implies
                     old(self).item_table.pending_alloc_check(idx, old(self).metadata_table@.valid_item_indices(),
                         self.metadata_table@.valid_item_indices())
                 by {
