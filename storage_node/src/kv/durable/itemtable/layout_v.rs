@@ -39,7 +39,6 @@ use super::itemtableimpl_v::DurableItemTableView;
 
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
-use crate::log::layout_v::GlobalMetadata;
 use crate::pmem::traits_t::*;
 use deps_hack::{PmSafe, PmSized};
 

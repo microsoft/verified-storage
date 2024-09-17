@@ -315,19 +315,21 @@ verus! {
             }
         }
 
+        // TODO: figure out the correct preconds for this
         pub proof fn lemma_parse_all_lists_succeeds_after_record_delete(
             old_main_table_view: MetadataTableView<K>,
             main_table_view: MetadataTableView<K>,
-            mem: Seq<u8>,
+            old_mem: Seq<u8>, // ?
+            new_mem: Seq<u8>,
             index: int,
             list_node_size: u64,
             num_list_entries_per_node: u32,
         )
             requires 
-                Self::parse_all_lists(old_main_table_view, mem, list_node_size, num_list_entries_per_node) is Some,
-                Some(main_table_view) == old_main_table_view.delete(index),
+                // Self::parse_all_lists(old_main_table_view, old_mem, list_node_size, num_list_entries_per_node) is Some,
+                // Some(main_table_view) == old_main_table_view.delete(index),
             ensures 
-                Self::parse_all_lists(main_table_view, mem, list_node_size, num_list_entries_per_node) is Some,
+                Self::parse_all_lists(main_table_view, new_mem, list_node_size, num_list_entries_per_node) is Some,
         {
             assume(false);
         }
