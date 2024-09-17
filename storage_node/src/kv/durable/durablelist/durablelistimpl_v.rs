@@ -1,8 +1,8 @@
 use crate::kv::durable::durablelist::layout_v::*;
 use crate::kv::durable::oplog::{logentry_v::*, oplogimpl_v::*};
-use crate::kv::durable::itemtable::itemtableimpl_v::*;
+use crate::kv::durable::itemtable_v::*;
+use crate::kv::durable::maintable_v::*;
 use crate::kv::durable::maintablelayout_v::*;
-use crate::kv::durable::metadata::metadataimpl_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;

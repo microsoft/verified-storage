@@ -27,7 +27,7 @@ use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
 
-use super::itemtable::itemtableimpl_v::DurableItemTableView;
+use super::itemtable_v::DurableItemTableView;
 
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;

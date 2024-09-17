@@ -13,8 +13,8 @@
 use builtin::*;
 use builtin_macros::*;
 use kv::durable::durablelist::durablelistimpl_v::*;
-use kv::durable::itemtable::itemtableimpl_v::*;
-use kv::durable::metadata::metadataimpl_v::*;
+use kv::durable::itemtable_v::*;
+use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;

@@ -6,7 +6,7 @@ use vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use crate::kv::durable::inv_v::*;
-use crate::kv::durable::metadata::metadataimpl_v::*;
+use crate::kv::durable::maintable_v::*;
 use crate::kv::durable::util_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmcopy_t::*;
