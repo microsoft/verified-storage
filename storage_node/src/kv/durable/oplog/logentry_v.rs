@@ -15,7 +15,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 
-use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
+use crate::kv::durable::maintablelayout_v::ListEntryMetadata;
 use crate::kv::layout_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;

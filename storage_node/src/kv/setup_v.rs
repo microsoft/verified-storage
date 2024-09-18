@@ -9,7 +9,7 @@ use core::hash::Hash;
 use std::f64::MIN;
 use std::num;
 use crate::kv::durable::durableimpl_v::DurableKvStore;
-use crate::kv::durable::metadata::layout_v::ListEntryMetadata;
+use crate::kv::durable::maintablelayout_v::ListEntryMetadata;
 use crate::kv::layout_v::*;
 use crate::log2::layout_v::*;
 use crate::pmem::pmemspec_t::*;
@@ -39,13 +39,13 @@ where
     &&& overall_metadata.list_element_size == L::spec_size_of()
     &&& overall_metadata.item_size == I::spec_size_of()
     &&& overall_metadata.key_size == K::spec_size_of()
-    &&& overall_metadata.metadata_node_size ==
+    &&& overall_metadata.main_table_entry_size ==
         ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
     // TODO: Check minimum log entry size
     &&& overall_metadata.num_keys > 0
     &&& overall_metadata_addr >= VersionMetadata::spec_size_of() + u64::spec_size_of()
     &&& overall_metadata.main_table_addr >= overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
-    &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.metadata_node_size
+    &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size
     &&& overall_metadata.item_table_addr >= overall_metadata.main_table_addr + overall_metadata.main_table_size
     &&& overall_metadata.item_table_size >= overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of())
     &&& overall_metadata.list_area_addr >= overall_metadata.item_table_addr + overall_metadata.item_table_size
@@ -162,7 +162,7 @@ pub fn initialize_overall_metadata<K, I, L> (
     if key_size > u32::MAX - 2 * size_of::<u64>() as u32 - list_entry_metadata_size {
         return Err(KvError::KeySizeTooBig)
     }
-    let metadata_node_size: u32 = list_entry_metadata_size + key_size + 2 * size_of::<u64>() as u32;
+    let main_table_entry_size: u32 = list_entry_metadata_size + key_size + 2 * size_of::<u64>() as u32;
     let log_entry_size: u32 = 8; // TODO - Calculate this
     if num_list_entries_per_node as u64 > u64::MAX / (list_element_size as u64 + size_of::<u64>() as u64) {
         return Err(KvError::TooManyListEntriesPerNode);
@@ -191,13 +191,13 @@ pub fn initialize_overall_metadata<K, I, L> (
     if num_keys < 1 {
         return Err(KvError::TooFewKeys);
     }
-    if num_keys > u64::MAX / metadata_node_size as u64 {
+    if num_keys > u64::MAX / main_table_entry_size as u64 {
         return Err(KvError::TooManyKeys);
     }
 
-    assert(num_keys <= u64::MAX as int / metadata_node_size as int ==>
-           num_keys * metadata_node_size <= u64::MAX) by (nonlinear_arith);
-    let main_table_size: u64 = num_keys as u64 * metadata_node_size as u64;
+    assert(num_keys <= u64::MAX as int / main_table_entry_size as int ==>
+           num_keys * main_table_entry_size <= u64::MAX) by (nonlinear_arith);
+    let main_table_size: u64 = num_keys as u64 * main_table_entry_size as u64;
     if main_table_size as usize > usize::MAX - main_table_addr as usize {
         return Err(KvError::TooManyKeys);
     }
@@ -282,7 +282,7 @@ pub fn initialize_overall_metadata<K, I, L> (
         key_size,
         item_size,
         list_element_size,
-        metadata_node_size,
+        main_table_entry_size,
         log_entry_size,
         num_keys,
         num_list_entries_per_node,

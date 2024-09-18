@@ -16,9 +16,9 @@ use vstd::prelude::*;
 use vstd::seq::*;
 
 use super::durable::durableimpl_v::*;
-use super::durable::durablelist::layout_v::*;
-use super::durable::itemtable::layout_v::*;
-use super::durable::metadata::layout_v::*;
+use super::durable::listlayout_v::*;
+use super::durable::itemtablelayout_v::*;
+use super::durable::maintablelayout_v::*;
 use super::inv_v::*;
 use super::kvspec_t::*;
 use super::volatile::volatileimpl_v::*;

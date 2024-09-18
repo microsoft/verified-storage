@@ -11,13 +11,13 @@
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
-use crate::kv::durable::itemtable::itemtableimpl_v::*;
+use crate::kv::durable::itemtable_v::*;
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
 use vstd::bytes::*;
 use vstd::prelude::*;
-use crate::kv::durable::metadata::layout_v::*;
+use crate::kv::durable::maintablelayout_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
 use deps_hack::{PmSafe, PmSized};

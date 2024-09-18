@@ -1,7 +1,10 @@
 pub mod durableimpl_v;
-pub mod durablelist;
-pub mod itemtable;
-pub mod oplog;
-pub mod metadata;
 pub mod inv_v;
+pub mod list_v;
+pub mod listlayout_v;
+pub mod itemtable_v;
+pub mod itemtablelayout_v;
+pub mod maintable_v;
+pub mod maintablelayout_v;
+pub mod oplog;
 pub mod util_v;

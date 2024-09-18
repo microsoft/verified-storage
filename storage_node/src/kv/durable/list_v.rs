@@ -1,7 +1,8 @@
-use crate::kv::durable::durablelist::layout_v::*;
+use crate::kv::durable::listlayout_v::*;
 use crate::kv::durable::oplog::{logentry_v::*, oplogimpl_v::*};
-use crate::kv::durable::itemtable::itemtableimpl_v::*;
-use crate::kv::durable::metadata::{layout_v::*, metadataimpl_v::*};
+use crate::kv::durable::itemtable_v::*;
+use crate::kv::durable::maintable_v::*;
+use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
@@ -210,7 +211,7 @@ verus! {
         }
 
         // TODO
-        pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MetadataTableView<K>, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MainTableView<K>, overall_metadata: OverallMetadata) -> bool
         {
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
                     Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) == Some(self@)
@@ -221,13 +222,13 @@ verus! {
             list_node_size: u64,
             num_list_entries_per_node: u32,
             op_log: AbstractOpLogState,
-            metadata_table_view: MetadataTableView<K>,
+            main_table_view: MainTableView<K>,
         ) -> Option<DurableListView<K, L>>
         {
             None
             // // TODO: check list node region header for validity? or do we do that later?
             // let list_nodes_mem = Self::replay_log_list_nodes(mem, list_node_size, op_log);
-            // Self::parse_all_lists(metadata_table_view, mem, list_node_size, num_list_entries_per_node)
+            // Self::parse_all_lists(main_table_view, mem, list_node_size, num_list_entries_per_node)
         }
 
         pub open spec fn replay_log_list_nodes(
@@ -278,7 +279,7 @@ verus! {
         }
 
         pub open spec fn parse_all_lists(
-            metadata_table: MetadataTableView<K>,
+            main_table: MainTableView<K>,
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
@@ -286,7 +287,7 @@ verus! {
         {
             let lists_map = Map::empty();
             // TODO: which table do we want to use here?
-            let result = Self::parse_each_list(metadata_table.get_durable_metadata_table(), mem, lists_map, list_node_size, num_list_entries_per_node);
+            let result = Self::parse_each_list(main_table.get_durable_main_table(), mem, lists_map, list_node_size, num_list_entries_per_node);
             match result {
                 Some(result) => Some(DurableListView::new(result)),
                 None => None
@@ -294,7 +295,7 @@ verus! {
         }
 
         pub proof fn lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
-            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
+            metadata_entries: Seq<Option<MainTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
@@ -317,8 +318,8 @@ verus! {
 
         // TODO: figure out the correct preconds for this
         pub proof fn lemma_parse_all_lists_succeeds_after_record_delete(
-            old_main_table_view: MetadataTableView<K>,
-            main_table_view: MetadataTableView<K>,
+            old_main_table_view: MainTableView<K>,
+            main_table_view: MainTableView<K>,
             old_mem: Seq<u8>, // ?
             new_mem: Seq<u8>,
             index: int,
@@ -337,7 +338,7 @@ verus! {
         // Note that here, `metadata_entries` does not represent the metadata table exactly -- it's just 
         // used to help recurse over each metadata entry.
         pub open spec fn parse_each_list(
-            metadata_entries: Seq<Option<MetadataTableViewEntry<K>>>,
+            metadata_entries: Seq<Option<MainTableViewEntry<K>>>,
             mem: Seq<u8>,
             lists_map: Map<K, Seq<DurableEntry<DurableListElementView<L>>>>,
             list_node_size: u64,
@@ -374,7 +375,7 @@ verus! {
         }
 
         pub open spec fn parse_list(
-            entry: MetadataTableViewEntry<K>, 
+            entry: MainTableViewEntry<K>, 
             mem: Seq<u8>,
             list_node_size: u64,
             num_list_entries_per_node: u32,
@@ -469,7 +470,7 @@ verus! {
             node_size: u64,
             list_entries_per_node: u32,
             num_list_nodes: u64,
-            metadata_table_view: MetadataTableView<K>
+            main_table_view: MainTableView<K>
         ) 
             where 
                 PM: PersistentMemoryRegion,
@@ -481,7 +482,7 @@ verus! {
             ensures 
                 true
                 // Self::recover(subregion.view(pm_region).flush().committed(), node_size, list_entries_per_node,
-                //     op_log, metadata_table_view).unwrap() == DurableListView::<K, L>::init(),
+                //     op_log, main_table_view).unwrap() == DurableListView::<K, L>::init(),
         {
             // TODO
             assume(false);
@@ -504,7 +505,7 @@ verus! {
                     let list_element_slot_size = L::spec_size_of() + u64::spec_size_of();
                     &&& metadata_slot_size <= u64::MAX
                     &&& list_element_slot_size <= u64::MAX
-                    &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
+                    &&& metadata_slot_size * num_keys <= u64::MAX
                     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
                 }),
                 L::spec_size_of() + u64::spec_size_of() < u32::MAX, // size_of is u64, but we store it in a u32 here
@@ -551,7 +552,7 @@ verus! {
         pub fn start<PM, I>(
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
-            main_table: &MetadataTable<K>,
+            main_table: &MainTable<K>,
             overall_metadata: OverallMetadata,
             version_metadata: VersionMetadata,
         ) -> (result: Result<Self, KvError<K>>)
@@ -603,7 +604,7 @@ verus! {
         pub exec fn abort_transaction(
             &mut self, 
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
-            Ghost(main_table_view): Ghost<MetadataTableView<K>>,
+            Ghost(main_table_view): Ghost<MainTableView<K>>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
@@ -620,7 +621,7 @@ verus! {
             &mut self,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(main_table_view): Ghost<MetadataTableView<K>>,
+            Ghost(main_table_view): Ghost<MainTableView<K>>,
         )
             requires
                 pm.no_outstanding_writes(),
