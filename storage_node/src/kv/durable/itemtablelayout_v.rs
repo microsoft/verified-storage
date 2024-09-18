@@ -65,8 +65,8 @@ verus! {
         recommends
             bytes.len() == I::spec_size_of() + u64::spec_size_of()
     {
-        let crc_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM_CRC as nat, u64::spec_size_of());
-        let item_bytes = extract_bytes(bytes, RELATIVE_POS_OF_ITEM as nat, I::spec_size_of());
+        let crc_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
+        let item_bytes = extract_bytes(bytes, u64::spec_size_of(), I::spec_size_of());
         &&& u64::bytes_parseable(crc_bytes)
         &&& I::bytes_parseable(item_bytes)
         &&& crc_bytes == spec_crc_bytes(item_bytes)
@@ -81,7 +81,7 @@ verus! {
     {
         let entry_size = I::spec_size_of() + u64::spec_size_of();
         forall |i: u64| i < num_keys && valid_indices.contains(i) ==> 
-            validate_item_table_entry::<I, K>(#[trigger] extract_bytes(mem, (i * entry_size) as nat, entry_size))
+            validate_item_table_entry::<I, K>(#[trigger] extract_bytes(mem, index_to_offset(i as nat, entry_size as nat), entry_size))
     }
 
     // NOTE: this should only be called on entries that are pointed to by a valid, live main table entry.

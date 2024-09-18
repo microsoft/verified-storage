@@ -145,12 +145,6 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
-    pub closed spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
-    {
-        forall|addr: int| start <= addr < start + bytes.len() ==>
-            #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
-    }
-
     pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -223,6 +217,10 @@ verus! {
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.free_list@[i] < overall_metadata.num_keys
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
                     self.outstanding_item_table@[#[trigger] self.free_list@[i] as int] is None
+            &&& forall|idx: u64| self.valid_indices@.contains(idx) ==>
+                #[trigger] self.outstanding_item_table@[idx as int] is None
+            &&& forall|idx: u64| self.pending_allocations@.contains(idx) ==>
+                #[trigger] self.outstanding_item_table@[idx as int] is Some
         }
 
         // TODO: this needs to say something about pending allocations
@@ -622,8 +620,7 @@ verus! {
                         &&& self.pending_allocations_view().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.outstanding_item_table@[i] ==
-                            old(self).outstanding_item_table@[i]
+                            #[trigger] self.outstanding_item_table@[i] == old(self).outstanding_item_table@[i]
                         &&& self.outstanding_item_table@[index as int] == Some(*item)
                         &&& forall |other_index: u64| self.allocator_view().contains(other_index) <==>
                             old(self).allocator_view().contains(other_index) && other_index != index
@@ -1255,6 +1252,7 @@ verus! {
                 pm.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
                 old(self)@.len() == old(self).outstanding_item_table@.len() == 
                     old(self).num_keys == overall_metadata.num_keys,
+                forall |idx: u64| valid_indices.contains(idx) ==> idx < old(self).num_keys,
             ensures 
                 self.opaquable_inv(overall_metadata),
                 ({
@@ -1284,6 +1282,8 @@ verus! {
                 assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.outstanding_item_table@[idx as int] is None implies
                     subregion_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
                 by { lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat); }
+                assert(forall |idx: u64| self.valid_indices@.contains(idx) ==>
+                    #[trigger] self.outstanding_item_table@[idx as int] is None);
             }
         }
 
