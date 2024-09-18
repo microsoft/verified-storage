@@ -585,7 +585,8 @@ verus! {
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
-                old_self.item_table.valid_indices@ == self.item_table.valid_indices@
+                old_self.main_table@.valid_item_indices() == self.main_table@.valid_item_indices(),
+                old_self.item_table.valid_indices@ == self.item_table.valid_indices@,
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -599,7 +600,9 @@ verus! {
                     let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                         self.overall_metadata.item_table_size as nat);      
                     &&& forall |s| #[trigger] item_table_subregion_view.can_crash_as(s) ==> 
-                            parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat, self.item_table.valid_indices@) == Some(old_self.item_table@)
+                            parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat,
+                                                     self.main_table@.valid_item_indices())
+                        == Some(old_self.item_table@)
                     &&& old_item_table_subregion_view.can_crash_as(item_table_subregion_view.committed())
                 }),
                 Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some,
@@ -1642,8 +1645,8 @@ verus! {
                 assert(durable_kv_store.main_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
                 assert(durable_kv_store.item_table.pending_alloc_inv(
-                    item_table.valid_indices@,
-                    item_table.valid_indices@,
+                    main_table@.valid_item_indices(),
+                    main_table@.valid_item_indices(),
                 ));
             }
 
@@ -2612,7 +2615,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.item_table.valid_indices@));
+                                              Ghost(self.main_table@.valid_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -2675,9 +2678,9 @@ verus! {
                         parse_main_table::<K>(s, old(self).overall_metadata.num_keys, 
                             old(self).overall_metadata.main_table_entry_size) is Some
                 }),
-                forall|idx: u64| #[trigger] old(self).item_table.valid_indices@.contains(idx) ==> 
+                forall|idx: u64| #[trigger] old(self).main_table@.valid_item_indices().contains(idx) ==> 
                     !old(self).item_table.allocator_view().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
-                forall |idx: u64|0 <= idx < old(self).item_table.num_keys && !(#[trigger] old(self).item_table.valid_indices@.contains(idx)) ==> {
+                forall |idx: u64|0 <= idx < old(self).item_table.num_keys && !(#[trigger] old(self).main_table@.valid_item_indices().contains(idx)) ==> {
                     ||| old(self).item_table.pending_allocations_view().contains(idx)
                     ||| old(self).item_table.allocator_view().contains(idx)
                 },
@@ -2744,7 +2747,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.item_table.valid_indices@));
+                                              Ghost(self.main_table@.valid_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -2842,7 +2845,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.item_table.valid_indices@));
+                                              Ghost(self.main_table@.valid_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
             
             proof {
@@ -2954,7 +2957,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.item_table.valid_indices@));
+                                              Ghost(self.main_table@.valid_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
             proof {
@@ -4537,8 +4540,9 @@ verus! {
                     // abort the transaction in each component to re-establish their invariants
                     self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
                     self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                                      Ghost(self.item_table.valid_indices@));
-                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
+                                                      Ghost(self.main_table@.valid_item_indices()));
+                    self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
+                                                        Ghost(self.overall_metadata));
 
                     proof {
                         assert(!self.transaction_committed());
