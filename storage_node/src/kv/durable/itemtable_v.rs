@@ -219,6 +219,9 @@ verus! {
                     self.outstanding_item_table@[#[trigger] self.free_list@[i] as int] is None
             &&& forall|idx: u64| self.valid_indices@.contains(idx) ==>
                 #[trigger] self.outstanding_item_table@[idx as int] is None
+                
+
+            // TODO @hayley need to work on this one
             &&& forall|idx: u64| self.pending_allocations@.contains(idx) ==>
                 #[trigger] self.outstanding_item_table@[idx as int] is Some
         }
@@ -239,7 +242,7 @@ verus! {
                        Some(self@)
             &&& self.outstanding_item_table@.len() == self@.durable_item_table.len()
             &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                let entry_bytes = extract_bytes(pm_view.committed(), index_to_offset(idx as nat, entry_size as nat), entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
@@ -1029,7 +1032,7 @@ verus! {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                     }
                     assert(validate_item_table_entry::<I, K>(extract_bytes(pm_view.committed(),
-                                                                           (idx * entry_size) as nat, entry_size as nat)));
+                        index_to_offset(idx as nat, entry_size as nat), entry_size as nat)));
                 }
 
                 assert forall|idx: u64| idx < num_keys &&
