@@ -9,6 +9,7 @@ use std::fs::Metadata;
 use std::hash::Hash;
 use vstd::prelude::*;
 use vstd::bytes::*;
+use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::durable::maintablelayout_v::*;
@@ -157,12 +158,6 @@ verus! {
         pub state: Ghost<MainTableView<K>>,
         pub outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
         pub outstanding_entry_writes: Ghost<Seq<Option<MainTableViewEntry<K>>>>,
-    }
-
-    pub closed spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
-    {
-        forall|addr: int| start <= addr < start + bytes.len() ==>
-            #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
     }
 
     pub open spec fn subregion_grants_access_to_main_table_entry<K>(

@@ -1,3 +1,4 @@
+use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::itemtablelayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::inv_v::*;
@@ -144,6 +145,12 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
+    pub closed spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
+    {
+        forall|addr: int| start <= addr < start + bytes.len() ==>
+            #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
+    }
+
     pub struct DurableItemTable<K, I>
         where
             K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -175,7 +182,24 @@ verus! {
         {
             self.free_list@.to_set()
         }
-        
+
+        pub open spec fn outstanding_item_table_entry_matches_pm_view(
+            self,
+            pm: PersistentMemoryRegionView,
+            i: int
+        ) -> bool
+        {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            let start = index_to_offset(i as nat, entry_size as nat) as int;
+            match self.outstanding_item_table@[i as int] {
+                None => pm.no_outstanding_writes_in_range(start, start + entry_size),
+                Some(item) => {
+                    &&& outstanding_bytes_match(pm, start, spec_crc_bytes(I::spec_to_bytes(item)))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), I::spec_to_bytes(item))
+                },
+            }
+        }
+                                                                      
         pub open spec fn opaquable_inv(self, overall_metadata: OverallMetadata) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -226,6 +250,8 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
             }
+            &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
+                self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int)
         }
 
         pub open spec fn pending_alloc_inv(self, current_valid_indices: Set<u64>, tentative_valid_indices: Set<u64>) -> bool
@@ -641,7 +667,16 @@ verus! {
             let free_index = match self.free_list.pop() {
                 Some(index) => index,
                 None => {
-                    proof { self.free_list@.unique_seq_to_set(); }
+                    proof {
+                        self.free_list@.unique_seq_to_set();
+
+                        assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                            self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), idx as int)
+                        by {
+                            lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
+                            assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
+                        }
+                    }
                     return Err(KvError::OutOfSpace);
                 }
             };
@@ -713,6 +748,13 @@ verus! {
                 old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
                     old_pm_view, pm_view, s, overall_metadata, free_index
                 );
+            }
+
+            assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int) by {
+                lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
             }
 
             Ok(free_index)

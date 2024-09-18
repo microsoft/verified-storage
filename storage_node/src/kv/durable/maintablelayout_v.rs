@@ -5,6 +5,7 @@ use core::fmt::Debug;
 use vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse;
 use vstd::bytes::*;
 use vstd::prelude::*;
+use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::maintable_v::*;
 use crate::kv::durable::util_v::*;
@@ -373,11 +374,6 @@ verus! {
             lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, main_table_entry_size as nat), index_to_offset(i, main_table_entry_size as nat) + u64::spec_size_of() * 2, main_table_entry_size as nat, ListEntryMetadata::spec_size_of());
             lemma_subrange_of_extract_bytes_equal(mem, index_to_offset(i, main_table_entry_size as nat), index_to_offset(i, main_table_entry_size as nat) + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of() as nat, main_table_entry_size as nat, K::spec_size_of());
         }
-    }
-
-    pub open spec fn index_to_offset(index: nat, entry_size: nat) -> nat 
-    {
-        index * entry_size
     }
 
     pub open spec fn address_belongs_to_invalid_main_table_entry(

@@ -18,6 +18,7 @@
 //!                             setup time but is not known at compile time.
 //!
 
+use crate::kv::durable::commonlayout_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::util_v::*;
