@@ -240,9 +240,6 @@ verus! {
                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.valid_indices@) ==
                        Some(self@)
             &&& self.outstanding_item_table@.len() == self@.durable_item_table.len()
-            &&& forall|idx: u64| idx < overall_metadata.num_keys &&
-                #[trigger] self.outstanding_item_table@[idx as int] is None ==>
-                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size)
             &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
@@ -515,6 +512,7 @@ verus! {
                 assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
             }
 
+            assert(self.outstanding_item_table_entry_matches_pm_view(pm_view, item_table_index as int));
             let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                 Ok(val) => val,
                 Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); }
@@ -703,6 +701,7 @@ verus! {
 
             // calculate and write the CRC of the provided item
             let crc: u64 = calculate_crc(item);
+            assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, free_index as int));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
             // write the item itself
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
@@ -716,6 +715,7 @@ verus! {
                 pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
             }
             assert forall|idx: u64| self.valid_indices@.contains(idx) implies {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
@@ -1350,6 +1350,12 @@ verus! {
                     old(self).free_list@,
                     old(self).pending_deallocations@
                 );
+            }
+            
+            assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                self.outstanding_item_table_entry_matches_pm_view(pm, idx as int) by {
+                lemma_valid_entry_index(idx as nat, self.num_keys as nat, self.entry_size as nat);
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(pm, idx as int));
             }
         }
 
