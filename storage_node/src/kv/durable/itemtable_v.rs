@@ -226,9 +226,15 @@ verus! {
         }
 
         // TODO: this needs to say something about pending allocations
-        pub open spec fn inv(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn inv(
+            self,
+            pm_view: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            valid_indices: Set<u64>,
+        ) -> bool
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
+            &&& self.valid_indices@ == valid_indices
             &&& self.opaquable_inv(overall_metadata)
             &&& self@.len() == self.outstanding_item_table@.len() == self.num_keys == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
@@ -237,10 +243,10 @@ verus! {
             &&& self.pending_allocations_view().disjoint(self.pending_deallocations_view())
             &&& self.allocator_view().disjoint(self.pending_deallocations_view())
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
-                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.valid_indices@) ==
+                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, valid_indices) ==
                        Some(self@)
             &&& self.outstanding_item_table@.len() == self@.durable_item_table.len()
-            &&& forall|idx: u64| self.valid_indices@.contains(idx) ==> {
+            &&& forall|idx: u64| valid_indices.contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
@@ -377,9 +383,14 @@ verus! {
             }
         }
 
-        pub open spec fn valid(self, pm_view: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
+        pub open spec fn valid(
+            self,
+            pm_view: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            valid_indices: Set<u64>,
+        ) -> bool
         {
-            &&& self.inv(pm_view, overall_metadata)
+            &&& self.inv(pm_view, overall_metadata, valid_indices)
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
                 #[trigger] self.outstanding_item_table@[idx as int] is None
         }
@@ -399,9 +410,10 @@ verus! {
             pm: PersistentMemoryRegionView,
             overall_metadata: OverallMetadata,
             index: u64,
+            valid_indices: Set<u64>,
         )
             requires
-                self.valid(pm, overall_metadata),
+                self.valid(pm, overall_metadata, valid_indices),
                 0 <= index < overall_metadata.num_keys,
                 self.valid_indices@.contains(index),
                 self@.durable_item_table[index as int] is Some,
@@ -465,12 +477,13 @@ verus! {
             pm_region: &PM,
             item_table_index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(valid_indices): Ghost<Set<u64>>,
         ) -> (result: Result<Box<I>, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires
                 subregion.inv(pm_region),
-                self.valid(subregion.view(pm_region), overall_metadata),
+                self.valid(subregion.view(pm_region), overall_metadata, valid_indices),
                 item_table_index < self.num_keys,
                 self.valid_indices@.contains(item_table_index),
                 self.outstanding_item_table@[item_table_index as int] is None,
@@ -502,7 +515,8 @@ verus! {
             let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
 
             proof {
-                self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index);
+                self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index,
+                                                                    valid_indices);
                 assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
                 assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
@@ -537,10 +551,11 @@ verus! {
             v2: PersistentMemoryRegionView,
             crash_state2: Seq<u8>,
             overall_metadata: OverallMetadata,
+            valid_indices: Set<u64>,
             which_entry: u64,
         )
             requires
-                self.inv(v1, overall_metadata),
+                self.inv(v1, overall_metadata, valid_indices),
                 !self.valid_indices@.contains(which_entry),
                 v1.len() == v2.len(),
                 v2.can_crash_as(crash_state2),
@@ -595,6 +610,7 @@ verus! {
             item: &I,
             Tracked(perm): Tracked<&Perm>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(current_valid_indices): Ghost<Set<u64>>,
             Ghost(tentative_valid_indices): Ghost<Set<u64>>,
         ) -> (result: Result<u64, KvError<K>>)
             where
@@ -602,7 +618,7 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
             requires
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
+                old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata, current_valid_indices),
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
@@ -612,7 +628,7 @@ verus! {
                 old(self).pending_alloc_inv(old(self).valid_indices@, tentative_valid_indices),
             ensures
                 subregion.inv(wrpm_region, perm),
-                self.inv(subregion.view(wrpm_region), overall_metadata),
+                self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices),
                 self.valid_indices@ == old(self).valid_indices@,
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
@@ -658,7 +674,7 @@ verus! {
             }
             
             let entry_size = self.entry_size;
-            assert(self.inv(subregion.view(wrpm_region), overall_metadata));
+            assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
             assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
             // pop a free index from the free list
@@ -746,7 +762,7 @@ verus! {
                 parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.valid_indices@) == Some(self@)
             } by {
                 old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
-                    old_pm_view, pm_view, s, overall_metadata, free_index
+                    old_pm_view, pm_view, s, overall_metadata, current_valid_indices, free_index
                 );
             }
 
@@ -895,8 +911,9 @@ verus! {
                 match result {
                     Ok(item_table) => {
                         let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
+                        let valid_indices = valid_indices_view.to_set();
                         let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
-                        &&& item_table.valid(subregion.view(pm_region), overall_metadata)
+                        &&& item_table.valid(subregion.view(pm_region), overall_metadata, valid_indices)
                         // table view is correct
                         &&& table == item_table@
                         &&& forall |i: int| 0 <= i < key_index_info.len() ==> {
@@ -1012,6 +1029,13 @@ verus! {
                 state: Ghost(table.unwrap()),
                 _phantom: Ghost(None)
             };
+            assert(in_use_indices =~= Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2).to_set()) by {
+                assert forall|j: u64| in_use_indices.contains(j) implies
+                    Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2).to_set().contains(j) by {
+                    let jj = choose|jj: int| 0 <= jj < key_index_info@.len() && (#[trigger] key_index_info@[jj]).2 == j;
+                    assert(Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2)[jj] == j);
+                }
+            }
 
             proof {
                 assert(forall |i: int| 0 <= i < key_index_info.len() ==> {
@@ -1064,7 +1088,7 @@ verus! {
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             requires 
-                old(self).inv(pm_subregion, overall_metadata),
+                old(self).inv(pm_subregion, overall_metadata, durable_valid_indices),
                 0 <= index < overall_metadata.num_keys,
                 // the provided index is not currently free or pending (de)allocation
                 !old(self).allocator_view().contains(index),
@@ -1082,7 +1106,7 @@ verus! {
                 // we maintain all invariants and move the index into
                 // the pending deallocations set
                 self.pending_deallocations_view().contains(index),
-                self.inv(pm_subregion, overall_metadata),
+                self.inv(pm_subregion, overall_metadata, durable_valid_indices),
                 old(self).allocator_view() == self.allocator_view(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self)@ == self@,
@@ -1163,10 +1187,12 @@ verus! {
             &mut self,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(valid_indices): Ghost<Set<u64>>,
         )
             requires 
                 pm.no_outstanding_writes(),
                 old(self).opaquable_inv(overall_metadata),
+                old(self).valid_indices@ == valid_indices,
                 forall|idx: u64| #[trigger] old(self).valid_indices@.contains(idx) ==> 
                     !old(self).allocator_view().contains(idx) && !old(self).pending_allocations_view().contains(idx),
                 old(self)@.len() == old(self).outstanding_item_table@.len() == old(self).num_keys == overall_metadata.num_keys,
@@ -1194,7 +1220,7 @@ verus! {
                     ||| old(self).allocator_view().contains(idx)
                 },
             ensures
-                self.valid(pm, overall_metadata),
+                self.valid(pm, overall_metadata, valid_indices),
                 self.valid_indices@ == old(self).valid_indices@,
                 self@ == old(self)@,
                 self.pending_alloc_inv(self.valid_indices@, self.valid_indices@),
@@ -1295,7 +1321,7 @@ verus! {
             Ghost(old_valid_indices): Ghost<Set<u64>>,
         )
             requires
-                old(self).inv(pm, overall_metadata),
+                old(self).inv(pm, overall_metadata, old(self).valid_indices@),
                 pm.no_outstanding_writes(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
                     #[trigger] old(self).outstanding_item_table@[idx as int] is None,
@@ -1307,7 +1333,7 @@ verus! {
                 old_self.num_keys == old(self).num_keys,
                 old_self.pending_allocations_view().disjoint(old_self.pending_deallocations_view()),
             ensures 
-                self.inv(pm, overall_metadata),
+                self.inv(pm, overall_metadata, old(self).valid_indices@),
                 self.pending_alloc_inv(self.valid_indices@, self.valid_indices@),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),

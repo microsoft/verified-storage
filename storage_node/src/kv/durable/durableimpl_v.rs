@@ -312,7 +312,7 @@ verus! {
             &&& self.main_table.allocator_inv()
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
-                                  self.overall_metadata)
+                                  self.overall_metadata, self.main_table@.valid_item_indices())
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
                                     self.main_table@, self.overall_metadata)
@@ -326,7 +326,9 @@ verus! {
             &&& self.main_table.valid(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat), self.overall_metadata)
             &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat), self.overall_metadata)
+                                                       self.overall_metadata.item_table_size as nat),
+                                    self.overall_metadata,
+                                    self.main_table@.valid_item_indices())
             &&& self.pending_alloc_inv()
         }
 
@@ -1918,7 +1920,8 @@ verus! {
                 &item_table_subregion,
                 pm,
                 item_table_index,
-                Ghost(self.overall_metadata)
+                Ghost(self.overall_metadata),
+                Ghost(self.main_table@.valid_item_indices()),
             )
         }
 
@@ -2393,7 +2396,7 @@ verus! {
                 }),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata),
+                                    self.overall_metadata, self.main_table@.valid_item_indices()),
                 self.item_table.valid_indices@ == old_self.item_table.valid_indices@,
                 old_self.item_table.allocator_view().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
@@ -2511,7 +2514,8 @@ verus! {
                 old(self).item_table.inv(
                     get_subregion_view(old(self).wrpm@, old(self).overall_metadata.item_table_addr as nat,
                                        old(self).overall_metadata.item_table_size as nat),
-                    old(self).overall_metadata
+                    old(self).overall_metadata,
+                    old(self).main_table@.valid_item_indices()
                 ),
                 old(self).item_table.valid_indices@ == pre_self.item_table.valid_indices@,
                 old(self).item_table@ == pre_self.item_table@,
@@ -2607,7 +2611,8 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
+                                              Ghost(self.item_table.valid_indices@));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -2738,7 +2743,8 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
+                                              Ghost(self.item_table.valid_indices@));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -2835,7 +2841,8 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
+                                              Ghost(self.item_table.valid_indices@));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
             
             proof {
@@ -2946,7 +2953,8 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
+                                              Ghost(self.item_table.valid_indices@));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
             proof {
@@ -3064,6 +3072,7 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
+                Ghost(self.main_table@.valid_item_indices()),
                 Ghost(tentative_main_table_view.valid_item_indices()),
             ) {
                 Ok(item_index) => item_index,
@@ -3504,6 +3513,7 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
+                Ghost(self.main_table@.valid_item_indices()),
                 Ghost(tentative_main_table_view.valid_item_indices()),
             ) {
                 Ok(item_index) => item_index,
@@ -3630,7 +3640,9 @@ verus! {
                     self.overall_metadata.item_table_size as nat) == get_subregion_view(pre_append_wrpm@, 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
                 assert(self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat), self.overall_metadata));
+                                                              self.overall_metadata.item_table_size as nat),
+                                           self.overall_metadata,
+                                           self.main_table@.valid_item_indices()));
 
                 // Prove that all crash states still recover to the current state. We already know this for each 
                 // component, since it's part of their invariants, so we just need to prove that it's true 
@@ -4199,7 +4211,7 @@ verus! {
                                         self.overall_metadata),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata),
+                                    self.overall_metadata, self.main_table@.valid_item_indices()),
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),
                                       self.main_table@, self.overall_metadata),
@@ -4524,7 +4536,8 @@ verus! {
 
                     // abort the transaction in each component to re-establish their invariants
                     self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
+                    self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
+                                                      Ghost(self.item_table.valid_indices@));
                     self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
                     proof {
