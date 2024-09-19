@@ -3399,6 +3399,8 @@ verus! {
                 old_self.tentative_view() is Some,
                 self.wrpm@.len() == old_self.wrpm@.len(),
                 self.log@.physical_op_list == old_self.log@.physical_op_list.push(log_entry@),
+                tentative_view_bytes.len() == self.wrpm@.len(),
+                views_differ_only_in_log_region(self.wrpm@, old_self.wrpm@, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
                 ({
                     let old_flushed_mem = old_self.wrpm@.flush().committed();
                     let old_op_log = old_self.log@.commit_op_log().physical_op_list;
@@ -3447,23 +3449,123 @@ verus! {
                 old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len(),
                 self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap(),
         {
+            broadcast use pmcopy_axioms;
+
             self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            lemma_valid_entry_index(index as nat, self.overall_metadata.num_keys as nat, self.overall_metadata.main_table_entry_size as nat);
 
             let old_flushed_mem = old_self.wrpm@.flush().committed();
+            let flushed_mem = self.wrpm@.flush().committed();
             let old_op_log = old_self.log@.commit_op_log().physical_op_list;
             let op_log = self.log@.commit_op_log().physical_op_list;
-            let flushed_mem = self.wrpm@.flush().committed();
+            
+
+            assert(op_log.subrange(0, old_op_log.len() as int) == old_op_log);
+            assert(AbstractPhysicalOpLogEntry::log_inv(op_log, self.version_metadata, self.overall_metadata));
+            assert(AbstractPhysicalOpLogEntry::log_inv(old_op_log, self.version_metadata, self.overall_metadata));
+
 
             Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(flushed_mem, self.version_metadata,
                 self.overall_metadata, op_log);
+            Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(flushed_mem, self.version_metadata,
+                self.overall_metadata, old_op_log);
             Self::lemma_log_replay_preserves_size(flushed_mem, op_log);
-            assert(Self::apply_physical_log_entries(flushed_mem, op_log) is Some);
-            let mem_with_committed_log_applied = Self::apply_physical_log_entries(flushed_mem, op_log).unwrap();
+            Self::lemma_log_replay_preserves_size(flushed_mem, old_op_log);
+
+            let mem_with_old_log_applied = Self::apply_physical_log_entries(flushed_mem, old_op_log).unwrap();
+            let mem_with_new_log_applied = Self::apply_physical_log_entries(flushed_mem, op_log).unwrap();
+
+            assert(Self::apply_physical_log_entry(mem_with_old_log_applied, log_entry@).unwrap() == mem_with_new_log_applied);
+
+            let new_mem = tentative_view_bytes.map(|pos: int, pre_byte: u8|
+                if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                    log_entry.bytes[pos - log_entry.absolute_addr]
+                } else {
+                    pre_byte
+                }
+            );
+            lemma_establish_extract_bytes_equivalence(tentative_view_bytes, new_mem);
+
+            // Is this whole thing actually useful?
+            assert(states_differ_only_in_log_region(old_flushed_mem, flushed_mem,
+                self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+            Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(old_flushed_mem, flushed_mem,
+                old_op_log, self.version_metadata, self.overall_metadata);
+            // tentative_view_bytes is old mem with old log applied; mem_with_old_log_applied is new mem with 
+            // old log applied. They still differ only in the log region.
+            assert(states_differ_only_in_log_region(tentative_view_bytes, mem_with_old_log_applied,
+                self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+            // The only part modified by this log entry is the main table.
+
+            // assert(states_differ_only_in_log_region(mem_with_new_log_applied, new_mem, 
+            //     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+            let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let mem_with_old_log_applied_main_table_region = extract_bytes(mem_with_old_log_applied, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let mem_with_new_log_applied_main_table_region = extract_bytes(mem_with_new_log_applied, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let new_mem_main_table_region = extract_bytes(new_mem, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            lemma_establish_extract_bytes_equivalence(mem_with_old_log_applied_main_table_region, new_mem_main_table_region);
+
+            assert(mem_with_new_log_applied_main_table_region == new_mem_main_table_region);
+
+            assert(old_tentative_main_table_region == mem_with_old_log_applied_main_table_region);
+
+            let old_tentative_main_table = parse_main_table::<K>(old_tentative_main_table_region,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+            let mem_with_old_log_applied_main_table = parse_main_table::<K>(mem_with_old_log_applied_main_table_region,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+            let mem_with_new_log_applied_main_table = parse_main_table::<K>(mem_with_new_log_applied_main_table_region,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+            let new_mem_main_table = parse_main_table::<K>(new_mem_main_table_region,
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();     
+            assert(mem_with_new_log_applied_main_table == new_mem_main_table);
+
+            // The other regions recover successfully
+            let old_item_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+            let old_list_area_region = extract_bytes(tentative_view_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+            let new_log_item_table_region = extract_bytes(mem_with_new_log_applied, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+            let new_log_list_area_region = extract_bytes(mem_with_new_log_applied, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+            let new_item_table_region = extract_bytes(new_mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+            let new_list_area_region = extract_bytes(new_mem, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+
+            assert(old_item_table_region == new_item_table_region);
+            assert(old_list_area_region == new_list_area_region);
+
+            assert(new_log_item_table_region == new_item_table_region);
+            assert(new_log_list_area_region == new_list_area_region);
+
+            let new_item_table = parse_item_table::<I, K>(
+                new_item_table_region,
+                self.overall_metadata.num_keys as nat,
+                new_mem_main_table.valid_item_indices()
+            );
+            // Need to prove this
+            assume(new_item_table is Some);
+
+            // TODO WITH LIST IMPLEMENTATION
+            assume(DurableList::<K, L>::parse_all_lists(
+                new_mem_main_table,
+                new_list_area_region,
+                self.overall_metadata.list_node_size,
+                self.overall_metadata.num_list_entries_per_node
+            ) is Some);
+
+            // need to draw a connection between new_mem and mem_with_new_log_applied
+
+
 
             // TODO @hayley
-            assume(Self::physical_recover_after_applying_log(mem_with_committed_log_applied, self.overall_metadata, self.log@) is Some);
-            assume(old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len());
-            assume(self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap());
+            assert(Self::physical_recover_after_applying_log(mem_with_new_log_applied, self.overall_metadata, self.log@) is Some);
+            // assert(Self::physical_recover_after_applying_log(new_mem, self.overall_metadata, self.log@) is Some);
+
+            
+            assert(old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len());
+            
+            assert(self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap());
         }
 
         pub fn tentative_update_item(
@@ -3690,6 +3792,9 @@ verus! {
 
                     let start = index_to_offset(idx as nat, entry_size as nat);
                     let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
+
+                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                    lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
 
                     // these assertions are required to hit triggers
                     assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));

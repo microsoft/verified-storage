@@ -19,7 +19,7 @@ verus! {
 
     pub proof fn lemma_outstanding_bytes_match_after_flush(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>)
         requires 
-            0 <= start < start + bytes.len() < pm.len(),
+            0 <= start <= start + bytes.len() <= pm.len(),
             outstanding_bytes_match(pm, start, bytes),
         ensures 
             extract_bytes(pm.flush().committed(), start as nat, bytes.len()) == bytes
