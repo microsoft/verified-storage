@@ -4762,14 +4762,13 @@ verus! {
             self.main_table.finalize_pending_alloc_and_dealloc(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
-            assert(old(self).main_table@.valid_item_indices() == old(self).item_table.valid_indices@);
             self.item_table.finalize_pending_alloc_and_dealloc(
                 Ghost(old(self).item_table), 
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat)), 
                 Ghost(self.overall_metadata), 
                 Ghost(old(self).main_table@.valid_item_indices()),
-                Ghost(self.item_table.valid_indices@),
+                Ghost(self.main_table@.valid_item_indices()),
             );
             
             proof {
