@@ -1070,7 +1070,7 @@ verus! {
                 // and it's currently valid
                 old(self).valid_indices@.contains(index),
                 !tentative_valid_indices.contains(index),
-                old(self).valid_indices@ == durable_valid_indices, // ?
+                old(self).valid_indices@ == durable_valid_indices, 
                 forall |idx: u64| {
                     &&& 0 <= idx < overall_metadata.num_keys 
                     &&& idx != index 
@@ -1084,14 +1084,10 @@ verus! {
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 old(self)@ == self@,
                 old(self).valid_indices@ == self.valid_indices@,
-                // old(self).valid_indices@.remove == self.valid_indices@,
                 old(self).outstanding_item_table@ == self.outstanding_item_table@,
                 self.pending_alloc_inv(durable_valid_indices, tentative_valid_indices)
         {
             self.pending_deallocations.push(index);
-            // self.valid_indices = Ghost(self.valid_indices@.remove(index));
-
-            assume(false);
 
             proof {
                 assert(self.pending_deallocations@.subrange(0, self.pending_deallocations@.len() - 1) == old(self).pending_deallocations@);
@@ -1110,6 +1106,10 @@ verus! {
                         assert(old(self).pending_alloc_check(idx, durable_valid_indices, tentative_valid_indices));
                     }
                 }
+
+                assert forall|idx: u64| idx < overall_metadata.num_keys implies
+                    self.outstanding_item_table_entry_matches_pm_view(pm_subregion, idx as int)
+                by { assert(old(self).outstanding_item_table_entry_matches_pm_view(pm_subregion, idx as int)); }
             }
         }
 
