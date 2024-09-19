@@ -257,20 +257,20 @@ verus! {
 
         pub open spec fn pending_alloc_inv(
             self,
-            durable_valid_indices: Set<u64>,
             current_valid_indices: Set<u64>,
+            durable_valid_indices: Set<u64>,
             tentative_valid_indices: Set<u64>
         ) -> bool
         {
             forall |idx: u64| 0 <= idx < self.num_keys ==> 
-                self.pending_alloc_check(idx, durable_valid_indices, current_valid_indices, tentative_valid_indices)
+                self.pending_alloc_check(idx, current_valid_indices, durable_valid_indices, tentative_valid_indices)
         }
 
         pub open spec fn pending_alloc_check(
             self,
             idx: u64,
-            durable_valid_indices: Set<u64>,
             current_valid_indices: Set<u64>,
+            durable_valid_indices: Set<u64>,
             tentative_valid_indices: Set<u64>
         ) -> bool 
         {
@@ -278,52 +278,52 @@ verus! {
             // it is pending deallocation. We still consider this index valid because it
             // will be valid upon recovery if we were to crash right now.
             &&& {
-                &&& current_valid_indices.contains(idx)
+                &&& durable_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
             } <==> {
                 &&& self.pending_deallocations_view().contains(idx) 
-                &&& durable_valid_indices.contains(idx)
+                &&& current_valid_indices.contains(idx)
             }
             // If an index is not in the current valid index set but is in the tentative one,
             // it is pending allocation
             &&& {
-                &&& !current_valid_indices.contains(idx)
+                &&& !durable_valid_indices.contains(idx)
                 &&& tentative_valid_indices.contains(idx)
             } <==> self.pending_allocations_view().contains(idx)
             // If the index is in neither set, it is in the free list
             &&& {
-                &&& !current_valid_indices.contains(idx)
+                &&& !durable_valid_indices.contains(idx)
                 &&& !tentative_valid_indices.contains(idx)
             } <==> self.allocator_view().contains(idx)
             // If the index is in both sets, it's valid and not pending deallocation.
             &&& {
-                &&& current_valid_indices.contains(idx)
+                &&& durable_valid_indices.contains(idx)
                 &&& tentative_valid_indices.contains(idx)
             } <==> {
                 &&& !self.pending_deallocations_view().contains(idx) 
-                &&& durable_valid_indices.contains(idx)
+                &&& current_valid_indices.contains(idx)
             }
         }
 
         // TODO @hayley look at the triggers here
         pub proof fn lemma_valid_indices_disjoint_with_free_and_pending_alloc(
             self,
-            durable_valid_indices: Set<u64>,
             current_valid_indices: Set<u64>,
+            durable_valid_indices: Set<u64>,
             tentative_valid_indices: Set<u64>
         )
             requires 
-                self.pending_alloc_inv(durable_valid_indices, current_valid_indices, tentative_valid_indices),
+                self.pending_alloc_inv(current_valid_indices, durable_valid_indices, tentative_valid_indices),
             ensures 
-                forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] durable_valid_indices.contains(idx)) ==> {
+                forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] current_valid_indices.contains(idx)) ==> {
                     ||| self.pending_allocations_view().contains(idx)
                     ||| self.allocator_view().contains(idx)
                 },
-                forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] durable_valid_indices.contains(idx) ==> 
+                forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] current_valid_indices.contains(idx) ==> 
                     !self.allocator_view().contains(idx) && !self.pending_allocations_view().contains(idx)
         {
             assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
-                self.pending_alloc_check(idx, durable_valid_indices, current_valid_indices, tentative_valid_indices)
+                self.pending_alloc_check(idx, current_valid_indices, durable_valid_indices, tentative_valid_indices)
             });
             // Annoyingly, we need to have a trigger on `!tentative_valid_indices.contains(idx)`, which 
             // apparently Verus can do internally, but is not syntactically legal here. So we have to 
@@ -332,29 +332,29 @@ verus! {
             // to hit the proper triggers. 
             assert(forall |idx: u64| #![trigger current_valid_indices.contains(idx)] #![trigger tentative_valid_indices.contains(idx)] 
                 0 <= idx < self.num_keys && 
-                    self.pending_alloc_check(idx, durable_valid_indices, current_valid_indices,
+                    self.pending_alloc_check(idx, current_valid_indices, durable_valid_indices,
                                              tentative_valid_indices) ==> {
                     &&& {
-                            &&& current_valid_indices.contains(idx)
+                            &&& durable_valid_indices.contains(idx)
                             &&& !tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& self.pending_deallocations_view().contains(idx) 
-                            &&& durable_valid_indices.contains(idx)
+                            &&& current_valid_indices.contains(idx)
                         }
                     &&& {
-                            &&& !current_valid_indices.contains(idx)
+                            &&& !durable_valid_indices.contains(idx)
                             &&& tentative_valid_indices.contains(idx)
                         } <==> self.pending_allocations_view().contains(idx)
                     &&& {
-                            &&& !current_valid_indices.contains(idx)
+                            &&& !durable_valid_indices.contains(idx)
                             &&& !tentative_valid_indices.contains(idx)
                         } <==> self.allocator_view().contains(idx)
                     &&& {
-                            &&& current_valid_indices.contains(idx)
+                            &&& durable_valid_indices.contains(idx)
                             &&& tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& !self.pending_deallocations_view().contains(idx) 
-                            &&& durable_valid_indices.contains(idx)
+                            &&& current_valid_indices.contains(idx)
                         }
                 }
             );
