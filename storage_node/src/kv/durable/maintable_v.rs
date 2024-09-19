@@ -1711,8 +1711,7 @@ metadata_allocator@.contains(i)
                         None => {
                             ||| old(self).allocator_view().contains(idx)
                             ||| old(self).pending_deallocations_view().contains(idx)
-                        }
-,
+                        },
                         Some(entry) => {
                             // if the entry is valid, either it was pending allocation
                             // or it's just valid and not in any of the three lists
@@ -1722,8 +1721,7 @@ metadata_allocator@.contains(i)
                                 &&& !old(self).pending_deallocations_view().contains(idx)
                                 &&& !old(self).pending_allocations_view().contains(idx)
                             })
-                        }
-,
+                        },
                     }
                 },
                 forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> 
@@ -2755,6 +2753,112 @@ metadata_allocator@.contains(i)
             }
         }
 
+        pub exec fn finalize_main_table(
+            &mut self,
+            Ghost(old_self): Ghost<Self>,
+            Ghost(old_pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(pm): Ghost<PersistentMemoryRegionView>,
+            Ghost(overall_metadata): Ghost<OverallMetadata>,
+        )
+            requires
+                pm.no_outstanding_writes(),
+                old(self).opaquable_inv(overall_metadata),
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                        overall_metadata.main_table_size as nat);
+                    let old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
+                        overall_metadata.main_table_size as nat);
+                    &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+                    &&& old_self.inv(old_subregion_view, overall_metadata)
+                    &&& parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+                    &&& old_self.pending_alloc_inv(old_subregion_view.committed(), subregion_view.committed(), overall_metadata)
+                }),
+                old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
+                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
+                pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                overall_metadata.main_table_entry_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                old(self).main_table_entry_size == overall_metadata.main_table_entry_size,
+                old_self.allocator_view() == old(self).allocator_view(),
+                old_self.pending_allocations_view() == old(self).pending_allocations_view(),
+                old_self.pending_deallocations_view() == old(self).pending_deallocations_view(),
+                old_self.main_table_entry_size == overall_metadata.main_table_entry_size,
+            ensures 
+                ({
+                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                        overall_metadata.main_table_size as nat);
+                    &&& self.inv(subregion_view, overall_metadata)
+                    &&& self.pending_alloc_inv(subregion_view.committed(), subregion_view.committed(), overall_metadata)
+                    &&& forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
+                            self.outstanding_cdb_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
+                    &&& forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
+                            self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
+                }),
+                self.pending_allocations_view().is_empty(),
+                self.pending_deallocations_view().is_empty(),
+                self.allocator_inv(),
+                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
+                    self.outstanding_cdb_writes@[idx as int] is None,
+                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
+                    self.outstanding_entry_writes@[idx as int] is None,
+                
+        {
+            let ghost old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
+                overall_metadata.main_table_size as nat);
+            let ghost old_main_table_view = parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+            let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                overall_metadata.main_table_size as nat);
+            let ghost main_table_view = parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+
+            self.update_ghost_state_to_current_bytes(Ghost(pm), Ghost(overall_metadata));
+            
+            proof {
+                assert(Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
+                    overall_metadata.num_keys, overall_metadata.main_table_entry_size));
+                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
+            
+                // TODO: combine these w/ proper triggers
+                assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
+                     #[trigger] self.pending_allocations_view().contains(idx) ==> 
+                            self@.durable_main_table[idx as int] is Some
+                } by {
+                    // trigger the pending alloc check
+                    assert(old_self.pending_alloc_check(idx, old_main_table_view, main_table_view));
+                }
+                assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
+                    &&& #[trigger] self.pending_deallocations_view().contains(idx) ==> 
+                            {self@.durable_main_table[idx as int] is None}
+                } by {
+                    // trigger the pending alloc check
+                    assert(old_self.pending_alloc_check(idx, old_main_table_view, main_table_view));
+                }
+
+                assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
+                    let entry = #[trigger] self@.durable_main_table[idx as int];
+                    match entry {
+                        None => {
+                            ||| self.allocator_view().contains(idx)
+                            ||| self.pending_deallocations_view().contains(idx)
+                        },
+                        Some(entry) => {
+                            // if the entry is valid, either it was pending allocation
+                            // or it's just valid and not in any of the three lists
+                            ||| self.pending_allocations_view().contains(idx)
+                            ||| ({
+                                &&& !self.allocator_view().contains(idx)
+                                &&& !self.pending_deallocations_view().contains(idx)
+                                &&& !self.pending_allocations_view().contains(idx)
+                            })
+                        },
+                    }
+                } by {
+                    assert(old_self.pending_alloc_check(idx, old_main_table_view, main_table_view));
+                }
+            }
+
+            self.finalize_pending_alloc_and_dealloc(Ghost(subregion_view), Ghost(overall_metadata));
+        }
 /* Temporarily commented out for subregion work
 
         pub exec fn play_metadata_log<PM, L>(

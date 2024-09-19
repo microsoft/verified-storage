@@ -4825,16 +4825,32 @@ verus! {
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 Self::lemma_committed_subregion_equal_to_extracted_bytes(self.wrpm@, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);        
+                            
+                let subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                assert(subregion_view.can_crash_as(subregion_view.committed()));
+
+                let old_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat); 
+                assert(old_subregion_view.can_crash_as(old_subregion_view.committed()));
+                assert(parse_main_table::<K>(old_subregion_view.committed(), self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) is Some);
+
+                let tentative_bytes_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+            
+                let durable_state_bytes = old(self).wrpm@.committed();
+                let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                assert(durable_main_table_region == old_subregion_view.committed());
+                
             }
 
-            // Now we update each component's ghost state to match the current bytes.
-            // It would be cleaner and match other methods if these took subregions rather than the entire WRPM,
-            // but this makes everything more difficult to prove (why?). Since these functions don't modify WRPM, 
-            // we don't need to reason about crash consistency, so it's fine for them to see a ghost view of the 
-            // whole device.
-            self.main_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata));
-            self.item_table.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
-                Ghost(self.main_table@.valid_item_indices()));
+            // 4. Update ghost state and finalize pending (de)allocations.
+            self.main_table.finalize_main_table(Ghost(old(self).main_table), Ghost(old(self).wrpm@),
+                Ghost(self.wrpm@), Ghost(self.overall_metadata));
+            self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
+                Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_item_indices()), Ghost(self.main_table@.valid_item_indices()));
+
+            // TODO: replace with finalize fn that finishes (de)allocs and updates ghost state
             self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.main_table@));
 
@@ -4842,7 +4858,7 @@ verus! {
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
             let ghost clear_log_crash_pred = |s: Seq<u8>| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@);
 
-            // 4. Clear the log
+            // 5. Clear the log
             proof {
                 // Next, prove that we can safely clear the log.
                 self.lemma_can_clear_op_log_after_commit(*old(self), pre_log_install_wrpm, 
@@ -4868,82 +4884,8 @@ verus! {
             self.pending_updates = Vec::new();
             
             proof {
-                let old_durable_main_table_region = extract_bytes(old(self).wrpm@.committed(), self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let old_durable_main_table_view = parse_main_table::<K>(old_durable_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-
-                // After replaying and clearing the log, all metadata indices pending allocation
-                // are now valid and all metadata indices pending deallocation are invalid
-                assert forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() implies {
-                    &&& #[trigger] self.main_table.pending_allocations_view().contains(idx) ==> 
-                            {self.main_table@.durable_main_table[idx as int] is Some}
-                    &&& self.main_table.pending_deallocations_view().contains(idx) ==> 
-                            {self.main_table@.durable_main_table[idx as int] is None}
-                } by {
-                    // trigger the pending alloc check
-                    assert(old(self).main_table.pending_alloc_check(idx, old_durable_main_table_view, old_tentative_main_table_view));
-                }
-
+                // clearing the log does not change the view of any other parts of the KV store
                 self.lemma_view_and_components_unchanged(pre_clear_wrpm);
-                // After clearing the log, all non-log components remain the same.
-                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(pre_clear_wrpm.committed(),
-                    self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
-
-                // We now have to reestablish some facts about the relationship between the allocation-related sets
-                // and the current KV store state. The pending allocation invariants no longer hold because we have 
-                // installed operations that cause durable allocation/deallocation but we have not yet updated
-                // the corresponding durable structures.
-                assert forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() implies {
-                    let entry = #[trigger] self.main_table@.durable_main_table[idx as int];
-                    match entry {
-                        None => {
-                            ||| self.main_table.allocator_view().contains(idx)
-                            ||| self.main_table.pending_deallocations_view().contains(idx)
-                        },
-                        Some(entry) => {
-                            // if the entry is valid, either it was pending allocation
-                            // or it's just valid and not in any of the three lists
-                            ||| self.main_table.pending_allocations_view().contains(idx)
-                            ||| ({
-                                &&& !self.main_table.allocator_view().contains(idx)
-                                &&& !self.main_table.pending_deallocations_view().contains(idx)
-                                &&& !self.main_table.pending_allocations_view().contains(idx)
-                            })
-                        },
-                    }
-                } by {
-                    assert(old(self).main_table.pending_alloc_check(idx, old_durable_main_table_view,
-                        old_tentative_main_table_view));
-                }
-            
-                assert forall |idx| 0 <= idx < self.item_table.num_keys implies
-                    old(self).item_table.pending_alloc_check(idx, old(self).main_table@.valid_item_indices(),
-                        self.main_table@.valid_item_indices())
-                by {
-                    let durable_main_table_region_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-
-                    assert(durable_main_table_region_view.committed() == old_durable_main_table_region);
-                    assert(durable_main_table_region_view.can_crash_as(old_durable_main_table_region));
-                    assert(old(self).main_table@ == old_durable_main_table_view);
-                    assert(old(self).main_table@.valid_item_indices() == old_durable_main_table_view.valid_item_indices());
-                }
-            }
-
-            // 5. Finalize pending allocations and deallocations. This will reestablish the pending allocation invariant
-            // for each component.
-            self.main_table.finalize_pending_alloc_and_dealloc(Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                self.overall_metadata.main_table_size as nat)), Ghost(self.overall_metadata));
-            self.item_table.finalize_pending_alloc_and_dealloc(
-                Ghost(old(self).item_table), 
-                Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat)), 
-                Ghost(self.overall_metadata), 
-                Ghost(old(self).main_table@.valid_item_indices())
-            );
-            
-            proof {
-                // Finally, prove that self.valid() has been reestablished.
 
                 // The new durable and tentative states are equal.
                 let new_durable_state_bytes = self.wrpm@.committed();
