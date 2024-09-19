@@ -352,6 +352,7 @@ verus! {
                         self.overall_metadata
                     )
                 &&& self.item_table.pending_alloc_inv(
+                        self.item_table.valid_indices@,
                         durable_main_table_view.valid_item_indices(),
                         tentative_main_table_view.valid_item_indices(),
                     )
@@ -1647,6 +1648,7 @@ verus! {
                 assert(durable_kv_store.item_table.pending_alloc_inv(
                     main_table@.valid_item_indices(),
                     main_table@.valid_item_indices(),
+                    main_table@.valid_item_indices(),
                 ));
             }
 
@@ -2602,6 +2604,7 @@ verus! {
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 
                 pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
+                    pre_self.item_table.valid_indices@,
                     pre_self_durable_main_table_view.valid_item_indices(), 
                     pre_self_tentative_main_table_view.valid_item_indices());
             }
@@ -2833,7 +2836,10 @@ verus! {
                 let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
+                    old(self).item_table.valid_indices@,
+                    durable_main_table_view.valid_item_indices(),
+                    tentative_main_table_view.valid_item_indices()
+                );
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -2944,7 +2950,10 @@ verus! {
                 let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 pre_self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
+                    pre_self.item_table.valid_indices@,
+                    durable_main_table_view.valid_item_indices(),
+                    tentative_main_table_view.valid_item_indices()
+                );
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -3060,8 +3069,11 @@ verus! {
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
             assert(main_table_subregion_view.committed() == extract_bytes(self.wrpm@.committed(),
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-            assert(self.item_table.pending_alloc_inv(self.main_table@.valid_item_indices(), 
-                tentative_main_table_view.valid_item_indices()));
+            assert(self.item_table.pending_alloc_inv(
+                self.item_table.valid_indices@,
+                self.main_table@.valid_item_indices(), 
+                tentative_main_table_view.valid_item_indices()
+            ));
             assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
 
@@ -3243,7 +3255,10 @@ verus! {
                     let tentative_main_table = parse_main_table::<K>(extract_bytes(tentative_view_bytes,
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    old_self.item_table.pending_alloc_check(item_index, old_self.main_table@.valid_item_indices(),
+                    old_self.item_table.pending_alloc_check(
+                        item_index,
+                        old_self.item_table.valid_indices@,
+                        old_self.main_table@.valid_item_indices(),
                         tentative_main_table.valid_item_indices())
                 }),
                 old_self.overall_metadata == self.overall_metadata,
@@ -3335,8 +3350,9 @@ verus! {
                 self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
 
             // the pending alloc check holds for this index, which proves that it is now pending allocation
-            assert(old_self.item_table.pending_alloc_check(item_index, old_main_table.valid_item_indices(),
-                tentative_main_table.valid_item_indices()));
+            assert(old_self.item_table.pending_alloc_check(item_index, old_self.item_table.valid_indices@,
+                                                           old_main_table.valid_item_indices(),
+                                                           tentative_main_table.valid_item_indices()));
         }
 
         proof fn lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(
@@ -3501,7 +3517,9 @@ verus! {
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
             assert(main_table_subregion_view.committed() == extract_bytes(self.wrpm@.committed(),
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-            assert(self.item_table.pending_alloc_inv(self.main_table@.valid_item_indices(), 
+            assert(self.item_table.pending_alloc_inv(
+                self.item_table.valid_indices@,
+                self.main_table@.valid_item_indices(), 
                 tentative_main_table_view.valid_item_indices()));
             assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), 
                 tentative_main_table_region, self.overall_metadata));
@@ -3908,8 +3926,9 @@ verus! {
             
             assert(durable_main_table_subregion.can_crash_as(durable_main_table_region));
             assert(self.main_table@ == durable_main_table_view);
-            assert(self.item_table.pending_alloc_check(item_index, self.main_table@.valid_item_indices(),
-                tentative_main_table_view.valid_item_indices()));
+            assert(self.item_table.pending_alloc_check(item_index, self.item_table.valid_indices@,
+                                                       self.main_table@.valid_item_indices(),
+                                                       tentative_main_table_view.valid_item_indices()));
 
         }
 
@@ -4168,10 +4187,13 @@ verus! {
                 assert forall |idx: u64| {
                     &&& 0 <= idx < self.overall_metadata.num_keys 
                     &&& idx != item_index  
-                } implies self.item_table.pending_alloc_check(idx, self.main_table@.valid_item_indices(), 
-                    tentative_main_table_view.valid_item_indices())
+                } implies self.item_table.pending_alloc_check(idx, self.item_table.valid_indices@,
+                                                              self.main_table@.valid_item_indices(), 
+                                                              tentative_main_table_view.valid_item_indices())
                 by { 
-                    assert(old(self).item_table.pending_alloc_check(idx, self.main_table@.valid_item_indices(), old_tentative_main_table_view.valid_item_indices()));
+                    assert(old(self).item_table.pending_alloc_check(idx, self.item_table.valid_indices@,
+                                                                  self.main_table@.valid_item_indices(),
+                                                                  old_tentative_main_table_view.valid_item_indices()));
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
                     assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
@@ -4186,7 +4208,10 @@ verus! {
                 // the pending alloc invariant holds for the old tentative state to prove what 
                 // we need to about the current item table's indexes.
                 self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    self.main_table@.valid_item_indices(), old_tentative_main_table_view.valid_item_indices());
+                    self.item_table.valid_indices@,
+                    self.main_table@.valid_item_indices(),
+                    old_tentative_main_table_view.valid_item_indices()
+                );
             }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
                 Ghost(self.overall_metadata), Ghost(self.main_table@.valid_item_indices()),
@@ -4526,7 +4551,10 @@ verus! {
                         let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region_state,
                             self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                         old(self).item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                            durable_main_table_view.valid_item_indices(), tentative_main_table_view.valid_item_indices());
+                            old(self).item_table.valid_indices@,
+                            durable_main_table_view.valid_item_indices(),
+                            tentative_main_table_view.valid_item_indices()
+                        );
                     }
 
                     // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -4711,8 +4739,9 @@ verus! {
                 }
             
                 assert forall |idx| 0 <= idx < self.item_table.num_keys implies
-                    old(self).item_table.pending_alloc_check(idx, old(self).main_table@.valid_item_indices(),
-                        self.main_table@.valid_item_indices())
+                    old(self).item_table.pending_alloc_check(idx, old(self).item_table.valid_indices@,
+                                                           old(self).main_table@.valid_item_indices(),
+                                                           self.main_table@.valid_item_indices())
                 by {
                     let durable_main_table_region_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
 
