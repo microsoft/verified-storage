@@ -301,7 +301,6 @@ verus! {
             &&& overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                 self.overall_metadata.kvstore_id)
             &&& self.wrpm@.len() == self.overall_metadata.region_size
-            &&& self.item_table.valid_indices@ == self.main_table@.valid_item_indices()
             &&& self.log.inv(pm_view, self.version_metadata, self.overall_metadata)
             &&& no_outstanding_writes_to_version_metadata(self.wrpm@)
             &&& no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int)
@@ -587,7 +586,6 @@ verus! {
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
                 old_self.main_table@.valid_item_indices() == self.main_table@.valid_item_indices(),
-                old_self.item_table.valid_indices@ == self.item_table.valid_indices@,
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -1610,8 +1608,7 @@ verus! {
             let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
 
             assert(main_table@.valid_item_indices() == Seq::new(entry_list@.len(), |i: int| entry_list[i].2).to_set());
-            assert(item_table.valid_indices@ == Set::new(|i: u64| 0 <= i < overall_metadata.num_keys && key_index_info_contains_index(entry_list@, i)));
-            assert(main_table@.valid_item_indices() =~= item_table.valid_indices@);
+            assert(main_table@.valid_item_indices() =~= Set::new(|i: u64| 0 <= i < overall_metadata.num_keys && key_index_info_contains_index(entry_list@, i)));
 
             let durable_kv_store = Self {
                 version_metadata,
@@ -1639,7 +1636,6 @@ verus! {
 
                 assert(durable_main_table_region == main_table_subregion.view(pm_region).committed());
                 assert(durable_main_table_view == durable_kv_store.main_table@);
-                assert(durable_main_table_view.valid_item_indices() == item_table.valid_indices@);
 
                 assert(durable_kv_store.main_table.pending_alloc_inv(main_table_subregion.view(pm_region).committed(),
                     main_table_subregion.view(pm_region).committed(), overall_metadata));
@@ -1667,8 +1663,6 @@ verus! {
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
                 assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
-                assert(durable_kv_store.item_table.valid_indices@ =~=
-                       durable_kv_store.main_table@.valid_item_indices());
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
             }
 
@@ -4232,7 +4226,6 @@ verus! {
                 overall_metadata_valid::<K, I, L>(self.overall_metadata, self.version_metadata.overall_metadata_addr,
                                                   self.overall_metadata.kvstore_id),
                 self.wrpm@.len() == self.overall_metadata.region_size,
-                self.item_table.valid_indices@ == self.main_table@.valid_item_indices(),
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 self.main_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                                            self.overall_metadata.main_table_size as nat),
