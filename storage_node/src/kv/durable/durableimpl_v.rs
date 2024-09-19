@@ -3653,6 +3653,8 @@ verus! {
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 let pre_append_tentative_item_table_bytes = extract_bytes(pre_append_tentative_view_bytes, 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let tentative_item_table = parse_item_table::<I, K>(tentative_item_table_bytes, 
+                    self.overall_metadata.num_keys as nat, tentative_main_table_view.valid_item_indices());
                 let pre_append_tentative_item_table = parse_item_table::<I, K>(pre_append_tentative_item_table_bytes, 
                     self.overall_metadata.num_keys as nat, pre_append_tentative_main_table.valid_item_indices());
 
@@ -3668,9 +3670,15 @@ verus! {
                     &&& 0 <= addr < self.wrpm@.len()
                     &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
                 } ==> #[trigger] pre_append_tentative_view_bytes[addr] == self.wrpm@.flush().committed()[addr]);
+                assert(forall |addr: int| {
+                    &&& 0 <= addr < self.wrpm@.len()
+                    &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
+                } ==> #[trigger] tentative_view_bytes[addr] == old(self).wrpm@.flush().committed()[addr]);
 
                 let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 assert(current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes);
+                let old_item_table_subregion = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                assert(old_item_table_subregion.flush().committed() == tentative_item_table_bytes);
 
                 // we know that the old tentative bytes successfully recover with the tentative valid item indices.
                 // since we have only modified an entry at an invalid index, the view does not change.
@@ -3691,6 +3699,10 @@ verus! {
                     let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
                     &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
                     &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+                    &&& idx != item_index ==> ({
+                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+                        })
                 } by {
                     let start = index_to_offset(idx as nat, entry_size as nat);
                     let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
@@ -3702,6 +3714,15 @@ verus! {
 
                     lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
                     lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
+
+                    if idx != item_index {
+                        assert(old(self).item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
+                        assert(outstanding_bytes_match(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
+                        assert(outstanding_bytes_match(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
+
+                        lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
+                        lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
+                    }
                 }
 
                 assert(current_item_table_subregion.can_crash_as(current_item_table_subregion.committed()));
@@ -3731,7 +3752,7 @@ verus! {
                             let item_bytes = extract_bytes(bytes, u64::spec_size_of(), I::spec_size_of());
                             
                             lemma_subrange_of_extract_bytes_equal(current_item_table_subregion.flush().committed(), start, start, entry_size, u64::spec_size_of());
-                            lemma_subrange_of_extract_bytes_equal(current_item_table_subregion.flush().committed(), start, start+ u64::spec_size_of(), entry_size, I::spec_size_of());
+                            lemma_subrange_of_extract_bytes_equal(current_item_table_subregion.flush().committed(), start, start + u64::spec_size_of(), entry_size, I::spec_size_of());
 
                         } else {
                             if !self.main_table@.valid_item_indices().contains(idx) {
@@ -3761,8 +3782,63 @@ verus! {
                 assert(validate_item_table_entries::<I, K>(pre_append_tentative_item_table_bytes, self.overall_metadata.num_keys as nat,
                     pre_append_tentative_main_table.valid_item_indices()));
 
-                assert(pre_append_tentative_item_table is Some);
+                assert(current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes);
 
+                assert forall |idx: u64| {
+                    &&& idx < self.overall_metadata.num_keys 
+                    &&& idx != item_index
+                } implies {
+                    let offset = #[trigger] index_to_offset(idx as nat, entry_size as nat);
+                    extract_bytes(pre_append_tentative_item_table_bytes, offset, entry_size) == 
+                        extract_bytes(tentative_item_table_bytes, offset, entry_size)
+                } by {
+                    let start = index_to_offset(idx as nat, entry_size as nat);
+                    
+
+                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                    lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+
+                    let bytes1 = extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size);
+                    let bytes2 = extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size);
+                    
+                    if self.item_table.outstanding_item_table@[idx as int] is Some {
+                        let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
+                        assert({
+                            &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+                            &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+                        });
+                        assert({
+                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+                        });
+                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) + extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) ==
+                            extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
+                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
+                            extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
+                    } else {
+                        assert(old(self).item_table@.durable_item_table[idx as int] == self.item_table@.durable_item_table[idx as int]);
+                        assert(self.item_table.outstanding_item_table@[idx as int] is None);
+                        assert(old(self).item_table.outstanding_item_table@[idx as int] is None);
+                        assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
+                        assert(old(self).item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
+                    
+                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
+                            extract_bytes(current_item_table_subregion.committed(), start, entry_size));
+                        assert(extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size) == 
+                            extract_bytes(old_item_table_subregion.committed(), start, entry_size));
+                    }
+
+                    assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
+                        extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
+                    assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
+                        extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
+                    assert(extract_bytes(tentative_item_table_bytes, start, entry_size) == 
+                        extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
+                }
+                    
+                assert(pre_append_tentative_item_table is Some);
+                assert(tentative_item_table is Some);
+                assert(pre_append_tentative_item_table == tentative_item_table);
                 assert(self.tentative_view() is Some);
                 assert(self.tentative_view() == old(self).tentative_view());
             }

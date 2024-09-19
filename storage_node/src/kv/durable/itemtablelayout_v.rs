@@ -127,7 +127,7 @@ verus! {
                     |i: int| {
                         // TODO: probably can't have if {} in here
                         if i <= u64::MAX && valid_indices.contains(i as u64) {
-                            let bytes = extract_bytes(mem, (i * item_entry_size) as nat, item_entry_size as nat);
+                            let bytes = extract_bytes(mem, index_to_offset(i as nat, item_entry_size as nat), item_entry_size as nat);
                             parse_item_entry::<I, K>(bytes)
                         } else {
                             None
@@ -176,17 +176,17 @@ verus! {
         }
 
         let entry_size = I::spec_size_of() + u64::spec_size_of();
-        assert forall |i: u64| i < num_keys && valid_indices.contains(i) implies
-            extract_bytes(mem1, (i * entry_size) as nat, entry_size) ==
-            extract_bytes(mem2, (i * entry_size) as nat, entry_size) by {
+        assert forall |i: u64| i < num_keys && #[trigger] valid_indices.contains(i) implies
+            extract_bytes(mem1, index_to_offset(i as nat, entry_size as nat), entry_size) ==
+            extract_bytes(mem2, index_to_offset(i as nat, entry_size as nat), entry_size) by {
             lemma_valid_entry_index(i as nat, num_keys as nat, entry_size as nat);
             assert forall|addr: int| i * entry_size <= addr < i * entry_size + entry_size implies mem1[addr] == mem2[addr] by {
                 assert(addr / entry_size as int == i) by {
                     lemma_addr_in_entry_divided_by_entry_size(i as nat, entry_size as nat, addr as int);
                 }
             }
-            assert(extract_bytes(mem1, (i * entry_size) as nat, entry_size) =~=
-                   extract_bytes(mem2, (i * entry_size) as nat, entry_size));
+            assert(extract_bytes(mem1, index_to_offset(i as nat, entry_size as nat), entry_size) =~=
+                   extract_bytes(mem2, index_to_offset(i as nat, entry_size as nat), entry_size));
 
         }
         assert(validate_item_table_entries::<I, K>(mem1, num_keys as nat, valid_indices) =~=
@@ -196,7 +196,7 @@ verus! {
             |i: int| {
                 // TODO: probably can't have if {} in here
                 if i <= u64::MAX && valid_indices.contains(i as u64) {
-                    let bytes = extract_bytes(mem1, (i * entry_size) as nat, entry_size as nat);
+                    let bytes = extract_bytes(mem1, index_to_offset(i as nat, entry_size as nat), entry_size as nat);
                     parse_item_entry::<I, K>(bytes)
                 } else {
                     None
@@ -208,7 +208,7 @@ verus! {
             |i: int| {
                 // TODO: probably can't have if {} in here
                 if i <= u64::MAX && valid_indices.contains(i as u64) {
-                    let bytes = extract_bytes(mem2, (i * entry_size) as nat, entry_size as nat);
+                    let bytes = extract_bytes(mem2, index_to_offset(i as nat, entry_size as nat), entry_size as nat);
                     parse_item_entry::<I, K>(bytes)
                 } else {
                     None
