@@ -3610,14 +3610,9 @@ verus! {
             }
 
             let pm = self.wrpm.get_pm_region_ref();
-            assert(main_table_subregion.view(pm) == main_table_subregion_view);
 
             proof {
-                broadcast use pmcopy_axioms;
-                
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
-                assert(self.log@.commit_op_log().physical_op_list == old(self).log@.commit_op_log().physical_op_list);
                 
                 Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
                     self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
@@ -3643,11 +3638,6 @@ verus! {
                 let pre_append_tentative_main_table = parse_main_table::<K>(extract_bytes(pre_append_tentative_view_bytes, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat), 
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                assert(pre_append_tentative_main_table == tentative_main_table_view);
-                assert(old(self).main_table.pending_alloc_check(item_index, old(self).main_table@, pre_append_tentative_main_table));
-
-                self.lemma_update_item_index_log_entry_precondition(*old(self), offset, item_index, 
-                    item_table_subregion, pre_append_tentative_view_bytes, perm);
 
                 let tentative_item_table_bytes = extract_bytes(tentative_view_bytes, 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
@@ -3658,14 +3648,12 @@ verus! {
                 let pre_append_tentative_item_table = parse_item_table::<I, K>(pre_append_tentative_item_table_bytes, 
                     self.overall_metadata.num_keys as nat, pre_append_tentative_main_table.valid_item_indices());
 
-                // the tentative states have the same valid indices
-                assert(pre_append_tentative_main_table.valid_item_indices() == tentative_main_table_view.valid_item_indices());
-
-                // replaying the log does not change the item table bytes
+                // Replaying the log does not change the item table bytes. This depends on a KV store invariant
                 Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(old(self).wrpm@.flush().committed(),
                     old(self).log@.physical_op_list, self.version_metadata, self.overall_metadata);
                 Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(self.wrpm@.flush().committed(),
                     self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
+                // These assertions hit some necessary triggers to use the postconditions of the above proofs.
                 assert(forall |addr: int| {
                     &&& 0 <= addr < self.wrpm@.len()
                     &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
@@ -3680,17 +3668,11 @@ verus! {
                 let old_item_table_subregion = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 assert(old_item_table_subregion.flush().committed() == tentative_item_table_bytes);
 
-                // we know that the old tentative bytes successfully recover with the tentative valid item indices.
-                // since we have only modified an entry at an invalid index, the view does not change.
-                assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
-
+                // After flushing, any outstanding bytes in the item table have now become durable.
+                // We prove that all outstanding updates become durable in the new tentative view
+                // and that all outstanding updates except for the one to `item_index` become
+                // durable in the old tentative view (because it wasn't outstanding then.)
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
-                let item_index_offset = index_to_offset(item_index as nat, entry_size as nat);
-
-                assert(forall |idx: u64| idx < self.overall_metadata.num_keys ==> 
-                    self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
-
-                // prove that after flushing, any outstanding bytes in the item table have now become durable.
                 assert forall |idx: u64| {
                     &&& idx < self.overall_metadata.num_keys 
                     &&& self.item_table.outstanding_item_table@[idx as int] is Some 
@@ -3704,6 +3686,8 @@ verus! {
                             &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
                         })
                 } by {
+                    broadcast use pmcopy_axioms;
+
                     let start = index_to_offset(idx as nat, entry_size as nat);
                     let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
 
@@ -3711,7 +3695,6 @@ verus! {
                     assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
                     assert(outstanding_bytes_match(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
                     assert(outstanding_bytes_match(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
-
                     lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
                     lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
 
@@ -3719,71 +3702,13 @@ verus! {
                         assert(old(self).item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
                         assert(outstanding_bytes_match(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
                         assert(outstanding_bytes_match(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
-
                         lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
                         lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
                     }
                 }
 
-                assert(current_item_table_subregion.can_crash_as(current_item_table_subregion.committed()));
-                assert(current_item_table_subregion.can_crash_as(current_item_table_subregion.flush().committed()));
-                assert(self.item_table@.durable_item_table == old(self).item_table@.durable_item_table);
-
-                assert(forall |idx: u64| idx < self.overall_metadata.num_keys ==> 
-                    old(self).item_table.pending_alloc_check(idx, old(self).main_table@.valid_item_indices(), tentative_main_table_view.valid_item_indices()));
-                assert(old(self).item_table.pending_alloc_inv(old(self).main_table@.valid_item_indices(), tentative_main_table_view.valid_item_indices()));
-
-                // Prove that all entries that *will* be valid after recovery pass the validation check in the current flushed state
-                assert forall |idx: u64| idx < self.overall_metadata.num_keys && tentative_main_table_view.valid_item_indices().contains(idx) implies
-                    validate_item_table_entry::<I, K>(#[trigger] extract_bytes(current_item_table_subregion.flush().committed(), 
-                        index_to_offset(idx as nat, entry_size as nat), entry_size))
-                by {
-                    let start = index_to_offset(idx as nat, entry_size as nat);
-
-                    lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                    lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-
-                    if idx != item_index {
-                        let bytes = extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size);
-
-                        if self.item_table.outstanding_item_table@[idx as int] is Some {
-                            let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
-                            let crc_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
-                            let item_bytes = extract_bytes(bytes, u64::spec_size_of(), I::spec_size_of());
-                            
-                            lemma_subrange_of_extract_bytes_equal(current_item_table_subregion.flush().committed(), start, start, entry_size, u64::spec_size_of());
-                            lemma_subrange_of_extract_bytes_equal(current_item_table_subregion.flush().committed(), start, start + u64::spec_size_of(), entry_size, I::spec_size_of());
-
-                        } else {
-                            if !self.main_table@.valid_item_indices().contains(idx) {
-                                assert(!old(self).main_table@.valid_item_indices().contains(idx));
-
-                                // the index is not currently valid, but it will be 
-                                // on replay. However, it doesn't have an outstanding write,
-                                // which is illegal.
-                                assert(old(self).item_table.pending_alloc_check(idx, 
-                                    old(self).main_table@.valid_item_indices(), 
-                                    tentative_main_table_view.valid_item_indices()));
-
-                                assert(old(self).item_table.pending_allocations_view().contains(idx));
-                                assert(self.item_table.pending_allocations_view().contains(idx));
-                                assert(false);
-                            } 
-                            // otherwise, the entry is already valid, so it follows from the invariant
-                            // that it passes validation.
-                        }
-                    } else {
-                        // valid indices does not contain the item index
-                        assert(idx == item_index);
-                        assert(false);
-                    }
-                }
-                
-                assert(validate_item_table_entries::<I, K>(pre_append_tentative_item_table_bytes, self.overall_metadata.num_keys as nat,
-                    pre_append_tentative_main_table.valid_item_indices()));
-
-                assert(current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes);
-
+                // Prove that for all indexes besides the newly-updated item index, the underlying bytes
+                // are the same in the two tentative states.
                 assert forall |idx: u64| {
                     &&& idx < self.overall_metadata.num_keys 
                     &&& idx != item_index
@@ -3793,53 +3718,31 @@ verus! {
                         extract_bytes(tentative_item_table_bytes, offset, entry_size)
                 } by {
                     let start = index_to_offset(idx as nat, entry_size as nat);
-                    
-
                     lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
                     lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-
-                    let bytes1 = extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size);
-                    let bytes2 = extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size);
-                    
                     if self.item_table.outstanding_item_table@[idx as int] is Some {
-                        let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
-                        assert({
-                            &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                            &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                        });
-                        assert({
-                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                        });
-                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) + extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) ==
-                            extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
+                        // we've previously asserted that the CRC and item, extracted separately, match the outstanding entry,
+                        // so to prove equality here we just need a few additional assertions about `extract_bytes`
+                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) + 
+                            extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) ==
+                                extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
                         assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
                             extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
                     } else {
-                        assert(old(self).item_table@.durable_item_table[idx as int] == self.item_table@.durable_item_table[idx as int]);
-                        assert(self.item_table.outstanding_item_table@[idx as int] is None);
-                        assert(old(self).item_table.outstanding_item_table@[idx as int] is None);
+                        // else, there was no outstanding entry, so we just have to prove that flush is a no op on these bytes.
                         assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
                         assert(old(self).item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
-                    
-                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
-                            extract_bytes(current_item_table_subregion.committed(), start, entry_size));
-                        assert(extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size) == 
-                            extract_bytes(old_item_table_subregion.committed(), start, entry_size));
+                        assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == extract_bytes(current_item_table_subregion.committed(), start, entry_size));
+                        assert(extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size) == extract_bytes(old_item_table_subregion.committed(), start, entry_size));
                     }
-
-                    assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
-                        extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
-                    assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
-                        extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
-                    assert(extract_bytes(tentative_item_table_bytes, start, entry_size) == 
-                        extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
                 }
-                    
-                assert(pre_append_tentative_item_table is Some);
-                assert(tentative_item_table is Some);
+
+                // Prove that we satisfy the precondition to obtain this log entry. The postcondition of this 
+                // lemma also helps prove that the tentative view has not changed.
+                self.lemma_update_item_index_log_entry_precondition(*old(self), offset, item_index, 
+                    item_table_subregion, pre_append_tentative_view_bytes, perm);
+
                 assert(pre_append_tentative_item_table == tentative_item_table);
-                assert(self.tentative_view() is Some);
                 assert(self.tentative_view() == old(self).tentative_view());
             }
 
@@ -3932,8 +3835,6 @@ verus! {
                 // component, since it's part of their invariants, so we just need to prove that it's true 
                 // for the whole KV store as well.
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-
-                // let pre_append_tentative_bytes = Self::apply_physical_log_entries(pre_append_self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list).unwrap();
                 
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
