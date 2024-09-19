@@ -630,7 +630,7 @@ verus! {
 
             proof {
                 reveal(spec_padding_needed);
-                subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
+                subregion.lemma_reveal_opaque_inv(wrpm_region);
                 lemma_establish_subrange_equivalence(subregion.initial_region_view().committed(),
                                                      wrpm_region@.committed());
                 assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
@@ -829,7 +829,7 @@ verus! {
             proof {
                 let mem1 = old_wrpm.committed();
                 let mem2 = wrpm_region@.committed();
-                subregion.lemma_reveal_opaque_inv(wrpm_region, perm);
+                subregion.lemma_reveal_opaque_inv(wrpm_region);
                 lemma_establish_subrange_equivalence(mem1, mem2);
         
                 assert(wrpm_region.inv());
