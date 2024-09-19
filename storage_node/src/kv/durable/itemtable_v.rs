@@ -1343,13 +1343,16 @@ verus! {
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
             Ghost(old_valid_indices): Ghost<Set<u64>>,
+            Ghost(new_valid_indices): Ghost<Set<u64>>,
         )
             requires
-                old(self).inv(pm, overall_metadata, old(self).valid_indices@),
+                old_valid_indices == old_self.valid_indices@,
+                new_valid_indices == old(self).valid_indices@,
+                old(self).inv(pm, overall_metadata, new_valid_indices),
                 pm.no_outstanding_writes(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
                     #[trigger] old(self).outstanding_item_table@[idx as int] is None,
-                old_self.pending_alloc_inv(old_self.valid_indices@, old_valid_indices, old(self).valid_indices@),
+                old_self.pending_alloc_inv(old_valid_indices, old_valid_indices, new_valid_indices),
                 old_self.allocator_view() == old(self).allocator_view(),
                 old_self.pending_allocations_view() == old(self).pending_allocations_view(),
                 old_self.pending_deallocations_view() == old(self).pending_deallocations_view(),
@@ -1357,13 +1360,13 @@ verus! {
                 old_self.num_keys == old(self).num_keys,
                 old_self.pending_allocations_view().disjoint(old_self.pending_deallocations_view()),
             ensures 
-                self.inv(pm, overall_metadata, old(self).valid_indices@),
+                self.inv(pm, overall_metadata, new_valid_indices),
                 self.pending_alloc_inv(self.valid_indices@, self.valid_indices@, self.valid_indices@),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
                 forall|idx: u64| idx < overall_metadata.num_keys ==>
                     #[trigger] self.outstanding_item_table@[idx as int] is None,
-                self.valid_indices@ == old(self).valid_indices@,
+                self.valid_indices@ == new_valid_indices,
         {
             // add the pending deallocations to the free list 
             // this also clears self.pending_deallocations
@@ -1380,17 +1383,16 @@ verus! {
                 assert forall |idx: u64| 0 <= idx < self@.durable_item_table.len() implies
                     self.pending_alloc_check(idx, self.valid_indices@, self.valid_indices@, self.valid_indices@)
                 by {
-                    assert(old_self.pending_alloc_check(idx, old_self.valid_indices@, old_valid_indices,
-                                                        old(self).valid_indices@));
-                    if old_self.valid_indices@.contains(idx) {
-                        if !old(self).valid_indices@.contains(idx) {
+                    assert(old_self.pending_alloc_check(idx, old_valid_indices, old_valid_indices, new_valid_indices));
+                    if old_valid_indices.contains(idx) {
+                        if !new_valid_indices.contains(idx) {
                             assert(old(self).pending_deallocations_view().contains(idx));
                             assert(self.allocator_view().contains(idx));
                         } else {
                             assert(self.valid_indices@.contains(idx));
                         }
                     } else {
-                        if !old(self).valid_indices@.contains(idx) { 
+                        if !new_valid_indices.contains(idx) { 
                             assert(old(self).allocator_view().contains(idx));
                         } // else, trivial
                     }
