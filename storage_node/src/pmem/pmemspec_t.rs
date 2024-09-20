@@ -242,11 +242,9 @@ verus! {
     pub open spec fn possible_write_effect(pre: Seq<u8>, post: Seq<u8>, addr: int, bytes: Seq<u8>) -> bool
     {
         &&& post.len() == pre.len()
-        &&& forall |chunk| {
-              #[trigger] chunk_trigger(chunk) ==> {
-                  ||| chunk_corresponds(post, pre, chunk)
-                  ||| chunk_corresponds(post, update_bytes(pre, addr, bytes), chunk)
-              }
+        &&& forall |chunk| #[trigger] chunk_trigger(chunk) ==> {
+              ||| chunk_corresponds(post, pre, chunk)
+              ||| chunk_corresponds(post, update_bytes(pre, addr, bytes), chunk)
         }
     }
 
