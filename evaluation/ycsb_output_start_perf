@@ -1,0 +1,108 @@
+Using persistent memory
+-p capybarakv.config=../ycsb_ffi/config.toml
+Setting up CapybaraKV
+Creating new EXT4-DAX file system on device /dev/pmem0 at mount point /mnt/pmem
+umount: /dev/pmem0: not mounted.
+mke2fs 1.47.1-rc2 (01-May-2024)
+Creating filesystem with 32513536 4k blocks and 8134656 inodes
+Filesystem UUID: 444dd678-caae-4ae9-8f51-abc11dff478a
+Superblock backups stored on blocks: 
+	32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632, 2654208, 
+	4096000, 7962624, 11239424, 20480000, 23887872
+
+Allocating group tables:   0/993       done                            
+Writing inode tables:   0/993       done                            
+Creating journal (131072 blocks): done
+Writing superblocks and filesystem accounting information:   0/993       done
+
+Mounted EXT4-DAX
+warning: file `/mnt/local_ssd/home/hayley/verified-storage/evaluation/ycsb_ffi/src/lib.rs` found to be present in multiple build targets:
+  * `lib` target `ycsb_ffi`
+  * `bin` target `ycsb_ffi`
+   Compiling capybarakv_interface v0.1.0 (/mnt/local_ssd/home/hayley/verified-storage/evaluation/capybarakv_interface)
+warning: unused variable: `db`
+  --> /mnt/local_ssd/home/hayley/verified-storage/evaluation/capybarakv_interface/src/lib.rs:75:9
+   |
+75 |     let db = unsafe { rocksdb_open(rocksdb_options, DB_PATH.as_ptr(), &mut err) };
+   |         ^^ help: if this is intentional, prefix it with an underscore: `_db`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: function `capybarakv_test` is never used
+  --> /mnt/local_ssd/home/hayley/verified-storage/evaluation/capybarakv_interface/src/lib.rs:31:4
+   |
+31 | fn capybarakv_test() {
+   |    ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `capybarakv_interface` (lib) generated 2 warnings (run `cargo fix --lib -p capybarakv_interface` to apply 1 suggestion)
+   Compiling ycsb_ffi v0.1.0 (/mnt/local_ssd/home/hayley/verified-storage/evaluation/ycsb_ffi)
+warning: unused import: `jni::strings::JavaStr`
+ --> src/lib.rs:4:5
+  |
+4 | use jni::strings::JavaStr;
+  |     ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused imports: `Table`, `Value`
+ --> src/lib.rs:6:12
+  |
+6 | use toml::{Table, Value};
+  |            ^^^^^  ^^^^^
+
+warning: unused import: `std::path::Path`
+ --> src/lib.rs:7:5
+  |
+7 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: type `TestListElement` is more private than the item `YcsbKV::kv`
+  --> src/lib.rs:72:5
+   |
+72 |     pub kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ field `YcsbKV::kv` is reachable at visibility `pub`
+   |
+note: but type `TestListElement` is only usable at visibility `pub(crate)`
+  --> src/lib.rs:66:1
+   |
+66 | struct TestListElement {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+   = note: `#[warn(private_interfaces)]` on by default
+
+warning: `ycsb_ffi` (bin "ycsb_ffi") generated 4 warnings (3 duplicates)
+warning: `ycsb_ffi` (lib) generated 4 warnings (1 duplicate) (run `cargo fix --lib -p ycsb_ffi` to apply 3 suggestions)
+    Finished dev [unoptimized + debuginfo] target(s) in 2.39s
+     Running `target/debug/ycsb_ffi`
+Setting up KV with 10000001 keys, 16B nodes, 21474836480 byte regions
+Done setting up! You can now run YCSB workloads
+[WARN]  Running against a source checkout. In order to get our runtime dependencies we'll have to invoke Maven. Depending on the state of your system, this may take ~30-45 seconds
+[DEBUG]  Running 'mvn -pl site.ycsb:capybarakv-binding -am package -DskipTests dependency:build-classpath -DincludeScope=compile -Dmdep.outputFilterFile=true'
+java -cp /mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/capybarakv/conf:/mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/capybarakv/target/capybarakv-binding-0.18.0-SNAPSHOT.jar:/home/hayley/.m2/repository/org/apache/htrace/htrace-core4/4.1.0-incubating/htrace-core4-4.1.0-incubating.jar:/home/hayley/.m2/repository/org/slf4j/slf4j-api/1.7.25/slf4j-api-1.7.25.jar:/home/hayley/.m2/repository/org/hdrhistogram/HdrHistogram/2.1.4/HdrHistogram-2.1.4.jar:/home/hayley/.m2/repository/org/codehaus/jackson/jackson-mapper-asl/1.9.4/jackson-mapper-asl-1.9.4.jar:/home/hayley/.m2/repository/org/codehaus/jackson/jackson-core-asl/1.9.4/jackson-core-asl-1.9.4.jar:/mnt/local_ssd/home/hayley/verified-storage/evaluation/YCSB/core/target/core-0.18.0-SNAPSHOT.jar site.ycsb.Client -db site.ycsb.db.CapybaraKVClient -threads 1 -s -P workloads/workloada -p recordcount=10000000 -p operationcount=10000000 -p capybarakv.config=../ycsb_ffi/config.toml -load
+Command line: -db site.ycsb.db.CapybaraKVClient -threads 1 -s -P workloads/workloada -p recordcount=10000000 -p operationcount=10000000 -p capybarakv.config=../ycsb_ffi/config.toml -load
+YCSB Client 0.18.0-SNAPSHOT
+
+Loading workload...
+Starting test.
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+2024-07-19 21:21:06:678 0 sec: 0 operations; est completion in 0 second 
+2024-07-19 21:21:16:652 10 sec: 0 operations; est completion in 106751991167300 days 15 hours 
+2024-07-19 21:21:26:651 20 sec: 0 operations; est completion in 106751991167300 days 15 hours 
+DBWrapper: report latency for each error is false and specific error codes to track for latency are: []
+2024-07-19 21:21:36:651 30 sec: 14336 operations; 1433.6 current ops/sec; est completion in 5 hours 48 minutes [INSERT: Count=14336, Max=8095, Min=10, Avg=14.19, 90=13, 99=28, 99.9=403, 99.99=2733] 
+2024-07-19 21:21:46:652 40 sec: 801400 operations; 78706.4 current ops/sec; est completion in 7 minutes [INSERT: Count=787162, Max=153087, Min=10, Avg=11.66, 90=11, 99=12, 99.9=20, 99.99=413] 
+2024-07-19 21:21:56:652 50 sec: 1606156 operations; 80475.6 current ops/sec; est completion in 4 minutes [INSERT: Count=804755, Max=305919, Min=10, Avg=11.45, 90=11, 99=12, 99.9=18, 99.99=27] 
+2024-07-19 21:22:06:652 60 sec: 2384253 operations; 77809.7 current ops/sec; est completion in 3 minutes [INSERT: Count=778101, Max=612863, Min=10, Avg=11.87, 90=11, 99=12, 99.9=17, 99.99=28] 
+2024-07-19 21:22:16:651 70 sec: 3213872 operations; 82961.9 current ops/sec; est completion in 2 minutes [INSERT: Count=829607, Max=1681, Min=10, Avg=11.06, 90=11, 99=12, 99.9=18, 99.99=26] 
+2024-07-19 21:22:26:651 80 sec: 3937962 operations; 72409 current ops/sec; est completion in 2 minutes [INSERT: Count=724090, Max=1221631, Min=10, Avg=12.81, 90=11, 99=13, 99.9=18, 99.99=26] 
+2024-07-19 21:22:36:651 90 sec: 4769259 operations; 83129.7 current ops/sec; est completion in 1 minute [INSERT: Count=831299, Max=1701, Min=10, Avg=11.05, 90=11, 99=12, 99.9=18, 99.99=26] 
+2024-07-19 21:22:46:653 100 sec: 5600363 operations; 83110.4 current ops/sec; est completion in 1 minute [INSERT: Count=831163, Max=5043, Min=10, Avg=11.05, 90=11, 99=12, 99.9=18, 99.99=28] 
+2024-07-19 21:22:56:652 110 sec: 6429180 operations; 82881.7 current ops/sec; est completion in 1 minute [INSERT: Count=828757, Max=2527, Min=10, Avg=11.08, 90=11, 99=12, 99.9=17, 99.99=27] 
+2024-07-19 21:23:06:652 120 sec: 7250533 operations; 82135.3 current ops/sec; est completion in 46 seconds [INSERT: Count=821355, Max=2049, Min=10, Avg=11.16, 90=12, 99=13, 99.9=18, 99.99=27] 
+2024-07-19 21:23:16:652 130 sec: 7876496 operations; 62596.3 current ops/sec; est completion in 36 seconds [INSERT: Count=625961, Max=2447359, Min=10, Avg=14.99, 90=11, 99=12, 99.9=18, 99.99=28] 
+2024-07-19 21:23:26:652 140 sec: 8708261 operations; 83176.5 current ops/sec; est completion in 21 seconds [INSERT: Count=831767, Max=1704, Min=10, Avg=11.05, 90=11, 99=12, 99.9=18, 99.99=27] 
+2024-07-19 21:23:36:651 150 sec: 9540368 operations; 83210.7 current ops/sec; est completion in 8 second [INSERT: Count=832101, Max=2051, Min=10, Avg=11.05, 90=11, 99=12, 99.9=18, 99.99=27] 
+2024-07-19 21:23:42:703 156 sec: 10000000 operations; 75959.68 current ops/sec; [CLEANUP: Count=1, Max=518655, Min=518400, Avg=518528, 90=518655, 99=518655, 99.9=518655, 99.99=518655] [INSERT: Count=459546, Max=1627, Min=10, Avg=11.05, 90=11, 99=12, 99.9=17, 99.99=27] 

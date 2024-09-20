@@ -1,0 +1,25 @@
+[package]
+name = "capybarakv_interface"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+storage_node = { path = "../../storage_node/" }
+pmsafe = { path = "../../pmsafe" }
+builtin_macros = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+builtin = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+toml = "0.8.14"
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+bindgen = "0.69.1"
+
+[lib]
+name = "capybarakv_interface"
+path = "src/lib.rs"
+
+[[bin]]
+name = "capybarakv_interface"
+path = "src/lib.rs"

@@ -190,6 +190,7 @@ LICENSE file.
     <module>mongodb</module>
     <module>nosqldb</module>
     <module>orientdb</module>
+    <module>pmemrocksdb</module>
     <module>postgrenosql</module>
     <module>rados</module>
     <module>redis</module>
