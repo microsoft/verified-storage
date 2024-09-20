@@ -3661,19 +3661,30 @@ verus! {
                 self.overall_metadata.num_list_entries_per_node
             ) is Some);
 
-
-            // TODO @hayley
             assert(Self::physical_recover_after_applying_log(mem_with_new_log_applied, self.overall_metadata, self.log@) is Some);
 
-            assert(old_self.tentative_view().unwrap().contains_key(index as int));
+            let old_tentative_view = old_self.tentative_view().unwrap();
+            let new_tentative_view = self.tentative_view().unwrap();
+
+            assert(old_tentative_view.contains_key(index as int));
 
             assert(old_self.tentative_view() is Some);
-            assert(old_self.tentative_view().unwrap().update_item(index as int, item) is Ok);
-            assert(old_self.tentative_view().unwrap().contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
-            assert(old_self.tentative_view().unwrap().len() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().len());
-            assert(self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap());
+            assert(old_tentative_view.update_item(index as int, item) is Ok);
+            assert(old_tentative_view.contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
+            assert(old_tentative_view.len() == old_tentative_view.update_item(index as int, item).unwrap().len());
+            
+            
+            assert(new_tentative_view.contents.dom() == old_tentative_view.update_item(index as int, item).unwrap().contents.dom());
+            
+            assert forall |i: int| new_tentative_view.contents.contains_key(i) implies
+                #[trigger] new_tentative_view.contents[i] == old_tentative_view.update_item(index as int, item).unwrap().contents[i]
+            by {
+                assume(false);
+                assert(new_tentative_view.contents[i].key == old_tentative_view.update_item(index as int, item).unwrap().contents[i].key);
+                assert(new_tentative_view.contents[i].list == old_tentative_view.update_item(index as int, item).unwrap().contents[i].list);
+            }
 
-            assert(old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len());
+            assert(new_tentative_view.contents == old_tentative_view.update_item(index as int, item).unwrap().contents);
         }
 
         pub fn tentative_update_item(
