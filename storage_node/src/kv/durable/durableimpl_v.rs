@@ -3659,7 +3659,12 @@ verus! {
                 new_list_area_region,
                 self.overall_metadata.list_node_size,
                 self.overall_metadata.num_list_entries_per_node
-            ) is Some);
+            ) == DurableList::<K, L>::parse_all_lists(
+                old_tentative_main_table,
+                old_list_area_region,
+                self.overall_metadata.list_node_size,
+                self.overall_metadata.num_list_entries_per_node
+            ));
 
             assert(Self::physical_recover_after_applying_log(mem_with_new_log_applied, self.overall_metadata, self.log@) is Some);
 
@@ -3675,14 +3680,6 @@ verus! {
             
             
             assert(new_tentative_view.contents.dom() == old_tentative_view.update_item(index as int, item).unwrap().contents.dom());
-            
-            assert forall |i: int| new_tentative_view.contents.contains_key(i) implies
-                #[trigger] new_tentative_view.contents[i] == old_tentative_view.update_item(index as int, item).unwrap().contents[i]
-            by {
-                assume(false);
-                assert(new_tentative_view.contents[i].key == old_tentative_view.update_item(index as int, item).unwrap().contents[i].key);
-                assert(new_tentative_view.contents[i].list == old_tentative_view.update_item(index as int, item).unwrap().contents[i].list);
-            }
 
             assert(new_tentative_view.contents == old_tentative_view.update_item(index as int, item).unwrap().contents);
         }
