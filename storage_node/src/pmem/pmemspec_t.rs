@@ -226,6 +226,11 @@ verus! {
         Seq::new(s.len(), |i: int| if addr <= i < addr + bytes.len() { bytes[i - addr] } else { s[i] })
     }
 
+    pub open spec fn addr_in_chunk(chunk: int, addr: int) -> bool 
+    {
+        addr / const_persistence_chunk_size() == chunk
+    }
+
     pub open spec fn chunk_corresponds(s1: Seq<u8>, s2: Seq<u8>, chunk: int) -> bool
     {
         forall |addr: int| {
@@ -270,11 +275,6 @@ verus! {
         {
             self.durable_state == self.read_state
         }
-    }
-
-    pub open spec fn addr_in_chunk(chunk: int, addr: int) -> bool 
-    {
-        addr / const_persistence_chunk_size() == chunk
     }
 
     // The struct `PersistentMemoryConstants` contains fields that
