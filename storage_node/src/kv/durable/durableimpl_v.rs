@@ -3430,6 +3430,7 @@ verus! {
                     &&& tentative_view_bytes == old_mem_with_old_log_installed
                     &&& old_main_table_view matches Some(old_main_table_view)
                     &&& old_main_table_view.durable_main_table[index as int] matches Some(entry) 
+                    &&& !old_main_table_view.valid_item_indices().contains(item_index)
                 }),
                 ({
                     let new_mem = tentative_view_bytes.map(|pos: int, pre_byte: u8|
@@ -3460,7 +3461,10 @@ verus! {
                     &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
                     &&& new_main_table_view.unwrap().valid_item_indices() == 
                             current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
-                })
+                }),
+                self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
+                self.item_table.outstanding_item_table@[item_index as int] == Some(item),
+                item_index < self.overall_metadata.num_keys,
             ensures 
                 self.tentative_view() is Some,
                 old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len(),
@@ -3540,6 +3544,7 @@ verus! {
             let new_mem_main_table = parse_main_table::<K>(new_mem_main_table_region,
                 self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();     
             assert(mem_with_new_log_applied_main_table == new_mem_main_table);
+            let old_item_index = old_tentative_main_table.durable_main_table[index as int].unwrap().item_index();
 
             // The other regions recover successfully
             let old_item_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
@@ -3555,13 +3560,98 @@ verus! {
             assert(new_log_item_table_region == new_item_table_region);
             assert(new_log_list_area_region == new_list_area_region);
 
+            assert(parse_item_table::<I, K>(
+                new_item_table_region,
+                self.overall_metadata.num_keys as nat,
+                old_tentative_main_table.valid_item_indices()
+            ) is Some);
+
+            // we know that the old tentative main table valid indices parse to a valid item table
+            // but we need to know that the new ones do 
+            assert(new_mem_main_table.valid_item_indices() == 
+                old_tentative_main_table.valid_item_indices().insert(item_index).remove(old_item_index));
+
+            // assert(!old_tentative_main_table.valid_item_indices().contains(item_index));
+            // assert(old_tentative_main_table.valid_item_indices().contains(old_item_index));
+
+            // assert(forall |idx: u64| {
+            //     &&& new_mem_main_table.valid_item_indices().contains(idx) 
+            //     &&& !old_tentative_main_table.valid_item_indices().contains(idx) 
+            // } ==> idx == item_index);
+            Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(self.wrpm@.flush().committed(),
+                self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
+
+            assert(extract_bytes(self.wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) ==
+            extract_bytes(new_mem, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+
+            let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+            let old_item_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+
+            assert(item_table_subregion_view.flush().committed() == new_item_table_region);
+            assert(old_item_table_subregion_view.flush().committed() == old_item_table_region);
+
+
+            // both of these should have an outstanding item, we haven't committed anything yet
+            assert(old_self.item_table.outstanding_item_table@[item_index as int] == Some(item));
+            assert(self.item_table.outstanding_item_table@[item_index as int] == Some(item));
+
+            assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
+                item_table_subregion_view,
+                item_index as int
+            ));
+            assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(
+                item_table_subregion_view,
+                item_index as int
+            ));
+
+            assert(item_table_subregion_view.flush().committed() == new_item_table_region);
+
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            assert forall |idx: u64| new_mem_main_table.valid_item_indices().contains(idx) implies {
+                let offset = index_to_offset(idx as nat, entry_size);
+                &&& validate_item_table_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size))
+                &&& idx != item_index ==> parse_item_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size)) == 
+                        parse_item_entry::<I, K>(extract_bytes(old_item_table_region, offset, entry_size))
+                &&& idx == item_index ==> parse_item_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size)) == Some(item)
+            } by {
+                let offset = index_to_offset(idx as nat, entry_size);
+                let bytes = extract_bytes(new_item_table_region, offset, entry_size);
+
+                lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+                
+                if !old_tentative_main_table.valid_item_indices().contains(idx) {
+                    assert(idx == item_index);
+
+                    assert(self.item_table.outstanding_item_table@[item_index as int] == Some(item));
+                    assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
+                        item_table_subregion_view,
+                        item_index as int
+                    ));
+                    
+                    assert(bytes == extract_bytes(old_item_table_region, offset, entry_size));
+                    assert(outstanding_bytes_match(item_table_subregion_view, offset as int, bytes));
+                    assert(outstanding_bytes_match(item_table_subregion_view, offset as int, spec_crc_bytes(I::spec_to_bytes(item))));
+                    assert(outstanding_bytes_match(item_table_subregion_view, (offset + u64::spec_size_of()) as int, I::spec_to_bytes(item)));
+
+                    lemma_outstanding_bytes_match_after_flush(item_table_subregion_view, offset as int, spec_crc_bytes(I::spec_to_bytes(item)));
+                    lemma_outstanding_bytes_match_after_flush(item_table_subregion_view, (offset + u64::spec_size_of()) as int, I::spec_to_bytes(item));
+
+                    assert(extract_bytes(new_item_table_region, offset, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(item)));
+                    assert(extract_bytes(new_item_table_region, offset + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(item));
+                    lemma_subrange_of_extract_bytes_equal(new_item_table_region, offset, offset, entry_size, u64::spec_size_of());
+                    lemma_subrange_of_extract_bytes_equal(new_item_table_region, offset, offset + u64::spec_size_of(), entry_size, I::spec_size_of());
+                    
+                    assert(validate_item_table_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size)));
+                } // else, trivial
+            }
+
             let new_item_table = parse_item_table::<I, K>(
                 new_item_table_region,
                 self.overall_metadata.num_keys as nat,
                 new_mem_main_table.valid_item_indices()
             );
-            // Need to prove this
-            assume(new_item_table is Some);
+            assert(new_item_table is Some);
 
             // TODO WITH LIST IMPLEMENTATION
             assume(DurableList::<K, L>::parse_all_lists(
@@ -3571,18 +3661,19 @@ verus! {
                 self.overall_metadata.num_list_entries_per_node
             ) is Some);
 
-            // need to draw a connection between new_mem and mem_with_new_log_applied
-
-
 
             // TODO @hayley
             assert(Self::physical_recover_after_applying_log(mem_with_new_log_applied, self.overall_metadata, self.log@) is Some);
-            // assert(Self::physical_recover_after_applying_log(new_mem, self.overall_metadata, self.log@) is Some);
 
-            
-            assert(old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len());
-            
+            assert(old_self.tentative_view().unwrap().contains_key(index as int));
+
+            assert(old_self.tentative_view() is Some);
+            assert(old_self.tentative_view().unwrap().update_item(index as int, item) is Ok);
+            assert(old_self.tentative_view().unwrap().contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
+            assert(old_self.tentative_view().unwrap().len() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().len());
             assert(self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap());
+
+            assert(old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len());
         }
 
         pub fn tentative_update_item(
