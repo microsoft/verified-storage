@@ -163,7 +163,7 @@ impl FileBackedPersistentMemoryRegion
                     -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
                 Err(_) => true,
             }
     {
@@ -182,7 +182,7 @@ impl FileBackedPersistentMemoryRegion
                -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
                 Err(_) => true,
             }
     {
@@ -192,7 +192,7 @@ impl FileBackedPersistentMemoryRegion
     pub fn restore(path: &str, region_size: u64) -> (result: Result<Self, PmemError>)
         ensures
             match result {
-                Ok(region) => region.inv() && region@.len() == region_size,
+                Ok(region) => region.inv() && region@.valid() && region@.len() == region_size,
                 Err(_) => true,
             }
     {

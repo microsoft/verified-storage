@@ -85,15 +85,13 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     pub exec fn write(&mut self, addr: u64, bytes: &[u8], perm: Tracked<&Perm>)
         requires
             old(self).inv(),
-            old(self)@.valid(),
             addr + bytes@.len() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
-            forall |s| possible_write_effect(old(self)@.durable_state, s, addr as int, bytes@)
+            forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, bytes@)
                   ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@.valid(),
             self@.can_result_from_write(old(self)@, addr as int, bytes@),
     {
         let ghost pmr = self.pm_region;
@@ -106,15 +104,13 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
             S: PmCopy + Sized
         requires
             old(self).inv(),
-            old(self)@.valid(),
             addr + S::spec_size_of() <= old(self)@.len(),
             // The key thing the caller must prove is that all crash states are authorized by `perm`
-            forall |s| possible_write_effect(old(self)@.durable_state, s, addr as int, to_write.spec_to_bytes())
+            forall |s| can_result_from_partial_write(s, old(self)@.durable_state, addr as int, to_write.spec_to_bytes())
                   ==> #[trigger] perm@.check_permission(s),
         ensures
             self.inv(),
             self.constants() == old(self).constants(),
-            self@.valid(),
             self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
     {
         self.pm_region.serialize_and_write(addr, to_write);
@@ -128,12 +124,10 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
     pub exec fn flush(&mut self)
         requires
             old(self).inv(),
-            old(self)@.valid(),
         ensures
             old(self)@.flush_predicted(), // it must have been prophesized that this flush would happen
             self.inv(),
             self.constants() == old(self).constants(),
-            self@.valid(),
             self@ == old(self)@,
     {
         self.pm_region.flush()

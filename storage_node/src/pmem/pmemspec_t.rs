@@ -239,7 +239,7 @@ verus! {
         true
     }
 
-    pub open spec fn possible_write_effect(pre: Seq<u8>, post: Seq<u8>, addr: int, bytes: Seq<u8>) -> bool
+    pub open spec fn can_result_from_partial_write(post: Seq<u8>, pre: Seq<u8>, addr: int, bytes: Seq<u8>) -> bool
     {
         &&& post.len() == pre.len()
         &&& forall |chunk| #[trigger] chunk_trigger(chunk) ==> {
@@ -263,7 +263,7 @@ verus! {
         pub open spec fn can_result_from_write(self, pre: Self, addr: int, bytes: Seq<u8>) -> bool
         {
             &&& self.read_state == update_bytes(pre.read_state, addr, bytes)
-            &&& possible_write_effect(pre.durable_state, self.durable_state, addr, bytes)
+            &&& can_result_from_partial_write(self.durable_state, pre.durable_state, addr, bytes)
         }
 
         pub open spec fn flush_predicted(self) -> bool
@@ -304,7 +304,6 @@ verus! {
                 S: PmCopy + Sized,
             requires
                 self.inv(),
-                self@.valid(),
                 addr + S::spec_size_of() <= self@.len(),
                 // We must have previously written a serialized S to this addr
                 S::bytes_parseable(self@.read_state.subrange(addr as int, addr + S::spec_size_of()))
@@ -331,7 +330,6 @@ verus! {
         fn read_unaligned(&self, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>) 
             requires 
                 self.inv(),
-                self@.valid(),
                 addr + num_bytes <= self@.len(),
             ensures 
                 match bytes {
@@ -357,12 +355,10 @@ verus! {
         fn write(&mut self, addr: u64, bytes: &[u8])
             requires
                 old(self).inv(),
-                old(self)@.valid(),
                 addr + bytes@.len() <= old(self)@.len(),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@.valid(),
                 self@.can_result_from_write(old(self)@, addr as int, bytes@),
         ;
 
@@ -371,19 +367,16 @@ verus! {
                 S: PmCopy + Sized
             requires
                 old(self).inv(),
-                old(self)@.valid(),
                 addr + S::spec_size_of() <= old(self)@.len(),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
-                self@.valid(),
                 self@.can_result_from_write(old(self)@, addr as int, to_write.spec_to_bytes()),
         ;
 
         fn flush(&mut self)
             requires
                 old(self).inv(),
-                old(self)@.valid(),
             ensures
                 old(self)@.flush_predicted(), // it must have been prophesized that this flush would happen
                 self.inv(),

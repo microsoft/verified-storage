@@ -51,7 +51,7 @@ pub open spec fn memories_differ_only_where_subregion_allows(
     &&& mem1.len() == mem2.len()
     &&& start + len <= mem1.len()
     &&& forall |addr: int|
-        0 <= addr < mem2.len() && mem1[addr] != #[trigger] mem2[addr] ==>
+        0 <= addr < mem2.len() && #[trigger] mem1[addr] != mem2[addr] ==>
             address_modifiable_by_subregion(addr, start, len, is_writable_absolute_addr_fn)
 }
 
@@ -106,9 +106,9 @@ pub proof fn lemma_memories_differ_only_where_subregion_allows_is_transitive(
 )
     ensures
         ({
-            &&& memories_differ_only_where_subregion_allows(mem1, mem2, start, len, is_writable_absolute_addr_fn)
-            &&& memories_differ_only_where_subregion_allows(mem2, mem3, start, len, is_writable_absolute_addr_fn)
-        } ==> memories_differ_only_where_subregion_allows(mem1, mem3, start, len, is_writable_absolute_addr_fn))
+            &&& memories_differ_only_where_subregion_allows(mem2, mem1, start, len, is_writable_absolute_addr_fn)
+            &&& memories_differ_only_where_subregion_allows(mem3, mem2, start, len, is_writable_absolute_addr_fn)
+        } ==> memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn))
 {
 }
 
@@ -116,27 +116,27 @@ pub proof fn lemma_memories_differ_only_where_subregion_allows_is_transitive_alw
     ensures
         forall|mem1: Seq<u8>, mem2: Seq<u8>, mem3: Seq<u8>, start: nat, len: nat,
           is_writable_absolute_addr_fn: spec_fn(int) -> bool| {
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem1, mem2, start, len,
+            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem1, start, len,
                                                                      is_writable_absolute_addr_fn)
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem3, start, len,
+            &&& #[trigger] memories_differ_only_where_subregion_allows(mem3, mem2, start, len,
                                                                      is_writable_absolute_addr_fn)
-        } ==> memories_differ_only_where_subregion_allows(mem1, mem3, start, len, is_writable_absolute_addr_fn)
+        } ==> memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn)
 {
     assert forall|mem1: Seq<u8>, mem2: Seq<u8>, mem3: Seq<u8>, start: nat, len: nat,
              is_writable_absolute_addr_fn: spec_fn(int) -> bool| {
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem1, mem2, start, len,
+            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem1, start, len,
                                                                      is_writable_absolute_addr_fn)
-            &&& #[trigger] memories_differ_only_where_subregion_allows(mem2, mem3, start, len,
+            &&& #[trigger] memories_differ_only_where_subregion_allows(mem3, mem2, start, len,
                                                                      is_writable_absolute_addr_fn)
-        } implies memories_differ_only_where_subregion_allows(mem1, mem3, start, len, is_writable_absolute_addr_fn) by {
+        } implies memories_differ_only_where_subregion_allows(mem3, mem1, start, len, is_writable_absolute_addr_fn) by {
         lemma_memories_differ_only_where_subregion_allows_is_transitive(mem1, mem2, mem3, start, len,
                                                                         is_writable_absolute_addr_fn);
     }
 }
 
 pub proof fn lemma_state_resulting_from_partial_write_within_subregion_differs_only_where_subregion_allows(
-    old_state: Seq<u8>,
     new_state: Seq<u8>,
+    old_state: Seq<u8>,
     write_addr: int,
     bytes: Seq<u8>,
     start: nat,
@@ -149,7 +149,7 @@ pub proof fn lemma_state_resulting_from_partial_write_within_subregion_differs_o
         start + len <= old_state.len(),
         forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
             address_modifiable_by_subregion(addr, start, len, is_writable_absolute_addr_fn),
-        possible_write_effect(old_state, new_state, write_addr, bytes),
+        can_result_from_partial_write(new_state, old_state, write_addr, bytes),
     ensures
         memories_differ_only_where_subregion_allows(old_state, new_state, start, len, is_writable_absolute_addr_fn),
 {
@@ -160,8 +160,8 @@ pub proof fn lemma_state_resulting_from_partial_write_within_subregion_differs_o
 }
 
 pub proof fn lemma_view_resulting_from_write_has_subregion_view_resulting_from_write(
-    v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
+    v1: PersistentMemoryRegionView,
     write_addr: int,
     bytes: Seq<u8>,
     start: nat,
@@ -180,8 +180,11 @@ pub proof fn lemma_view_resulting_from_write_has_subregion_view_resulting_from_w
         forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
             address_modifiable_by_subregion(addr, start, len, is_writable_absolute_addr_fn),
     ensures
-        get_subregion_view(v2, start, len).can_result_from_write(get_subregion_view(v1, start, len),
-                                                                 write_addr - start, bytes),
+        ({
+            let sv2 = get_subregion_view(v2, start, len);
+            let sv1 = get_subregion_view(v1, start, len);
+            sv2.can_result_from_write(sv1, write_addr - start, bytes)
+        }),
 {
     let sv1 = get_subregion_view(v1, start, len);
     let sv2 = get_subregion_view(v2, start, len);
@@ -339,6 +342,7 @@ impl WriteRestrictedPersistentMemorySubregion
         requires
             wrpm.inv(),
             wrpm@.valid(),
+            (start as nat) % (const_persistence_chunk_size() as nat) == 0,
             start + len <= wrpm@.len() <= u64::MAX,
             forall |alt_crash_state: Seq<u8>|
                 memories_differ_only_where_subregion_allows(wrpm@.durable_state, alt_crash_state,
@@ -378,6 +382,7 @@ impl WriteRestrictedPersistentMemorySubregion
         requires
             wrpm.inv(),
             wrpm@.valid(),
+            (start as nat) % (const_persistence_chunk_size() as nat) == 0,
             condition_sufficient_to_create_wrpm_subregion(wrpm@, perm, start, len, is_writable_absolute_addr_fn,
                                                           condition),
         ensures
@@ -497,6 +502,59 @@ impl WriteRestrictedPersistentMemorySubregion
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.opaque_relation_with_wrpm(wrpm)
         &&& self.opaque_relation_with_perm(perm)
+    }
+
+    pub proof fn lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+        self,
+        new_state: Seq<u8>,
+        old_state: Seq<u8>,
+        write_addr: int,
+        bytes: Seq<u8>,
+    )
+        requires
+            0 <= write_addr,
+            write_addr + bytes.len() <= old_state.len(),
+            self.start() + self.len() <= old_state.len(),
+            forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
+                address_modifiable_by_subregion(addr, self.start(), self.len(), self.is_writable_absolute_addr_fn()),
+            can_result_from_partial_write(new_state, old_state, write_addr, bytes),
+        ensures
+            memories_differ_only_where_subregion_allows(old_state, new_state, self.start(), self.len(),
+                                                        self.is_writable_absolute_addr_fn()),
+    {
+        lemma_state_resulting_from_partial_write_within_subregion_differs_only_where_subregion_allows(
+            new_state, old_state, write_addr, bytes, self.start(), self.len(), self.is_writable_absolute_addr_fn()
+        );
+    }
+
+    pub proof fn lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+        self,
+        v2: PersistentMemoryRegionView,
+        v1: PersistentMemoryRegionView,
+        write_addr: int,
+        bytes: Seq<u8>,
+    )
+        requires
+            v1.valid(),
+            v2.valid(),
+            v1.len() == v2.len(),
+            0 <= write_addr,
+            write_addr + bytes.len() <= v1.len(),
+            v2.can_result_from_write(v1, write_addr, bytes),
+            self.start() + self.len() <= v1.len(),
+            self.start() % (const_persistence_chunk_size() as nat) == 0,
+            forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
+                address_modifiable_by_subregion(addr, self.start(), self.len(), self.is_writable_absolute_addr_fn()),
+        ensures
+            ({
+                let sv1 = get_subregion_view(v1, self.start(), self.len());
+                let sv2 = get_subregion_view(v2, self.start(), self.len());
+                sv2.can_result_from_write(sv1, write_addr - self.start(), bytes)
+            }),
+    {
+        lemma_view_resulting_from_write_has_subregion_view_resulting_from_write(v2, v1, write_addr, bytes,
+                                                                                self.start(), self.len(),
+                                                                                self.is_writable_absolute_addr_fn());
     }
 
     pub exec fn read_relative_unaligned<Perm, PMRegion>(
@@ -690,18 +748,21 @@ impl WriteRestrictedPersistentMemorySubregion
     {
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
-        assert forall |s| possible_write_effect(wrpm@.durable_state, s, relative_addr + self.start(), bytes@)
+        assert forall |s| can_result_from_partial_write(s, wrpm@.durable_state, relative_addr + self.start(), bytes@)
                   implies #[trigger] perm.check_permission(s) by {
-            lemma_state_resulting_from_partial_write_within_subregion_differs_only_where_subregion_allows(
-                wrpm@.durable_state, s, relative_addr + self.start_, bytes@, self.start(), self.len(),
-                self.is_writable_absolute_addr_fn()
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                s, wrpm@.durable_state, relative_addr + self.start_, bytes@
             );
-            assert(memories_differ_only_where_subregion_allows(wrpm@.durable_state, s, self.start(), self.len(),
-                                                               self.is_writable_absolute_addr_fn()));
-            lemma_memories_differ_only_where_subregion_allows_is_commutative_always();
-            lemma_memories_differ_only_where_subregion_allows_is_transitive_always();
         }
         wrpm.write(relative_addr + self.start_, bytes, Tracked(perm));
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                wrpm@, old(wrpm)@, relative_addr + self.start(), bytes@,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                wrpm@.durable_state, old(wrpm)@.durable_state, relative_addr + self.start_, bytes@
+            );
+        }
     }
 
     pub exec fn write_absolute<Perm, PMRegion>(
@@ -724,7 +785,21 @@ impl WriteRestrictedPersistentMemorySubregion
             self.inv(wrpm, perm),
             self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), absolute_addr - self.start(), bytes@),
     {
+        assert forall |s| can_result_from_partial_write(s, wrpm@.durable_state, absolute_addr as int, bytes@)
+                  implies #[trigger] perm.check_permission(s) by {
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                s, wrpm@.durable_state, absolute_addr as int, bytes@
+            );
+        }
         wrpm.write(absolute_addr, bytes, Tracked(perm));
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                wrpm@, old(wrpm)@, absolute_addr as int, bytes@,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                wrpm@.durable_state, old(wrpm)@.durable_state, absolute_addr as int, bytes@,
+            );
+        }
     }
 
     pub exec fn serialize_and_write_relative<S, Perm, PMRegion>(
@@ -747,12 +822,30 @@ impl WriteRestrictedPersistentMemorySubregion
             self.inv(wrpm, perm),
             self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), relative_addr as int,
                                                   to_write.spec_to_bytes()),
+            wrpm@.read_state.subrange(relative_addr + self.start(),
+                                      relative_addr + self.start() + S::spec_size_of()) == to_write.spec_to_bytes(),
     {
         let ghost bytes = to_write.spec_to_bytes();
         assert(bytes.len() == S::spec_size_of());
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
+        assert forall |s| can_result_from_partial_write(s, wrpm@.durable_state, relative_addr + self.start(), bytes)
+                  implies #[trigger] perm.check_permission(s) by {
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                s, wrpm@.durable_state, relative_addr + self.start_, bytes
+            );
+        }
         wrpm.serialize_and_write(relative_addr + self.start_, to_write, Tracked(perm));
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                wrpm@, old(wrpm)@, relative_addr + self.start(), bytes,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                wrpm@.durable_state, old(wrpm)@.durable_state, relative_addr + self.start_, bytes
+            );
+            assert(wrpm@.read_state.subrange(relative_addr + self.start(),
+                                             relative_addr + self.start() + S::spec_size_of()) =~= bytes);
+        }
     }
 
     pub exec fn serialize_and_write_absolute<S, Perm, PMRegion>(
@@ -776,12 +869,26 @@ impl WriteRestrictedPersistentMemorySubregion
             self.inv(wrpm, perm),
             self.view(wrpm).can_result_from_write(self.view(old::<&mut _>(wrpm)), absolute_addr - self.start(),
                                                   to_write.spec_to_bytes()),
+            wrpm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) ==
+                to_write.spec_to_bytes(),
     {
         let ghost bytes = to_write.spec_to_bytes();
-        // assert(bytes.len() == S::spec_size_of()) by {
-        //     S::lemma_auto_serialized_len();
-        // }
+        assert forall |s| can_result_from_partial_write(s, wrpm@.durable_state, absolute_addr as int, bytes)
+                  implies #[trigger] perm.check_permission(s) by {
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                s, wrpm@.durable_state, absolute_addr as int, bytes
+            );
+        }
         wrpm.serialize_and_write(absolute_addr, to_write, Tracked(perm));
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                wrpm@, old(wrpm)@, absolute_addr as int, bytes,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                wrpm@.durable_state, old(wrpm)@.durable_state, absolute_addr as int, bytes
+            );
+            assert(wrpm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) =~= bytes);
+        }
     }
 
     pub proof fn lemma_reveal_opaque_inv<Perm, PMRegion>(
@@ -852,6 +959,8 @@ impl PersistentMemorySubregion
     ) -> (result: Self)
         requires
             pm.inv(),
+            pm@.valid(),
+            (start as nat) % (const_persistence_chunk_size() as nat) == 0,
             start + len <= pm@.len() <= u64::MAX,
         ensures
             result.inv(pm),
@@ -1103,6 +1212,8 @@ impl WritablePersistentMemorySubregion
     ) -> (result: Self)
         requires
             pm.inv(),
+            pm@.valid(),
+            (start as nat) % (const_persistence_chunk_size() as nat) == 0,
             start + len <= pm@.len() <= u64::MAX,
         ensures
             result.inv(pm),
@@ -1179,6 +1290,7 @@ impl WritablePersistentMemorySubregion
     {
         &&& pm.inv()
         &&& pm.constants() == self.constants()
+        &&& pm@.valid()
         &&& pm@.len() == self.initial_region_view().len()
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.start() + self.len() <= pm@.len()
@@ -1195,6 +1307,59 @@ impl WritablePersistentMemorySubregion
     {
         &&& self.view(pm).len() == self.len()
         &&& self.opaque_inv(pm)
+    }
+
+    pub proof fn lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+        self,
+        new_state: Seq<u8>,
+        old_state: Seq<u8>,
+        write_addr: int,
+        bytes: Seq<u8>,
+    )
+        requires
+            0 <= write_addr,
+            write_addr + bytes.len() <= old_state.len(),
+            self.start() + self.len() <= old_state.len(),
+            forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
+                address_modifiable_by_subregion(addr, self.start(), self.len(), self.is_writable_absolute_addr_fn()),
+            can_result_from_partial_write(new_state, old_state, write_addr, bytes),
+        ensures
+            memories_differ_only_where_subregion_allows(old_state, new_state, self.start(), self.len(),
+                                                        self.is_writable_absolute_addr_fn()),
+    {
+        lemma_state_resulting_from_partial_write_within_subregion_differs_only_where_subregion_allows(
+            new_state, old_state, write_addr, bytes, self.start(), self.len(), self.is_writable_absolute_addr_fn()
+        );
+    }
+
+    pub proof fn lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+        self,
+        v2: PersistentMemoryRegionView,
+        v1: PersistentMemoryRegionView,
+        write_addr: int,
+        bytes: Seq<u8>,
+    )
+        requires
+            v1.valid(),
+            v2.valid(),
+            v1.len() == v2.len(),
+            0 <= write_addr,
+            write_addr + bytes.len() <= v1.len(),
+            v2.can_result_from_write(v1, write_addr, bytes),
+            self.start() + self.len() <= v1.len(),
+            self.start() % (const_persistence_chunk_size() as nat) == 0,
+            forall|addr: int| write_addr <= addr < write_addr + bytes.len() ==>
+                address_modifiable_by_subregion(addr, self.start(), self.len(), self.is_writable_absolute_addr_fn()),
+        ensures
+            ({
+                let sv1 = get_subregion_view(v1, self.start(), self.len());
+                let sv2 = get_subregion_view(v2, self.start(), self.len());
+                sv2.can_result_from_write(sv1, write_addr - self.start(), bytes)
+            }),
+    {
+        lemma_view_resulting_from_write_has_subregion_view_resulting_from_write(v2, v1, write_addr, bytes,
+                                                                                self.start(), self.len(),
+                                                                                self.is_writable_absolute_addr_fn());
     }
 
     pub exec fn read_relative_unaligned<PMRegion: PersistentMemoryRegion>(
@@ -1376,6 +1541,14 @@ impl WritablePersistentMemorySubregion
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
         pm.write(relative_addr + self.start_, bytes);
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                pm@, old(pm)@, relative_addr + self.start(), bytes@,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                pm@.durable_state, old(pm)@.durable_state, relative_addr + self.start_, bytes@
+            );
+        }
     }
 
     pub exec fn write_absolute<PMRegion: PersistentMemoryRegion>(
@@ -1395,6 +1568,14 @@ impl WritablePersistentMemorySubregion
             self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), absolute_addr - self.start(), bytes@),
     {
         pm.write(absolute_addr, bytes);
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                pm@, old(pm)@, absolute_addr as int, bytes@,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                pm@.durable_state, old(pm)@.durable_state, absolute_addr as int, bytes@,
+            );
+        }
     }
 
     pub exec fn serialize_and_write_relative<S, PMRegion>(
@@ -1416,15 +1597,24 @@ impl WritablePersistentMemorySubregion
             self.inv(pm),
             self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), relative_addr as int,
                                                 to_write.spec_to_bytes()),
-            // if we serialize and write an S to this address, we expect to be able to get it back
-            S::bytes_parseable(pm@.read_state.subrange(relative_addr + self.start(),
-                                                       relative_addr + self.start() + S::spec_size_of())), 
+            pm@.read_state.subrange(relative_addr + self.start(),
+                                    relative_addr + self.start() + S::spec_size_of()) == to_write.spec_to_bytes(),
     {
         let ghost bytes = to_write.spec_to_bytes();
         assert(bytes.len() == S::spec_size_of());
         assert(forall |addr| #![trigger self.is_writable_absolute_addr_fn()(addr)]
                    !self.is_writable_absolute_addr_fn()(addr) ==> !self.is_writable_relative_addr(addr - self.start()));
         pm.serialize_and_write(relative_addr + self.start_, to_write);
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                pm@, old(pm)@, relative_addr + self.start(), bytes,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                pm@.durable_state, old(pm)@.durable_state, relative_addr + self.start_, bytes,
+            );
+            assert(pm@.read_state.subrange(relative_addr + self.start(),
+                                           relative_addr + self.start() + S::spec_size_of()) =~= bytes);
+        }
     }
 
     pub exec fn serialize_and_write_absolute<S, PMRegion>(
@@ -1446,13 +1636,19 @@ impl WritablePersistentMemorySubregion
             self.inv(pm),
             self.view(pm).can_result_from_write(self.view(old::<&mut _>(pm)), absolute_addr - self.start(),
                                                 to_write.spec_to_bytes()),
-            S::bytes_parseable(pm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()))
+            pm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) == to_write.spec_to_bytes(),
     {
         let ghost bytes = to_write.spec_to_bytes();
-        // assert(bytes.len() == S::spec_size_of()) by {
-        //     S::lemma_auto_serialized_len();
-        // }
         pm.serialize_and_write(absolute_addr, to_write);
+        proof {
+            self.lemma_view_resulting_from_write_has_this_subregion_view_resulting_from_write(
+                pm@, old(pm)@, absolute_addr as int, bytes,
+            );
+            self.lemma_state_resulting_from_partial_write_differs_only_where_this_allows(
+                pm@.durable_state, old(pm)@.durable_state, absolute_addr as int, bytes,
+            );
+            assert(pm@.read_state.subrange(absolute_addr as int, absolute_addr + S::spec_size_of()) =~= bytes);
+        }
     }
 
     pub proof fn lemma_reveal_opaque_inv<PMRegion: PersistentMemoryRegion>(
