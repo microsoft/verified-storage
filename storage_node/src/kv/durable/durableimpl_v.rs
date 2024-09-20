@@ -3749,6 +3749,7 @@ verus! {
             }
         }
 
+        #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4297,7 +4298,7 @@ verus! {
 
         }
 
-
+        #[verifier::spinoff_prover]
         pub fn tentative_delete(
             &mut self,
             index: u64,
@@ -4810,6 +4811,7 @@ verus! {
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
+        #[verifier::spinoff_prover]
         pub fn commit(
             &mut self,
             Tracked(perm): Tracked<&Perm>
