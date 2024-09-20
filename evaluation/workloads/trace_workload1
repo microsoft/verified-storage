@@ -1,0 +1,16 @@
+
+
+# Trace workload A
+#
+# 
+# Request distribution: uniform
+
+recordcount=1000
+operationcount=1000
+workload=site.ycsb.workloads.TraceWorkload
+
+readproportion=0.2
+updateproportion=0.05 # destage
+insertproportion=0.75 # append
+
+requestdistribution=uniform
