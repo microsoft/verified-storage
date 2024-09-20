@@ -666,4 +666,17 @@ verus! {
             mem.lemma_slice_of_slice(s1, e1, s2, e2);
         }
     }
+
+    // This lemma proves that doing an update followed by a subrange gives you the
+    // updated bytes.
+    pub broadcast proof fn lemma_update_then_subrange_is_updated_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>)
+        requires
+            0 <= addr,
+            addr + bytes.len() <= s.len(),
+        ensures
+            (#[trigger] update_bytes(s, addr, bytes)).subrange(addr, addr + bytes.len()) == bytes
+    {
+        assert(update_bytes(s, addr, bytes).subrange(addr, addr + bytes.len()) =~= bytes);
+    }
+    
 }
