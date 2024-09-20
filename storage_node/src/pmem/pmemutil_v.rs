@@ -19,173 +19,6 @@ verus! {
 
     broadcast use pmcopy_axioms;
 
-    // This lemma establishes that if there are no outstanding writes
-    // to a particular location in memory, then there's only one
-    // possibility for how the byte at that address can crash: it will
-    // always crash into its committed state.
-    pub proof fn lemma_if_no_outstanding_writes_at_addr_then_persistent_memory_view_can_only_crash_as_committed(
-        pm_region_view: PersistentMemoryRegionView,
-        addr: int,
-    )
-        requires
-            0 <= addr < pm_region_view.len(),
-            pm_region_view.state[addr].outstanding_write.is_none(),
-        ensures
-            forall |s| pm_region_view.can_crash_as(s) ==> #[trigger] s[addr] == pm_region_view.committed()[addr]
-    {
-        assert forall |s| pm_region_view.can_crash_as(s) implies #[trigger] s[addr] == pm_region_view.committed()[addr] by {
-            let chunk = addr / const_persistence_chunk_size();
-            // There are two cases to consider. Each is fairly trivial
-            // for Z3, once we cue it to consider the two cases
-            // separately with the following `if`.
-            if pm_region_view.chunk_corresponds_after_flush(chunk, s) {
-            }
-            else {
-            }
-        }
-    }
-
-    // This lemma establishes that any persistent memory byte that has
-    // no outstanding writes has one possible crash state, which is
-    // the same as its committed state.
-    pub proof fn lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(
-        pm_region_view: PersistentMemoryRegionView,
-    )
-        ensures
-            forall |s, addr: int| {
-                &&& pm_region_view.can_crash_as(s)
-                &&& 0 <= addr < s.len()
-                &&& pm_region_view.state[addr].outstanding_write.is_none()
-            } ==> #[trigger] s[addr] == pm_region_view.committed()[addr]
-    {
-        assert forall |s, addr: int| {
-                   &&& pm_region_view.can_crash_as(s)
-                   &&& 0 <= addr < s.len()
-                   &&& pm_region_view.state[addr].outstanding_write.is_none()
-               } implies #[trigger] s[addr] == pm_region_view.committed()[addr] by {
-            lemma_if_no_outstanding_writes_at_addr_then_persistent_memory_view_can_only_crash_as_committed(
-                pm_region_view, addr);
-        }
-    }
-
-    // This lemma establishes that if there are no outstanding writes
-    // anywhere in a persistent memory region's view, then it can only
-    // crash in one state, which is the same as its committed state.
-    pub proof fn lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
-        pm_region_view: PersistentMemoryRegionView
-    )
-        requires
-            pm_region_view.no_outstanding_writes()
-        ensures
-            forall |s| pm_region_view.can_crash_as(s) ==> s == pm_region_view.committed()
-    {
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-        assert (forall |s| pm_region_view.can_crash_as(s) ==> s =~= pm_region_view.committed());
-    }
-
-    // This lemma establishes that if there are no outstanding writes
-    // anywhere in the view of a collection of persistent memory
-    // regions, then the collection can only crash in one state, which
-    // is the same as its committed state.
-    pub proof fn lemma_if_no_outstanding_writes_then_persistent_memory_regions_view_can_only_crash_as_committed(
-        pm_regions_view: PersistentMemoryRegionsView
-    )
-        requires
-            pm_regions_view.no_outstanding_writes()
-        ensures
-            forall |s| pm_regions_view.can_crash_as(s) ==> s == pm_regions_view.committed()
-    {
-        assert forall |s| pm_regions_view.can_crash_as(s) implies s == pm_regions_view.committed() by {
-            assert forall |i| 0 <= i < pm_regions_view.len() implies s[i] == #[trigger] pm_regions_view[i].committed() by {
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
-                    pm_regions_view[i]);
-            }
-            assert (s =~= pm_regions_view.committed());
-        }
-    }
-
-    // This lemma establishes that if a persistent memory region has
-    // no outstanding writes, then a flush of them does nothing.
-    pub proof fn lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(
-        region_view: PersistentMemoryRegionView,
-    )
-        requires
-            region_view.no_outstanding_writes(),
-        ensures
-            region_view.flush() == region_view,
-    {
-        assert(region_view.flush() =~= region_view);
-    }
-
-    // This lemma establishes that if a collection of persistent
-    // memory regions has no outstanding writes anywhere, then a flush
-    // of them does nothing.
-    pub proof fn lemma_if_no_outstanding_writes_then_flush_is_idempotent(
-        regions_view: PersistentMemoryRegionsView,
-    )
-        requires
-            regions_view.no_outstanding_writes(),
-        ensures
-            regions_view.flush() == regions_view,
-    {
-        assert(regions_view.flush().len() == regions_view.len());
-        assert forall |i| 0 <= i < regions_view.len() implies
-               #[trigger] regions_view.flush().regions[i] == regions_view.regions[i] by {
-            assert(regions_view[i].no_outstanding_writes());
-            lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(regions_view.regions[i]);
-        }
-        assert(regions_view.flush() =~= regions_view);
-    }
-
-    // This is an auto lemma for lemma_if_no_outstanding_writes_then_flush_is_idempotent.
-    pub proof fn lemma_auto_if_no_outstanding_writes_then_flush_is_idempotent()
-        ensures
-            forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() ==> r.flush() == r
-    {
-        assert forall |r: PersistentMemoryRegionsView| r.no_outstanding_writes() implies r.flush() == r by {
-            lemma_if_no_outstanding_writes_then_flush_is_idempotent(r);
-        };
-    }
-
-    // This lemma establishes that it's possible to crash into the
-    // committed state.
-    pub proof fn lemma_persistent_memory_view_can_crash_as_committed(pm_region_view: PersistentMemoryRegionView)
-        ensures
-            pm_region_view.can_crash_as(pm_region_view.committed()),
-    {
-    }
-
-    // This lemma establishes that it's possible to crash into the
-    // fully-flushed state.
-    pub proof fn lemma_persistent_memory_view_can_crash_as_flushed(pm_region_view: PersistentMemoryRegionView)
-        ensures
-            pm_region_view.can_crash_as(pm_region_view.flush().committed()),
-    {
-    }
-
-    // This executable function returns a vector containing the sizes
-    // of the regions in the given collection of persistent memory
-    // regions.
-    pub fn get_region_sizes<PMRegions: PersistentMemoryRegions>(pm_regions: &PMRegions) -> (result: Vec<u64>)
-        requires
-            pm_regions.inv()
-        ensures
-            result@.len() == pm_regions@.len(),
-            forall |i: int| 0 <= i < pm_regions@.len() ==> result@[i] == #[trigger] pm_regions@[i].len()
-    {
-        let mut result: Vec<u64> = Vec::<u64>::new();
-        for which_region in iter: 0..pm_regions.get_num_regions()
-            invariant
-                iter.end == pm_regions@.len(),
-                pm_regions.inv(),
-                result@.len() == which_region,
-                forall |i: int| 0 <= i < which_region ==> result@[i] == #[trigger] pm_regions@[i].len(),
-        {
-            result.push(pm_regions.get_region_size(which_region));
-        }
-        result
-    }
-
     // This executable function checks whether the given CRC read from
     // persistent memory is the actual CRC of the given bytes read
     // from persistent memory. It returns a boolean indicating whether
@@ -412,9 +245,9 @@ verus! {
                 &&& all_elements_unique(absolute_crc_addrs)
             }),
             ({
-                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
+                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
+                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
+                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
                 &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
                 &&& if impervious_to_corruption {
                         &&& data1_c@ == true_data1_bytes
@@ -429,9 +262,9 @@ verus! {
             })
         ensures
             ({
-                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
+                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
+                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
+                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
                 if b {
                     &&& data1_c@ == true_data1_bytes
                     &&& data2_c@ == true_data2_bytes
@@ -459,9 +292,9 @@ verus! {
         let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
-            let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data1_addrs[i] as int]);
-            let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_data2_addrs[i] as int]);
-            let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
+            let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
+            let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
+            let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
 
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
@@ -600,7 +433,7 @@ verus! {
             forall |i: int| 0 <= i < relative_cdb_addrs.len() ==> relative_cdb_addrs[i] <= subregion.view(pm_region).len(),
             all_elements_unique(relative_cdb_addrs),
             ({
-                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).read_state[relative_cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
@@ -609,7 +442,7 @@ verus! {
             })
         ensures
             ({
-                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).read_state[relative_cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
@@ -618,7 +451,7 @@ verus! {
                 }
             })
     {
-        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).committed()[relative_cdb_addrs[i]]);
+        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| subregion.view(pm_region).read_state[relative_cdb_addrs[i]]);
         let ghost absolute_cdb_addrs = Seq::new(relative_cdb_addrs.len(), |i: int| subregion.start() + relative_cdb_addrs[i]);
         proof {
             // We may need to invoke the axiom
@@ -657,14 +490,17 @@ verus! {
     /// -aligned, then there are only two possible resulting crash states,
     /// one with the write and one without.
 
-    // This lemma establishes that, if there are no outstanding writes and
-    // we write a `const_persistence_chunk_size()`-aligned segment of length
-    // `const_persistence_chunk_size()`, then there are only two possible crash
-    // states that can happen after the write is initiated. In one of those
-    // crash states, nothing has changed; in the other, all the written
-    // bytes have been updated according to this write.
+    // This lemma establishes that, if the read state matches the
+    // durable state (e.g., after a flush) and we write a
+    // `const_persistence_chunk_size()`-aligned segment of length
+    // `const_persistence_chunk_size()`, then there are only two
+    // possible crash states that can happen after the write is
+    // initiated. In one of those crash states, nothing has changed;
+    // in the other, all the written bytes have been updated according
+    // to this write.
     pub proof fn lemma_single_write_crash_effect_on_pm_region_view(
         pm_region_view: PersistentMemoryRegionView,
+        new_pm_region_view: PersistentMemoryRegionView,
         write_addr: int,
         bytes_to_write: Seq<u8>,
     )
@@ -673,129 +509,53 @@ verus! {
             write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
             write_addr + const_persistence_chunk_size() <= pm_region_view.len(),
-            pm_region_view.no_outstanding_writes()
+            new_pm_region_view.can_result_from_write(pm_region_view, write_addr, bytes_to_write),
+            pm_region_view.read_state == pm_region_view.durable_state,
         ensures
             ({
-                let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write);
-                forall |crash_bytes: Seq<u8>| new_pm_region_view.can_crash_as(crash_bytes) ==> {
-                    ||| crash_bytes == pm_region_view.committed()
-                    ||| crash_bytes == new_pm_region_view.flush().committed()
-                }
+                ||| new_pm_region_view.durable_state == pm_region_view.durable_state
+                ||| new_pm_region_view.durable_state == new_pm_region_view.read_state
             })
     {
-        assert forall |crash_bytes: Seq<u8>|
-                   pm_region_view.write(write_addr, bytes_to_write).can_crash_as(crash_bytes) implies {
-                       ||| crash_bytes == pm_region_view.committed()
-                       ||| crash_bytes == pm_region_view.write(write_addr, bytes_to_write).flush().committed()
-                   } by {
-            let chunk = write_addr / const_persistence_chunk_size();
-            let new_pm_region_view = pm_region_view.write(write_addr, bytes_to_write);
+        let chunk = write_addr / const_persistence_chunk_size();
 
-            // To reason about all the bytes we haven't written, it's useful to invoke
-            // the lemma that says that wherever there's no outstanding write, there's
-            // only one possible crash state, the committed state.
+        // Then, we just have to reason about this one written chunk. There are two cases:
+        // (1) the chunk isn't flushed at all and (2) the chunk is entirely flushed.
 
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm_region_view);
-
-            // Then, we just have to reason about this one written chunk. There are two cases:
-            // (1) the chunk isn't flushed at all and (2) the chunk is entirely flushed.
-
-            if new_pm_region_view.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_bytes) {
-                assert(crash_bytes =~= pm_region_view.committed());
+        assert(chunk_trigger(chunk));
+        if chunk_corresponds(new_pm_region_view.durable_state, pm_region_view.durable_state, chunk) {
+            assert forall|addr: int| 0 <= addr < new_pm_region_view.durable_state.len()
+                implies new_pm_region_view.durable_state[addr] == pm_region_view.durable_state[addr] by {
+                assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            if new_pm_region_view.chunk_corresponds_after_flush(chunk, crash_bytes) {
-                assert(crash_bytes =~= pm_region_view.write(write_addr, bytes_to_write).flush().committed());
-            }
+            assert(new_pm_region_view.durable_state =~= pm_region_view.durable_state);
         }
-    }
-
-    // This lemma establishes that, if there are no outstanding writes and
-    // we write a `const_persistence_chunk_size()`-aligned segment of length
-    // `const_persistence_chunk_size()` to a single region among a collection of
-    // persistent memory regions, then there are only two possible crash
-    // states that can happen after the write is initiated. In one of those
-    // crash states, nothing has changed; in the other, all the written
-    // bytes have been updated according to this write.
-    pub proof fn lemma_single_write_crash_effect_on_pm_regions_view(
-        pm_regions_view: PersistentMemoryRegionsView,
-        index: int,
-        write_addr: int,
-        bytes_to_write: Seq<u8>,
-    )
-        requires
-            0 <= index < pm_regions_view.len(),
-            bytes_to_write.len() == const_persistence_chunk_size(),
-            write_addr % const_persistence_chunk_size() == 0,
-            0 <= write_addr,
-            write_addr + const_persistence_chunk_size() <= pm_regions_view[index as int].len(),
-            pm_regions_view.no_outstanding_writes(),
-
-        ensures
-            ({
-                let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
-                let flushed_pm_regions_view = new_pm_regions_view.flush();
-                forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) ==> {
-                    ||| crash_bytes == pm_regions_view.committed()
-                    ||| crash_bytes == flushed_pm_regions_view.committed()
-                }
-            })
-    {
-        let new_pm_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
-        let flushed_pm_regions_view = new_pm_regions_view.flush();
-        assert forall |crash_bytes: Seq<Seq<u8>>| new_pm_regions_view.can_crash_as(crash_bytes) implies {
-            ||| crash_bytes == pm_regions_view.committed()
-            ||| crash_bytes == flushed_pm_regions_view.committed()
-        } by {
-            // All other regions other than the written-to one can only
-            // crash into their `committed` state, since they have no outstanding writes.
-            assert forall |other: int| 0 <= other < pm_regions_view.len() && other != index implies
-                       #[trigger] crash_bytes[other] == pm_regions_view[other].committed() by {
-                // The following `assert` is required to trigger the `forall`
-                // in `PersistentMemoryRegionsView::no_outstanding_writes`:
-                assert(pm_regions_view[other].no_outstanding_writes());
-
-                // Knowing that there are no outstanding writes, we can now call the following lemma.
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
-                    new_pm_regions_view[other]);
+        else {
+            assert forall|addr: int| 0 <= addr < new_pm_region_view.durable_state.len()
+                implies new_pm_region_view.durable_state[addr] == new_pm_region_view.read_state[addr] by {
+                assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-
-            // This lemma says that there are only two possible states for
-            // region number `index` after this write is initiated.
-            lemma_single_write_crash_effect_on_pm_region_view(pm_regions_view[index], write_addr, bytes_to_write);
-
-            // We now use extensional equality to show the final result.
-            // There are two cases to consider: (1) the write doesn't get
-            // flushed; (2) the write gets flushed.
-
-            if crash_bytes[index] == pm_regions_view[index].committed() {
-                assert(crash_bytes =~= pm_regions_view.committed());
-            }
-            if crash_bytes[index] == pm_regions_view[index].write(write_addr, bytes_to_write).flush().committed() {
-                let new_regions_view = pm_regions_view.write(index, write_addr, bytes_to_write);
-                let flushed_regions_view = new_regions_view.flush();
-                assert(forall |any| 0 <= any < pm_regions_view.len() ==> #[trigger] crash_bytes[any] =~=
-                    flushed_regions_view.committed()[any]);
-                assert(crash_bytes =~= flushed_regions_view.committed());
-            }
+            assert(new_pm_region_view.durable_state =~= new_pm_region_view.read_state);
         }
     }
 
     // This lemma establishes that if one performs a write and then a
     // flush, then the committed contents reflect that write.
-    pub proof fn lemma_write_reflected_after_flush_committed(
+    pub proof fn lemma_write_reflected_after_write(
         pm_region_view: PersistentMemoryRegionView,
+        new_pm_region_view: PersistentMemoryRegionView,
         addr: int,
         bytes: Seq<u8>,
     )
         requires
             0 <= addr,
             addr + bytes.len() <= pm_region_view.len(),
+            new_pm_region_view.can_result_from_write(pm_region_view, addr, bytes),
         ensures
-            pm_region_view.write(addr, bytes).flush().committed().subrange(addr as int, addr + bytes.len()) == bytes
+            new_pm_region_view.read_state.subrange(addr as int, addr + bytes.len()) == bytes
     {
         // All we need is to get Z3 to consider extensional equality.
-        assert(pm_region_view.write(addr, bytes).flush().committed().subrange(addr as int, addr + bytes.len()) =~=
-               bytes);
+         assert(new_pm_region_view.read_state.subrange(addr as int, addr + bytes.len()) =~= bytes);
     }
 
     // Calculates the CRC for a single `PmCopy` object.
@@ -906,108 +666,4 @@ verus! {
             mem.lemma_slice_of_slice(s1, e1, s2, e2);
         }
     }
-
-    pub proof fn lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
-        v1: PersistentMemoryRegionView,
-        v2: PersistentMemoryRegionView,
-        crash_state1: Seq<u8>,
-        can_views_differ_at_addr: spec_fn(int) -> bool,
-    ) -> (crash_state2: Seq<u8>)
-        requires
-            v1.len() == v2.len(),
-            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
-                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> v1.state[addr] == v2.state[addr],
-            v1.can_crash_as(crash_state1),
-        ensures
-            forall|addr: int| #![trigger can_views_differ_at_addr(addr)]
-                0 <= addr < v1.len() && !can_views_differ_at_addr(addr) ==> crash_state1[addr] == crash_state2[addr],
-            v2.can_crash_as(crash_state2),
-    {
-        let crash_state2 = Seq::<u8>::new(crash_state1.len(), |addr: int| {
-           if !can_views_differ_at_addr(addr) {
-               crash_state1[addr]
-           }
-           else {
-               let chunk = addr / const_persistence_chunk_size();
-               if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
-                   v2.state[addr].state_at_last_flush
-               }
-               else {
-                   v2.state[addr].flush_byte()
-               }
-           }
-        });
-        assert forall|chunk| {
-            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2)
-            ||| v2.chunk_corresponds_after_flush(chunk, crash_state2)
-        } by {
-            if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
-                assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2));
-            }
-            else {
-                assert(v1.chunk_corresponds_after_flush(chunk, crash_state1));
-                assert(v2.chunk_corresponds_after_flush(chunk, crash_state2));
-            }
-        }
-        crash_state2
-    }
-
-    pub proof fn lemma_write_doesnt_change_committed(
-        pm: PersistentMemoryRegionView,
-        addr: int,
-        bytes: Seq<u8>
-    )
-        requires
-            0 <= addr,
-            addr + bytes.len() <= pm.len(),
-        ensures
-            pm.committed() == pm.write(addr, bytes).committed(),
-    {
-        assert(pm.committed() =~= pm.write(addr, bytes).committed());
-
-    }
-    
-    pub proof fn lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
-        v1: PersistentMemoryRegionView,
-        v2: PersistentMemoryRegionView,
-        crash_state1: Seq<u8>,
-        views_must_match_at_addr: spec_fn(int) -> bool,
-    ) -> (crash_state2: Seq<u8>)
-        requires
-            v1.len() == v2.len(),
-            forall|addr: int| #![trigger views_must_match_at_addr(addr)]
-                0 <= addr < v1.len() && views_must_match_at_addr(addr) ==> v1.state[addr] == v2.state[addr],
-            v1.can_crash_as(crash_state1),
-        ensures
-            forall|addr: int| #![trigger views_must_match_at_addr(addr)]
-                0 <= addr < v1.len() && views_must_match_at_addr(addr) ==> crash_state1[addr] == crash_state2[addr],
-            v2.can_crash_as(crash_state2),
-    {
-        let crash_state2 = Seq::<u8>::new(crash_state1.len(), |addr: int| {
-            if views_must_match_at_addr(addr) {
-                crash_state1[addr]
-            } else {
-                let chunk = addr / const_persistence_chunk_size();
-                if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
-                    v2.state[addr].state_at_last_flush
-                }
-                else {
-                    v2.state[addr].flush_byte()
-                }
-            }
-        });
-        assert forall|chunk| {
-            ||| v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2)
-            ||| v2.chunk_corresponds_after_flush(chunk, crash_state2)
-        } by {
-            if v1.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state1) {
-                assert(v2.chunk_corresponds_ignoring_outstanding_writes(chunk, crash_state2));
-            }
-            else {
-                assert(v1.chunk_corresponds_after_flush(chunk, crash_state1));
-                assert(v2.chunk_corresponds_after_flush(chunk, crash_state2));
-            }
-        }
-        crash_state2
-    }
-}
+}

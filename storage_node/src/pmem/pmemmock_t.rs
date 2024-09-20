@@ -33,6 +33,7 @@ verus! {
         fn new(region_size: u64) -> (result: Self)
             ensures
                 result.inv(),
+                result@.valid(),
                 result@.len() == region_size,
         {
             let contents: Vec<u8> = vec![0; region_size as usize];
@@ -54,7 +55,8 @@ verus! {
             // We also maintain the invariant that the contents of our
             // volatile buffer matches the result of flushing the
             // abstract state.
-            &&& self.contents@ == self@.flush().committed()
+            &&& self.contents@ == self@.read_state
+            &&& self.contents@ == self@.durable_state
         }
 
         closed spec fn constants(&self) -> PersistentMemoryConstants;
@@ -71,7 +73,7 @@ verus! {
         {
             let pm_slice = &self.contents[addr as usize..addr as usize + S::size_of() as usize];
             let ghost addrs = Seq::new(S::spec_size_of() as nat, |i: int| addr + i);
-            let ghost true_bytes = self@.committed().subrange(addr as int, addr + S::size_of());
+            let ghost true_bytes = self@.read_state.subrange(addr as int, addr + S::size_of());
             let ghost true_val = S::spec_from_bytes(true_bytes);
 
             let mut maybe_corrupted_val = MaybeCorruptedBytes::new();
@@ -113,102 +115,6 @@ verus! {
                 std::slice::from_raw_parts(bytes_pointer, num_bytes)
             };
             self.contents.splice(addr_usize..addr_usize+num_bytes, bytes.iter().cloned());
-        }
-
-        #[verifier::external_body]
-        fn flush(&mut self)
-        {
-        }
-    }
-
-    // The `VolatileMemoryMockingPersistentMemoryRegions` struct
-    // contains a vector of volatile memory regions.
-    pub struct VolatileMemoryMockingPersistentMemoryRegions
-    {
-        pub regions: Vec<VolatileMemoryMockingPersistentMemoryRegion>,
-    }
-
-    impl VolatileMemoryMockingPersistentMemoryRegions
-    {
-        #[verifier::external_body]
-        pub fn new(region_sizes: &[u64]) -> (result: Self)
-            ensures
-                result.inv(),
-                result@.len() == region_sizes@.len(),
-                forall |i| 0 <= i < region_sizes@.len() ==> #[trigger] result@[i].len() == region_sizes[i],
-        {
-            let mut regions = Vec::<VolatileMemoryMockingPersistentMemoryRegion>::new();
-            let num_regions = region_sizes.len();
-            for pos in 0..num_regions
-                invariant
-                    regions.len() == pos,
-                    forall |i| 0 <= i < pos ==> regions[i]@.len() == region_sizes[i],
-            {
-                let region = VolatileMemoryMockingPersistentMemoryRegion::new(region_sizes[pos]);
-                regions.push(region);
-            }
-            Self{ regions }
-        }
-    }
-
-    /// So that `VolatileMemoryMockingPersistentMemoryRegions` can be
-    /// used to mock a collection of persistent memory regions, it
-    /// implements the trait `PersistentMemoryRegions`.
-    impl PersistentMemoryRegions for VolatileMemoryMockingPersistentMemoryRegions {
-        #[verifier::external_body]
-        closed spec fn view(&self) -> PersistentMemoryRegionsView
-        {
-            PersistentMemoryRegionsView{
-                regions: self.regions@.map(|_i, r: VolatileMemoryMockingPersistentMemoryRegion| r@)
-            }
-        }
-
-        closed spec fn inv(&self) -> bool
-        {
-            forall |i| 0 <= i < self.regions.len() ==> #[trigger] self.regions[i].inv()
-        }
-
-        #[verifier::external_body]
-        closed spec fn constants(&self) -> PersistentMemoryConstants;
-
-        #[verifier::external_body]
-        fn get_num_regions(&self) -> usize
-        {
-            self.regions.len()
-        }
-
-        #[verifier::external_body]
-        fn get_region_size(&self, index: usize) -> u64
-        {
-            self.regions[index].get_region_size()
-        }
-
-        #[verifier::external_body]
-        fn read_aligned<S>(&self, index: usize, addr: u64) -> (bytes: Result<MaybeCorruptedBytes<S>, PmemError>)
-            where 
-                S: PmCopy
-        {
-            self.regions[index].read_aligned::<S>(addr)
-        }
-
-        #[verifier::external_body]
-        fn read_unaligned(&self, index: usize, addr: u64, num_bytes: u64) -> (bytes: Result<Vec<u8>, PmemError>)
-        {
-            self.regions[index].read_unaligned(addr, num_bytes)
-        }
-
-        #[verifier::external_body]
-        fn write(&mut self, index: usize, addr: u64, bytes: &[u8])
-        {
-            self.regions[index].write(addr, bytes)
-        }
-
-        #[verifier::external_body]
-        fn serialize_and_write<S>(&mut self, index: usize, addr: u64, to_write: &S)
-            where
-                S: PmCopy + Sized
-        {
-            self.regions[index].serialize_and_write(addr, to_write);
         }
 
         #[verifier::external_body]
