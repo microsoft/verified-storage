@@ -2,7 +2,7 @@ package site.ycsb.workloads;
 
 import site.ycsb.*;
 import site.ycsb.generator.*;
-import site.ycsb.generator.Uniform16ByteIDGenerator;
+import site.ycsb.generator.UniformLongGenerator;
 import site.ycsb.measurements.Measurements;
 
 import java.util.*;
@@ -53,10 +53,16 @@ public class TraceWorkload extends Workload {
   public static final String REQUEST_DISTRIBUTION_PROPERTY_DEFAULT = "uniform";
 
   protected DiscreteGenerator operationchooser;
-  protected Generator keychooser;
+  protected NumberGenerator keysequence; // sequentially generates keys for loading
+  protected NumberGenerator keychooser; // randomly chooses keys for operations
   protected long recordcount;
 
   private Measurements measurements = Measurements.getMeasurements();
+
+  public static String buildKey(long keynum) {
+    String s = Long.toString(keynum);
+    return s;
+  }
 
   /**
    * Initialize the scenario.
@@ -84,7 +90,8 @@ public class TraceWorkload extends Workload {
     }
 
     operationchooser = createOperationGenerator(p);
-    keychooser = new Uniform16ByteIDGenerator(insertstart, insertstart + insertcount - 1);
+    keychooser = new UniformLongGenerator(insertstart, insertstart + insertcount - 1);
+    keysequence = new CounterGenerator(insertstart);
   }
 
   /**
@@ -132,6 +139,15 @@ public class TraceWorkload extends Workload {
    */
   @Override 
   public boolean doInsert(DB db, Object threadstate) {
+    // return false;
+    int keynum = keysequence.nextValue().intValue();
+    String key = TraceWorkload.buildKey(keynum);
+
+    System.out.println("Insert key " + key);
+
+    // TODO: need to confirm that the byte representation of this key 
+    // used in CapybaraKV, at least, is in fact 16B
+    
     return false;
   }
 
