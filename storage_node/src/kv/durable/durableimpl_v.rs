@@ -3480,11 +3480,7 @@ verus! {
             let old_op_log = old_self.log@.commit_op_log().physical_op_list;
             let op_log = self.log@.commit_op_log().physical_op_list;
             
-
             assert(op_log.subrange(0, old_op_log.len() as int) == old_op_log);
-            assert(AbstractPhysicalOpLogEntry::log_inv(op_log, self.version_metadata, self.overall_metadata));
-            assert(AbstractPhysicalOpLogEntry::log_inv(old_op_log, self.version_metadata, self.overall_metadata));
-
 
             Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(flushed_mem, self.version_metadata,
                 self.overall_metadata, op_log);
@@ -3496,8 +3492,6 @@ verus! {
             let mem_with_old_log_applied = Self::apply_physical_log_entries(flushed_mem, old_op_log).unwrap();
             let mem_with_new_log_applied = Self::apply_physical_log_entries(flushed_mem, op_log).unwrap();
 
-            assert(Self::apply_physical_log_entry(mem_with_old_log_applied, log_entry@).unwrap() == mem_with_new_log_applied);
-
             let new_mem = tentative_view_bytes.map(|pos: int, pre_byte: u8|
                 if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                     log_entry.bytes[pos - log_entry.absolute_addr]
@@ -3506,21 +3500,10 @@ verus! {
                 }
             );
             lemma_establish_extract_bytes_equivalence(tentative_view_bytes, new_mem);
-
-            // Is this whole thing actually useful?
-            assert(states_differ_only_in_log_region(old_flushed_mem, flushed_mem,
-                self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
             Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(old_flushed_mem, flushed_mem,
                 old_op_log, self.version_metadata, self.overall_metadata);
-            // tentative_view_bytes is old mem with old log applied; mem_with_old_log_applied is new mem with 
-            // old log applied. They still differ only in the log region.
-            assert(states_differ_only_in_log_region(tentative_view_bytes, mem_with_old_log_applied,
-                self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
 
             // The only part modified by this log entry is the main table.
-
-            // assert(states_differ_only_in_log_region(mem_with_new_log_applied, new_mem, 
-            //     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
             let old_tentative_main_table_region = extract_bytes(tentative_view_bytes, 
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
             let mem_with_old_log_applied_main_table_region = extract_bytes(mem_with_old_log_applied, 
@@ -3560,24 +3543,6 @@ verus! {
             assert(new_log_item_table_region == new_item_table_region);
             assert(new_log_list_area_region == new_list_area_region);
 
-            assert(parse_item_table::<I, K>(
-                new_item_table_region,
-                self.overall_metadata.num_keys as nat,
-                old_tentative_main_table.valid_item_indices()
-            ) is Some);
-
-            // we know that the old tentative main table valid indices parse to a valid item table
-            // but we need to know that the new ones do 
-            assert(new_mem_main_table.valid_item_indices() == 
-                old_tentative_main_table.valid_item_indices().insert(item_index).remove(old_item_index));
-
-            // assert(!old_tentative_main_table.valid_item_indices().contains(item_index));
-            // assert(old_tentative_main_table.valid_item_indices().contains(old_item_index));
-
-            // assert(forall |idx: u64| {
-            //     &&& new_mem_main_table.valid_item_indices().contains(idx) 
-            //     &&& !old_tentative_main_table.valid_item_indices().contains(idx) 
-            // } ==> idx == item_index);
             Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(self.wrpm@.flush().committed(),
                 self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
 
@@ -3586,25 +3551,15 @@ verus! {
 
             let item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
             let old_item_table_subregion_view = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-
             assert(item_table_subregion_view.flush().committed() == new_item_table_region);
             assert(old_item_table_subregion_view.flush().committed() == old_item_table_region);
 
-
-            // both of these should have an outstanding item, we haven't committed anything yet
-            assert(old_self.item_table.outstanding_item_table@[item_index as int] == Some(item));
-            assert(self.item_table.outstanding_item_table@[item_index as int] == Some(item));
-
+            // The current item table has an outstanding item at item_index, and
+            // the corresponding outstanding bytes match it.
             assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
                 item_table_subregion_view,
                 item_index as int
             ));
-            assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(
-                item_table_subregion_view,
-                item_index as int
-            ));
-
-            assert(item_table_subregion_view.flush().committed() == new_item_table_region);
 
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             assert forall |idx: u64| new_mem_main_table.valid_item_indices().contains(idx) implies {
@@ -3616,42 +3571,21 @@ verus! {
             } by {
                 let offset = index_to_offset(idx as nat, entry_size);
                 let bytes = extract_bytes(new_item_table_region, offset, entry_size);
-
                 lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                
                 if !old_tentative_main_table.valid_item_indices().contains(idx) {
+                    // When idx == item_index, we want to prove that the current outstanding item at item_index is in the new
+                    // tentative state. This is the only tricky case; the rest of the items have stayed the same, but we haven't
+                    // previously explicitly validated this one.
                     assert(idx == item_index);
-
-                    assert(self.item_table.outstanding_item_table@[item_index as int] == Some(item));
-                    assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
-                        item_table_subregion_view,
-                        item_index as int
-                    ));
-                    
-                    assert(bytes == extract_bytes(old_item_table_region, offset, entry_size));
-                    assert(outstanding_bytes_match(item_table_subregion_view, offset as int, bytes));
                     assert(outstanding_bytes_match(item_table_subregion_view, offset as int, spec_crc_bytes(I::spec_to_bytes(item))));
                     assert(outstanding_bytes_match(item_table_subregion_view, (offset + u64::spec_size_of()) as int, I::spec_to_bytes(item)));
-
                     lemma_outstanding_bytes_match_after_flush(item_table_subregion_view, offset as int, spec_crc_bytes(I::spec_to_bytes(item)));
                     lemma_outstanding_bytes_match_after_flush(item_table_subregion_view, (offset + u64::spec_size_of()) as int, I::spec_to_bytes(item));
-
-                    assert(extract_bytes(new_item_table_region, offset, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(item)));
-                    assert(extract_bytes(new_item_table_region, offset + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(item));
                     lemma_subrange_of_extract_bytes_equal(new_item_table_region, offset, offset, entry_size, u64::spec_size_of());
                     lemma_subrange_of_extract_bytes_equal(new_item_table_region, offset, offset + u64::spec_size_of(), entry_size, I::spec_size_of());
-                    
-                    assert(validate_item_table_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size)));
                 } // else, trivial
             }
-
-            let new_item_table = parse_item_table::<I, K>(
-                new_item_table_region,
-                self.overall_metadata.num_keys as nat,
-                new_mem_main_table.valid_item_indices()
-            );
-            assert(new_item_table is Some);
 
             // TODO WITH LIST IMPLEMENTATION
             assume(DurableList::<K, L>::parse_all_lists(
@@ -3666,22 +3600,8 @@ verus! {
                 self.overall_metadata.num_list_entries_per_node
             ));
 
-            assert(Self::physical_recover_after_applying_log(mem_with_new_log_applied, self.overall_metadata, self.log@) is Some);
-
-            let old_tentative_view = old_self.tentative_view().unwrap();
-            let new_tentative_view = self.tentative_view().unwrap();
-
-            assert(old_tentative_view.contains_key(index as int));
-
-            assert(old_self.tentative_view() is Some);
-            assert(old_tentative_view.update_item(index as int, item) is Ok);
-            assert(old_tentative_view.contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
-            assert(old_tentative_view.len() == old_tentative_view.update_item(index as int, item).unwrap().len());
-            
-            
-            assert(new_tentative_view.contents.dom() == old_tentative_view.update_item(index as int, item).unwrap().contents.dom());
-
-            assert(new_tentative_view.contents == old_tentative_view.update_item(index as int, item).unwrap().contents);
+            assert(old_self.tentative_view().unwrap().contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
+            assert(self.tentative_view().unwrap().contents == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents);
         }
 
         pub fn tentative_update_item(
