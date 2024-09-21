@@ -677,28 +677,6 @@ verus! {
 
     /// Useful utility proofs about layout that other files use.
 
-    // This lemma establishes that if a persistent memory region view
-    // `pm_region_view` has no outstanding writes, and if its committed byte
-    // sequence recovers to abstract state `state`, then any state
-    // `pm_region_view` can crash into also recovers that same abstract state.
-    pub proof fn lemma_if_no_outstanding_writes_then_can_only_crash_as_state(
-        pm_region_view: PersistentMemoryRegionView,
-        log_id: u128,
-        state: AbstractLogState,
-    )
-        requires
-            pm_region_view.no_outstanding_writes(),
-            recover_state(pm_region_view.committed(), log_id) == Some(state),
-        ensures
-            forall |s| #[trigger] pm_region_view.can_crash_as(s) ==> recover_state(s, log_id) == Some(state)
-    {
-        // This follows trivially from the observation that the only
-        // byte sequence `pm_region_view` can crash into is its committed byte
-        // sequence. (It has no outstanding writes, so there's nothing
-        // else it could crash into.)
-        lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-    }
-
     // This lemma establishes that if a persistent memory region's
     // contents `mem` can successfully be recovered from, then it has
     // size large enough to hold at least `MIN_LOG_AREA_SIZE` bytes in

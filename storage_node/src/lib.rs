@@ -20,7 +20,7 @@ use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
 
 // pub mod kv;
-//pub mod log;
+pub mod log;
 // pub mod multilog;
 pub mod pmem;
 pub mod util_v;
@@ -31,7 +31,7 @@ pub mod util_v;
 //use kv::kvimpl_v::*;
 //use kv::volatile::volatileimpl_v::*;
 use crate::util_v::*;
-// use crate::log::logimpl_t::*;
+use crate::log::logimpl_t::*;
 // use crate::multilog::layout_v::*;
 // use crate::multilog::multilogimpl_t::*;
 // use crate::multilog::multilogimpl_v::*;
@@ -227,7 +227,6 @@ verus! {
 //     Some(())
 // }
 
-    /*
 fn test_log_on_memory_mapped_file() -> Option<()>
 {
     let region_size = 1024;
@@ -316,7 +315,6 @@ fn test_log_on_memory_mapped_file() -> Option<()>
     }
     Some(())
 }
-    */
 
 #[repr(C)]
 #[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]

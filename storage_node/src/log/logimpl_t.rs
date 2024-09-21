@@ -80,17 +80,16 @@ verus! {
         }
     }
 
-    // This specification function indicates whether a given view of
-    // memory can only crash in a way that, after recovery, leads to a
+    // This specification function indicates whether the given view of
+    // memory will crash in a way that, after recovery, leads to a
     // certain abstract state.
-    pub open spec fn can_only_crash_as_state(
+    pub open spec fn crashes_as_abstract_state(
         pm_region_view: PersistentMemoryRegionView,
         log_id: u128,
         state: AbstractLogState,
     ) -> bool
     {
-        forall |s| #[trigger] pm_region_view.can_crash_as(s) ==>
-            UntrustedLogImpl::recover(s, log_id) == Some(state)
+        UntrustedLogImpl::recover(pm_region_view.durable_state, log_id) == Some(state)
     }
 
     // A `TrustedPermission` is the type of a tracked object
@@ -232,7 +231,7 @@ verus! {
         // abstract state with pending tentative appends dropped.
         pub closed spec fn valid(self) -> bool {
             &&& self.untrusted_log_impl.inv(&self.wrpm_region, self.log_id@)
-            &&& can_only_crash_as_state(self.wrpm_region@, self.log_id@, self@.drop_pending_appends())
+            &&& crashes_as_abstract_state(self.wrpm_region@, self.log_id@, self@.drop_pending_appends())
         }
 
         // The `setup` method sets up persistent memory regions
@@ -243,23 +242,21 @@ verus! {
         pub exec fn setup(pm_region: &mut PMRegion) -> (result: Result<(u64, u128), LogErr>)
             requires
                 old(pm_region).inv(),
+                pm_region@.valid(),
             ensures
                 pm_region.inv(),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.valid(),
                 match result {
                     Ok((log_capacity, log_id)) => {
                         let state = AbstractLogState::initialize(log_capacity as int);
                         &&& log_capacity <= pm_region@.len()
                         &&& pm_region@.len() == old(pm_region)@.len()
-                        &&& can_only_crash_as_state(pm_region@, log_id, state)
-                        &&& UntrustedLogImpl::recover(pm_region@.committed(), log_id) == Some(state)
-                        // Required by the `start` function's precondition. Putting this in the
-                        // postcond of `setup` ensures that the trusted caller doesn't have to prove it
-                        &&& UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id) == Some(state)
+                        &&& crashes_as_abstract_state(pm_region@, log_id, state)
+                        &&& pm_region@.read_state == pm_region@.durable_state
                         &&& state == state.drop_pending_appends()
                     },
                     Err(LogErr::InsufficientSpaceForSetup { required_space }) => {
-                        &&& pm_region@ == old(pm_region)@.flush()
+                        &&& pm_region@ == old(pm_region)@
                         &&& pm_region@.len() < required_space
                     },
                     _ => false
@@ -278,14 +275,15 @@ verus! {
         pub exec fn start(pm_region: PMRegion, log_id: u128) -> (result: Result<LogImpl<PMRegion>, LogErr>)
             requires
                 pm_region.inv(),
-                UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id).is_Some(),
+                pm_region@.valid(),
+                pm_region@.read_state == pm_region@.durable_state,
+                UntrustedLogImpl::recover(pm_region@.durable_state, log_id).is_Some(),
             ensures
                 match result {
                     Ok(trusted_log_impl) => {
                         &&& trusted_log_impl.valid()
                         &&& trusted_log_impl.constants() == pm_region.constants()
-                        &&& Some(trusted_log_impl@) == UntrustedLogImpl::recover(pm_region@.flush().committed(),
-                                                                               log_id)
+                        &&& crashes_as_abstract_state(pm_region@, log_id, trusted_log_impl@)
                     },
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
@@ -298,7 +296,7 @@ verus! {
             // it write such that, if a crash happens in the middle,
             // it doesn't change the persistent state.
 
-            let ghost state = UntrustedLogImpl::recover(pm_region@.flush().committed(), log_id).get_Some_0();
+            let ghost state = UntrustedLogImpl::recover(pm_region@.durable_state, log_id).get_Some_0();
             let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
             let tracked perm = TrustedPermission::new_one_possibility(log_id, state);
             let untrusted_log_impl =

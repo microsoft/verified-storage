@@ -499,8 +499,8 @@ verus! {
     // in the other, all the written bytes have been updated according
     // to this write.
     pub proof fn lemma_single_write_crash_effect_on_pm_region_view(
+        new_durable_bytes: Seq<u8>,
         pm_region_view: PersistentMemoryRegionView,
-        new_pm_region_view: PersistentMemoryRegionView,
         write_addr: int,
         bytes_to_write: Seq<u8>,
     )
@@ -509,12 +509,12 @@ verus! {
             write_addr % const_persistence_chunk_size() == 0,
             0 <= write_addr,
             write_addr + const_persistence_chunk_size() <= pm_region_view.len(),
-            new_pm_region_view.can_result_from_write(pm_region_view, write_addr, bytes_to_write),
+            can_result_from_partial_write(new_durable_bytes, pm_region_view.durable_state, write_addr, bytes_to_write),
             pm_region_view.read_state == pm_region_view.durable_state,
         ensures
             ({
-                ||| new_pm_region_view.durable_state == pm_region_view.durable_state
-                ||| new_pm_region_view.durable_state == new_pm_region_view.read_state
+                ||| new_durable_bytes == pm_region_view.durable_state
+                ||| new_durable_bytes == update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write)
             })
     {
         let chunk = write_addr / const_persistence_chunk_size();
@@ -523,19 +523,20 @@ verus! {
         // (1) the chunk isn't flushed at all and (2) the chunk is entirely flushed.
 
         assert(chunk_trigger(chunk));
-        if chunk_corresponds(new_pm_region_view.durable_state, pm_region_view.durable_state, chunk) {
-            assert forall|addr: int| 0 <= addr < new_pm_region_view.durable_state.len()
-                implies new_pm_region_view.durable_state[addr] == pm_region_view.durable_state[addr] by {
+        if chunk_corresponds(new_durable_bytes, pm_region_view.durable_state, chunk) {
+            assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
+                implies #[trigger] new_durable_bytes[addr] == pm_region_view.durable_state[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_pm_region_view.durable_state =~= pm_region_view.durable_state);
+            assert(new_durable_bytes =~= pm_region_view.durable_state);
         }
         else {
-            assert forall|addr: int| 0 <= addr < new_pm_region_view.durable_state.len()
-                implies new_pm_region_view.durable_state[addr] == new_pm_region_view.read_state[addr] by {
+            assert forall|addr: int| 0 <= addr < new_durable_bytes.len()
+                implies #[trigger] new_durable_bytes[addr] ==
+                        update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write)[addr] by {
                 assert(chunk_trigger(addr / const_persistence_chunk_size()));
             }
-            assert(new_pm_region_view.durable_state =~= new_pm_region_view.read_state);
+            assert(new_durable_bytes =~= update_bytes(pm_region_view.durable_state, write_addr, bytes_to_write));
         }
     }
 
@@ -677,6 +678,16 @@ verus! {
             (#[trigger] update_bytes(s, addr, bytes)).subrange(addr, addr + bytes.len()) == bytes
     {
         assert(update_bytes(s, addr, bytes).subrange(addr, addr + bytes.len()) =~= bytes);
+    }
+
+    pub open spec fn no_outstanding_writes(v: PersistentMemoryRegionView) -> bool
+    {
+        v.read_state == v.durable_state
+    }
+
+    pub open spec fn no_outstanding_writes_in_range(v: PersistentMemoryRegionView, start: int, end: int) -> bool
+    {
+        forall|addr: int| 0 <= addr < v.len() && start <= addr < end ==> v.read_state[addr] == v.durable_state[addr]
     }
     
 }
