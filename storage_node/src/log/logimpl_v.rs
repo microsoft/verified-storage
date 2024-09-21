@@ -267,7 +267,7 @@ verus! {
             requires
                 old(wrpm_region).inv(),
                 old(wrpm_region)@.valid(),
-                old(wrpm_region)@.read_state == wrpm_region@.durable_state,
+                old(wrpm_region)@.read_state == old(wrpm_region)@.durable_state,
                 crashes_as_abstract_state(old(wrpm_region)@, log_id, state),
                 forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, log_id) == Some(state),
             ensures
@@ -1293,7 +1293,7 @@ verus! {
             // about addresses in the log area.
 
             lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, info);
-            assert(pm_region_view.committed().subrange(addr, addr + len) =~=
+            assert(pm_region_view.read_state.subrange(addr, addr + len) =~=
                    s.log.subrange(pos - s.head, pos + len - s.head));
         }
 

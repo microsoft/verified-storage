@@ -242,7 +242,7 @@ verus! {
         pub exec fn setup(pm_region: &mut PMRegion) -> (result: Result<(u64, u128), LogErr>)
             requires
                 old(pm_region).inv(),
-                pm_region@.valid(),
+                old(pm_region)@.valid(),
             ensures
                 pm_region.inv(),
                 pm_region@.valid(),

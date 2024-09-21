@@ -87,16 +87,16 @@ verus! {
     )
         requires
             old(pm_region).inv(),
-            old(pm_region)@.no_outstanding_writes(),
+            no_outstanding_writes(old(pm_region)@),
+            old(pm_region)@.valid(),
             old(pm_region)@.len() == region_size,
             region_size >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
         ensures
             pm_region.inv(),
             pm_region.constants() == old(pm_region).constants(),
-            memory_correctly_set_up_on_region(
-                pm_region@.flush().committed(), // it'll be correct after the next flush
-                region_size, log_id),
-            metadata_types_set(pm_region@.flush().committed()),
+            pm_region@.flush_predicted() ==> // it'll be correct after the next flush
+                memory_correctly_set_up_on_region(pm_region@.read_state, region_size, log_id),
+            metadata_types_set(pm_region@.read_state),
     {
         broadcast use pmcopy_axioms;
 
@@ -127,7 +127,7 @@ verus! {
         };
         let log_crc = calculate_crc(&log_metadata);
 
-        assert(pm_region@.no_outstanding_writes());
+        assert(no_outstanding_writes(pm_region@));
         reveal(spec_padding_needed);
         // Write all metadata structures and their CRCs to memory
         pm_region.serialize_and_write(ABSOLUTE_POS_OF_GLOBAL_METADATA, &global_metadata);
@@ -146,7 +146,7 @@ verus! {
             // we get the little-endian encodings of the desired
             // metadata. By using the `=~=` operator, we get Z3 to
             // prove this by reasoning about per-byte equivalence.
-            let mem = pm_region@.flush().committed();
+            let mem = pm_region@.read_state;
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of())
                    =~= global_metadata.spec_to_bytes());
             assert(extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of())
@@ -204,17 +204,18 @@ verus! {
     )
         requires
             old(pm_region).inv(),
+            old(pm_region)@.valid(),
             old(pm_region)@.len() == region_size,
             old(pm_region)@.len() >= ABSOLUTE_POS_OF_LOG_AREA + MIN_LOG_AREA_SIZE,
             old(pm_region)@.len() == log_capacity + ABSOLUTE_POS_OF_LOG_AREA,
-            old(pm_region)@.no_outstanding_writes(),
+            no_outstanding_writes(old(pm_region)@),
         ensures
             pm_region.inv(),
             pm_region.constants() == old(pm_region).constants(),
             pm_region@.len() == old(pm_region)@.len(),
-            pm_region@.no_outstanding_writes(),
-            recover_state(pm_region@.committed(), log_id) == Some(AbstractLogState::initialize(log_capacity as int)),
-            metadata_types_set(pm_region@.committed()),
+            no_outstanding_writes(pm_region@),
+            recover_state(pm_region@.durable_state, log_id) == Some(AbstractLogState::initialize(log_capacity as int)),
+            metadata_types_set(pm_region@.read_state),
     {
         write_setup_metadata_to_region(pm_region, region_size, log_id);
 
@@ -223,19 +224,18 @@ verus! {
             // abstract state
             // `AbstractLogState::initialize(log_capacity)`.
 
-            let flushed_region = pm_region@.flush();
-            let pm_region_committed = flushed_region.committed();
+            let pm_region_committed = pm_region@.read_state;
             assert(recover_state(pm_region_committed, log_id)
                    =~= Some(AbstractLogState::initialize(log_capacity as int))) by {
                 assert(pm_region_committed.len() == pm_region@.len());
-                assert(pm_region_committed == pm_region@.flush().committed());
+                assert(pm_region_committed == pm_region@.durable_state);
                 assert(recover_log(pm_region_committed, log_capacity as int, 0int, 0int) =~=
                        Some(AbstractLogState::initialize(log_capacity as int)));
             }
 
             // Second, establish that the flush we're about to do
             // won't change regions' lengths.
-            assert(pm_region@.len() == flushed_region.len());
+            assert(pm_region@.len() == pm_region_committed.len());
         }
 
         pm_region.flush()

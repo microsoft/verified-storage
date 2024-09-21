@@ -48,6 +48,7 @@ verus! {
     )
         requires
             pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.valid(),
             info_consistent_with_log_area(pm_region_view, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -132,6 +133,7 @@ verus! {
     )
         requires
             pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.valid(),
             info_consistent_with_log_area(pm_region_view, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
