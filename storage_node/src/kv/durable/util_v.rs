@@ -59,4 +59,20 @@ verus! {
             assert(!b.contains(a[i]));
         }
     }
+
+    pub proof fn lemma_concat_seq_equal_to_set<T>(s1: Seq<T>, s2: Seq<T>)
+        requires 
+            s1.no_duplicates(),
+            s2.no_duplicates(),
+            forall |i: int, j: int| {
+                &&& 0 <= i < s1.len()
+                &&& 0 <= j < s2.len()
+            } ==> s1[i] != s2[j],
+        ensures 
+            s1.to_set() + s2.to_set() == (s1 + s2).to_set()
+    {
+        assert(forall |i: int| 0 <= i < s1.len() ==> #[trigger] s1[i] == (s1 + s2)[i]);
+        assert(forall |i: int| 0 <= i < s2.len() ==> #[trigger] s2[i] == (s1 + s2)[s1.len() + i]);
+        assert(s1.to_set() + s2.to_set() == (s1 + s2).to_set());
+    }
 }

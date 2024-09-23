@@ -294,6 +294,22 @@ verus! {
             &&& Self::physical_recover(mem, self.version_metadata, self.overall_metadata) == Some(self@)
         }
 
+        pub closed spec fn abort_inv(self) -> bool 
+        {
+            // if we were to abort the transaction right now, the 
+            // allocators would match the post-abort kv state
+
+            let main_table_allocator_state = self.main_table.allocator_view().spec_abort_alloc_transaction();
+            let item_table_allocator_state = self.item_table.allocator_view().spec_abort_alloc_transaction();
+            let valid_item_indices = self.main_table@.valid_item_indices();
+
+            &&& forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() ==> 
+                    main_table_allocator_state.pending_alloc_check(idx, self.main_table@, self.main_table@)
+            &&& forall |idx: u64| 0 <= idx < self.overall_metadata.num_keys ==> 
+                    item_table_allocator_state.pending_alloc_check(idx, valid_item_indices, valid_item_indices, valid_item_indices)
+            
+        }
+
         pub closed spec fn inv(self) -> bool 
         {
             let pm_view = self.wrpm@;
@@ -317,6 +333,7 @@ verus! {
                                     self.main_table@, self.overall_metadata)
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
             &&& Self::log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
+            // &&& self.abort_inv()
         }
 
         pub closed spec fn valid(self) -> bool 
@@ -662,7 +679,7 @@ verus! {
     
             assert(forall |s| #[trigger] main_table_subregion_view.can_crash_as(s) ==> 
                 parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@));
-            assert(forall |idx: u64| old_self.main_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
+            assert(forall |idx: u64| old_self.main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
 
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
         }
@@ -1979,7 +1996,7 @@ verus! {
                 &&& 0 <= relative_addr < main_table_size
                 &&& 0 <= which_entry < self.overall_metadata.num_keys
                 &&& entry_offset + u64::spec_size_of() <= relative_addr < entry_offset + main_table_entry_size
-                &&& self.main_table.allocator_view().contains(which_entry as u64)
+                &&& self.main_table.free_list().contains(which_entry as u64)
             }
         }
 
@@ -2074,7 +2091,7 @@ verus! {
                     assert(self.get_writable_mask_for_main_table()(addr + main_table_addr));
                     let which_entry = addr / main_table_entry_size as int;
                     lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
-                    assert(self.main_table.allocator_view().contains(which_entry as u64));
+                    assert(self.main_table.free_list().contains(which_entry as u64));
                     assert(self.main_table.free_indices().contains(which_entry as u64));
                     assert(self.main_table@.durable_main_table[which_entry as int] is None);
                     let entry_bytes = extract_bytes(ss1,
@@ -2240,7 +2257,7 @@ verus! {
 
             assert forall|idx: u64| {
                 &&& idx < self.main_table@.len()
-                &&& self.main_table.allocator_view().contains(idx)
+                &&& self.main_table.free_list().contains(idx)
             } implies #[trigger] subregion_grants_access_to_main_table_entry::<K>(subregion, idx) by {
                 let entry_size = self.overall_metadata.main_table_entry_size;
                 assert forall|addr: u64| idx * entry_size + u64::spec_size_of() <= addr
@@ -2439,14 +2456,14 @@ verus! {
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata, self.main_table@.valid_item_indices()),
-                old_self.item_table.allocator_view().contains(item_index),
+                old_self.item_table.free_list().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
                     #[trigger] self.item_table.outstanding_item_table@[i] ==
                                old_self.item_table.outstanding_item_table@[i],
                 self.item_table.outstanding_item_table@[item_index as int] == Some(item),
-                forall |other_index: u64| self.item_table.allocator_view().contains(other_index) <==>
-                    old_self.item_table.allocator_view().contains(other_index) && other_index != item_index,
+                forall |other_index: u64| self.item_table.free_list().contains(other_index) <==>
+                    old_self.item_table.free_list().contains(other_index) && other_index != item_index,
             ensures
                 self.inv(),
                 self.constants() == old_self.constants(),
@@ -2529,7 +2546,7 @@ verus! {
             assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies {
                 durable_main_table_view.durable_main_table[idx as int] is None
             } by {
-                assert(self.main_table.pending_alloc_check(idx, durable_main_table_view, 
+                assert(self.main_table.allocator_view().pending_alloc_check(idx, durable_main_table_view, 
                     tentative_main_table_view));
             }
         }
@@ -2560,9 +2577,9 @@ verus! {
                 ),
                 old(self).item_table@ == pre_self.item_table@,
                 old(self).item_table.outstanding_item_table@ == pre_self.item_table.outstanding_item_table@,
-                old(self).item_table.allocator_view() == pre_self.item_table.allocator_view(),
+                old(self).item_table.free_list() == pre_self.item_table.free_list(),
                 old(self).item_table.pending_allocations_view() == pre_self.item_table.pending_allocations_view(),
-                old(self).item_table.allocator_view().len() == 0,
+                old(self).item_table.free_list().len() == 0,
                 old(self).wrpm == pre_self.wrpm,
                 old(self).item_table@ == pre_self.item_table@,
                 old(self).main_table == pre_self.main_table,
@@ -2680,9 +2697,9 @@ verus! {
                 !pre_self.transaction_committed(),
                 old(self).inv(),
                 old(self)@ == pre_self@,
-                old(self).main_table.allocator_view() == pre_self.main_table.allocator_view(),
+                old(self).main_table.free_list() == pre_self.main_table.free_list(),
                 old(self).main_table.pending_allocations_view() == pre_self.main_table.pending_allocations_view(),
-                old(self).main_table.allocator_view().len() == 0,
+                old(self).main_table.free_list().len() == 0,
                 old(self) == (Self{ main_table: old(self).main_table, ..pre_self }),
                 ({
                     let condition = old_self.condition_preserved_by_subregion_masks();
@@ -2717,10 +2734,10 @@ verus! {
                             old(self).overall_metadata.main_table_entry_size) is Some
                 }),
                 forall|idx: u64| #[trigger] old(self).main_table@.valid_item_indices().contains(idx) ==> 
-                    !old(self).item_table.allocator_view().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
+                    !old(self).item_table.free_list().contains(idx) && !old(self).item_table.pending_allocations_view().contains(idx),
                 forall |idx: u64|0 <= idx < old(self).item_table.num_keys && !(#[trigger] old(self).main_table@.valid_item_indices().contains(idx)) ==> {
                     ||| old(self).item_table.pending_allocations_view().contains(idx)
-                    ||| old(self).item_table.allocator_view().contains(idx)
+                    ||| old(self).item_table.free_list().contains(idx)
                 },
                 forall |idx: u64| #[trigger] old(self).main_table.pending_allocations_view().contains(idx) ==> {
                     &&& !old(self).main_table.free_indices().contains(idx)
@@ -3151,7 +3168,7 @@ verus! {
                 assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies {
                     &&& self.main_table@.durable_main_table[idx as int] is None
                 } by {
-                    assert(self.main_table.pending_alloc_check(idx, self.main_table@, tentative_main_table_view));
+                    assert(self.main_table.allocator_view().pending_alloc_check(idx, self.main_table@, tentative_main_table_view));
                 } 
             }
             
@@ -3284,7 +3301,7 @@ verus! {
                 old_self.inv(),
                 self.inv(),
                 item_table_subregion.inv(&self.wrpm, perm),
-                old_self.item_table.allocator_view().contains(item_index),
+                old_self.item_table.free_list().contains(item_index),
                 self.item_table.pending_allocations_view().contains(item_index),
                 !old_self.main_table@.valid_item_indices().contains(item_index),
                 !self.main_table@.valid_item_indices().contains(item_index),
@@ -3292,7 +3309,7 @@ verus! {
                     let tentative_main_table = parse_main_table::<K>(extract_bytes(tentative_view_bytes,
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    old_self.item_table.pending_alloc_check(
+                    old_self.item_table.allocator_view().pending_alloc_check(
                         item_index,
                         old_self.main_table@.valid_item_indices(),
                         old_self.main_table@.valid_item_indices(),
@@ -3387,7 +3404,7 @@ verus! {
                 self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
 
             // the pending alloc check holds for this index, which proves that it is now pending allocation
-            assert(old_self.item_table.pending_alloc_check(item_index,
+            assert(old_self.item_table.allocator_view().pending_alloc_check(item_index,
                                                            old_main_table.valid_item_indices(),
                                                            old_main_table.valid_item_indices(),
                                                            tentative_main_table.valid_item_indices()));
@@ -3749,7 +3766,7 @@ verus! {
             }
         }
 
-        #[verifier::spinoff_prover]
+        // #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -3803,6 +3820,15 @@ verus! {
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
                         &&& self.pending_deallocations().is_empty()
+                    }
+                    Err(KvError::CRCMismatch) => {
+                        &&& self@ == old(self)@
+                        &&& self.tentative_view() ==
+                                Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
+                                                                self.spec_overall_metadata(),
+                                                                AbstractOpLogState::initialize())
+                        &&& self.pending_deallocations().is_empty()
+                        &&& !self.constants().impervious_to_corruption
                     }
                     Err(_) => false,
                 }
@@ -3955,6 +3981,10 @@ verus! {
                 self.lemma_update_item_index_log_entry_precondition(*old(self), offset, item_index, 
                     item_table_subregion, pre_append_tentative_view_bytes, perm);
                 assert(pre_append_tentative_item_table == tentative_item_table);
+            
+                // assert(forall |idx: u64| 0 <= idx < self.overall_metadata.num_keys ==> 
+                //     )
+            
             }
 
             // 3. Create a log entry that will overwrite the metadata table entry
@@ -3973,6 +4003,19 @@ verus! {
                     // TODO @hayley
                     // also need to handle abort cases where the failing op didn't 
                     // change anything but there are outstanding modifications
+                    // assume(false);
+                    // assert(e == KvError::<K>::OutOfSpace);
+                    proof {
+                        self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                            self_before_tentative_item_write, item_table_subregion, perm
+                        );
+                        assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
+                        assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
+                            self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+                    }
+                    
+                    // self.abort_after_failed_item_table_tentatively_write_item(Ghost(*old(self)), Tracked(perm));
+                    // self.abort_after_failed_read_operation(Tracked(perm));
                     assume(false);
                     return Err(e);
                 }
@@ -4258,7 +4301,7 @@ verus! {
             ensures 
                 
                 !self.item_table.pending_allocations_view().contains(item_index),
-                !self.item_table.allocator_view().contains(item_index),
+                !self.item_table.free_list().contains(item_index),
                 ({
                     let flushed_mem = self.wrpm@.flush().committed();
                     let op_log = self.log@.commit_op_log().physical_op_list;
@@ -4291,7 +4334,7 @@ verus! {
             
             assert(durable_main_table_subregion.can_crash_as(durable_main_table_region));
             assert(self.main_table@ == durable_main_table_view);
-            assert(self.item_table.pending_alloc_check(item_index,
+            assert(self.item_table.allocator_view().pending_alloc_check(item_index,
                                                        self.main_table@.valid_item_indices(),
                                                        self.main_table@.valid_item_indices(),
                                                        tentative_main_table_view.valid_item_indices()));
@@ -4348,7 +4391,7 @@ verus! {
                     }
                 }
         {
-            assert(forall |idx: u64| old(self).main_table.allocator_view().contains(idx) ==> idx < self.overall_metadata.num_keys);
+            assert(forall |idx: u64| old(self).main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
             let pm = self.wrpm.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(
                 pm,
@@ -4515,10 +4558,10 @@ verus! {
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
                 assert forall |idx: u64| 0 <= idx < durable_main_table_view.durable_main_table.len() && idx != index implies 
-                    self.main_table.pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
-                by { assert(old(self).main_table.pending_alloc_check(idx, durable_main_table_view, old_tentative_main_table_view)); }
+                    self.main_table.allocator_view().pending_alloc_check(idx, durable_main_table_view, tentative_main_table_view)
+                by { assert(old(self).main_table.allocator_view().pending_alloc_check(idx, durable_main_table_view, old_tentative_main_table_view)); }
 
-                assert(old(self).main_table.pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
+                assert(old(self).main_table.allocator_view().pending_alloc_check(index, durable_main_table_view, old_tentative_main_table_view));
                 assert(!self.main_table.pending_deallocations_view().contains(index));
             }
 
@@ -4553,18 +4596,18 @@ verus! {
                 assert forall |idx: u64| {
                     &&& 0 <= idx < self.overall_metadata.num_keys 
                     &&& idx != item_index  
-                } implies self.item_table.pending_alloc_check(idx,
+                } implies self.item_table.allocator_view().pending_alloc_check(idx,
                                                               self.main_table@.valid_item_indices(), 
                                                               self.main_table@.valid_item_indices(), 
                                                               tentative_main_table_view.valid_item_indices())
                 by { 
-                    assert(old(self).item_table.pending_alloc_check(idx,
+                    assert(old(self).item_table.allocator_view().pending_alloc_check(idx,
                                                                   self.main_table@.valid_item_indices(),
                                                                   self.main_table@.valid_item_indices(),
                                                                   old_tentative_main_table_view.valid_item_indices()));
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
-                    assert(self.item_table.allocator_view() == old(self).item_table.allocator_view());
+                    assert(self.item_table.free_list() == old(self).item_table.free_list());
                 }
 
                 assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
