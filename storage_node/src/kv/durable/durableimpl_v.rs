@@ -306,7 +306,7 @@ verus! {
             &&& forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() ==> 
                     main_table_allocator_state.pending_alloc_check(idx, self.main_table@, self.main_table@)
             &&& forall |idx: u64| 0 <= idx < self.overall_metadata.num_keys ==> 
-                    item_table_allocator_state.pending_alloc_check(idx, valid_item_indices, valid_item_indices, valid_item_indices)
+                    item_table_allocator_state.pending_alloc_check(idx, valid_item_indices, valid_item_indices)
             
         }
 
@@ -377,8 +377,8 @@ verus! {
                         tentative_main_table_region,
                         self.overall_metadata
                     )
+                &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
                 &&& self.item_table.pending_alloc_inv(
-                        self.main_table@.valid_item_indices(),
                         durable_main_table_view.valid_item_indices(),
                         tentative_main_table_view.valid_item_indices(),
                     )
@@ -1678,7 +1678,6 @@ verus! {
                 assert(durable_kv_store.main_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
                 assert(durable_kv_store.item_table.pending_alloc_inv(
-                    main_table@.valid_item_indices(),
                     main_table@.valid_item_indices(),
                     main_table@.valid_item_indices(),
                 ));
@@ -3032,7 +3031,6 @@ verus! {
                     old_self.item_table.allocator_view().pending_alloc_check(
                         item_index,
                         old_self.main_table@.valid_item_indices(),
-                        old_self.main_table@.valid_item_indices(),
                         tentative_main_table.valid_item_indices())
                 }),
                 old_self.overall_metadata == self.overall_metadata,
@@ -3125,7 +3123,6 @@ verus! {
 
             // the pending alloc check holds for this index, which proves that it is now pending allocation
             assert(old_self.item_table.allocator_view().pending_alloc_check(item_index,
-                                                           old_main_table.valid_item_indices(),
                                                            old_main_table.valid_item_indices(),
                                                            tentative_main_table.valid_item_indices()));
         }
@@ -4051,7 +4048,6 @@ verus! {
             assert(self.main_table@ == durable_main_table_view);
             assert(self.item_table.allocator_view().pending_alloc_check(item_index,
                                                        self.main_table@.valid_item_indices(),
-                                                       self.main_table@.valid_item_indices(),
                                                        tentative_main_table_view.valid_item_indices()));
 
         }
@@ -4328,11 +4324,9 @@ verus! {
                     &&& idx != item_index  
                 } implies self.item_table.allocator_view().pending_alloc_check(idx,
                                                               self.main_table@.valid_item_indices(), 
-                                                              self.main_table@.valid_item_indices(), 
                                                               tentative_main_table_view.valid_item_indices())
                 by { 
                     assert(old(self).item_table.allocator_view().pending_alloc_check(idx,
-                                                                  self.main_table@.valid_item_indices(),
                                                                   self.main_table@.valid_item_indices(),
                                                                   old_tentative_main_table_view.valid_item_indices()));
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
