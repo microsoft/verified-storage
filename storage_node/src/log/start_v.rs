@@ -11,7 +11,8 @@ use crate::log::layout_v::*;
 use crate::log::logimpl_t::LogErr;
 use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
-use crate::pmem::pmemspec_t::{extract_bytes, PersistentMemoryRegion, PmemError, spec_crc_bytes};
+use crate::pmem::pmemspec_t::{const_persistence_chunk_size, extract_bytes, PersistentMemoryRegion,
+                              PmemError, spec_crc_bytes};
 use crate::pmem::pmemutil_v::{check_cdb, check_crc, no_outstanding_writes};
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::subregion_v::*;
@@ -305,6 +306,7 @@ verus! {
         let log_crc_pos = if cdb { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE }
                                     else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE };
         assert(log_metadata_pos == get_log_metadata_pos(cdb));
+        assert(log_metadata_pos as nat % (const_persistence_chunk_size() as nat) == 0) by (compute);
         let subregion = PersistentMemorySubregion::new(pm_region, log_metadata_pos,
                                                        Ghost(LogMetadata::spec_size_of() + u64::spec_size_of()));
         let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of()));
