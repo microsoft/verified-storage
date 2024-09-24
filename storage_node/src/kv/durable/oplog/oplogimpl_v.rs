@@ -1294,7 +1294,7 @@ verus! {
                     &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
-                Err(KvError::LogErr { log_err: _ }) | Err(KvError::OutOfSpace) => {
+                Err(KvError::OutOfSpace) => {
                     &&& !self@.op_list_committed
                     &&& self.base_log_view().pending.len() == 0
                     &&& self.base_log_view().log == old(self).base_log_view().log
@@ -1357,7 +1357,13 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
-                return Err(KvError::LogErr { log_err: e });
+                match e {
+                    LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
+                    _ => {
+                        assert(false);
+                        return Err(KvError::InternalError);
+                    }
+                }
             }
         }
         self.current_transaction_crc.write_bytes(absolute_addr.as_byte_slice());
@@ -1392,7 +1398,13 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
-                return Err(KvError::LogErr { log_err: e });
+                match e {
+                    LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
+                    _ => {
+                        assert(false);
+                        return Err(KvError::InternalError);
+                    }
+                }
             }
         }
         self.current_transaction_crc.write_bytes(len.as_byte_slice());
@@ -1428,7 +1440,13 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
-                return Err(KvError::LogErr { log_err: e });
+                match e {
+                    LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
+                    _ => {
+                        assert(false);
+                        return Err(KvError::InternalError);
+                    }
+                }
             }
         }
         // update the op log's CRC digest
