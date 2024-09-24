@@ -1918,7 +1918,7 @@ metadata_allocator@.contains(i)
             }
         }
 
-        pub exec fn get_validify_log_entry(
+        pub exec fn create_validify_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
             index: u64,

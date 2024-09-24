@@ -2757,6 +2757,7 @@ verus! {
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
+        #[verifier::rlimit(20)]
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -2838,13 +2839,6 @@ verus! {
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
             assert(main_table_subregion_view.committed() == extract_bytes(self.wrpm@.committed(),
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-            assert(self.item_table.pending_alloc_inv(
-                self.main_table@.valid_item_indices(), 
-                self.main_table@.valid_item_indices(), 
-                tentative_main_table_view.valid_item_indices()
-            ));
-            assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), 
-                tentative_main_table_region, self.overall_metadata));
 
             let ghost self_before_tentative_item_write = *self;
             let item_index = match self.item_table.tentatively_write_item(
@@ -2880,10 +2874,10 @@ verus! {
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
 
-                assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies {
-                    &&& self.main_table@.durable_main_table[idx as int] is None
-                } by {
-                    assert(self.main_table.allocator_view().pending_alloc_check(idx, self.main_table@, tentative_main_table_view));
+                assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies
+                    self.main_table@.durable_main_table[idx as int] is None by {
+                    assert(self.main_table.allocator_view().pending_alloc_check(idx, self.main_table@,
+                                                                                tentative_main_table_view));
                 } 
             }
             
@@ -2936,7 +2930,6 @@ verus! {
                 }
             };
 
-
             let ghost tentative_view_bytes = Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof {
@@ -2971,8 +2964,18 @@ verus! {
                                        self.overall_metadata.main_table_size as nat)
                 );
             }
+            
+            let ghost main_table_region =
+                extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let ghost main_table_subregion_view =
+                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat);
+
             assume(false);
-            let log_entry = self.main_table.get_validify_log_entry(
+            assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), main_table_region,
+                                                     self.overall_metadata));
+            let ghost log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
                 metadata_index,
