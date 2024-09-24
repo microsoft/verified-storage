@@ -1,6 +1,6 @@
-//! This file contains the trusted specification for how a collection
-//! of persistent memory regions (implementing trait
-//! `PersistentMemoryRegions`) behaves.
+//! This file contains the trusted specification for how a persistent
+//! memory region (implementing trait `PersistentMemoryRegion`)
+//! behaves.
 //!
 //! One of the things it models is what can happen to a persistent
 //! memory region if the system crashes in the middle of a write.
@@ -10,22 +10,41 @@
 //! discarded. Furthermore, any 8-byte-aligned 8-byte chunk either has
 //! all its outstanding writes flushed or all of them discarded.
 //!
-//! To obviate the need to model what happens when there are multiple
-//! outstanding writes to the same byte, the specification says that
-//! writes are only allowed to bytes that have no outstanding writes.
-//! To obviate the need to model what happens when a byte with an
-//! outstanding write is read, the specification says that reads (like
-//! writes) are only allowed to access bytes that have no outstanding
-//! writes.
+//! Following Perennial, this model uses prophecy to describe the
+//! current state of the persistent memory. The abstract state of the
+//! storage consists of a read state, which doesn't use prophecy, and
+//! a durable state, which does use prophecy.
+//
+//! The read state is straightforward: It reflects all writes done so
+//! far, regardless of whether those writes have been made durable and
+//! will survive a crash. So it reflects what future reads will see,
+//! at least until the next crash terminates the Verus program.
+//!
+//! The durable state represents what state would result if a crash
+//! happened now. It forms this representation by predicting, every
+//! time a write occurs, which of the bytes in that write will be made
+//! durable before the next crash. Of course, this prediction can't be
+//! made in reality, but that doesn't stop us from making the
+//! prediction in ghost state.
+//!
+//! The semantics of a flush is that, if you're calling flush right
+//! now, the predictor must have predicted that all outstanding
+//! written bytes would be flushed to persistent memory before the
+//! next crash. So a *precondition* of a flush operation is that the
+//! read state matches the durable state.
+//!
+//! Modeling with an omniscient predictor is naturally unrealistic.
+//! But in Perennial, it's been proved that any program correct under
+//! the prophecy model is correct under the traditional model of a
+//! storage system. So the model is a reasonable and sound one.
 //!
 //! Another thing this file models is how bit corruption manifests. It
-//! models a collection of persistent memory regions as either
-//! impervious to corruption or not so. If a memory is impervious to
-//! corruption, then bit corruption never occurs and reads always
-//! return the last-written bytes. However, if memory isn't impervious
-//! to corruption, then all that's guaranteed is that the bytes that
-//! are read and the last-written bytes are related by
-//! `maybe_corrupted`.
+//! models a persistent memory region as either impervious to
+//! corruption or not so. If a memory is impervious to corruption,
+//! then bit corruption never occurs and reads always return the
+//! last-written bytes. However, if memory isn't impervious to
+//! corruption, then all that's guaranteed is that the bytes that are
+//! read and the last-written bytes are related by `maybe_corrupted`.
 //!
 //! This file also provides axioms allowing possibly-corrupted bytes
 //! to be freed of suspicion of corruption. Both axioms require the
@@ -230,6 +249,11 @@ verus! {
     {
         addr / const_persistence_chunk_size() == chunk
     }
+
+    /// We model writes as prophesizing which bytes will be written,
+    /// subject to the constraint that bytes in the same chunk
+    /// (aligned on `const_persistence_chunk_size()` boundaries) will
+    /// either all be written or have none of them written.
 
     pub open spec fn chunk_corresponds(s1: Seq<u8>, s2: Seq<u8>, chunk: int) -> bool
     {
