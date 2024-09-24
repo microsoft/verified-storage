@@ -361,45 +361,6 @@ verus! {
     }
 
     // This lemma proves that, if various invariants hold for the
-    // given persistent-memory view `pm_region_view` and abstract log state
-    // `state`, then recovery on that view's durable state will produce
-    // `state.drop_pending_appends()`.
-    //
-    // `pm_region_view` -- the view of this persistent-memory region
-    // `log_id` -- the ID of the log
-    // `cdb` -- the current value of the corruption-detecting boolean
-    // `info` -- the log information
-    // `state` -- the abstract log state
-    proof fn lemma_invariants_imply_crash_recover_for_one_log(
-        pm_region_view: PersistentMemoryRegionView,
-        log_id: u128,
-        cdb: bool,
-        info: LogInfo,
-        state: AbstractLogState,
-    )
-        requires
-            pm_region_view.valid(),
-            metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
-            info_consistent_with_log_area_in_region(pm_region_view, info, state),
-        ensures
-            recover_given_cdb(pm_region_view.durable_state, log_id, cdb) == Some(state.drop_pending_appends())
-    {
-        reveal(spec_padding_needed);
-        let mem = pm_region_view.durable_state;
-
-        // The tricky part is showing that the result of `extract_log` will produce the desired result.
-        // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
-
-        lemma_establish_subrange_equivalence(mem, pm_region_view.read_state);
-        let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as nat, info.log_area_len as nat);
-        lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(log_view, info);
-        assert(recover_log_from_log_area_given_metadata(log_view.durable_state, info.head as int, info.log_length as int)
-               =~= Some(state.drop_pending_appends()));
-        assert(recover_log(mem, info.log_area_len as int, info.head as int, info.log_length as int)
-               =~= Some(state.drop_pending_appends()));
-    }
-
-    // This lemma proves that, if various invariants hold for the
     // given persistent-memory region view `pm_region_view` and
     // abstract log state `state`, and if that view has durable
     // state `mem`, then recovery on `mem` will produce
@@ -454,7 +415,18 @@ verus! {
         // regions.
 
         assert(recover_given_cdb(mem, log_id, cdb) == Some(state.drop_pending_appends())) by {
-            lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, log_id, cdb, info, state);
+
+            // The tricky part is showing that the result of `extract_log` will produce the desired result.
+            // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
+
+            lemma_establish_subrange_equivalence(mem, pm_region_view.read_state);
+            let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as nat, info.log_area_len as nat);
+            lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(log_view, info);
+            assert(recover_log_from_log_area_given_metadata(log_view.durable_state, info.head as int,
+                                                            info.log_length as int)
+                   =~= Some(state.drop_pending_appends()));
+            assert(recover_log(mem, info.log_area_len as int, info.head as int, info.log_length as int)
+                   =~= Some(state.drop_pending_appends()));
         }
 
         // Get Z3 to see the equivalence of the recovery
@@ -462,11 +434,6 @@ verus! {
         // `=~=`) to prove that they're piecewise equivalent.
 
         assert(recover_state(mem, log_id) =~= Some(state.drop_pending_appends()));
-
-        // Finally, invoke the lemma that proves that metadata types 
-        // are still set in crash states
-
-        lemma_metadata_set_after_crash(pm_region_view, cdb);
     }
 
     // This predicate describes whether a given log area offset is
@@ -537,173 +504,5 @@ verus! {
         lemma_establish_subrange_equivalence(mem, v.durable_state);
         lemma_establish_subrange_equivalence(v.read_state, v.durable_state);
         assert(recover_state(mem, log_id) =~= recover_state(v.durable_state, log_id));
-    }
-
-    // This lemma establishes that if:
-    //
-    // 1) two views `v1` and `v2` only differ in unreachable parts of
-    // the log area (one that satisfy
-    // `log_area_offset_unreachable_during_recovery`)
-    //
-    // and
-    //
-    // 2) view `v1` satisfies certain invariant properties,
-    //
-    // then `v2.durable_state` recovers to the same abstract state as
-    // `v1.durable_state`. So, if we know that `v1` recovers to a valid
-    // state then we know `v2` does as well.
-    //
-    // The parameters to this function are:
-    //
-    // `v1` and `v2` -- the two views
-    // `log_id` -- the ID of the log
-    // `cdb` -- the current value of the corruption-detecting boolean
-    // `info` -- the log information
-    // `state` -- the abstract log state
-    // `is_writable_absolute_addr` -- a spec predicate describing
-    // which absolute addresses in the log area may differ between
-    // `v1` and `v2`.
-    pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-        v1: PersistentMemoryRegionView,
-        v2: PersistentMemoryRegionView,
-        log_id: u128,
-        cdb: bool,
-        info: LogInfo,
-        state: AbstractLogState,
-        is_writable_absolute_addr: spec_fn(int) -> bool,
-    )
-        requires
-            v1.valid(),
-            no_outstanding_writes_to_metadata(v1),
-            memory_matches_deserialized_cdb(v1, cdb),
-            metadata_consistent_with_info(v1, log_id, cdb, info),
-            info_consistent_with_log_area_in_region(v1, info, state),
-            ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len <= v1.len(),
-            v1.len() == v2.len(),
-            forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> 
-                  log_area_offset_unreachable_during_recovery(info.head_log_area_offset as int,
-                                                              info.log_area_len as int,
-                                                              info.log_length as int,
-                                                              addr - ABSOLUTE_POS_OF_LOG_AREA),
-            views_differ_only_where_subregion_allows(v1, v2, ABSOLUTE_POS_OF_LOG_AREA as nat,
-                                                     info.log_area_len as nat, is_writable_absolute_addr),
-        ensures
-            recover_state(v2.durable_state, log_id) == recover_state(v1.durable_state, log_id),
-    {
-        lemma_if_view_and_memory_differ_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-            v1, v2.durable_state, log_id, cdb, info, state, is_writable_absolute_addr
-        );
-    }
-
-    // This lemma proves that if the log metadata has been properly set up and there are no outstanding writes to 
-    // metadata, then the metadata_types_set invariant holds after any crash. This is useful when proving the invariant
-    // after an update that does not touch metadata.
-    pub proof fn lemma_metadata_set_after_crash(
-        pm_region_view: PersistentMemoryRegionView,
-        cdb: bool
-    )
-        requires 
-            no_outstanding_writes_to_active_metadata(pm_region_view, cdb),
-            metadata_types_set(pm_region_view.read_state),
-            memory_matches_deserialized_cdb(pm_region_view, cdb),
-            pm_region_view.valid(),
-            0 <= ABSOLUTE_POS_OF_GLOBAL_METADATA < ABSOLUTE_POS_OF_LOG_AREA < pm_region_view.len(),
-        ensures
-            metadata_types_set(pm_region_view.durable_state),
-    {
-        reveal(spec_padding_needed);
-
-        let pm_bytes = pm_region_view.read_state;
-        assert(cdb == deserialize_and_check_log_cdb(pm_bytes).unwrap());
-
-        let s = pm_region_view.durable_state;
-        let s_cdb = deserialize_and_check_log_cdb(s).unwrap();
-        assert ({
-            &&& deserialize_global_metadata(s) == deserialize_global_metadata(pm_bytes)
-            &&& deserialize_global_crc(s) == deserialize_global_crc(pm_bytes)
-            &&& deserialize_region_metadata(s) == deserialize_region_metadata(pm_bytes)
-            &&& deserialize_region_crc(s) == deserialize_region_crc(pm_bytes)
-            &&& s_cdb == cdb 
-            &&& if s_cdb {
-                   &&& deserialize_log_metadata(s, true) == deserialize_log_metadata(pm_bytes, true)
-                   &&& deserialize_log_crc(s, true) == deserialize_log_crc(pm_bytes, true)
-               }
-               else {
-                   &&& deserialize_log_metadata(s, false) == deserialize_log_metadata(pm_bytes, false)
-                   &&& deserialize_log_crc(s, false) == deserialize_log_crc(pm_bytes, false)
-               }
-        }) by {
-            lemma_establish_subrange_equivalence(s, pm_region_view.read_state);
-        }
-
-        assert(metadata_types_set(s)) by {
-            lemma_establish_subrange_equivalence(s, pm_region_view.read_state);
-        }
-    }
-
-    pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)
-        requires 
-            ABSOLUTE_POS_OF_LOG_AREA <= mem1.len(),
-            ABSOLUTE_POS_OF_LOG_AREA <= mem2.len(),
-            mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int) =~= 
-                mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_AREA as int),
-            deserialize_and_check_log_cdb(mem1) is Some,
-        ensures 
-            active_metadata_bytes_are_equal(mem1, mem2)
-    {
-        reveal(spec_padding_needed);
-        lemma_establish_subrange_equivalence(mem1, mem2);
-
-        lemma_auto_smaller_range_of_seq_is_subrange(mem1);
-
-        let cdb = deserialize_and_check_log_cdb(mem1).unwrap();
-        let log_metadata_pos = get_log_metadata_pos(cdb);
-
-        assert(mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
-            mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) );
-        assert(mem1.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
-            mem2.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()));
-    }
-
-    pub proof fn lemma_metadata_types_set_after_cdb_update(
-        old_pm_region_view: PersistentMemoryRegionView,
-        new_mem: Seq<u8>,
-        log_id: u128,
-        new_cdb_bytes: Seq<u8>,
-        old_cdb: bool,
-    )
-        requires 
-            no_outstanding_writes(old_pm_region_view),
-            old_pm_region_view.len() >= ABSOLUTE_POS_OF_LOG_AREA,
-            old_pm_region_view.len() == new_mem.len(),
-            new_cdb_bytes == CDB_FALSE.spec_to_bytes() || new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
-            old_cdb ==> new_cdb_bytes == CDB_FALSE.spec_to_bytes(),
-            !old_cdb ==> new_cdb_bytes == CDB_TRUE.spec_to_bytes(),
-            new_mem == update_bytes(old_pm_region_view.read_state, ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes),
-            metadata_types_set(old_pm_region_view.read_state),
-            inactive_metadata_types_set(old_pm_region_view.read_state),
-        ensures 
-            metadata_types_set(new_mem)
-    {
-        broadcast use pmcopy_axioms;
-        reveal(spec_padding_needed);
-
-        let old_mem = old_pm_region_view.read_state;
-        lemma_auto_smaller_range_of_seq_is_subrange(old_mem);
-        lemma_auto_smaller_range_of_seq_is_subrange(new_mem);
-        
-        // Immutable metadata has not changed
-        assert(old_mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_CDB as int) =~=
-            new_mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_CDB as int));
-
-        // We updated the CDB -- its type is still set, since new_cdb_bytes corresponds to a serialization of a valid CDB value
-        assert(extract_bytes(new_mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()) == new_cdb_bytes);
-
-        let new_cdb = deserialize_and_check_log_cdb(new_mem).unwrap();
-        let active_metadata_pos = get_log_metadata_pos(new_cdb);
-        // The bytes in the new active position are the same in both byte sequences, and they had their metadata types set in the old view,
-        // so types are also set in the new view, and the postcondition holds.
-        assert(extract_bytes(new_mem, active_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) == 
-            extract_bytes(old_mem, active_metadata_pos as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
     }
 }
