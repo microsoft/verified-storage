@@ -603,9 +603,6 @@ verus! {
                 lemma_establish_subrange_equivalence(wrpm_region@.durable_state, alt_crash_state);
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(wrpm_region@.durable_state,
                                                                              alt_crash_state);
-// TODO: Remove if unnecessary
-//                lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
-//                lemma_metadata_set_after_crash(alt_region_view, self.cdb);
             }
 
             assert(ABSOLUTE_POS_OF_LOG_AREA as nat % (const_persistence_chunk_size() as nat) == 0) by (compute);
@@ -636,15 +633,10 @@ verus! {
                 subregion.lemma_reveal_opaque_inv(wrpm_region);
                 lemma_establish_subrange_equivalence(subregion.initial_region_view().read_state,
                                                      wrpm_region@.read_state);
-                assert(views_differ_only_where_subregion_allows(old_wrpm_region, wrpm_region@,
-                ABSOLUTE_POS_OF_LOG_AREA as nat, self.info.log_area_len as nat, is_writable_absolute_addr_fn));
-                assert(old_wrpm_region.read_state.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                                           ABSOLUTE_POS_OF_LOG_AREA as int) ==
-                       wrpm_region@.read_state.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
-                                                        ABSOLUTE_POS_OF_LOG_AREA as int));
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.read_state,
                                                                              wrpm_region@.read_state);
                 lemma_metadata_matches_implies_metadata_types_set(old_wrpm_region, wrpm_region@, self.cdb);
+                lemma_invariants_imply_crash_recover(wrpm_region@, log_id, self.cdb, self.info, self.state@);
             }
 
             result

@@ -942,6 +942,10 @@ impl WriteRestrictedPersistentMemorySubregion
             views_differ_only_where_subregion_allows(self.initial_region_view(), wrpm@, self.start(), self.len(),
                                                      self.is_writable_absolute_addr_fn()),
             self.view(wrpm) == get_subregion_view(wrpm@, self.start(), self.len()),
+            forall |addr: int| 0 <= addr < wrpm@.len() && !(self.start() <= addr < self.start() + self.len()) ==>
+                #[trigger] wrpm@.read_state[addr] == self.initial_region_view().read_state[addr],
+            forall |addr: int| 0 <= addr < wrpm@.len() && !(self.start() <= addr < self.start() + self.len()) ==>
+                #[trigger] wrpm@.durable_state[addr] == self.initial_region_view().durable_state[addr],
             forall |addr: int| 0 <= addr < self.len() ==>
                 #[trigger] self.view(wrpm).read_state[addr] == wrpm@.read_state[addr + self.start()],
             forall |addr: int| 0 <= addr < self.len() ==>
