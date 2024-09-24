@@ -13,14 +13,9 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [x] `commit` * 
         - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
-        - [ ] `get_list_len` *
         - [x] `tentative_update_item` *
         - [x] `tentative_delete` * 
-        - [ ] `tentative_append` *
-        - [ ] `read_list_entry_at_index` *
-        - [ ] `tentative_alloc_list_node` *
-        - [ ] `tentative_update_list_entry_at_index` *
-        - [ ] `tentative_trim_list` *
+        
     - Operation log
         - [x] `start`
         - [x] `tentatively_append_log_entry` *
@@ -52,6 +47,35 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [x] `tentatively_write_item` *
         - [x] `read_item` *
         - [x] Deallocate item table slot
+
+
+- Volatile
+    - [x] Use `vstd` `HashMap` 
+    - [x] Constructor
+    - [x] `insert_key`
+    - [ ] `get` *
+    - [ ] `get_location_by_index`
+    - [ ] `remove` *
+  
+- KV store interface
+    - [x] `setup`
+    - [ ] `start` - hayley-leblanc
+    - [ ] `create`
+    - [ ] `read_item`
+    - [ ] `update_item`
+    - [ ] `delete`
+    - [ ] `commit`
+    - [ ] `get_keys`
+
+Low priority:
+- Durable
+    - General durable operations
+        - [ ] `get_list_len` *
+        - [ ] `tentative_append` *
+        - [ ] `read_list_entry_at_index` *
+        - [ ] `tentative_alloc_list_node` *
+        - [ ] `tentative_update_list_entry_at_index` *
+        - [ ] `tentative_trim_list` *
     - Lists
         - [x] Prove that lists are empty at setup
         - [ ] `start`*
@@ -61,29 +85,13 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] Read element at given index *
         - [ ] Deallocate list node *
         - [ ] Traverse list for volatile index setup 
-
 - Volatile
-    - [x] Use `vstd` `HashMap` 
-    - [x] Constructor
-    - [x] `insert_key`
     - [ ] `append_list_node_addr`
-    - [ ] `get` *
-    - [ ] `get_location_by_index`
-    - [ ] `remove` *
     - [ ] `trim_list`
-
 - KV store interface
-    - [x] `setup`
-    - [ ] `start` - hayley-leblanc
-    - [ ] `create`
-    - [ ] `read_item`
-    - [ ] `read_item_and_list`
-    - [ ] `read_list_entry_at_index`
-    - [ ] `read_list`
-    - [ ] `update_item`
-    - [ ] `delete`
     - [ ] `append_to_list`
     - [ ] `update_list_entry_at_index`
     - [ ] `trim_list`
-    - [ ] `commit`
-    - [ ] `get_keys`
+    - [ ] `read_item_and_list`
+    - [ ] `read_list_entry_at_index`
+    - [ ] `read_list`
