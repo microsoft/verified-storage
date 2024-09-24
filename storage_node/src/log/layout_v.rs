@@ -756,7 +756,5 @@ verus! {
             assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
                 mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()));
         }
-        assert(active_metadata_bytes_are_equal(mem1, mem2));
-        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, cdb);
     }
 }

@@ -655,7 +655,7 @@ verus! {
 
     // This lemma proves that a subrange of a subrange is equal to the result of a single call to
     // subrange.
-    pub proof fn lemma_subrange_of_subrange_forall(mem: Seq<u8>)
+    pub proof fn lemma_auto_subrange_of_subrange(mem: Seq<u8>)
         ensures
             forall|s1: int, e1: int, s2: int, e2: int|
                0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 ==>
@@ -665,6 +665,25 @@ verus! {
                0 <= s1 <= e1 <= mem.len() && 0 <= s2 <= e2 <= e1 - s1 implies
                mem.subrange(s1, e1).subrange(s2, e2) == mem.subrange(s1 + s2, s1 + e2) by {
             mem.lemma_slice_of_slice(s1, e1, s2, e2);
+        }
+    }
+
+    pub proof fn lemma_smaller_range_of_seq_is_subrange(mem1: Seq<u8>, i: int, j: int, k: int, l: int)
+        requires 
+            0 <= i <= k <= l <= j <= mem1.len()
+        ensures 
+            mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
+    {
+        assert(mem1.subrange(k, l) == mem1.subrange(i + k - i, i + l - i));
+        assert(mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(i + k - i, i + l - i));
+    }
+
+    pub proof fn lemma_auto_smaller_range_of_seq_is_subrange(mem1: Seq<u8>)
+        ensures 
+            forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() ==> mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
+    {
+        assert forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() implies mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) by {
+            lemma_smaller_range_of_seq_is_subrange(mem1, i, j, k, l);
         }
     }
 
@@ -719,7 +738,7 @@ verus! {
         }
     }
 
-    pub proof fn lemma_can_result_from_write_effect_on_durable_state_forall()
+    pub proof fn lemma_auto_can_result_from_write_effect_on_durable_state()
         ensures
             forall |v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>|
                 #![trigger v2.can_result_from_write(v1, write_addr, bytes)]

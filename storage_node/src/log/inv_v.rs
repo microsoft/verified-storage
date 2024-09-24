@@ -51,16 +51,6 @@ verus! {
                                          ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int)
     }
 
-    pub open spec fn active_metadata_is_equal(
-        pm_region_view1: PersistentMemoryRegionView,
-        pm_region_view2: PersistentMemoryRegionView,
-    ) -> bool 
-    {
-        let pm_bytes1 = pm_region_view1.read_state;
-        let pm_bytes2 = pm_region_view2.read_state;
-        active_metadata_bytes_are_equal(pm_bytes1, pm_bytes2)
-    }
-
     pub open spec fn active_metadata_bytes_are_equal(
         pm_bytes1: Seq<u8>,
         pm_bytes2: Seq<u8>,
@@ -649,105 +639,6 @@ verus! {
         assert(metadata_types_set(s)) by {
             lemma_establish_subrange_equivalence(s, pm_region_view.read_state);
         }
-    }
-
-    // This lemma proves that if we two PM states have the same bytes in the log header and no outstanding writes in that region,
-    // and one of the states has metadata types set, then the other also has metadata types set. This is useful for proving 
-    // that the metadata types invariant holds when appending to the log.
-    pub proof fn lemma_metadata_matches_implies_metadata_types_set(
-        pm1: PersistentMemoryRegionView,
-        pm2: PersistentMemoryRegionView,
-        cdb: bool
-    )
-        requires
-            pm1.valid(),
-            pm2.valid(),
-            no_outstanding_writes_to_active_metadata(pm1, cdb),
-            no_outstanding_writes_to_active_metadata(pm2, cdb),
-            metadata_types_set(pm1.read_state),
-            memory_matches_deserialized_cdb(pm1, cdb),
-            0 < ABSOLUTE_POS_OF_LOG_AREA < pm1.len(),
-            0 < ABSOLUTE_POS_OF_LOG_AREA < pm2.len(),
-            active_metadata_is_equal(pm1, pm2),
-            pm1.len() == pm2.len()
-        ensures 
-            metadata_types_set(pm2.read_state)
-    {
-        lemma_active_metadata_bytes_equal_implies_metadata_types_set(pm1.read_state, pm2.read_state, cdb);
-    }
-
-    // This lemma proves that if two sequences have equal active metadata bytes and one has its metadata types set,
-    // then the other sequence also has its metadata types set.
-    pub proof fn lemma_active_metadata_bytes_equal_implies_metadata_types_set(
-        mem1: Seq<u8>,
-        mem2: Seq<u8>,
-        cdb: bool
-    )
-        requires 
-            ABSOLUTE_POS_OF_LOG_AREA <= mem1.len(),
-            ABSOLUTE_POS_OF_LOG_AREA <= mem2.len(),
-            active_metadata_bytes_are_equal(mem1, mem2),
-            ({
-                let cdb1 = deserialize_and_check_log_cdb(mem1);
-                let cdb2 = deserialize_and_check_log_cdb(mem2);
-                let log_metadata_pos = get_log_metadata_pos(cdb);
-                &&& cdb1 is Some 
-                &&& cdb2 is Some 
-                &&& cdb ==> cdb1.unwrap() && cdb2.unwrap()
-                &&& !cdb ==> !cdb1.unwrap() && !cdb2.unwrap()
-            }),
-            metadata_types_set(mem1),
-        ensures 
-            metadata_types_set(mem2),
-    {
-        reveal(spec_padding_needed);
-
-        lemma_establish_subrange_equivalence(mem1, mem2);
-
-        // This lemma automatically establishes the relationship between subranges of subranges from the same sequence, 
-        // so knowing that the assertions below cover subranges of larger, equal subranges is enough to establish equality
-        // (but we have to assert it explicitly to hit the triggers)
-        lemma_auto_smaller_range_of_seq_is_subrange(mem1);
-
-        // First, establish that the immutable parts and the CDB are the same between both byte sequences.
-        let mem1_without_log_metadata = mem1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int);
-        let mem2_without_log_metadata = mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int);
-        assert(extract_bytes(mem1, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of()) == 
-            extract_bytes(mem2, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of()));
-        assert(extract_bytes(mem1, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of()) == 
-            extract_bytes(mem2, ABSOLUTE_POS_OF_GLOBAL_CRC as nat, u64::spec_size_of()));
-        assert(extract_bytes(mem1, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of()) == 
-            extract_bytes(mem2, ABSOLUTE_POS_OF_REGION_METADATA as nat, RegionMetadata::spec_size_of()));
-        assert(extract_bytes(mem1, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of()) == 
-            extract_bytes(mem2, ABSOLUTE_POS_OF_REGION_CRC as nat, u64::spec_size_of()));
-        assert(extract_bytes(mem1, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()) == 
-            extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()));
-
-        // Next, establish that the types are set in the active metadata
-        let log_metadata_pos = get_log_metadata_pos(cdb);
-        assert(extract_bytes(mem1, log_metadata_pos as nat, LogMetadata::spec_size_of()) == 
-            extract_bytes(mem2, log_metadata_pos as nat, LogMetadata::spec_size_of()));
-        assert(extract_bytes(mem1, log_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()) ==
-            extract_bytes(mem2, log_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()));
-    }
-
-    pub proof fn lemma_auto_smaller_range_of_seq_is_subrange(mem1: Seq<u8>)
-        ensures 
-            forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() ==> mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-    {
-        assert forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() implies mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) by {
-            lemma_smaller_range_of_seq_is_subrange(mem1, i, j, k, l);
-        }
-    }
-
-    pub proof fn lemma_smaller_range_of_seq_is_subrange(mem1: Seq<u8>, i: int, j: int, k: int, l: int)
-        requires 
-            0 <= i <= k <= l <= j <= mem1.len()
-        ensures 
-            mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-    {
-        assert(mem1.subrange(k, l) == mem1.subrange(i + k - i, i + l - i));
-        assert(mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(i + k - i, i + l - i));
     }
 
     pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>)

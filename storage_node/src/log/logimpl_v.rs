@@ -635,7 +635,6 @@ verus! {
                                                      wrpm_region@.read_state);
                 lemma_header_bytes_equal_implies_active_metadata_bytes_equal(old_wrpm_region.read_state,
                                                                              wrpm_region@.read_state);
-                lemma_metadata_matches_implies_metadata_types_set(old_wrpm_region, wrpm_region@, self.cdb);
                 lemma_invariants_imply_crash_recover(wrpm_region@, log_id, self.cdb, self.info, self.state@);
             }
 
@@ -832,7 +831,7 @@ verus! {
                 let mem2 = wrpm_region@.read_state;
                 subregion.lemma_reveal_opaque_inv(wrpm_region);
                 lemma_establish_subrange_equivalence(mem1, mem2);
-                lemma_subrange_of_subrange_forall(mem2);
+                lemma_auto_smaller_range_of_seq_is_subrange(mem2);
         
                 assert(wrpm_region.inv());
                 assert(wrpm_region.constants() == old(wrpm_region).constants());
