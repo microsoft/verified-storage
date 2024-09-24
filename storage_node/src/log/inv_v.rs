@@ -51,44 +51,6 @@ verus! {
                                          ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int)
     }
 
-    pub open spec fn active_metadata_bytes_are_equal(
-        pm_bytes1: Seq<u8>,
-        pm_bytes2: Seq<u8>,
-    ) -> bool {
-        let cdb1 = deserialize_and_check_log_cdb(pm_bytes1);
-        let cdb2 = deserialize_and_check_log_cdb(pm_bytes2);
-
-        &&& cdb1.is_Some()
-        &&& cdb2.is_Some()
-        &&& cdb1 == cdb2 
-        &&& pm_bytes1.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
-            pm_bytes2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) 
-        &&& {
-            let metadata_pos = if cdb1.unwrap() { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int }
-                               else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int };
-            pm_bytes1.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-            pm_bytes2.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of())
-        }
-    }
-
-    pub open spec fn inactive_metadata_types_set(mem: Seq<u8>) -> bool 
-    {
-        let cdb_pos = ABSOLUTE_POS_OF_LOG_CDB as int;
-        let cdb = u64::spec_from_bytes(mem.subrange(cdb_pos, cdb_pos + u64::spec_size_of()));
-        let metadata_pos = if cdb == CDB_TRUE { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int }
-                           else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int };
-        let metadata =
-            LogMetadata::spec_from_bytes(mem.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of()));
-        let crc_pos = if cdb == CDB_TRUE { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int }
-                      else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int };
-        let crc = u64::spec_from_bytes(mem.subrange(crc_pos, crc_pos + u64::spec_size_of()));
-        &&& u64::bytes_parseable(mem.subrange(cdb_pos, cdb_pos + u64::spec_size_of()))
-        &&& LogMetadata::bytes_parseable(mem.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of()))
-        &&& u64::bytes_parseable(mem.subrange(crc_pos, crc_pos + u64::spec_size_of()))
-        &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
-        &&& crc == spec_crc_u64(metadata.spec_to_bytes())
-    }
-
     pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemoryRegionView, cdb: bool) -> bool
     {
         &&& no_outstanding_writes_in_range(pm_region_view, ABSOLUTE_POS_OF_LOG_CDB as int,
@@ -297,6 +259,24 @@ verus! {
         }
     }
 
+    pub open spec fn inactive_metadata_types_set(mem: Seq<u8>) -> bool 
+    {
+        let cdb_pos = ABSOLUTE_POS_OF_LOG_CDB as int;
+        let cdb = u64::spec_from_bytes(mem.subrange(cdb_pos, cdb_pos + u64::spec_size_of()));
+        let metadata_pos = if cdb == CDB_TRUE { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int }
+                           else { ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as int };
+        let metadata =
+            LogMetadata::spec_from_bytes(mem.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of()));
+        let crc_pos = if cdb == CDB_TRUE { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_FALSE as int }
+                      else { ABSOLUTE_POS_OF_LOG_CRC_FOR_CDB_TRUE as int };
+        let crc = u64::spec_from_bytes(mem.subrange(crc_pos, crc_pos + u64::spec_size_of()));
+        &&& u64::bytes_parseable(mem.subrange(cdb_pos, cdb_pos + u64::spec_size_of()))
+        &&& LogMetadata::bytes_parseable(mem.subrange(metadata_pos, metadata_pos + LogMetadata::spec_size_of()))
+        &&& u64::bytes_parseable(mem.subrange(crc_pos, crc_pos + u64::spec_size_of()))
+        &&& cdb == CDB_TRUE || cdb == CDB_FALSE 
+        &&& crc == spec_crc_u64(metadata.spec_to_bytes())
+    }
+
     pub proof fn lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(
         pm_region_view: PersistentMemoryRegionView,
         info: LogInfo
@@ -473,7 +453,7 @@ verus! {
     // `is_writable_absolute_addr` -- a spec predicate describing
     // which absolute addresses in the log area may differ between
     // `v1.durable_state` and `mem`.
-    pub proof fn lemma_if_view_and_memory_differ_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
+    pub proof fn lemma_if_view_and_memory_differ_only_in_inaccessible_log_area_parts_then_recover_state_matches(
         v: PersistentMemoryRegionView,
         mem: Seq<u8>,
         log_id: u128,

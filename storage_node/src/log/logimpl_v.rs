@@ -592,7 +592,7 @@ verus! {
                                                             info.log_area_len as nat, is_writable_absolute_addr_fn)
                 implies #[trigger] perm.check_permission(alt_crash_state) by {
                 reveal(spec_padding_needed);
-                lemma_if_view_and_memory_differ_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
+                lemma_if_view_and_memory_differ_only_in_inaccessible_log_area_parts_then_recover_state_matches(
                     wrpm_region@, alt_crash_state, log_id, self.cdb, self.info, self.state@,
                     is_writable_absolute_addr_fn
                 );
