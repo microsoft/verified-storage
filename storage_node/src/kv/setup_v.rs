@@ -301,15 +301,13 @@ pub fn initialize_overall_metadata<K, I, L> (
     Ok(overall_metadata)
 }
 
-// TODO ??????? why do we need an rlimit here again
-#[verifier::rlimit(25)]
 pub fn setup<PM, K, I, L> (
     pm: &mut PM,
     kvstore_id: u128,
     num_keys: u64,
     num_list_entries_per_node: u32,
     num_list_nodes: u64,
-) -> (result: Result<(), KvError<K>>)
+) -> (result: Result<(VersionMetadata, OverallMetadata), KvError<K>>)
     where
         PM: PersistentMemoryRegion,
         K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
@@ -321,17 +319,24 @@ pub fn setup<PM, K, I, L> (
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
+        pm@.len() == old(pm)@.len(),
         match result {
-            Ok(_) => {
+            Ok((version_metadata, overall_metadata)) => {
                 &&& memory_correctly_set_up_on_region::<K, I, L>(pm@.committed(), kvstore_id)
                 &&& pm@.no_outstanding_writes()
+
+                &&& deserialize_version_metadata(pm@.committed()) == version_metadata
+                &&& deserialize_version_crc(pm@.committed()) == version_metadata.spec_crc()
+                &&& deserialize_overall_metadata(pm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata
+                &&& deserialize_overall_crc(pm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata.spec_crc()
+                &&& overall_metadata.region_size == pm@.len()
             },
             Err(_) => true,
         },
 {
     let region_size = pm.get_region_size();
 
-    assert(VersionMetadata::spec_size_of() <= ABSOLUTE_POS_OF_VERSION_CRC) by { reveal(spec_padding_needed); }
+    assert(VersionMetadata::spec_size_of() <= ABSOLUTE_POS_OF_VERSION_CRC) by (compute_only);
 
     let overall_metadata_addr = ABSOLUTE_POS_OF_VERSION_CRC + size_of::<u64>() as u64;
 
@@ -371,7 +376,7 @@ pub fn setup<PM, K, I, L> (
         assert(overall_crc.spec_to_bytes() == extract_bytes(mem, (version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()) as nat, u64::spec_size_of()));
     }
 
-    Ok(())
+    Ok((version_metadata, overall_metadata))
 }
 
 }

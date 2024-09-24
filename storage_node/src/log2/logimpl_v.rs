@@ -780,9 +780,13 @@ impl UntrustedLogImpl {
                 // Bytes outside the specified log region have not changed
                 let old_pm_bytes = old(pm_region)@.flush().committed();
                 let new_pm_bytes = pm_region@.flush().committed();
-                &&& extract_bytes(new_pm_bytes, 0, log_start_addr as nat) == extract_bytes(old_pm_bytes, 0, log_start_addr as nat)
-                &&& extract_bytes(new_pm_bytes, (log_start_addr + log_size) as nat, (pm_region@.len() - (log_start_addr + log_size)) as nat) == 
-                        extract_bytes(old_pm_bytes, (log_start_addr + log_size) as nat, (pm_region@.len() - (log_start_addr + log_size)) as nat)
+                forall |addr: int| {
+                    ||| 0 <= addr < log_start_addr 
+                    ||| log_start_addr + log_size <= addr < pm_region@.len()
+                } ==> old_pm_bytes[addr] == new_pm_bytes[addr]
+                // &&& extract_bytes(new_pm_bytes, 0, log_start_addr as nat) == extract_bytes(old_pm_bytes, 0, log_start_addr as nat)
+                // &&& extract_bytes(new_pm_bytes, (log_start_addr + log_size) as nat, (pm_region@.len() - (log_start_addr + log_size)) as nat) == 
+                //         extract_bytes(old_pm_bytes, (log_start_addr + log_size) as nat, (pm_region@.len() - (log_start_addr + log_size)) as nat)
             }),
             match result {
                 Ok(()) => {

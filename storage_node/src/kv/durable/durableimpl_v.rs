@@ -1224,46 +1224,6 @@ verus! {
             }
         }
 
-        proof fn lemma_version_and_overall_metadata_unchanged(
-            self,
-            old_pm_view: PersistentMemoryRegionView
-        )
-            requires 
-                0 < self.version_metadata.overall_metadata_addr < 
-                    self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <
-                    self.overall_metadata.log_area_addr,
-                self.wrpm@.len() == old_pm_view.len(),
-                self.wrpm@.no_outstanding_writes(),
-                0 < VersionMetadata::spec_size_of() < self.version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < self.wrpm@.len(),
-                no_outstanding_writes_to_version_metadata(old_pm_view),
-                no_outstanding_writes_to_overall_metadata(old_pm_view, self.version_metadata.overall_metadata_addr as int),
-                version_and_overall_metadata_match::<K, L>(old_pm_view.committed(), self.wrpm@.committed(), self.version_metadata.overall_metadata_addr as nat),
-                self.version_metadata == deserialize_version_metadata(old_pm_view.committed()),
-                self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr ),
-            ensures 
-                self.version_metadata == deserialize_version_metadata(self.wrpm@.committed()),
-                self.overall_metadata == deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr),
-        {
-            broadcast use pmcopy_axioms;
-            let pm_view = self.wrpm@;
-            let mem = pm_view.committed();
-            let flushed_old_mem = old_pm_view.flush().committed();
-
-            lemma_establish_extract_bytes_equivalence(mem, flushed_old_mem);
-            assert(extract_bytes(mem, 0, VersionMetadata::spec_size_of()) == 
-                extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()));
-            assert(extract_bytes(flushed_old_mem, 0, VersionMetadata::spec_size_of()) == 
-                extract_bytes(old_pm_view.committed(), 0, VersionMetadata::spec_size_of()));
-
-            assert(extract_bytes(mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) == 
-                extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
-            assert(extract_bytes(flushed_old_mem, self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()) =~= 
-                extract_bytes(old_pm_view.committed(), self.version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
-            assert(self.overall_metadata == deserialize_overall_metadata(old_pm_view.committed(), self.version_metadata.overall_metadata_addr));
-            assert(self.overall_metadata == deserialize_overall_metadata(flushed_old_mem, self.version_metadata.overall_metadata_addr));
-            assert(self.overall_metadata == deserialize_overall_metadata(mem, self.version_metadata.overall_metadata_addr));
-        }
-
         proof fn lemma_durable_kv_satisfies_crash_condition_with_init_op_log(
             self,
             s1: Seq<u8>,
@@ -1422,13 +1382,24 @@ verus! {
                 overall_metadata.region_size == old(pm_region)@.len(),
                 memory_correctly_set_up_on_region::<K, I, L>(old(pm_region)@.committed(), kvstore_id),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kvstore_id),
+                deserialize_version_metadata(old(pm_region)@.committed()) == version_metadata,
+                deserialize_version_crc(old(pm_region)@.committed()) == version_metadata.spec_crc(),
+                deserialize_overall_metadata(old(pm_region)@.committed(), version_metadata.overall_metadata_addr) == overall_metadata,
+                deserialize_overall_crc(old(pm_region)@.committed(), version_metadata.overall_metadata_addr) == overall_metadata.spec_crc(),
            ensures 
                 pm_region.inv(),
+                
                 match result {
                     Ok(()) => {
+                        &&& pm_region@.no_outstanding_writes()
+                        &&& memory_correctly_set_up_on_region::<K, I, L>(pm_region@.committed(), kvstore_id)
                         &&& Self::physical_recover(pm_region@.committed(), version_metadata, overall_metadata) matches Some(recovered_view)
                         &&& Self::physical_recover(pm_region@.committed(), version_metadata, overall_metadata) == Self::logical_recover(pm_region@.committed(), version_metadata, overall_metadata)
                         &&& recovered_view == DurableKvStoreView::<K, I, L>::init()
+                        &&& deserialize_version_metadata(pm_region@.committed()) == version_metadata
+                        &&& deserialize_version_crc(pm_region@.committed()) == version_metadata.spec_crc()
+                        &&& deserialize_overall_metadata(pm_region@.committed(), version_metadata.overall_metadata_addr) == overall_metadata
+                        &&& deserialize_overall_crc(pm_region@.committed(), version_metadata.overall_metadata_addr) == overall_metadata.spec_crc()
                     }
                     Err(_) => true
                 }
@@ -1437,17 +1408,17 @@ verus! {
             let overall_metadata_addr = version_metadata.overall_metadata_addr;
 
             // Define subregions for each durable component and call setup on each one
-            let ghost writable_addr_fn = |addr: int| true;
+            let ghost main_table_writable_addr_fn = |addr: int| overall_metadata.main_table_addr <= addr < overall_metadata.main_table_addr + overall_metadata.main_table_size;
             let main_table_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 
                 overall_metadata.main_table_addr, 
                 Ghost(overall_metadata.main_table_size as nat),
-                Ghost(writable_addr_fn)
+                Ghost(main_table_writable_addr_fn)
             );
             MainTable::<K>::setup::<PM, L>(&main_table_subregion, pm_region, num_keys, overall_metadata.main_table_entry_size)?;
-            proof { main_table_subregion.lemma_reveal_opaque_inv(pm_region); }
+            proof { 
+                main_table_subregion.lemma_reveal_opaque_inv(pm_region); 
 
-            proof {
                 let bytes = pm_region@.flush().committed();
                 let main_table_bytes = extract_bytes(bytes, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 assert(main_table_bytes == main_table_subregion.view(pm_region).flush().committed());
@@ -1455,6 +1426,7 @@ verus! {
 
             // Both the item table and list region do not require any writes in setup; we just need to prove that regardless of the contents of 
             // the PM in those areas, if we set up the item table correctly then 
+            let ghost writable_addr_fn = |addr: int| true;
             let item_table_subregion = WritablePersistentMemorySubregion::new(
                 pm_region, 
                 overall_metadata.item_table_addr, 
@@ -1530,6 +1502,10 @@ verus! {
 
                 // Now need to prove that the recovered view matches init, i.e. that it results in an empty map.
                 assert(recovered_view.unwrap().contents =~= Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
+
+                lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(old(pm_region)@);
+                lemma_establish_extract_bytes_equivalence(bytes, old(pm_region)@.flush().committed());
+                assert(memory_correctly_set_up_on_region::<K, I, L>(bytes, kvstore_id));
             }
 
             Ok(())

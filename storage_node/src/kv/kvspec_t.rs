@@ -13,6 +13,9 @@ use crate::pmem::wrpm_t::*;
 
 use crate::kv::durable::durableimpl_v::*;
 use crate::kv::kvimpl_t::*;
+use crate::kv::layout_v::*;
+use crate::kv::setup_v::*;
+use crate::kv::volatile::volatilespec_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use std::hash::Hash;
@@ -121,15 +124,87 @@ verus! {
     }
 
     impl<K, I, L> AbstractKvStoreState<K, I, L>
-    where
-        K: Hash + Eq + std::fmt::Debug,
+        where
+            K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+            I: PmCopy + Sized + std::fmt::Debug,
+            L: PmCopy + std::fmt::Debug,
     {
+        pub open spec fn recover<Perm, PM>(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+            where
+                Perm: CheckPermission<Seq<u8>>,
+                PM: PersistentMemoryRegion,
+        {
+            let version_metadata = deserialize_version_metadata(mem);
+            let version_crc = deserialize_version_crc(mem);
+            let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
+            let overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
+            if !{
+                &&& version_crc == version_metadata.spec_crc()
+                &&& overall_crc == overall_metadata.spec_crc()
+                &&& version_metadata_valid(version_metadata)
+                &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kv_id)
+                &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
+            } {
+                None
+            } else {
+                let recovered_durable_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata);
+                if let Some(recovered_durable_state) = recovered_durable_state {
+                    Some(Self {
+                        id: kv_id,
+                        contents: Self::construct_view_from_durable_state(recovered_durable_state)
+                    })
+                } else {
+                    None
+                }
+            } 
+        }
+
+        pub open spec fn construct_view_from_durable_state(durable_store_state: DurableKvStoreView<K, I, L>) -> Map<K, (I, Seq<L>)>
+        {
+            let index_to_key = Map::new(
+                |i| durable_store_state.contents.dom().contains(i),
+                |i| durable_store_state.contents[i].key
+            );
+            let key_to_index = index_to_key.invert();
+            Map::new(
+                |k| key_to_index.dom().contains(k),
+                |k| {
+                    let index = key_to_index[k];
+                    let entry = durable_store_state.contents[index];
+                    (entry.item, entry.list.list)
+                }
+            )
+        }
+
+        pub closed spec fn construct_view_contents(
+            volatile_store_state: VolatileKvIndexView<K>,
+            durable_store_state: DurableKvStoreView<K, I, L>
+        ) -> Map<K, (I, Seq<L>)> {
+            Map::new(
+                |k| { volatile_store_state.contains_key(k) },
+                |k| {
+                    let index_entry = volatile_store_state[k].unwrap();
+                    let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
+                    (durable_entry.item(), durable_entry.list().list)
+                }
+            )
+        }
+
+
         pub open spec fn spec_index(self, key: K) -> Option<(I, Seq<L>)>
         {
             if self.contents.contains_key(key) {
                 Some(self.contents[key])
             } else {
                 None
+            }
+        }
+
+        pub open spec fn init(id: u128) -> Self 
+        {
+            Self {
+                id,
+                contents: Map::empty()
             }
         }
 

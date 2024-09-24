@@ -601,7 +601,8 @@ verus! {
                 L: PmCopy
             requires
                 subregion.inv(&*old(pm_region)),
-                forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                forall |addr: int| subregion.start() <= addr < subregion.end() ==>
+                     #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                 subregion.view(&*(old(pm_region))).no_outstanding_writes(),
                 num_keys * main_table_entry_size <= subregion.view(&*(old(pm_region))).len() <= u64::MAX,
                 main_table_entry_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() +
@@ -636,7 +637,8 @@ verus! {
                     // entry_offset == index * main_table_entry_size,
                     entry_offset == index_to_offset(index as nat, main_table_entry_size as nat),
                     main_table_entry_size >= u64::spec_size_of(),
-                    forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                    forall |addr: int| subregion.start() <= addr < subregion.end() ==>
+                     #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
                         subregion.view(pm_region).flush().committed(), k, main_table_entry_size
                     ) == CDB_FALSE,
