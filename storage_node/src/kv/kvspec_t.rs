@@ -129,6 +129,7 @@ verus! {
             I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug,
     {
+        // TODO @hayley: weird that this has to take Perm and PM -- move durable recovery fn to view method to remove this?
         pub open spec fn recover<Perm, PM>(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
             where
                 Perm: CheckPermission<Seq<u8>>,

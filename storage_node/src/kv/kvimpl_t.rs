@@ -115,6 +115,31 @@ where
         self.untrusted_kv_impl.valid()
     }
 
+    pub exec fn setup(
+        pm_region: &mut PM,
+        kvstore_id: u128,
+        num_keys: u64, 
+        num_list_entries_per_node: u32,
+        num_list_nodes: u64,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(pm_region).inv(),
+        ensures
+            pm_region.inv(),
+            match result {
+                Ok(()) => {
+                    &&& pm_region@.no_outstanding_writes()
+                    &&& AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
+                    &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
+                }
+                Err(_) => true
+            }
+    {
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L, V>::untrusted_setup(pm_region, kvstore_id,
+            num_keys, num_list_entries_per_node, num_list_nodes)?;
+        Ok(())
+    }
+
     /* 
 
     /// The `KvStore` constructor calls the constructors for the durable and

@@ -59,7 +59,7 @@ where
     L: PmCopy + std::fmt::Debug + Copy,
     V: VolatileKvIndex<K>,
 {
-    pub closed spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
+    pub open spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
         AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(mem, kv_id)
     }
@@ -92,6 +92,7 @@ where
             pm_region.inv(),
             match result {
                 Ok(()) => {
+                    &&& pm_region@.no_outstanding_writes()
                     &&& Self::recover(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
                     &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
                 }
