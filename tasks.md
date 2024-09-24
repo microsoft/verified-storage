@@ -14,7 +14,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] `tentative_create` * jaylorch
         - [x] `read_item` 
         - [ ] `get_list_len` *
-        - [ ] `tentative_update_item` * hayley-leblanc
+        - [x] `tentative_update_item` *
         - [x] `tentative_delete` * 
         - [ ] `tentative_append` *
         - [ ] `read_list_entry_at_index` *
@@ -38,7 +38,7 @@ Starred functions * have an unverified implementation (which may be out of date 
             - [x] `update_log_metadata`
             - [x] Add `abort_pending_appends` function
     - Main table 
-        - [ ] Rename module and types/fns to reflect change from "metadata table" to "main table" 
+        - [x] Rename module and types/fns to reflect change from "metadata table" to "main table" 
         - [x] `setup`
         - [x] `start` *
         - [x] `tentative_create` *
@@ -63,7 +63,7 @@ Starred functions * have an unverified implementation (which may be out of date 
         - [ ] Traverse list for volatile index setup 
 
 - Volatile
-    - [ ] Use `vstd` `HashMap` 
+    - [x] Use `vstd` `HashMap` 
     - [x] Constructor
     - [x] `insert_key`
     - [ ] `append_list_node_addr`
