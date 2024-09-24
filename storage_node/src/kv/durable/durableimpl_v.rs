@@ -4350,7 +4350,6 @@ verus! {
                 // we need to about the current item table's indexes.
                 self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     self.main_table@.valid_item_indices(),
-                    self.main_table@.valid_item_indices(),
                     old_tentative_main_table_view.valid_item_indices()
                 );
             }

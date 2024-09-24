@@ -165,7 +165,6 @@ verus! {
                 &&& !tentative_valid_indices.contains(idx)
             } <==> {
                 &&& self.pending_deallocations.contains(idx) 
-                &&& current_valid_indices.contains(idx)
             }
             // If an index is not in the current valid index set but is in the tentative one,
             // it is pending allocation
@@ -363,11 +362,10 @@ verus! {
         pub proof fn lemma_valid_indices_disjoint_with_free_and_pending_alloc(
             self,
             current_valid_indices: Set<u64>,
-            durable_valid_indices: Set<u64>,
             tentative_valid_indices: Set<u64>
         )
             requires 
-                self.pending_alloc_inv(current_valid_indices, durable_valid_indices, tentative_valid_indices),
+                self.pending_alloc_inv(current_valid_indices, current_valid_indices, tentative_valid_indices),
             ensures 
                 forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] current_valid_indices.contains(idx)) ==> {
                     ||| self.pending_allocations_view().contains(idx)
@@ -377,7 +375,7 @@ verus! {
                     !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
         {
             assert(forall |idx: u64| 0 <= idx < self.num_keys ==> {
-                self.allocator_view().pending_alloc_check(idx, current_valid_indices, durable_valid_indices, tentative_valid_indices)
+                self.allocator_view().pending_alloc_check(idx, current_valid_indices, current_valid_indices, tentative_valid_indices)
             });
             // Annoyingly, we need to have a trigger on `!tentative_valid_indices.contains(idx)`, which 
             // apparently Verus can do internally, but is not syntactically legal here. So we have to 
@@ -386,25 +384,24 @@ verus! {
             // to hit the proper triggers. 
             assert(forall |idx: u64| #![trigger current_valid_indices.contains(idx)] #![trigger tentative_valid_indices.contains(idx)] 
                 0 <= idx < self.num_keys && 
-                    self.allocator_view().pending_alloc_check(idx, current_valid_indices, durable_valid_indices,
+                    self.allocator_view().pending_alloc_check(idx, current_valid_indices, current_valid_indices,
                                              tentative_valid_indices) ==> {
                     &&& {
-                            &&& durable_valid_indices.contains(idx)
+                            &&& current_valid_indices.contains(idx)
                             &&& !tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& self.pending_deallocations_view().contains(idx) 
-                            &&& current_valid_indices.contains(idx)
                         }
                     &&& {
-                            &&& !durable_valid_indices.contains(idx)
+                            &&& !current_valid_indices.contains(idx)
                             &&& tentative_valid_indices.contains(idx)
                         } <==> self.pending_allocations_view().contains(idx)
                     &&& {
-                            &&& !durable_valid_indices.contains(idx)
+                            &&& !current_valid_indices.contains(idx)
                             &&& !tentative_valid_indices.contains(idx)
                         } <==> self.free_list().contains(idx)
                     &&& {
-                            &&& durable_valid_indices.contains(idx)
+                            &&& current_valid_indices.contains(idx)
                             &&& tentative_valid_indices.contains(idx)
                         } <==> {
                             &&& !self.pending_deallocations_view().contains(idx) 
@@ -413,7 +410,7 @@ verus! {
                 }
             );
 
-            assert forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] durable_valid_indices.contains(idx)) implies {
+            assert forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] current_valid_indices.contains(idx)) implies {
                 ||| self.pending_allocations_view().contains(idx)
                 ||| self.free_list().contains(idx)
             } by {
@@ -422,7 +419,7 @@ verus! {
                     &&& !tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& self.pending_deallocations_view().contains(idx) 
-                    &&& durable_valid_indices.contains(idx)
+                    &&& current_valid_indices.contains(idx)
                 });
                 assert({!({
                     &&& current_valid_indices.contains(idx)
@@ -431,7 +428,7 @@ verus! {
                 // Verus is able to automatically handle the rest of the cases.
             }
 
-            assert forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] durable_valid_indices.contains(idx) implies 
+            assert forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] current_valid_indices.contains(idx) implies 
                 !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
             by {
                 assert({
@@ -439,14 +436,13 @@ verus! {
                     &&& !tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& self.pending_deallocations_view().contains(idx) 
-                    &&& durable_valid_indices.contains(idx)
                 });
                 assert({
                     &&& current_valid_indices.contains(idx)
                     &&& tentative_valid_indices.contains(idx)
                 } <==> {
                     &&& !self.pending_deallocations_view().contains(idx) 
-                    &&& durable_valid_indices.contains(idx)
+                    &&& current_valid_indices.contains(idx)
                 });
                 // Again, Verus can get the rest from here.
             }
@@ -736,7 +732,7 @@ verus! {
 
             proof {
                 self.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    current_valid_indices, current_valid_indices, tentative_valid_indices);
+                    current_valid_indices, tentative_valid_indices);
             }
             
             let entry_size = self.entry_size;
