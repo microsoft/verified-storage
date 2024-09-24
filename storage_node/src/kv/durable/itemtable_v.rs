@@ -1285,8 +1285,8 @@ verus! {
             requires 
                 pm.no_outstanding_writes(),
                 old(self).opaquable_inv(overall_metadata, valid_indices),
-                forall|idx: u64| #[trigger] valid_indices.contains(idx) ==> 
-                    !old(self).free_list().contains(idx) && !old(self).pending_allocations_view().contains(idx),
+                // forall|idx: u64| #[trigger] valid_indices.contains(idx) ==> 
+                //     !old(self).free_list().contains(idx) && !old(self).pending_allocations_view().contains(idx),
                 old(self)@.len() == old(self).outstanding_item_table@.len() == old(self).num_keys == overall_metadata.num_keys,
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -1307,12 +1307,15 @@ verus! {
                     &&& old(self)@.durable_item_table[idx as int] is Some
                     &&& old(self)@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
                 },
-                forall |idx: u64|0 <= idx < old(self).num_keys && !(#[trigger] valid_indices.contains(idx)) ==> {
-                    ||| old(self).pending_allocations_view().contains(idx)
-                    ||| old(self).free_list().contains(idx)
-                },
+                // forall |idx: u64|0 <= idx < old(self).num_keys && !(#[trigger] valid_indices.contains(idx)) ==> {
+                //     ||| old(self).pending_allocations_view().contains(idx)
+                //     ||| old(self).free_list().contains(idx)
+                // },
                 // forall |idx: u64| 0 <= idx < old(self).num_keys ==> 
                 //     old(self).free_list().contains(idx) <==> !old(self).pending_allocations_view().contains(idx),
+                forall |idx: u64|0 <= idx < old(self).num_keys ==> 
+                    old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(
+                        idx, valid_indices, valid_indices, valid_indices),
                 forall |i: int, j: int| {
                     &&& 0 <= i < old(self).free_list@.len() 
                     &&& 0 <= j < old(self).pending_allocations@.len()
@@ -1345,15 +1348,30 @@ verus! {
                     ||| old(self).pending_allocations@.contains(idx)
                 });
 
-                assert forall |idx: u64| 0 <= idx < self.num_keys implies
-                    self.allocator_view().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)
-                by {
+                assert forall |idx: u64| 
+                    #![trigger self.allocator_view().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)]
+                    #![trigger self.allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)]
+                0 <= idx < self.num_keys implies {
+                        &&& self.allocator_view().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)
+                        &&& self.allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)
+                } by {
+                    assert(old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices));
                     // note: valid indices doesn't change here
                     if !valid_indices.contains(idx) {
                         assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
                         assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
                     }
                 }
+
+                // assert forall |idx: u64| 0 <= idx < self.num_keys implies 
+                //     self.allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices)
+                // by {
+                //     assert(old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, valid_indices, valid_indices, valid_indices));
+                //     if !valid_indices.contains(idx) {
+                //         assert(self.free_list@.subrange(0, old(self).free_list@.len() as int) == old(self).free_list@);
+                //         assert(self.free_list@.subrange(old(self).free_list@.len() as int, self.free_list@.len() as int) == old(self).pending_allocations@);
+                //     }
+                // }
 
                 // Prove that the pending alloc check holds in the abort case after concatenating free and pending lists
                 lemma_concat_seq_equal_to_set(old(self).free_list@, old(self).pending_allocations@);

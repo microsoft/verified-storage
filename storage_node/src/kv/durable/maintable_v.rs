@@ -2614,14 +2614,16 @@ metadata_allocator@.contains(i)
                     },
                 pm.no_outstanding_writes(),
                 forall |idx: u64| old(self).free_list().contains(idx) ==> old(self).free_indices().contains(idx),
-                forall |idx: u64| #[trigger] old(self).pending_allocations_view().contains(idx) ==> {
-                    &&& !old(self).free_indices().contains(idx)
-                    &&& old(self)@.durable_main_table[idx as int] is None
-                    &&& idx < overall_metadata.num_keys
-                },
-                forall |idx: u64| #[trigger] old(self).pending_allocations_view().contains(idx) ==> {
-                    old(self)@.durable_main_table[idx as int] is None
-                },
+                // forall |idx: u64| #[trigger] old(self).allocator_view().pending_allocations.contains(idx) ==> {
+                //     &&& !old(self).free_indices().contains(idx)
+                //     &&& old(self)@.durable_main_table[idx as int] is None
+                //     &&& idx < overall_metadata.num_keys
+                // },
+                // forall |idx: u64| #[trigger] old(self).pending_allocations_view().contains(idx) ==> {
+                //     old(self)@.durable_main_table[idx as int] is None
+                // },
+                forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==>
+                    old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, old(self)@, old(self)@),
                 forall |idx: u64| #[trigger] old(self).free_list().contains(idx) ==> {
                     old(self)@.durable_main_table[idx as int] is None
                 },
@@ -2736,7 +2738,8 @@ metadata_allocator@.contains(i)
                         assert(old(self).free_list().contains(idx) ==> old(self).free_indices().contains(idx));
                     } else {
                         assert(old(self).pending_allocations@.contains(idx));
-                        assert(old(self).pending_allocations_view().contains(idx));
+                        assert(old(self).allocator_view().pending_allocations.contains(idx));
+                        assert(old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, old(self)@, old(self)@));
                         assert(old(self)@.durable_main_table[idx as int] is None);
                     }
                 }
