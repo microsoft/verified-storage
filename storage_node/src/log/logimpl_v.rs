@@ -283,12 +283,6 @@ verus! {
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
                 }
         {
-            // The invariants demand that there are no outstanding
-            // writes to various location. To make sure of this, we
-            // flush all memory regions.
-
-            wrpm_region.flush();
-
             // Out of paranoia, we check to make sure that the number
             // of regions is sensible. Both cases are technically
             // precluded by the assumptions about how `start` is
