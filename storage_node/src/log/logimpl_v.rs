@@ -832,12 +832,14 @@ verus! {
                 let mem2 = wrpm_region@.read_state;
                 subregion.lemma_reveal_opaque_inv(wrpm_region);
                 lemma_establish_subrange_equivalence(mem1, mem2);
+                lemma_subrange_of_subrange_forall(mem2);
         
                 assert(wrpm_region.inv());
                 assert(wrpm_region.constants() == old(wrpm_region).constants());
                 assert(unused_metadata_pos == get_log_metadata_pos(!self.cdb));
                 assert(memory_matches_deserialized_cdb(wrpm_region@, self.cdb));
                 assert(metadata_consistent_with_info(wrpm_region@, log_id, self.cdb, prev_info));
+                assert(inactive_metadata_types_set(wrpm_region@.read_state));
                 assert(info_consistent_with_log_area_in_region(wrpm_region@, prev_info, prev_state));
                 assert(forall |s| Self::recover(s, log_id) == Some(prev_state.drop_pending_appends()) ==>
                            #[trigger] perm.check_permission(s));
@@ -900,6 +902,7 @@ verus! {
                     !self.cdb,
                     self.info
                 );
+
                 lemma_metadata_types_set_after_cdb_update(
                     wrpm_region@,
                     flushed_mem_after_write,
@@ -909,8 +912,6 @@ verus! {
                 )
             }
 
-            assume(false);
-
             // Show that if we crash after the write and flush, we recover
             // to an abstract state corresponding to `self.state@` after
             // dropping pending appends.
@@ -918,7 +919,7 @@ verus! {
             proof {
                 lemma_invariants_imply_crash_recover(pm_region_after_flush, log_id, !self.cdb, self.info, self.state@);
             }
-
+            
             // Show that if we crash after initiating the write of the CDB,
             // we'll recover to a permissible state. There are two cases:
             //
@@ -948,10 +949,6 @@ verus! {
                 lemma_invariants_imply_crash_recover(wrpm_region@, log_id, self.cdb, prev_info, prev_state);
                 lemma_single_write_crash_effect_on_pm_region_view(crash_bytes, wrpm_region@,
                                                                   ABSOLUTE_POS_OF_LOG_CDB as int, new_cdb_bytes);
-                if crash_bytes == wrpm_region@.durable_state {
-                }
-                else {
-                }
             }
 
             // Finally, update the CDB, then flush, then flip `self.cdb`.
