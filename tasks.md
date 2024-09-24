@@ -73,8 +73,8 @@ Starred functions * have an unverified implementation (which may be out of date 
     - [ ] `trim_list`
 
 - KV store interface
-    - [ ] `setup` - hayley-leblanc
-    - [ ] `start`
+    - [x] `setup`
+    - [ ] `start` - hayley-leblanc
     - [ ] `create`
     - [ ] `read_item`
     - [ ] `read_item_and_list`
