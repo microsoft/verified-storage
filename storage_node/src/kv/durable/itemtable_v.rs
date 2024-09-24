@@ -247,10 +247,7 @@ verus! {
             &&& self.free_list@.no_duplicates()
             &&& self.pending_allocations@.no_duplicates()
             &&& self.pending_deallocations@.no_duplicates()
-            &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
-                !self.free_list@.contains(#[trigger] self.pending_allocations[i])
-            &&& forall |i: int| 0 <= i < self.free_list.len() ==> 
-                !self.pending_allocations@.contains(#[trigger] self.free_list[i])
+            &&& self.pending_allocations@.disjoint(self.free_list@)
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==> 
                     self.free_list@[i] < overall_metadata.num_keys
             &&& forall|i: int| 0 <= i < self.pending_allocations@.len() ==> 
@@ -259,7 +256,6 @@ verus! {
                     self.pending_deallocations@[i] < overall_metadata.num_keys
             &&& forall|i: int, j: int| 0 <= i < self.free_list@.len() && 0 <= j < self.free_list@.len() && i != j ==>
                     self.free_list@[i] != self.free_list@[j]
-            &&& forall|i: int| 0 <= i < self.free_list@.len() ==> self.free_list@[i] < overall_metadata.num_keys
             &&& forall|i: int| 0 <= i < self.free_list@.len() ==>
                     self.outstanding_item_table@[#[trigger] self.free_list@[i] as int] is None
             &&& forall|idx: u64| valid_indices.contains(idx) ==>
