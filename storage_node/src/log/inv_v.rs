@@ -106,39 +106,6 @@ verus! {
         &&& deserialize_and_check_log_cdb(pm_region_view.read_state) == Some(cdb)
     }
 
-    pub open spec fn metadata_in_memory_consistent_with_info(
-        mem: Seq<u8>,
-        log_id: u128,
-        cdb: bool,
-        info: LogInfo,
-    ) -> bool
-    {
-        let global_metadata = deserialize_global_metadata(mem);
-        let global_crc = deserialize_global_crc(mem);
-        let region_metadata = deserialize_region_metadata(mem);
-        let region_crc = deserialize_region_crc(mem);
-        let log_metadata = deserialize_log_metadata(mem, cdb);
-        let log_crc = deserialize_log_crc(mem, cdb);
-
-        // All the CRCs match
-        &&& global_crc == global_metadata.spec_crc()
-        &&& region_crc == region_metadata.spec_crc()
-        &&& log_crc == log_metadata.spec_crc()
-
-        // Various fields are valid and match the parameters to this function
-        &&& global_metadata.program_guid == LOG_PROGRAM_GUID
-        &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
-        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
-        &&& region_metadata.region_size == mem.len()
-        &&& region_metadata.log_id == log_id
-        &&& region_metadata.log_area_len == info.log_area_len
-        &&& log_metadata.head == info.head
-        &&& log_metadata.log_length == info.log_length
-
-        // The memory region is large enough to hold the entirety of the log area
-        &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
-    }
-
     // This invariant says that there are no outstanding writes to the
     // activate metadata subregion of the persistent-memory region
     // (i.e., everything but the log area and the log metadata
@@ -164,7 +131,31 @@ verus! {
     ) -> bool
     {
         let mem = pm_region_view.read_state;
-        &&& metadata_in_memory_consistent_with_info(pm_region_view.read_state, log_id, cdb, info)
+        let global_metadata = deserialize_global_metadata(mem);
+        let global_crc = deserialize_global_crc(mem);
+        let region_metadata = deserialize_region_metadata(mem);
+        let region_crc = deserialize_region_crc(mem);
+        let log_metadata = deserialize_log_metadata(mem, cdb);
+        let log_crc = deserialize_log_crc(mem, cdb);
+
+        // All the CRCs match
+        &&& global_crc == global_metadata.spec_crc()
+        &&& region_crc == region_metadata.spec_crc()
+        &&& log_crc == log_metadata.spec_crc()
+
+        // Various fields are valid and match the parameters to this function
+        &&& global_metadata.program_guid == LOG_PROGRAM_GUID
+        &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
+        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
+        &&& region_metadata.region_size == mem.len()
+        &&& region_metadata.log_id == log_id
+        &&& region_metadata.log_area_len == info.log_area_len
+        &&& log_metadata.head == info.head
+        &&& log_metadata.log_length == info.log_length
+
+        // The memory region is large enough to hold the entirety of the log area
+        &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
+
         // No outstanding writes to global metadata, region metadata, or the log metadata CDB
         &&& no_outstanding_writes_in_range(pm_region_view, ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                          ABSOLUTE_POS_OF_LOG_CDB as int)
