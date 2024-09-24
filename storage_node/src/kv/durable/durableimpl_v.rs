@@ -2769,8 +2769,11 @@ verus! {
                 old(self).pending_alloc_inv(),
                 !old(self).transaction_committed(),
                 old(self).tentative_view() is Some,
-                forall|s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata())
-                         == Some(old(self)@) ==> #[trigger] perm.check_permission(s),
+                forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                    ==> #[trigger] perm.check_permission(s),
+                no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
+                old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
             ensures
                 self.inv(),
                 self.constants() == old(self).constants(),
@@ -3494,9 +3497,6 @@ verus! {
                 !old(self).transaction_committed(),
                 !old(self).pending_deallocations().contains(offset),
                 old(self).pending_alloc_inv(),
-                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
-                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
-                    Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
@@ -3717,9 +3717,6 @@ verus! {
                 Ok(log_entry) => log_entry,
                 Err(e) => {
                     proof {
-                        self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                            self_before_tentative_item_write, item_table_subregion, perm
-                        );
                         assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                         assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
                             self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
