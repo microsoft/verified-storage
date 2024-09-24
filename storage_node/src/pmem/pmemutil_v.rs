@@ -751,5 +751,13 @@ verus! {
             lemma_can_result_from_write_effect_on_durable_state(v2, v1, write_addr, bytes);
         }
     }
+
+    pub open spec fn flush_pm_view(v: PersistentMemoryRegionView) -> PersistentMemoryRegionView
+    {
+        PersistentMemoryRegionView{
+            read_state: v.read_state,
+            durable_state: v.read_state,
+        }
+    }
     
 }
