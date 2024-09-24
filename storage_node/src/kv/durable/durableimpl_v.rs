@@ -2975,7 +2975,7 @@ verus! {
             assume(false);
             assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), main_table_region,
                                                      self.overall_metadata));
-            let ghost log_entry = self.main_table.create_validify_log_entry(
+            let log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
                 metadata_index,
