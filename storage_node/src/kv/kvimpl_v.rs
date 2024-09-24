@@ -62,48 +62,7 @@ where
     pub closed spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
         AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(mem, kv_id)
-    //     let version_metadata = deserialize_version_metadata(mem);
-    //     let version_crc = deserialize_version_crc(mem);
-    //     let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
-    //     let overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
-    //     if !{
-    //         &&& version_crc == version_metadata.spec_crc()
-    //         &&& overall_crc == overall_metadata.spec_crc()
-    //         &&& version_metadata_valid(version_metadata)
-    //         &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kv_id)
-    //         &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
-    //     } {
-    //         None
-    //     } else {
-    //         // TODO
-    //         // let _recovered_durable = DurableKvStore::<PM, K, I, L>::recover(mem, overall_metadata);
-    //         // None
-    //         let recovered_durable_state = DurableKvStore::<PM, K, I, L>::physical_recover(mem, overall_metadata);
-    //         if let Some(recovered_durable_state) = recovered_durable_state {
-    //             let volatile_index = V::new(); // TODO: fill in the volatile index with the contents of the kv store
-    //             Some(Self {
-    //                 id: kv_id,
-    //                 durable_store:
-    //             })
-    //         } else {
-    //             None
-    //         }
-    //     } 
     }
-
-    // pub closed spec fn construct_view_contents(
-    //     volatile_store_state: VolatileKvIndexView<K>,
-    //     durable_store_state: DurableKvStoreView<K, I, L>
-    // ) -> Map<K, (I, Seq<L>)> {
-    //     Map::new(
-    //         |k| { volatile_store_state.contains_key(k) },
-    //         |k| {
-    //             let index_entry = volatile_store_state[k].unwrap();
-    //             let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
-    //             (durable_entry.item(), durable_entry.list().list)
-    //         }
-    //     )
-    // }
 
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
@@ -112,19 +71,6 @@ where
             contents: AbstractKvStoreState::<K, I, L>::construct_view_contents(self.volatile_index@, self.durable_store@),
         }
     }
-
-    // // Proves that if the durable store and volatile index comprising a KV are both empty,
-    // // then the view of the KV is also empty.
-    // proof fn lemma_empty_kv(self)
-    //     requires
-    //         self.durable_store@.empty(),
-    //         self.volatile_index@.empty(),
-    //     ensures
-    //         self@.empty()
-    // {
-    //     lemma_empty_map_contains_no_keys(self.volatile_index@.contents);
-    //     assert(Set::new(|k| self.volatile_index@.contains_key(k)) =~= Set::<K>::empty());
-    // }
 
     pub closed spec fn valid(self) -> bool
     {
@@ -159,96 +105,54 @@ where
         let (version_metadata, overall_metadata) = setup::<PM, K, I, L>(pm_region, kvstore_id, num_keys, 
             num_list_entries_per_node, num_list_nodes)?;
 
-
-        assert(memory_correctly_set_up_on_region::<K, I, L>(pm_region@.committed(), overall_metadata.kvstore_id));
-        let ghost old_pm_region = *pm_region;
-
         // 3. Set up the other durable regions
         DurableKvStore::<Perm, PM, K, I, L>::setup(pm_region, version_metadata, overall_metadata, overall_metadata.kvstore_id)?;
         
+        // 4. Prove that the resulting recovery view is an empty store
         proof {
-            // let recovery_state = Self::recover(pm_region@.committed(), overall_metadata.kvstore_id);
-            // assert(recovery_state is Some);
-
-            broadcast use pmcopy_axioms;
-
-            let mem = pm_region@.committed();
-
-            Self::lemma_recovery_view_is_init_if_durable_recovery_view_is_init(pm_region@.committed(), overall_metadata.kvstore_id);
+            Self::lemma_recovery_view_is_init_if_durable_recovery_view_is_init(pm_region@.committed(), version_metadata, overall_metadata);
         }
         
         Ok(())
     }
 
-    proof fn lemma_recovery_view_is_init_if_durable_recovery_view_is_init(mem: Seq<u8>, kv_id: u128)
+    proof fn lemma_recovery_view_is_init_if_durable_recovery_view_is_init(
+        mem: Seq<u8>, 
+        version_metadata: VersionMetadata,
+        overall_metadata: OverallMetadata,
+    )
         requires
-            memory_correctly_set_up_on_region::<K, I, L>(mem, kv_id),
-            // ({
-            //     let version_metadata = deserialize_version_metadata(mem);
-            //     let version_crc = deserialize_version_crc(mem);
-            //     let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
-            //     let overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
-            //     &&& version_crc == version_metadata.spec_crc()
-            //     &&& overall_crc == overall_metadata.spec_crc()
-            //     &&& version_metadata_valid(version_metadata)
-            //     &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kv_id)
-            //     &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
-            //     &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata) == Some(DurableKvStoreView::<K, I, L>::init())
-            // })
+            memory_correctly_set_up_on_region::<K, I, L>(mem, overall_metadata.kvstore_id),
+            DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata) == Some(DurableKvStoreView::<K, I, L>::init()),
+            ({
+                let read_version_metadata = deserialize_version_metadata(mem);
+                let read_version_crc = deserialize_version_crc(mem);
+                let read_overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
+                let read_overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
+                &&& read_version_metadata == version_metadata 
+                &&& read_overall_metadata == overall_metadata
+            }),
         ensures 
-            Self::recover(mem, kv_id) == Some(AbstractKvStoreState::<K, I, L>::init(kv_id))
+            Self::recover(mem, overall_metadata.kvstore_id) == Some(AbstractKvStoreState::<K, I, L>::init(overall_metadata.kvstore_id))
     {
-        assume(false); // TODO @hayley
+        let read_version_metadata = deserialize_version_metadata(mem);
+        let read_version_crc = deserialize_version_crc(mem);
+        let read_overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
+        let read_overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
+        assert({
+            &&& read_version_crc == version_metadata.spec_crc()
+            &&& read_overall_crc == overall_metadata.spec_crc()
+            &&& version_metadata_valid(read_version_metadata)
+            &&& overall_metadata_valid::<K, I, L>(read_overall_metadata, read_version_metadata.overall_metadata_addr, read_overall_metadata.kvstore_id)
+            &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
+        });
+        let recovered_durable_store = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata).unwrap();
+        assert(recovered_durable_store.contents == Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
+        let recovered_view = AbstractKvStoreState::construct_view_from_durable_state(recovered_durable_store);
+        assert(recovered_view == Map::<K, (I, Seq<L>)>::empty());
     }
 
 /*
-    // This only sets up new durable components for a new KV. We will handle
-    // the volatile index in `untrusted_start`
-    pub fn untrusted_setup(
-        metadata_pmem: &mut PM,
-        item_table_pmem: &mut PM,
-        list_pmem: &mut PM,
-        log_pmem: &mut PM,
-        kvstore_id: u128,
-        num_keys: u64,
-        node_size: u32,
-    ) -> (result: Result<(), KvError<K>>)
-        requires
-            // pmem.inv(),
-            // ({
-            //     let metadata_size = ListEntryMetadata::spec_size_of();
-            //     let key_size = K::spec_size_of();
-            //     let metadata_slot_size = metadata_size + crate::pmem::traits_t::size_of::<u64>() + key_size + u64::spec_size_of();
-            //     let list_element_slot_size = L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
-            //     &&& metadata_slot_size <= u64::MAX
-            //     &&& list_element_slot_size <= u64::MAX
-            //     &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-            //     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
-            // }),
-            // L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < u32::MAX, // size_of is u64, but we store it in a u32 here
-            // node_size < u32::MAX,
-            // 0 <= ItemTableMetadata::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < usize::MAX,
-            // ({
-            //     let item_slot_size = I::spec_size_of() + u64::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
-            //     &&& 0 <= item_slot_size < usize::MAX
-            //     &&& 0 <= item_slot_size * num_keys < usize::MAX
-            //     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
-            // })
-        ensures
-            // match(result) {
-            //     Ok((log_region, list_regions, item_region)) => {
-            //         &&& log_region.inv()
-            //         &&& list_regions.inv()
-            //         &&& item_region.inv()
-            //     }
-            //     Err(_) => true // TODO
-            // }
-    {
-        assume(false);
-        DurableKvStore::<PM, K, I, L>::setup(metadata_pmem, item_table_pmem, list_pmem, log_pmem,
-             kvstore_id, num_keys, node_size)
-    }
-
     pub fn untrusted_start(
         metadata_region: PM,
         item_table_region: PM,
