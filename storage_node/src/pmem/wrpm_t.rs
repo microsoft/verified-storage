@@ -5,13 +5,6 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 verus! {
-/// A `WriteRestrictedPersistentMemoryRegions` is a wrapper around a
-/// collection of persistent memory regions that restricts how it can
-/// be written. Specifically, it only permits a write if it's
-/// accompanied by a tracked permission authorizing that write. The
-/// tracked permission must authorize every possible state that could
-/// result from crashing while the write is ongoing.
-
 pub trait CheckPermission<State>
 {
     spec fn check_permission(&self, state: State) -> bool;

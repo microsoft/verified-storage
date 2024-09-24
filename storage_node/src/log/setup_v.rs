@@ -94,8 +94,7 @@ verus! {
         ensures
             pm_region.inv(),
             pm_region.constants() == old(pm_region).constants(),
-            pm_region@.flush_predicted() ==> // it'll be correct after the next flush
-                memory_correctly_set_up_on_region(pm_region@.read_state, region_size, log_id),
+            memory_correctly_set_up_on_region(pm_region@.read_state, region_size, log_id),
             metadata_types_set(pm_region@.read_state),
     {
         broadcast use pmcopy_axioms;
@@ -228,7 +227,6 @@ verus! {
             assert(recover_state(pm_region_committed, log_id)
                    =~= Some(AbstractLogState::initialize(log_capacity as int))) by {
                 assert(pm_region_committed.len() == pm_region@.len());
-                assert(pm_region_committed == pm_region@.durable_state);
                 assert(recover_log(pm_region_committed, log_capacity as int, 0int, 0int) =~=
                        Some(AbstractLogState::initialize(log_capacity as int)));
             }

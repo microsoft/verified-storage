@@ -206,28 +206,6 @@ verus! {
         extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of() as nat)
     }
 
-    // This function extracts the log metadata's corruption-detecting boolean
-    // (i.e., CDB) from the contents `mem` of a persistent memory
-    // region. It returns an Option<bool> with the following meanings:
-    //
-    // None -- Corruption was detected when reading the CDB
-    // Some(true) -- No corruption was detected and the CDB is true
-    // Some(false) -- No corruption was detected and the CDB is false
-    //
-    pub open spec fn extract_and_parse_log_cdb(mem: Seq<u8>) -> Option<bool>
-    {
-        let log_cdb = extract_log_cdb(mem);
-        if spec_u64_from_le_bytes(log_cdb) == CDB_FALSE {
-            Some(false)
-        }
-        else if spec_u64_from_le_bytes(log_cdb) == CDB_TRUE {
-            Some(true)
-        }
-        else {
-            None
-        }
-    }
-
     pub open spec fn deserialize_log_cdb(mem: Seq<u8>) -> u64
     {
         let bytes = extract_log_cdb(mem);

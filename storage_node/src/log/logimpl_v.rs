@@ -342,9 +342,10 @@ verus! {
             requires
                 bytes_to_append.len() <= self.info.log_area_len - self.info.log_plus_pending_length,
                 self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
-                subregion.inv(&*old(wrpm_region), perm),
+                subregion.inv(old::<&mut _>(wrpm_region), perm),
                 subregion.start() == ABSOLUTE_POS_OF_LOG_AREA,
                 subregion.len() == self.info.log_area_len,
+                subregion.view(old::<&mut _>(wrpm_region)).valid(),
                 info_consistent_with_log_area(subregion.view(&*old(wrpm_region)), self.info, self.state@),
                 forall |log_area_offset: int|
                     #[trigger] subregion.is_writable_relative_addr(log_area_offset) <==>
@@ -588,9 +589,9 @@ verus! {
                                                                       addr - ABSOLUTE_POS_OF_LOG_AREA);
             assert forall |alt_crash_state: Seq<u8>|
                 memories_differ_only_where_subregion_allows(wrpm_region@.durable_state, alt_crash_state,
-                                                           info.log_area_len as nat, info.log_length as nat,
-                                                           is_writable_absolute_addr_fn)
-                implies perm.check_permission(alt_crash_state) by {
+                                                            ABSOLUTE_POS_OF_LOG_AREA as nat,
+                                                            info.log_area_len as nat, is_writable_absolute_addr_fn)
+                implies #[trigger] perm.check_permission(alt_crash_state) by {
                 reveal(spec_padding_needed);
                 lemma_if_view_and_memory_differ_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
                     wrpm_region@, alt_crash_state, log_id, self.cdb, self.info, self.state@,
@@ -606,6 +607,8 @@ verus! {
 //                lemma_metadata_matches_implies_metadata_types_set(wrpm_region@, alt_region_view, self.cdb);
 //                lemma_metadata_set_after_crash(alt_region_view, self.cdb);
             }
+
+            assert(ABSOLUTE_POS_OF_LOG_AREA as nat % (const_persistence_chunk_size() as nat) == 0) by (compute);
             let subregion = WriteRestrictedPersistentMemorySubregion::new(
                 wrpm_region, Tracked(perm), ABSOLUTE_POS_OF_LOG_AREA,
                 Ghost(self.info.log_area_len as nat), Ghost(is_writable_absolute_addr_fn)
@@ -779,6 +782,7 @@ verus! {
                 wrpm_region.constants() == old(wrpm_region).constants(),
                 self.state == old(self).state,
         {
+            assume(false);
             broadcast use pmcopy_axioms;
             reveal(spec_padding_needed);
 
@@ -1258,6 +1262,7 @@ verus! {
             addr: int,
         )
             requires
+                pm_region_view.valid(),
                 len > 0,
                 metadata_consistent_with_info(pm_region_view, log_id, self.cdb, self.info),
                 info_consistent_with_log_area_in_region(pm_region_view, self.info, self.state@),

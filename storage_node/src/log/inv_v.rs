@@ -99,21 +99,44 @@ verus! {
         &&& crc == spec_crc_u64(metadata.spec_to_bytes())
     }
 
-    // This invariant says that there are no outstanding writes to the
-    // CDB area of persistent memory, and that the committed contents
-    // of that area correspond to the given boolean `cdb`.
-    pub open spec fn memory_matches_cdb(pm_region_view: PersistentMemoryRegionView, cdb: bool) -> bool
-    {
-        &&& no_outstanding_writes_in_range(pm_region_view, ABSOLUTE_POS_OF_LOG_CDB as int,
-                                         ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
-        &&& extract_and_parse_log_cdb(pm_region_view.read_state) == Some(cdb)
-    }
-
     pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemoryRegionView, cdb: bool) -> bool
     {
         &&& no_outstanding_writes_in_range(pm_region_view, ABSOLUTE_POS_OF_LOG_CDB as int,
                                          ABSOLUTE_POS_OF_LOG_CDB + u64::spec_size_of())
         &&& deserialize_and_check_log_cdb(pm_region_view.read_state) == Some(cdb)
+    }
+
+    pub open spec fn metadata_in_memory_consistent_with_info(
+        mem: Seq<u8>,
+        log_id: u128,
+        cdb: bool,
+        info: LogInfo,
+    ) -> bool
+    {
+        let global_metadata = deserialize_global_metadata(mem);
+        let global_crc = deserialize_global_crc(mem);
+        let region_metadata = deserialize_region_metadata(mem);
+        let region_crc = deserialize_region_crc(mem);
+        let log_metadata = deserialize_log_metadata(mem, cdb);
+        let log_crc = deserialize_log_crc(mem, cdb);
+
+        // All the CRCs match
+        &&& global_crc == global_metadata.spec_crc()
+        &&& region_crc == region_metadata.spec_crc()
+        &&& log_crc == log_metadata.spec_crc()
+
+        // Various fields are valid and match the parameters to this function
+        &&& global_metadata.program_guid == LOG_PROGRAM_GUID
+        &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
+        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
+        &&& region_metadata.region_size == mem.len()
+        &&& region_metadata.log_id == log_id
+        &&& region_metadata.log_area_len == info.log_area_len
+        &&& log_metadata.head == info.head
+        &&& log_metadata.log_length == info.log_length
+
+        // The memory region is large enough to hold the entirety of the log area
+        &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
     }
 
     // This invariant says that there are no outstanding writes to the
@@ -141,37 +164,13 @@ verus! {
     ) -> bool
     {
         let mem = pm_region_view.read_state;
-        let global_metadata = deserialize_global_metadata(mem);
-        let global_crc = deserialize_global_crc(mem);
-        let region_metadata = deserialize_region_metadata(mem);
-        let region_crc = deserialize_region_crc(mem);
-        let log_metadata = deserialize_log_metadata(mem, cdb);
-        let log_crc = deserialize_log_crc(mem, cdb);
-
+        &&& metadata_in_memory_consistent_with_info(pm_region_view.read_state, log_id, cdb, info)
         // No outstanding writes to global metadata, region metadata, or the log metadata CDB
         &&& no_outstanding_writes_in_range(pm_region_view, ABSOLUTE_POS_OF_GLOBAL_METADATA as int,
                                          ABSOLUTE_POS_OF_LOG_CDB as int)
         // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
         &&& no_outstanding_writes_in_range(pm_region_view, get_log_metadata_pos(cdb) as int,
                                          get_log_crc_end(cdb) as int)
-
-        // All the CRCs match
-        &&& global_crc == global_metadata.spec_crc()
-        &&& region_crc == region_metadata.spec_crc()
-        &&& log_crc == log_metadata.spec_crc()
-
-        // Various fields are valid and match the parameters to this function
-        &&& global_metadata.program_guid == LOG_PROGRAM_GUID
-        &&& global_metadata.version_number == LOG_PROGRAM_VERSION_NUMBER
-        &&& global_metadata.length_of_region_metadata == RegionMetadata::spec_size_of()
-        &&& region_metadata.region_size == mem.len()
-        &&& region_metadata.log_id == log_id
-        &&& region_metadata.log_area_len == info.log_area_len
-        &&& log_metadata.head == info.head
-        &&& log_metadata.log_length == info.log_length
-
-        // The memory region is large enough to hold the entirety of the log area
-        &&& mem.len() >= ABSOLUTE_POS_OF_LOG_AREA + info.log_area_len
     }
 
     // This lemma proves that, if all regions are consistent wrt a new CDB, and then we
@@ -260,8 +259,6 @@ verus! {
                    }
                 &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
                        pmb == state.pending[pos_relative_to_head - info.log_length]
-                &&& info.log_plus_pending_length <= pos_relative_to_head < info.log_area_len ==>
-                       pmb == log_area_view.durable_state[log_area_offset]
             }
     }
 
@@ -400,6 +397,7 @@ verus! {
         state: AbstractLogState,
     )
         requires
+            pm_region_view.valid(),
             metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
         ensures
@@ -411,7 +409,9 @@ verus! {
         // The tricky part is showing that the result of `extract_log` will produce the desired result.
         // Use `=~=` to ask Z3 to prove this equivalence by proving it holds on each byte.
 
+        lemma_establish_subrange_equivalence(mem, pm_region_view.read_state);
         let log_view = get_subregion_view(pm_region_view, ABSOLUTE_POS_OF_LOG_AREA as nat, info.log_area_len as nat);
+        lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(log_view, info);
         assert(recover_log_from_log_area_given_metadata(log_view.durable_state, info.head as int, info.log_length as int)
                =~= Some(state.drop_pending_appends()));
         assert(recover_log(mem, info.log_area_len as int, info.head as int, info.log_length as int)
@@ -437,6 +437,7 @@ verus! {
         state: AbstractLogState,
     )
         requires
+            pm_region_view.valid(),
             memory_matches_deserialized_cdb(pm_region_view, cdb),
             metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
             info_consistent_with_log_area_in_region(pm_region_view, info, state),
@@ -449,6 +450,7 @@ verus! {
         reveal(spec_padding_needed);
 
         let mem = pm_region_view.durable_state;
+        lemma_establish_subrange_equivalence(pm_region_view.read_state, pm_region_view.durable_state);
 
         // For the CDB, we observe that:
         //
@@ -484,185 +486,6 @@ verus! {
         // are still set in crash states
 
         lemma_metadata_set_after_crash(pm_region_view, cdb);
-    }
-
-    // This lemma establishes that, if one updates the inactive
-    // log metadata in a region, this will maintain various
-    // invariants. The "inactive" log metadata is the
-    // metadata corresponding to the negation of the current
-    // corruption-detecting boolean.
-    //
-    // `pm_region_view` -- the persistent memory region view
-    // `log_id` -- the ID of the log
-    // `cdb` -- the current value of the corruption-detecting boolean
-    // `info` -- the log information
-    // `state` -- the abstract log state
-    // `bytes_to_write` -- bytes to be written to the inactive log metadata area
-    pub proof fn lemma_updating_inactive_metadata_maintains_invariants(
-        pm_region_view: PersistentMemoryRegionView,
-        log_id: u128,
-        cdb: bool,
-        info: LogInfo,
-        state: AbstractLogState,
-        bytes_to_write: Seq<u8>,
-    )
-        requires
-            memory_matches_deserialized_cdb(pm_region_view, cdb),
-            metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
-            info_consistent_with_log_area_in_region(pm_region_view, info, state),
-            bytes_to_write.len() == LogMetadata::spec_size_of(),
-            metadata_types_set(pm_region_view.read_state)
-       ensures
-            forall|pm_region_view2: PersistentMemoryRegionView|
-                pm_region_view2.can_result_from_write(pm_region_view, get_log_metadata_pos(!cdb) as int,
-                                                      bytes_to_write) ==> {
-                &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
-                &&& metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)
-                &&& info_consistent_with_log_area_in_region(pm_region_view2, info, state)
-                &&& metadata_types_set(pm_region_view2.read_state)
-            },
-    {
-        reveal(spec_padding_needed);
-
-        assert forall|pm_region_view2: PersistentMemoryRegionView|
-                 pm_region_view2.can_result_from_write(pm_region_view, get_log_metadata_pos(!cdb) as int,
-                                                       bytes_to_write) implies {
-                &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
-                &&& metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)
-                &&& info_consistent_with_log_area_in_region(pm_region_view2, info, state)
-                &&& metadata_types_set(pm_region_view2.read_state)
-            } by {
-
-            assert(memory_matches_deserialized_cdb(pm_region_view2, cdb)) by {
-                assert(extract_log_cdb(pm_region_view2.read_state) =~=
-                       extract_log_cdb(pm_region_view.read_state));
-            }
-
-            // To show that all the metadata still matches even after the
-            // write, observe that everywhere the bytes match, any call to
-            // `extract_bytes` will also match.
-
-            lemma_establish_subrange_equivalence(pm_region_view.read_state, pm_region_view2.read_state);
-
-            let mem = pm_region_view.read_state;
-            let global_metadata = deserialize_global_metadata(mem);
-            let global_crc = deserialize_global_crc(mem);
-            let region_metadata = deserialize_region_metadata(mem);
-            let region_crc = deserialize_region_crc(mem);
-            let log_metadata = deserialize_log_metadata(mem, cdb);
-            let log_crc = deserialize_log_crc(mem, cdb);
-
-            let mem2 = pm_region_view2.read_state;
-            let global_metadata2 = deserialize_global_metadata(mem2);
-            let global_crc2 = deserialize_global_crc(mem2);
-            let region_metadata2 = deserialize_region_metadata(mem2);
-            let region_crc2 = deserialize_region_crc(mem2);
-            let log_metadata2 = deserialize_log_metadata(mem2, cdb);
-            let log_crc2 = deserialize_log_crc(mem2, cdb);
-
-            let global_metadata_bytes1 = extract_bytes(mem, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of() as nat);
-            let global_metadata_bytes2 = extract_bytes(mem2, ABSOLUTE_POS_OF_GLOBAL_METADATA as nat, GlobalMetadata::spec_size_of() as nat);
-        
-            assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
-                lemma_establish_subrange_equivalence(pm_region_view.read_state, pm_region_view2.read_state);
-            }
-    
-            assert(mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) == 
-                (mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int)));
-            if cdb {
-                assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) == 
-                    extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
-            } else {
-                assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
-            }
-            assert(active_metadata_bytes_are_equal(mem, mem2));
-            lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, cdb);
-        }
-    }
-
-    // This lemma establishes that, if one updates the inactive
-    // log metadata in a region, this will maintain various
-    // invariants. The "inactive" log metadata is the
-    // metadata corresponding to the negation of the current
-    // corruption-detecting boolean.
-    //
-    // `pm_region_view` -- the persistent memory region view
-    // `log_id` -- the ID of the log
-    // `cdb` -- the current value of the corruption-detecting boolean
-    // `info` -- the log information
-    // `state` -- the abstract log state
-    // `bytes_to_write` -- bytes to be written to the inactive log metadata area
-    pub proof fn lemma_updating_inactive_crc_maintains_invariants(
-        pm_region_view: PersistentMemoryRegionView,
-        log_id: u128,
-        cdb: bool,
-        info: LogInfo,
-        state: AbstractLogState,
-        bytes_to_write: Seq<u8>,
-    )
-        requires
-            memory_matches_deserialized_cdb(pm_region_view, cdb),
-            metadata_consistent_with_info(pm_region_view, log_id, cdb, info),
-            info_consistent_with_log_area_in_region(pm_region_view, info, state),
-            bytes_to_write.len() == u64::spec_size_of(),
-            metadata_types_set(pm_region_view.read_state),
-        ensures
-            forall|pm_region_view2: PersistentMemoryRegionView|
-                pm_region_view2.can_result_from_write(pm_region_view,
-                    get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
-                    bytes_to_write
-                ) ==> {
-                &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
-                &&& metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)
-                &&& info_consistent_with_log_area_in_region(pm_region_view2, info, state)
-                &&& metadata_types_set(pm_region_view2.read_state)
-            },
-    {
-        reveal(spec_padding_needed);
-
-        assert forall|pm_region_view2: PersistentMemoryRegionView|
-                pm_region_view2.can_result_from_write(pm_region_view,
-                    get_log_metadata_pos(!cdb) + LogMetadata::spec_size_of(),
-                    bytes_to_write
-                ) implies {
-                &&& memory_matches_deserialized_cdb(pm_region_view2, cdb)
-                &&& metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)
-                &&& info_consistent_with_log_area_in_region(pm_region_view2, info, state)
-                &&& metadata_types_set(pm_region_view2.read_state)
-            } by {
-    
-            assert(memory_matches_deserialized_cdb(pm_region_view2, cdb)) by {
-                assert(extract_log_cdb(pm_region_view2.read_state) =~=
-                       extract_log_cdb(pm_region_view.read_state));
-            }
-    
-            let mem = pm_region_view.read_state;
-            let mem2 = pm_region_view2.read_state;
-    
-            assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()) ==
-                   extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of()));
-    
-            assert(mem.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int) ==
-                    mem2.subrange(ABSOLUTE_POS_OF_GLOBAL_METADATA as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int));
-            if cdb {
-                assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_TRUE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
-            } else {
-                assert(extract_bytes(mem, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()) ==
-                    extract_bytes(mem2, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as nat, LogMetadata::spec_size_of() + u64::spec_size_of()));
-            }
-    
-            // To show that all the metadata still matches even after the
-            // write, observe that everywhere the bytes match, any call to
-            // `extract_bytes` will also match.
-    
-            assert(metadata_consistent_with_info(pm_region_view2, log_id, cdb, info)) by {
-                lemma_establish_subrange_equivalence(pm_region_view.read_state, pm_region_view2.read_state);
-            }
-    
-            lemma_metadata_matches_implies_metadata_types_set(pm_region_view, pm_region_view2, cdb);
-        }
     }
 
     // This predicate describes whether a given log area offset is
@@ -712,6 +535,7 @@ verus! {
         is_writable_absolute_addr: spec_fn(int) -> bool,
     )
         requires
+            v.valid(),
             no_outstanding_writes_to_metadata(v),
             memory_matches_deserialized_cdb(v, cdb),
             metadata_consistent_with_info(v, log_id, cdb, info),
@@ -730,6 +554,7 @@ verus! {
     {
         reveal(spec_padding_needed);
         lemma_establish_subrange_equivalence(mem, v.durable_state);
+        lemma_establish_subrange_equivalence(v.read_state, v.durable_state);
         assert(recover_state(mem, log_id) =~= recover_state(v.durable_state, log_id));
     }
 
@@ -767,6 +592,7 @@ verus! {
         is_writable_absolute_addr: spec_fn(int) -> bool,
     )
         requires
+            v1.valid(),
             no_outstanding_writes_to_metadata(v1),
             memory_matches_deserialized_cdb(v1, cdb),
             metadata_consistent_with_info(v1, log_id, cdb, info),
@@ -842,7 +668,9 @@ verus! {
         pm2: PersistentMemoryRegionView,
         cdb: bool
     )
-        requires 
+        requires
+            pm1.valid(),
+            pm2.valid(),
             no_outstanding_writes_to_active_metadata(pm1, cdb),
             no_outstanding_writes_to_active_metadata(pm2, cdb),
             metadata_types_set(pm1.read_state),

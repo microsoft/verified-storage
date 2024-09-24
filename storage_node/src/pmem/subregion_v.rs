@@ -505,6 +505,7 @@ impl WriteRestrictedPersistentMemorySubregion
             Perm: CheckPermission<Seq<u8>>,
             PMRegion: PersistentMemoryRegion,
     {
+        &&& self.view(wrpm).valid()
         &&& self.view(wrpm).len() == self.len()
         &&& self.initial_region_view().len() <= u64::MAX
         &&& self.opaque_relation_with_wrpm(wrpm)
