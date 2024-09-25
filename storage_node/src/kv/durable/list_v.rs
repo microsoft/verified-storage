@@ -287,7 +287,7 @@ verus! {
         {
             let lists_map = Map::empty();
             // TODO: which table do we want to use here?
-            let result = Self::parse_each_list(main_table.get_durable_main_table(), mem, lists_map, list_node_size, num_list_entries_per_node);
+            let result = Self::parse_each_list(main_table.durable_main_table, mem, lists_map, list_node_size, num_list_entries_per_node);
             match result {
                 Some(result) => Some(DurableListView::new(result)),
                 None => None
