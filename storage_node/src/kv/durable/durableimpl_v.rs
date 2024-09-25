@@ -1388,7 +1388,6 @@ verus! {
                 deserialize_overall_crc(old(pm_region)@.committed(), version_metadata.overall_metadata_addr) == overall_metadata.spec_crc(),
            ensures 
                 pm_region.inv(),
-                
                 match result {
                     Ok(()) => {
                         &&& pm_region@.no_outstanding_writes()

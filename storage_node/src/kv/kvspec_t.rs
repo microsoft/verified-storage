@@ -22,8 +22,6 @@ use std::hash::Hash;
 
 verus! {
 
-    // Since the durable part of the PagedKV is a list of PM regions,
-    // we use Seq<u8> to determine whether states are crash-consistent.
     pub struct TrustedKvPermission<PM>
         where
             PM: PersistentMemoryRegion,
@@ -46,67 +44,54 @@ verus! {
         where
             PM: PersistentMemoryRegion,
     {
-        // methods copied from multilogimpl_t and updated for PagedKV structures
-
-        // // This is one of two constructors for `TrustedKvPermission`.
-        // // It conveys permission to do any update as long as a
-        // // subsequent crash and recovery can only lead to given
-        // // abstract state `state`.
-        // pub proof fn new_one_possibility<K, I, L>(kv_id: u128, state: AbstractKvStoreState<K, I, L>)
-        //                                           -> (tracked perm: Self)
-        //     where
-        //         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-        //         I: PmCopy + std::fmt::Debug,
-        //         L: PmCopy + std::fmt::Debug + Copy,
-        //     ensures
-        //         forall |s| #[trigger] perm.check_permission(s) <==>
-        //             DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state)
-        // {
-        //     Self {
-        //         is_state_allowable: |s| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state),
-        //         _phantom: Ghost(spec_phantom_data())
-        //     }
-        // }
-
-        // // This is the second of two constructors for
-        // // `TrustedKvPermission`.  It conveys permission to do any
-        // // update as long as a subsequent crash and recovery can only
-        // // lead to one of two given abstract states `state1` and
-        // // `state2`.
-        // pub proof fn new_two_possibilities<K, I, L>(
-        //     kv_id: u128,
-        //     state1: AbstractKvStoreState<K, I, L>,
-        //     state2: AbstractKvStoreState<K, I, L>
-        // ) -> (tracked perm: Self)
-        //     where
-        //         K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
-        //         I: PmCopy + std::fmt::Debug,
-        //         L: PmCopy + std::fmt::Debug + Copy,
-        //     ensures
-        //         forall |s| #[trigger] perm.check_permission(s) <==> {
-        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state1)
-        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state2)
-        //         }
-        // {
-        //     Self {
-        //         is_state_allowable: |s| {
-        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state1)
-        //             ||| DurableKvStore::<PM, K, I, L>::recover(s, kv_id) == Some(state2)
-        //         },
-        //         _phantom: Ghost(spec_phantom_data())
-        //     }
-        // }
-
-        // TODO: REMOVE THIS
-        #[verifier::external_body]
-        pub proof fn fake_kv_perm() -> (tracked perm: Self)
+        // This is one of two constructors for `TrustedKvPermission`.
+        // It conveys permission to do any update as long as a
+        // subsequent crash and recovery can only lead to given
+        // abstract state `state`.
+        pub proof fn new_one_possibility<K, I, L>(kv_id: u128, state: AbstractKvStoreState<K, I, L>)
+                                                  -> (tracked perm: Self)
+            where
+                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+                I: PmCopy + std::fmt::Debug,
+                L: PmCopy + std::fmt::Debug + Copy,
+            ensures
+                forall |s| #[trigger] perm.check_permission(s) <==>
+                    AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state)
         {
             Self {
-                is_state_allowable: |s| true,
+                is_state_allowable: |s| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state),
                 _phantom: Ghost(spec_phantom_data())
             }
         }
 
+        // This is the second of two constructors for
+        // `TrustedKvPermission`.  It conveys permission to do any
+        // update as long as a subsequent crash and recovery can only
+        // lead to one of two given abstract states `state1` and
+        // `state2`.
+        pub proof fn new_two_possibilities<K, I, L>(
+            kv_id: u128,
+            state1: AbstractKvStoreState<K, I, L>,
+            state2: AbstractKvStoreState<K, I, L>
+        ) -> (tracked perm: Self)
+            where
+                K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+                I: PmCopy + std::fmt::Debug,
+                L: PmCopy + std::fmt::Debug + Copy,
+            ensures
+                forall |s| #[trigger] perm.check_permission(s) <==> {
+                    ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id)== Some(state1)
+                    ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state2)
+                }
+        {
+            Self {
+                is_state_allowable: |s| {
+                    ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state1)
+                    ||| AbstractKvStoreState::<K, I, L>::recover::<Self, PM>(s, kv_id) == Some(state2)
+                },
+                _phantom: Ghost(spec_phantom_data())
+            }
+        }
     }
 
 
@@ -135,19 +120,11 @@ verus! {
                 Perm: CheckPermission<Seq<u8>>,
                 PM: PersistentMemoryRegion,
         {
-            let version_metadata = deserialize_version_metadata(mem);
-            let version_crc = deserialize_version_crc(mem);
-            let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
-            let overall_crc = deserialize_overall_crc(mem, version_metadata.overall_metadata_addr);
-            if !{
-                &&& version_crc == version_metadata.spec_crc()
-                &&& overall_crc == overall_metadata.spec_crc()
-                &&& version_metadata_valid(version_metadata)
-                &&& overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, kv_id)
-                &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
-            } {
+            if !memory_correctly_set_up_on_region::<K, I, L>(mem, kv_id) {
                 None
             } else {
+                let version_metadata = deserialize_version_metadata(mem);
+                let overall_metadata = deserialize_overall_metadata(mem, version_metadata.overall_metadata_addr);
                 let recovered_durable_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata);
                 if let Some(recovered_durable_state) = recovered_durable_state {
                     Some(Self {

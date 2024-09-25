@@ -72,6 +72,11 @@ where
         }
     }
 
+    pub closed spec fn wrpm_view(self) -> PersistentMemoryRegionView
+    {
+        self.durable_store.wrpm_view()
+    }
+
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
@@ -151,6 +156,47 @@ where
         assert(recovered_durable_store.contents == Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
         let recovered_view = AbstractKvStoreState::construct_view_from_durable_state(recovered_durable_store);
         assert(recovered_view == Map::<K, (I, Seq<L>)>::empty());
+    }
+
+    pub fn untrusted_start(
+        mut wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        kvstore_id: u128,
+        // version_metadata: VersionMetadata,
+        // overall_metadata: OverallMetadata,
+    ) -> (result: Result<Self, KvError<K>>)
+        requires 
+            wrpm_region.inv(),
+            wrpm_region@.no_outstanding_writes(),
+            Self::recover(wrpm_region@.committed(), kvstore_id) is Some,
+        ensures 
+            match result {
+                Ok(kv) => {
+                    &&& kv.wrpm_view().no_outstanding_writes()
+                    &&& Some(kv@) == Self::recover(kv.wrpm_view().committed(), kvstore_id)
+                }
+                Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
+                Err(_) => true // TODO
+            }
+    {
+        let ghost state = Self::recover(wrpm_region@.committed(), kvstore_id).unwrap();
+        
+        // 1. Read the version and overall metadata from PM.
+        let pm = wrpm_region.get_pm_region_ref();
+        let version_metadata = read_version_metadata::<PM, K, I, L>(pm, kvstore_id)?;
+        let overall_metadata = read_overall_metadata::<PM, K, I, L>(pm, &version_metadata, kvstore_id)?;
+
+        // 2. Set up permissions for the operation
+
+        // // 3. Call the durable KV store's start method
+        // DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
+        //     version_metadata, Tracked(perm), Ghost(state))?;
+
+
+        // 2. Set up the volatile index based on the contents of the KV store
+
+
+
+        Err(KvError::NotImplemented)
     }
 
 /*
