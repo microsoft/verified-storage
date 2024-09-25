@@ -473,7 +473,7 @@ verus! {
             false
         }
 
-        // Read an item from the item table given an index. Returns `None` if the index is 
+        // Read an item from the item table given an index. Returns `None` if the index
         // does not contain a valid, uncorrupted item. 
         // TODO: should probably return result, not option
         pub exec fn read_item<PM>(
@@ -643,8 +643,7 @@ verus! {
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self.outstanding_item_table@[i] == old(self).outstanding_item_table@[i]
                         &&& self.outstanding_item_table@[index as int] == Some(*item)
-                        &&& forall |other_index: u64| self.free_list().contains(other_index) <==>
-                            old(self).free_list().contains(other_index) && other_index != index
+                        &&& self.free_list() == old(self).free_list().remove(index)
                         &&& forall|idx: u64| #[trigger] current_valid_indices.contains(idx) ==> 
                             !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
                         &&& forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] current_valid_indices.contains(idx)) ==> {
@@ -773,6 +772,8 @@ verus! {
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
                 assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
             }
+
+            assert(self.free_list() =~= old(self).free_list().remove(free_index));
 
             Ok(free_index)
         }
