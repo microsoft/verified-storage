@@ -347,13 +347,11 @@ verus! {
             &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
             &&& forall |idx: u64| self.pending_allocations_view().contains(idx) ==> idx < overall_metadata.num_keys
-            &&& forall |idx: u64| self.pending_allocations_view().contains(idx) ==> !self.free_indices().contains(idx)
+            &&& self.pending_allocations_view().disjoint(self.free_indices())
             &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
-            &&& forall |i| 0 <= i < self@.durable_main_table.len() ==> 
-                    match #[trigger] self@.durable_main_table[i] {
-                        Some(entry) => entry.entry.item_index < overall_metadata.num_keys,
-                        None => true
-                    }
+            &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
+                   (#[trigger] self@.durable_main_table[i] matches Some(entry) ==>
+                    entry.entry.item_index < overall_metadata.num_keys)
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
                 self.allocator_view().spec_abort_alloc_transaction().pending_alloc_check(idx, self@, self@)
         }
