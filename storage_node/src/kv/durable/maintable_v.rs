@@ -319,14 +319,9 @@ verus! {
             // &&& forall |idx: u64| self.pending_deallocations@.contains(idx) ==> 
             //         { self@.durable_main_table[idx as int] matches DurableEntry::Valid(_) }
             &&& forall |idx: u64| {
-                    &&& 0 <= idx < self@.durable_main_table.len()
-                    &&& self.outstanding_cdb_writes@[idx as int] is Some
-                } ==> #[trigger] self.pending_allocations@.contains(idx)
-            &&& forall |idx: u64| {
-                    &&& 0 <= idx < self@.durable_main_table.len()
-                    &&& self.outstanding_entry_writes@[idx as int] is Some
-                } ==> #[trigger] self.pending_allocations@.contains(idx)
-            &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.pending_allocations@.contains(idx)) ==> {
+                &&& 0 <= idx < self@.durable_main_table.len()
+                &&& !(#[trigger] self.pending_allocations@.contains(idx))
+            } ==> {
                 &&& self.outstanding_cdb_writes@[idx as int] is None
                 &&& self.outstanding_entry_writes@[idx as int] is None
             }
