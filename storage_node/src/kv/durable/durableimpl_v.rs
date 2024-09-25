@@ -1490,10 +1490,10 @@ verus! {
                 let list_area_bytes = extract_bytes(bytes, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.list_area_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.list_area_size as nat);
                 
-                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().get_durable_main_table().len() ==> #[trigger] recovered_main_table.unwrap().get_durable_main_table()[i] is None);
+                assert(forall |i: int| 0 <= i < recovered_main_table.unwrap().durable_main_table.len() ==> #[trigger] recovered_main_table.unwrap().durable_main_table[i] is None);
 
                 DurableList::<K, L>::lemma_parse_each_list_succeeds_if_no_valid_metadata_entries(
-                    recovered_main_table.unwrap().get_durable_main_table(),
+                    recovered_main_table.unwrap().durable_main_table,
                     list_area_bytes,
                     Map::empty(),
                     overall_metadata.list_node_size,

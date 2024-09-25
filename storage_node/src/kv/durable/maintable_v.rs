@@ -96,11 +96,6 @@ verus! {
             }
         }
 
-        pub open spec fn get_durable_main_table(self) -> Seq<Option<MainTableViewEntry<K>>>
-        {
-            self.durable_main_table
-        }
-
         pub open spec fn insert(self, index: int, entry: MainTableViewEntry<K>) -> Self
         {
             Self{
@@ -740,7 +735,7 @@ verus! {
             // Prove that entries with CDB of false are None in the recovery view of the table. We already know that all of the entries
             // have CDB_FALSE, so this proves the postcondition that the recovery view is equivalent to fresh initialized table view
             // since all entries in both are None
-            let ghost main_table = recovered_view.unwrap().get_durable_main_table();
+            let ghost main_table = recovered_view.unwrap().durable_main_table;
             assert forall |k: nat| k < num_keys implies #[trigger] main_table[k as int] is None by {
                 // Prove that k is a valid index in the table
                 lemma_valid_entry_index(k, num_keys as nat, main_table_entry_size as nat);
