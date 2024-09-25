@@ -1113,7 +1113,7 @@ verus! {
             ensures
                 // we maintain all invariants and move the index into
                 // the pending deallocations set
-                self.pending_deallocations_view().contains(index),
+                self.pending_deallocations_view() == old(self).pending_deallocations_view().insert(index),
                 self.inv(pm_subregion, overall_metadata, durable_valid_indices),
                 old(self).free_list() == self.free_list(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
@@ -1153,6 +1153,8 @@ verus! {
                     assert(old(self).allocator_view().spec_abort_alloc_transaction().pending_alloc_check(
                         idx, durable_valid_indices, durable_valid_indices));
                 }         
+
+                assert(self.pending_deallocations_view() =~= old(self).pending_deallocations_view().insert(index));
             }
         }
 
