@@ -1408,17 +1408,11 @@ metadata_allocator@.contains(i)
                 match result {
                     Ok(index) => {
                         &&& old(self).free_list().contains(index)
-                        &&& forall|other_index: u64| self.free_list().contains(other_index) <==>
-                            old(self).free_list().contains(other_index) && other_index != index
+                        &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
-                        &&& self.outstanding_cdb_writes@.len() == self.outstanding_entry_writes@.len() ==
-                            overall_metadata.num_keys
-                        &&& forall |i: int| 0 <= i < overall_metadata.num_keys ==>
-                            #[trigger] self.outstanding_cdb_writes@[i] ==
-                            old(self).outstanding_cdb_writes@[i]
+                        &&& self.outstanding_cdb_writes@ == old(self).outstanding_cdb_writes@
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.outstanding_entry_writes@[i] ==
-                            old(self).outstanding_entry_writes@[i]
+                            #[trigger] self.outstanding_entry_writes@[i] == old(self).outstanding_entry_writes@[i]
                         &&& self.outstanding_entry_writes@[index as int] matches Some(e)
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
@@ -1603,6 +1597,8 @@ metadata_allocator@.contains(i)
             by {
                 assert(self.allocator_view().spec_abort_alloc_transaction().free_list == old(self).allocator_view().spec_abort_alloc_transaction().free_list);
             }
+
+            assert(self.free_list() =~= old(self).free_list().remove(free_index));
 
             Ok(free_index)
         }
