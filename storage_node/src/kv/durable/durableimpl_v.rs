@@ -2808,6 +2808,9 @@ verus! {
                     }
                 })
         {
+            let ghost num_keys = self.overall_metadata.num_keys;
+            let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
+            
             // 1. find a free slot in the item table and tentatively write the new item there
 
             let ghost is_writable_item_table_addr = self.get_writable_mask_for_item_table();
@@ -2869,6 +2872,28 @@ verus! {
                     self_before_tentative_item_write, item_table_subregion, perm
                 );
                 self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
+
+                assume(false);
+                let ghost tentative_state_bytes2 =
+                    Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                                                     self.log@.commit_op_log().physical_op_list).unwrap();
+                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
+                    self.wrpm@.flush().committed(),
+                    self.version_metadata,
+                    self.overall_metadata,
+                    self.log@.commit_op_log().physical_op_list
+                );
+                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(),
+                                                      self.log@.commit_op_log().physical_op_list);
+                assert(tentative_state_bytes2.len() == tentative_state_bytes.len());
+                assert forall|addr: int| 0 <= addr < tentative_state_bytes.len() &&
+                    tentative_state_bytes[addr] != tentative_state_bytes2[addr] implies
+                    #[trigger] address_belongs_to_invalid_main_table_entry(addr, tentative_state_bytes,
+                                                                           num_keys, main_table_entry_size) by {
+                    assume(false);
+                }
+
+                assume(false);
 
                 // We also have to reestablish that this part of the metadata table pending allocation invariant is 
                 // still true, as it is a precondition if we have to abort after a failed tentative create.
@@ -2971,9 +2996,25 @@ verus! {
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
 
-            assume(false);
+
             assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), main_table_region,
-                                                     self.overall_metadata));
+                                                     self.overall_metadata)) by {
+                let overall_metadata = self.overall_metadata;
+                let current_view = parse_main_table::<K>(main_table_subregion_view.committed(),
+                                                         overall_metadata.num_keys,
+                                                         overall_metadata.main_table_entry_size);
+                let tentative_view = parse_main_table::<K>(main_table_region, overall_metadata.num_keys,
+                                                           overall_metadata.main_table_entry_size);
+                assert(current_view is Some);
+                assert(tentative_view is Some);
+                let current_view = current_view.unwrap();
+                let tentative_view = tentative_view.unwrap();
+                assert forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() implies
+                    self.main_table.allocator_view().pending_alloc_check(idx, current_view, tentative_view) by {
+                    assume(false);
+                }
+            }
+            assume(false);
             let log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),

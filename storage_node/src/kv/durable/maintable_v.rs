@@ -369,9 +369,9 @@ verus! {
         ) -> bool 
         {
             let current_view = parse_main_table::<K>(current_durable_state, overall_metadata.num_keys,
-                                                         overall_metadata.main_table_entry_size);
+                                                     overall_metadata.main_table_entry_size);
             let tentative_view = parse_main_table::<K>(tentative_state, overall_metadata.num_keys,
-                                                           overall_metadata.main_table_entry_size);
+                                                       overall_metadata.main_table_entry_size);
             &&& current_view matches Some(current_view)
             &&& tentative_view matches Some(tentative_view)
             &&& forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() ==> 
