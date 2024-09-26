@@ -17,6 +17,7 @@ use vstd::seq::*;
 
 use super::durable::durableimpl_v::*;
 use super::durable::listlayout_v::*;
+use super::durable::inv_v::*;
 use super::durable::itemtablelayout_v::*;
 use super::durable::maintablelayout_v::*;
 use super::inv_v::*;
@@ -161,13 +162,23 @@ where
     pub fn untrusted_start(
         mut wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         kvstore_id: u128,
-        // version_metadata: VersionMetadata,
-        // overall_metadata: OverallMetadata,
+        Ghost(state): Ghost<AbstractKvStoreState<K, I, L>>,
+        Tracked(perm): Tracked<&Perm>,
     ) -> (result: Result<Self, KvError<K>>)
         requires 
             wrpm_region.inv(),
             wrpm_region@.no_outstanding_writes(),
-            Self::recover(wrpm_region@.committed(), kvstore_id) is Some,
+            Self::recover(wrpm_region@.committed(), kvstore_id) == Some(state),
+            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                // let s_version_metadata = deserialize_version_metadata(s);
+                &&& Self::recover(s, kvstore_id) == Some(state)
+                
+                // &&& s_version_metadata == deserialize_version_metadata(wrpm_region@.committed())
+                // &&& deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr) == deserialize_overall_metadata(wrpm_region@.committed(), s_version_metadata.overall_metadata_addr)
+            },
+            K::spec_size_of() > 0,
+            I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
         ensures 
             match result {
                 Ok(kv) => {
@@ -177,19 +188,76 @@ where
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                 Err(_) => true // TODO
             }
-    {
-        let ghost state = Self::recover(wrpm_region@.committed(), kvstore_id).unwrap();
-        
+    {        
         // 1. Read the version and overall metadata from PM.
         let pm = wrpm_region.get_pm_region_ref();
         let version_metadata = read_version_metadata::<PM, K, I, L>(pm, kvstore_id)?;
         let overall_metadata = read_overall_metadata::<PM, K, I, L>(pm, &version_metadata, kvstore_id)?;
 
-        // 2. Set up permissions for the operation
+        // 2. Call the durable KV store's start method
+        let ghost durable_kvstore_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
+            wrpm_region@.committed(), version_metadata, overall_metadata).unwrap();
 
-        // // 3. Call the durable KV store's start method
-        // DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
-        //     version_metadata, Tracked(perm), Ghost(state))?;
+        proof {
+            assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
+                wrpm_region@.committed(), version_metadata, overall_metadata) is Some);
+            assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.committed(), version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
+
+            // // TODO @hayley
+
+            // assert forall |s| 
+            //     {
+            //         let s_version_metadata = deserialize_version_metadata(s);
+            //         let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
+            //         &&& s_version_metadata == version_metadata
+            //         &&& s_overall_metadata == overall_metadata
+            //         &&& Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            //     } ==> #[trigger] perm.check_permission(s) 
+            // implies {
+            //     Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) ==>  
+            //         perm.check_permission(s)   
+            // } by {
+
+            // }
+
+            assert forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
+                &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            } ==> Self::recover(s, kvstore_id) == Some(state) by {
+                assume(false); // TODO @hayley
+            }
+
+            // assert forall |s| {
+            //     let s_version_metadata = deserialize_version_metadata(s);
+            //     let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
+            //     &&& s_version_metadata == version_metadata
+            //     &&& s_overall_metadata == overall_metadata
+            //     &&& Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            // } implies #[trigger] perm.check_permission(s) 
+            // by {
+            //     let s_version_metadata = deserialize_version_metadata(s);
+            //     let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
+            //     assert(s_version_metadata == version_metadata);
+            //     assert(s_overall_metadata == overall_metadata);
+            //     assume(false);
+            //     assert(Self::recover(s, kvstore_id) == Some(state));
+            // }
+
+            // assert forall |s| Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) implies
+            //     #[trigger] perm.check_permission(s) 
+            // by {
+            //     // let s_version_metadata = deserialize_version_metadata(s);
+            //     // let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
+            //     // assert(s_version_metadata == version_metadata);
+            //     // assert(s_overall_metadata == overall_metadata);
+            //     assert(Self::recover(s, kvstore_id) == Some(state));
+            // }
+
+            DurableKvStore::<Perm, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
+        }
+    
+        DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
+            version_metadata, Tracked(perm), Ghost(durable_kvstore_state))?;
 
 
         // 2. Set up the volatile index based on the contents of the KV store

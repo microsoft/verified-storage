@@ -30,7 +30,8 @@ verus! {
                 ||| self.absolute_addr + self.len <= overall_metadata.log_area_addr
                 ||| overall_metadata.log_area_addr + overall_metadata.log_area_size <= self.absolute_addr
             })
-            &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() <= self.absolute_addr
+            &&& VersionMetadata::spec_size_of() + u64::spec_size_of() < self.absolute_addr
+            &&& version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of() <= self.absolute_addr
             &&& self.len == self.bytes.len()
         }
 
@@ -533,6 +534,8 @@ verus! {
                 ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of()
                 ||| len == 0
                 ||| log_contents.len() - u64::spec_size_of() * 2 < len
+                ||| absolute_addr <= VersionMetadata::spec_size_of() + u64::spec_size_of()
+                ||| absolute_addr < overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
             } {
                 // if the entry contains invalid values, recovery fails
                 None 
@@ -660,7 +663,7 @@ verus! {
                 wrpm2@.no_outstanding_writes(),
                 extract_bytes(wrpm1@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
                     extract_bytes(wrpm2@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
-                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size < overall_metadata.region_size,
+                0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             ensures 
                 self.inv(wrpm2@, version_metadata, overall_metadata),
@@ -907,6 +910,8 @@ verus! {
                 ||| len == 0
                 ||| log_bytes.len() < traits_t::size_of::<u64>() * 2 + len as usize
                 ||| offset > log_bytes.len() - (traits_t::size_of::<u64>() * 2 + len as usize)
+                ||| addr <= traits_t::size_of::<VersionMetadata>() as u64 + traits_t::size_of::<u64>() as u64
+                ||| addr < version_metadata.overall_metadata_addr + traits_t::size_of::<OverallMetadata>() as u64 + traits_t::size_of::<u64>() as u64
             } {
                 assert(false);
                 return Err(KvError::InternalError);

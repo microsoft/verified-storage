@@ -1412,7 +1412,8 @@ metadata_allocator@.contains(i)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
                         &&& self.outstanding_cdb_writes@ == old(self).outstanding_cdb_writes@
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.outstanding_entry_writes@[i] == old(self).outstanding_entry_writes@[i]
+                            #[trigger] self.outstanding_entry_writes@[i] ==
+ old(self).outstanding_entry_writes@[i]
                         &&& self.outstanding_entry_writes@[index as int] matches Some(e)
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
@@ -2139,7 +2140,7 @@ metadata_allocator@.contains(i)
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
