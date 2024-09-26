@@ -20,6 +20,7 @@ use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::kv::kvimpl_t::*;
 use crate::kv::kvspec_t::*;
 use crate::kv::layout_v::*;
@@ -332,7 +333,10 @@ verus! {
                                                        self.overall_metadata.list_area_size as nat),
                                     self.main_table@, self.overall_metadata)
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
-            &&& Self::log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
+            &&& log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
+            &&& log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
+                                                                self.main_table.free_list(),
+                                                                self.overall_metadata)
             &&& self.abort_inv()
         }
 
@@ -347,15 +351,6 @@ verus! {
                                     self.overall_metadata,
                                     self.main_table@.valid_item_indices())
             &&& self.pending_alloc_inv()
-        }
-
-        pub closed spec fn log_entries_do_not_modify_item_table(op_log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool
-        {
-            forall |i: nat| i < op_log.len() ==> {
-                let entry = #[trigger] op_log[i as int];
-                ||| entry.absolute_addr + entry.len <= overall_metadata.item_table_addr
-                ||| overall_metadata.item_table_addr + overall_metadata.item_table_size <= entry.absolute_addr
-            }
         }
 
         pub closed spec fn pending_alloc_inv(self) -> bool
@@ -811,7 +806,7 @@ verus! {
                 overall_metadata.log_area_size <= mem.len(),
                 AbstractPhysicalOpLogEntry::log_inv(op_log, version_metadata, overall_metadata),
                 Self::apply_physical_log_entries(mem, op_log) is Some,
-                Self::log_entries_do_not_modify_item_table(op_log, overall_metadata),
+                log_entries_do_not_modify_item_table(op_log, overall_metadata),
             ensures 
                 ({
                     let mem_with_log_installed = Self::apply_physical_log_entries(mem, op_log).unwrap();
@@ -2872,37 +2867,6 @@ verus! {
                     self_before_tentative_item_write, item_table_subregion, perm
                 );
                 self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
-
-                assume(false);
-                let ghost tentative_state_bytes2 =
-                    Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
-                                                     self.log@.commit_op_log().physical_op_list).unwrap();
-                Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(
-                    self.wrpm@.flush().committed(),
-                    self.version_metadata,
-                    self.overall_metadata,
-                    self.log@.commit_op_log().physical_op_list
-                );
-                Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(),
-                                                      self.log@.commit_op_log().physical_op_list);
-                assert(tentative_state_bytes2.len() == tentative_state_bytes.len());
-                assert forall|addr: int| 0 <= addr < tentative_state_bytes.len() &&
-                    tentative_state_bytes[addr] != tentative_state_bytes2[addr] implies
-                    #[trigger] address_belongs_to_invalid_main_table_entry(addr, tentative_state_bytes,
-                                                                           num_keys, main_table_entry_size) by {
-                    assume(false);
-                }
-
-                assume(false);
-
-                // We also have to reestablish that this part of the metadata table pending allocation invariant is 
-                // still true, as it is a precondition if we have to abort after a failed tentative create.
-
-                assert forall |idx: u64| #[trigger] self.main_table.pending_allocations_view().contains(idx) implies
-                    self.main_table@.durable_main_table[idx as int] is None by {
-                    assert(self.main_table.allocator_view().pending_alloc_check(idx, self.main_table@,
-                                                                                tentative_main_table_view));
-                } 
             }
             
             assert(self.inv());
@@ -2996,32 +2960,14 @@ verus! {
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
 
+            assume(false); // tentative_create
 
-            assert(self.main_table.pending_alloc_inv(main_table_subregion_view.committed(), main_table_region,
-                                                     self.overall_metadata)) by {
-                let overall_metadata = self.overall_metadata;
-                let current_view = parse_main_table::<K>(main_table_subregion_view.committed(),
-                                                         overall_metadata.num_keys,
-                                                         overall_metadata.main_table_entry_size);
-                let tentative_view = parse_main_table::<K>(main_table_region, overall_metadata.num_keys,
-                                                           overall_metadata.main_table_entry_size);
-                assert(current_view is Some);
-                assert(tentative_view is Some);
-                let current_view = current_view.unwrap();
-                let tentative_view = tentative_view.unwrap();
-                assert forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() implies
-                    self.main_table.allocator_view().pending_alloc_check(idx, current_view, tentative_view) by {
-                    assume(false);
-                }
-            }
-            assume(false);
             let log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
                 metadata_index,
                 Ghost(self.version_metadata), &self.overall_metadata, Ghost(tentative_view_bytes)
             );
-            assume(false);
 
             /*
 
@@ -3525,6 +3471,7 @@ verus! {
         }
 
         #[verifier::spinoff_prover]
+        #[verifier::rlimit(20)]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -3829,6 +3776,13 @@ verus! {
                 // component, since it's part of their invariants, so we just need to prove that it's true 
                 // for the whole KV store as well.
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+
+                lemma_appending_log_entry_preserves_log_entries_do_not_modify_free_main_table_entries(
+                    old(self).log@.physical_op_list,
+                    log_entry@,
+                    self.main_table.free_list(),
+                    self.overall_metadata
+                );
                 
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
@@ -4094,6 +4048,7 @@ verus! {
         }
 
         #[verifier::spinoff_prover]
+        #[verifier::rlimit(50)]
         pub fn tentative_delete(
             &mut self,
             index: u64,
@@ -4262,6 +4217,18 @@ verus! {
                     self.abort_after_failed_op_log_operation(Ghost(*old(self)), Ghost(pre_self), Tracked(perm));
                     return Err(e);
                 }
+            }
+
+            assert(log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
+                                                                     self.main_table.free_list(),
+                                                                     self.overall_metadata)) by {
+                lemma_appending_log_entry_preserves_log_entries_do_not_modify_free_main_table_entries(
+                    old(self).log@.physical_op_list,
+                    log_entry@,
+                    self.main_table.free_list(),
+                    self.overall_metadata
+                );
+                assert(self.log@.physical_op_list == old(self).log@.physical_op_list.push(log_entry@));
             }
 
             self.pending_updates.push(log_entry);

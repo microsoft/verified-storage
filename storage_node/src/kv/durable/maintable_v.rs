@@ -11,10 +11,11 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
-use crate::kv::kvimpl_t::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::kv::durable::util_v::*;
+use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;
 use crate::pmem::crc_t::*;
@@ -2146,6 +2147,7 @@ metadata_allocator@.contains(i)
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
                 ({
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -2303,6 +2305,10 @@ metadata_allocator@.contains(i)
                                old_main_table_view.durable_main_table[j]);
                     }
                 }
+
+                lemma_log_entry_does_not_modify_free_main_table_entries(
+                    log_entry@, index, self.free_list(), *overall_metadata,
+                );
             }
             log_entry
         }
@@ -2376,6 +2382,8 @@ metadata_allocator@.contains(i)
                         &&& log_entry.absolute_addr + log_entry.len <=
                                 overall_metadata.main_table_addr + overall_metadata.main_table_size
                         &&& log_entry@.inv(version_metadata, *overall_metadata)
+                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                                                                            *overall_metadata)
 
                         // after applying this log entry to the current tentative state,
                         // this entry's metadata index has been updated
@@ -2563,6 +2571,10 @@ metadata_allocator@.contains(i)
                         &&& entry.item_index() == item_index
                     });
                 }
+
+                lemma_log_entry_does_not_modify_free_main_table_entries(
+                    log_entry@, index, self.free_list(), *overall_metadata,
+                );
             }
 
             Ok(log_entry)
