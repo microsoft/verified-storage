@@ -12,8 +12,9 @@ use vstd::bytes::*;
 use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::kvimpl_t::*;
-use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::maintablelayout_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;
@@ -368,14 +369,14 @@ verus! {
             overall_metadata: OverallMetadata
         ) -> bool 
         {
-            let current_view = parse_main_table::<K>(current_durable_state, overall_metadata.num_keys,
-                                                     overall_metadata.main_table_entry_size);
-            let tentative_view = parse_main_table::<K>(tentative_state, overall_metadata.num_keys,
-                                                       overall_metadata.main_table_entry_size);
-            &&& current_view matches Some(current_view)
-            &&& tentative_view matches Some(tentative_view)
-            &&& forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() ==> 
-                    self.allocator_view().pending_alloc_check(idx, current_view, tentative_view)
+            let durable_recovery =
+                get_main_table_recovery_state_from_region::<K>(current_durable_state, overall_metadata);
+            let tentative_recovery =
+                get_main_table_recovery_state_from_region::<K>(tentative_state, overall_metadata);
+            &&& durable_recovery matches Some(durable_recovery)
+            &&& tentative_recovery matches Some(tentative_recovery)
+            &&& forall |idx: u64| 0 <= idx < durable_recovery.v.len() ==> 
+                    self.allocator_view().pending_alloc_check(idx, durable_recovery.v, tentative_recovery.v)
         }
 
         // pub open spec fn pending_alloc_check(self, idx: u64, current_view: MainTableView<K>,
@@ -2001,29 +2002,26 @@ metadata_allocator@.contains(i)
                         pre_byte
                     }
                 );
-                
-                let old_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let new_main_table_region = extract_bytes(new_mem,
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
 
-                let committed_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let old_main_table_view = parse_main_table::<K>(old_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(self.allocator_view().pending_alloc_check(index, committed_main_table_view, old_main_table_view));
+                let old_tentative_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_mem(current_tentative_state, *overall_metadata));
+                let new_tentative_recovery_region = extract_bytes(new_mem, overall_metadata.main_table_addr as nat,
+                                                                  overall_metadata.main_table_size as nat);
+                lemma_establish_extract_bytes_equivalence(old_tentative_recovery.region, new_tentative_recovery_region);
+
+                let durable_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_region(subregion_view.committed(),
+                                                                           *overall_metadata));
+                assert(self.allocator_view().pending_alloc_check(index, durable_recovery.v, old_tentative_recovery.v));
                 
-                assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
+                assert forall |i: nat| #![trigger extract_bytes(new_tentative_recovery_region,
                                                          index_to_offset(i, entry_slot_size as nat),
                                                          entry_slot_size as nat)]
                            i < overall_metadata.num_keys implies {
                     let offset = index_to_offset(i, entry_slot_size as nat);
-                    let old_entry_bytes = extract_bytes(old_main_table_region, offset,
+                    let old_entry_bytes = extract_bytes(old_tentative_recovery.region, offset,
                                                         entry_slot_size as nat);
-                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat);
                     &&& validate_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat)
                     &&& i == index ==>
                            parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) ==
@@ -2034,30 +2032,30 @@ metadata_allocator@.contains(i)
                     let offset = index_to_offset(i, entry_slot_size as nat);
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
-                    assert(new_main_table_region.len() >= offset + entry_slot_size);
+                    assert(new_tentative_recovery_region.len() >= offset + entry_slot_size);
                     // Handle the case where i != index separately from i == index.
                     if i != index {
-                        assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
-                               extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
+                        assert(extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat) =~=
+                               extract_bytes(old_tentative_recovery.region, offset, entry_slot_size as nat));
                     } else {
                         // When `i == index`, the entry is valid because we just set its CDB to true,
                         // which makes its CDB a valid, parseable value. This also proves that this
                         // entry parses to an Valid entry, since we know that
                         // `log_entry.bytes@ == CDB_TRUE.spec_to_bytes()`
-                        let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                        let entry_bytes = extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
                         assert(cdb_bytes =~= log_entry.bytes@);
                     }
                 }
 
-                assert(validate_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                assert(validate_main_entries::<K>(new_tentative_recovery_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat));
-                let entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                let entries = parse_main_entries::<K>(new_tentative_recovery_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
-                assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.main_table_entry_size);
+                assert(new_tentative_recovery_region.len() >= overall_metadata.num_keys * overall_metadata.main_table_entry_size);
                 
                 let old_entries =
-                    parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                    parse_main_entries::<K>(old_tentative_recovery.region, overall_metadata.num_keys as nat,
                                                 overall_metadata.main_table_entry_size as nat);
                 assert(old_entries[index as int] is None);
 
@@ -2076,30 +2074,33 @@ metadata_allocator@.contains(i)
                     }
                 }
 
-                let updated_table = old_main_table_view.durable_main_table.update(
+                let new_tentative_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_region(new_tentative_recovery_region,
+                                                                           *overall_metadata));
+
+                let updated_table = old_tentative_recovery.v.durable_main_table.update(
                     index as int,
                     Some(entry)
                 );
-                assert(updated_table.len() == old_main_table_view.durable_main_table.len());
+                assert(updated_table.len() == old_tentative_recovery.v.durable_main_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
-                    #[trigger] updated_table[i as int] == new_main_table_view.unwrap().durable_main_table[i as int]
+                    #[trigger] updated_table[i as int] == new_tentative_recovery.v.durable_main_table[i as int]
                 by {
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     let offset = index_to_offset(i, entry_slot_size as nat);
-                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat);
                     let new_entry = parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
-                    assert(new_main_table_view.unwrap().durable_main_table[i as int] =~= new_entry);
+                    assert(new_tentative_recovery.v.durable_main_table[i as int] =~= new_entry);
                 }
-                let new_main_table_view = new_main_table_view.unwrap();
 
-                assert(new_main_table_view =~= old_main_table_view.insert(index as int, entry));
+                assert(new_tentative_recovery.v =~= old_tentative_recovery.v.insert(index as int, entry));
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
                 // prove that it makes the corresponding item table index valid.
                 
-                assert(new_main_table_view.valid_item_indices() =~=
-                       old_main_table_view.valid_item_indices().insert(item_index));
+                assert(new_tentative_recovery.v.valid_item_indices() =~=
+                       old_tentative_recovery.v.valid_item_indices().insert(item_index));
             }
 
             log_entry
@@ -2129,13 +2130,14 @@ metadata_allocator@.contains(i)
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
                     <= overall_metadata.region_size <= region_view.len() <= u64::MAX,
                 ({
-                    let main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let main_table_view = parse_main_table::<K>(main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
-                    &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.inv(*overall_metadata)
+                    let durable_recovery =
+                        get_main_table_recovery_state_from_region::<K>(subregion_view.committed(), *overall_metadata);
+                    let tentative_recovery =
+                        get_main_table_recovery_state_from_mem::<K>(current_tentative_state, *overall_metadata);
+                    &&& durable_recovery matches Some(durable_recovery)
+                    &&& tentative_recovery matches Some(tentative_recovery)
+                    &&& self.pending_alloc_inv(durable_recovery.region, tentative_recovery.region, *overall_metadata)
+                    &&& tentative_recovery.v.inv(*overall_metadata)
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2154,18 +2156,17 @@ metadata_allocator@.contains(i)
                             pre_byte
                         }
                     );
-                    let current_main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_main_table::<K>(current_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                    let new_main_table_region = extract_bytes(new_mem, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+
+                    let old_tentative_recovery =
+                        get_main_table_recovery_state_from_mem::<K>(current_tentative_state, *overall_metadata);
+                    let new_tentative_recovery =
+                        get_main_table_recovery_state_from_mem::<K>(new_mem, *overall_metadata);
                     let item_index = self@.durable_main_table[index as int].unwrap().item_index();
-                    &&& new_main_table_view is Some
-                    &&& new_main_table_view == current_main_table_view.delete(index as int)
-                    &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
+                    &&& old_tentative_recovery matches Some(old_tentative_recovery)
+                    &&& new_tentative_recovery matches Some(new_tentative_recovery)
+                    &&& Some(new_tentative_recovery.v) == old_tentative_recovery.v.delete(index as int)
+                    &&& new_tentative_recovery.v.valid_item_indices() ==
+                        old_tentative_recovery.v.valid_item_indices().remove(item_index)
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
@@ -2194,29 +2195,26 @@ metadata_allocator@.contains(i)
                         pre_byte
                     }
                 );
-                
-                let old_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let new_main_table_region = extract_bytes(new_mem, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
 
-                let committed_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let old_main_table_view = parse_main_table::<K>(old_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(self.allocator_view().pending_alloc_check(index, committed_main_table_view, old_main_table_view));
+                let old_tentative_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_mem(current_tentative_state, *overall_metadata));
+                let new_tentative_recovery_region = extract_bytes(new_mem, overall_metadata.main_table_addr as nat,
+                                                                  overall_metadata.main_table_size as nat);
+                lemma_establish_extract_bytes_equivalence(old_tentative_recovery.region, new_tentative_recovery_region);
+
+                let durable_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_region(subregion_view.committed(),
+                                                                           *overall_metadata));
+                assert(self.allocator_view().pending_alloc_check(index, durable_recovery.v, old_tentative_recovery.v));
                 
-                assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
+                assert forall |i: nat| #![trigger extract_bytes(new_tentative_recovery_region,
                                                          index_to_offset(i, entry_slot_size as nat),
                                                          entry_slot_size as nat)]
                            i < overall_metadata.num_keys implies {
                     let offset = index_to_offset(i, entry_slot_size as nat);
-                    let old_entry_bytes = extract_bytes(old_main_table_region, offset,
+                    let old_entry_bytes = extract_bytes(old_tentative_recovery.region, offset,
                                                         entry_slot_size as nat);
-                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat);
                     &&& validate_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat)
                     &&& i == index ==>
                            parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat) is None
@@ -2226,31 +2224,31 @@ metadata_allocator@.contains(i)
                     let offset = index_to_offset(i, entry_slot_size as nat);
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
-                    assert(new_main_table_region.len() >= offset + entry_slot_size);
+                    assert(new_tentative_recovery_region.len() >= offset + entry_slot_size);
                     // Handle the case where i != index separately from i == index.
                     if i != index {
-                        assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
-                               extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
+                        assert(extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat) =~=
+                               extract_bytes(old_tentative_recovery.region, offset, entry_slot_size as nat));
                         } else {
                         // When `i == index`, the entry is valid because we just set its CDB to false,
                         // which makes its CDB a valid, parseable value. This also proves that this
                         // entry parses to an Invalid entry, since we know that
                         // `log_entry.bytes@ == CDB_FALSE.spec_to_bytes()`
-                        let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                        let entry_bytes = extract_bytes(new_tentative_recovery_region, offset, entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
                         assert(cdb_bytes =~= log_entry.bytes@);
                     }
                 }
 
-                assert(validate_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                assert(validate_main_entries::<K>(new_tentative_recovery_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat));
-                let entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                let entries = parse_main_entries::<K>(new_tentative_recovery_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
-                assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.main_table_entry_size);
+                assert(new_tentative_recovery_region.len() >= overall_metadata.num_keys * overall_metadata.main_table_entry_size);
                 
                 let old_entries =
-                    parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
-                                                overall_metadata.main_table_entry_size as nat);
+                    parse_main_entries::<K>(old_tentative_recovery.region, overall_metadata.num_keys as nat,
+                                            overall_metadata.main_table_entry_size as nat);
                 assert(!self.pending_deallocations_view().contains(index));
                 assert(old_entries[index as int] is Some);
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
@@ -2270,37 +2268,39 @@ metadata_allocator@.contains(i)
                     }
                 }
 
-                let updated_table = old_main_table_view.durable_main_table.update(index as int, None);
-                assert(updated_table.len() == old_main_table_view.durable_main_table.len());
+                let new_tentative_recovery =
+                    prove_unwrap(get_main_table_recovery_state_from_region(new_tentative_recovery_region,
+                                                                           *overall_metadata));
+                assert(new_tentative_recovery.v =~= old_tentative_recovery.v.delete(index as int).unwrap());
+
+                let updated_table = old_tentative_recovery.v.durable_main_table.update(index as int, None);
+                assert(updated_table.len() == old_tentative_recovery.v.durable_main_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
                 assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
-                    #[trigger] updated_table[i as int] == new_main_table_view.unwrap().durable_main_table[i as int]
+                    #[trigger] updated_table[i as int] == new_tentative_recovery.v.durable_main_table[i as int]
                 by {
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     let offset = index_to_offset(i, entry_slot_size as nat);
-                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_tentative_recovery.region, offset, entry_slot_size as nat);
                     let new_entry = parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
-                    assert(new_main_table_view.unwrap().durable_main_table[i as int] =~= new_entry);
+                    assert(new_tentative_recovery.v.durable_main_table[i as int] =~= new_entry);
                 }
-                let new_main_table_view = new_main_table_view.unwrap();
-
-                assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
                 // prove that it makes the corresponding item table index invalid.
                 
-                assert(new_main_table_view.valid_item_indices() =~=
-                       old_main_table_view.valid_item_indices().remove(item_index)) by {
-                    assert forall|i: u64| old_main_table_view.valid_item_indices().remove(item_index).contains(i)
-                        implies #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
+                assert(new_tentative_recovery.v.valid_item_indices() =~=
+                       old_tentative_recovery.v.valid_item_indices().remove(item_index)) by {
+                    assert forall|i: u64| old_tentative_recovery.v.valid_item_indices().remove(item_index).contains(i)
+                        implies #[trigger] new_tentative_recovery.v.valid_item_indices().contains(i) by {
                         let j = choose|j: int| {
-                            &&& 0 <= j < old_main_table_view.durable_main_table.len() 
-                            &&& #[trigger] old_main_table_view.durable_main_table[j] matches
+                            &&& 0 <= j < old_tentative_recovery.v.durable_main_table.len() 
+                            &&& #[trigger] old_tentative_recovery.v.durable_main_table[j] matches
                                 Some(entry)
                             &&& entry.item_index() == i
                         };
-                        assert(new_main_table_view.durable_main_table[j] ==
-                               old_main_table_view.durable_main_table[j]);
+                        assert(new_tentative_recovery.v.durable_main_table[j] ==
+                               old_tentative_recovery.v.durable_main_table[j]);
                     }
                 }
             }
@@ -2336,17 +2336,15 @@ metadata_allocator@.contains(i)
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
                     <= overall_metadata.region_size <= u64::MAX,
                 ({
-                    let main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let main_table_view = parse_main_table::<K>(main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
-                    &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.inv(*overall_metadata)
-                    &&& !main_table_view.valid_item_indices().contains(item_index)
-
+                    let tentative_recovery = get_main_table_recovery_state_from_mem::<K>(current_tentative_state,
+                                                                                         *overall_metadata);
+                    &&& tentative_recovery matches Some(tentative_recovery)
+                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), tentative_recovery.region,
+                                             *overall_metadata)
+                    &&& tentative_recovery.v.inv(*overall_metadata)
+                    &&& !tentative_recovery.v.valid_item_indices().contains(item_index)
                     // the index should not be deallocated in the tentative view
-                    &&& main_table_view.durable_main_table[index as int] is Some
+                    &&& tentative_recovery.v.durable_main_table[index as int] is Some
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2362,16 +2360,13 @@ metadata_allocator@.contains(i)
                                 pre_byte
                             }
                         );
-                        let current_main_table_region = extract_bytes(current_tentative_state, 
-                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                        let current_main_table_view = parse_main_table::<K>(current_main_table_region,
-                            overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                        let new_main_table_region = extract_bytes(new_mem, 
-                            overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                        let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                            overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                        let old_item_index = current_main_table_view.durable_main_table[index as int].unwrap().item_index();
-                        
+
+                        let old_tentative_recovery =
+                            get_main_table_recovery_state_from_mem::<K>(current_tentative_state, *overall_metadata);
+                        let new_tentative_recovery =
+                            get_main_table_recovery_state_from_mem::<K>(new_mem, *overall_metadata);
+                        let old_item_index =
+                            old_tentative_recovery.unwrap().v.durable_main_table[index as int].unwrap().item_index();
                         &&& overall_metadata.main_table_addr <= log_entry.absolute_addr
                         &&& log_entry.absolute_addr + log_entry.len <=
                                 overall_metadata.main_table_addr + overall_metadata.main_table_size
@@ -2379,10 +2374,12 @@ metadata_allocator@.contains(i)
 
                         // after applying this log entry to the current tentative state,
                         // this entry's metadata index has been updated
-                        &&& new_main_table_view is Some
-                        &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
-                        &&& new_main_table_view.unwrap().valid_item_indices() == 
-                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                        &&& old_tentative_recovery matches Some(old_tentative_recovery)
+                        &&& new_tentative_recovery matches Some(new_tentative_recovery)
+                        &&& Some(new_tentative_recovery.v) ==
+                               old_tentative_recovery.v.update_item_index(index as int, item_index)
+                        &&& new_tentative_recovery.v.valid_item_indices() == 
+                               old_tentative_recovery.v.valid_item_indices().insert(item_index).remove(old_item_index)
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false,
@@ -2392,17 +2389,18 @@ metadata_allocator@.contains(i)
                 // We first have to establish that this index is not pending allocation or deallocation
                 // by triggering the pending alloc check on it.
                 let subregion_view = subregion.view(pm_region);
-                let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                 assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
                 assert(subregion_view.can_crash_as(subregion_view.committed()));
-                assert(current_main_table_view == Some(self@));
-                let tentative_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                assert(self.allocator_view().pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view));
+
+                let durable_recovery: MainTableRecoveryState<K> =
+                    prove_unwrap(get_main_table_recovery_state_from_region(subregion_view.committed(),
+                                                                           *overall_metadata));
+                let tentative_recovery: MainTableRecoveryState<K> =
+                    prove_unwrap(get_main_table_recovery_state_from_mem(current_tentative_state,
+                                                                        *overall_metadata));
+                assert(durable_recovery.v == self@);
+                assert(self.allocator_view().pending_alloc_check(index, durable_recovery.v, tentative_recovery.v));
             }
 
             // For this operation, we have to log the whole new metadata table entry
@@ -2468,17 +2466,13 @@ metadata_allocator@.contains(i)
                 );
                 let subregion_view = subregion.view(pm_region);
 
-                let old_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let new_main_table_region = extract_bytes(new_mem, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
+                let old_tentative_recovery: MainTableRecoveryState<K> =
+                    prove_unwrap(get_main_table_recovery_state_from_mem(current_tentative_state, *overall_metadata));
+                let new_tentative_recovery_region = extract_bytes(new_mem, overall_metadata.main_table_addr as nat,
+                                                                  overall_metadata.main_table_size as nat);
+                lemma_establish_extract_bytes_equivalence(old_tentative_recovery.region, new_tentative_recovery_region);
 
-                let old_main_table_view = parse_main_table::<K>(old_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
+                let old_item_index = old_tentative_recovery.v.durable_main_table[index as int].unwrap().item_index();
                 
                 let new_entry_view = MainTableViewEntry {
                     entry: new_metadata_entry,
@@ -2489,11 +2483,11 @@ metadata_allocator@.contains(i)
                 // This helps prove that parsing the entire table suceeds and also that we 
                 // get the expected table contents.
                 assert forall |i: nat| i < overall_metadata.num_keys implies {
-                    let new_bytes = extract_bytes(new_main_table_region,
+                    let new_bytes = extract_bytes(new_tentative_recovery_region,
                         #[trigger] index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                         overall_metadata.main_table_entry_size as nat
                     );
-                    let old_bytes = extract_bytes(old_main_table_region,
+                    let old_bytes = extract_bytes(old_tentative_recovery.region,
                         index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                         overall_metadata.main_table_entry_size as nat
                     );
@@ -2503,11 +2497,11 @@ metadata_allocator@.contains(i)
                     &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                             parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
                 } by {
-                    let new_bytes = extract_bytes(new_main_table_region,
+                    let new_bytes = extract_bytes(new_tentative_recovery_region,
                         index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                         overall_metadata.main_table_entry_size as nat
                     );
-                    let old_bytes = extract_bytes(old_main_table_region,
+                    let old_bytes = extract_bytes(old_tentative_recovery.region,
                         index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                         overall_metadata.main_table_entry_size as nat
                     );
@@ -2522,9 +2516,9 @@ metadata_allocator@.contains(i)
                     } 
                 }
 
-                let old_entries = parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                let old_entries = parse_main_entries::<K>(old_tentative_recovery.region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
-                let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                let new_entries = parse_main_entries::<K>(new_tentative_recovery_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
 
                 // Prove that there are no duplicate entries. This is required
@@ -2542,24 +2536,29 @@ metadata_allocator@.contains(i)
                     }
                 }
 
-                let new_main_table_view = new_main_table_view.unwrap();
-                let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
+                let new_tentative_recovery: MainTableRecoveryState<K> =
+                    prove_unwrap(get_main_table_recovery_state_from_mem(new_mem, *overall_metadata));
+
+                let updated_table_view = old_tentative_recovery.v.update_item_index(index as int, item_index).unwrap();
 
                 // Prove that the new main table view is equivalent to updating the old table with the new item index.
-                assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_main_table.len() ==> 
-                    new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
-                assert(new_main_table_view == updated_table_view);
+                assert(new_tentative_recovery.v =~= updated_table_view) by {
+                    assert(forall |idx: int| 0 <= idx < new_tentative_recovery.v.durable_main_table.len() ==> 
+                               #[trigger] new_tentative_recovery.v.durable_main_table[idx] ==
+                               updated_table_view.durable_main_table[idx]);
+                }
 
-                assert(new_main_table_view.valid_item_indices() =~= 
-                    old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)) 
+                assert(new_tentative_recovery.v.valid_item_indices() =~=
+                       old_tentative_recovery.v.valid_item_indices().insert(item_index).remove(old_item_index)) 
                 by {
                     // all indexes besides the one we are updating are unchanged
                     assert(forall |i: int| 0 <= i < updated_table_view.durable_main_table.len() && i != index ==> 
-                        old_main_table_view.durable_main_table[i] == updated_table_view.durable_main_table[i]);
+                        #[trigger] old_tentative_recovery.v.durable_main_table[i] ==
+                           updated_table_view.durable_main_table[i]);
                     // the entry at index now contains the new item index, which means it has replaced the old item index
-                    // in new_main_table_view.valid_item_indices()
+                    // in new_tentative_recovery.v.valid_item_indices()
                     assert({
-                        &&& #[trigger] updated_table_view.durable_main_table[index as int] matches Some(entry)
+                        &&& updated_table_view.durable_main_table[index as int] matches Some(entry)
                         &&& entry.item_index() == item_index
                     });
                 }
@@ -2812,15 +2811,16 @@ metadata_allocator@.contains(i)
                 pm.no_outstanding_writes(),
                 old(self).opaquable_inv(overall_metadata),
                 ({
-                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                        overall_metadata.main_table_size as nat);
-                    let old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
-                        overall_metadata.main_table_size as nat);
-                    &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
-                    &&& old_self.inv(old_subregion_view, overall_metadata)
-                    &&& parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
-                    &&& old_self.pending_alloc_inv(old_subregion_view.committed(), subregion_view.committed(), overall_metadata)
+                    let old_recovery_state =
+                        get_main_table_recovery_state_from_mem::<K>(old_pm.committed(), overall_metadata);
+                    let recovery_state = get_main_table_recovery_state_from_mem::<K>(pm.committed(), overall_metadata);
+                    &&& old_recovery_state matches Some(old_recovery_state)
+                    &&& recovery_state matches Some(recovery_state)
+                    &&& old_self.pending_alloc_inv(old_recovery_state.region, recovery_state.region, overall_metadata)
                 }),
+                old_self.inv(get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
+                                                overall_metadata.main_table_size as nat),
+                             overall_metadata),
                 old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
                     old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
@@ -2852,13 +2852,17 @@ metadata_allocator@.contains(i)
                     self.outstanding_entry_writes@[idx as int] is None,
                 
         {
-            let ghost old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
-                overall_metadata.main_table_size as nat);
-            let ghost old_main_table_view = parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                overall_metadata.main_table_size as nat);
-            let ghost main_table_view = parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+                                                          overall_metadata.main_table_size as nat);
+            let ghost old_recovery: MainTableRecoveryState<K> =
+                prove_unwrap(get_main_table_recovery_state_from_mem(old_pm.committed(), overall_metadata));
+            let ghost new_recovery: MainTableRecoveryState<K> =
+                prove_unwrap(get_main_table_recovery_state_from_mem(pm.committed(), overall_metadata));
 
+            assert(get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                                      overall_metadata.main_table_size as nat).committed()
+                   =~= extract_bytes(pm.committed(), overall_metadata.main_table_addr as nat,
+                                     overall_metadata.main_table_size as nat));
             self.update_ghost_state_to_current_bytes(Ghost(pm), Ghost(overall_metadata));
             
             proof {
@@ -2872,14 +2876,14 @@ metadata_allocator@.contains(i)
                             self@.durable_main_table[idx as int] is Some
                 } by {
                     // trigger the pending alloc check
-                    assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
+                    assert(old_self.allocator_view().pending_alloc_check(idx, old_recovery.v, new_recovery.v));
                 }
                 assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
                     &&& #[trigger] self.pending_deallocations_view().contains(idx) ==> 
                             {self@.durable_main_table[idx as int] is None}
                 } by {
                     // trigger the pending alloc check
-                    assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
+                    assert(old_self.allocator_view().pending_alloc_check(idx, old_recovery.v, new_recovery.v));
                 }
 
                 assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
@@ -2901,7 +2905,7 @@ metadata_allocator@.contains(i)
                         },
                     }
                 } by {
-                    assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
+                    assert(old_self.allocator_view().pending_alloc_check(idx, old_recovery.v, new_recovery.v));
                 }
             }
 

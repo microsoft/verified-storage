@@ -8,4 +8,5 @@ pub mod itemtablelayout_v;
 pub mod maintable_v;
 pub mod maintablelayout_v;
 pub mod oplog;
+pub mod recovery_v;
 pub mod util_v;
