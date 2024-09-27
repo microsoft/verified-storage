@@ -1941,6 +1941,9 @@ metadata_allocator@.contains(i)
                     let key_bytes = extract_bytes(
                         entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
                     );
+                    let crc = u64::spec_from_bytes(crc_bytes);
+                    let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
+                    let key = K::spec_from_bytes(key_bytes);
                     let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     let item_index = entry.entry.item_index;
                     &&& main_table_view is Some
@@ -1948,6 +1951,13 @@ metadata_allocator@.contains(i)
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
+                    &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+                    &&& K::bytes_parseable(key_bytes)
+                    &&& 0 <= metadata.item_index < overall_metadata.num_keys
+                    &&& key == entry.key
+                    &&& metadata == entry.entry
                 }),
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
@@ -1987,6 +1997,7 @@ metadata_allocator@.contains(i)
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
+                lemma_log_replay_preserves_size(mem, op_log);
             }
             
             let index_offset = index * entry_slot_size as u64;
@@ -2008,6 +2019,8 @@ metadata_allocator@.contains(i)
                         pre_byte
                     }
                 );
+                assert(current_tentative_state.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size);
+                assert(new_mem.len() == current_tentative_state.len());
                 
                 let old_main_table_region = extract_bytes(current_tentative_state, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
@@ -2038,6 +2051,7 @@ metadata_allocator@.contains(i)
                            parse_main_entry::<K>(old_entry_bytes, overall_metadata.num_keys as nat)
                 } by {
                     let offset = index_to_offset(i, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
                     assert(new_main_table_region.len() >= offset + entry_slot_size);
@@ -2045,6 +2059,7 @@ metadata_allocator@.contains(i)
                     if i != index {
                         assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
                                extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
+                        assert(validate_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat));
                     } else {
                         // When `i == index`, the entry is valid because we just set its CDB to true,
                         // which makes its CDB a valid, parseable value. This also proves that this
@@ -2052,7 +2067,9 @@ metadata_allocator@.contains(i)
                         // `log_entry.bytes@ == CDB_TRUE.spec_to_bytes()`
                         let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
+                        let old_entry_bytes = extract_bytes(old_main_table_region, offset, entry_slot_size as nat);
                         assert(cdb_bytes =~= log_entry.bytes@);
+                        lemma_establish_extract_bytes_equivalence(entry_bytes, old_entry_bytes);
                     }
                 }
 
@@ -2105,7 +2122,24 @@ metadata_allocator@.contains(i)
                 // prove that it makes the corresponding item table index valid.
                 
                 assert(new_main_table_view.valid_item_indices() =~=
-                       old_main_table_view.valid_item_indices().insert(item_index));
+                       old_main_table_view.valid_item_indices().insert(item_index)) by {
+                    assert(forall|i: u64| #[trigger] new_main_table_view.valid_item_indices().contains(i) ==>
+                           old_main_table_view.valid_item_indices().insert(item_index).contains(i));
+                    assert forall|i: u64| old_main_table_view.valid_item_indices().insert(item_index).contains(i) implies
+                           #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
+                        if i == item_index {
+                            assert(new_main_table_view.durable_main_table[index as int] is Some);
+                        }
+                        else {
+                            let j = choose|j: int| {
+                                &&& 0 <= j < old_main_table_view.durable_main_table.len() 
+                                &&& #[trigger] old_main_table_view.durable_main_table[j] matches Some(entry)
+                                &&& entry.item_index() == i
+                            };
+                            assert(new_main_table_view.durable_main_table[j as int] is Some);
+                        }
+                    }
+                }
             }
 
             log_entry

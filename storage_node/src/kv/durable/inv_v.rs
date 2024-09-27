@@ -17,15 +17,6 @@ use super::oplog::logentry_v::PhysicalOpLogEntry;
 
 verus! {
 
-    pub open spec fn addr_modified_by_recovery(
-        log: Seq<AbstractPhysicalOpLogEntry>,
-        addr: int,
-    ) -> bool
-    {
-        exists |j: int| 0 <= j < log.len() &&
-            (#[trigger] log[j]).absolute_addr <= addr < log[j].absolute_addr + log[j].bytes.len()
-    }
-
     pub open spec fn recovery_write_invariant<Perm, PM, K, I, L>(
         wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
         version_metadata: VersionMetadata,
@@ -230,7 +221,7 @@ verus! {
 
             // applying the log entries obtained from the log succeeds
             // the only way this can fail is if one of the log entries is ill-formed, but we know that is not the case
-            DurableKvStore::<Perm, PM, K, I, L>::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
+            lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
             
             assert(apply_physical_log_entries(s, phys_log) is Some);
             assert(apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
@@ -247,15 +238,15 @@ verus! {
                 let crash_replay = crash_replay.unwrap();
                 let reg_replay = reg_replay.unwrap();
 
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_replay_preserves_size(mem, phys_log);
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_replay_preserves_size(s, phys_log);
+                lemma_log_replay_preserves_size(mem, phys_log);
+                lemma_log_replay_preserves_size(s, phys_log);
 
                 assert(s.len() == mem.len());
 
                 // the only bytes that differ between s and mem are ones that will be overwritten by recovery
                 assert(forall |i: int| 0 <= i < s.len() && s[i] != mem[i] ==> addr_modified_by_recovery(phys_log, i));
 
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_mem_equal_after_recovery(mem, s, version_metadata, overall_metadata, phys_log);
+                lemma_mem_equal_after_recovery(mem, s, version_metadata, overall_metadata, phys_log);
             }
 
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) is Some);
