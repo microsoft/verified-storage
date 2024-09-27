@@ -13,6 +13,7 @@ use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::recovery_v::*;
 use crate::kv::durable::util_v::*;
 use crate::kv::kvimpl_t::*;
@@ -1901,10 +1902,11 @@ metadata_allocator@.contains(i)
         pub exec fn create_validify_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
+            Ghost(mem): Ghost<Seq<u8>>,
             index: u64,
             Ghost(version_metadata): Ghost<VersionMetadata>,
             overall_metadata: &OverallMetadata,
-            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
+            Ghost(op_log): Ghost<Seq<AbstractPhysicalOpLogEntry>>,
         ) -> (log_entry: PhysicalOpLogEntry)
             requires 
                 self.inv(subregion_view, *overall_metadata),
@@ -1917,9 +1919,13 @@ metadata_allocator@.contains(i)
                                           overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                mem.len() == overall_metadata.region_size,
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
                     <= overall_metadata.region_size <= u64::MAX,
+                log_entries_do_not_modify_free_main_table_entries(op_log, self.free_indices(), *overall_metadata),
+                apply_physical_log_entries(mem, op_log) is Some,
                 ({
+                    let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
@@ -1937,14 +1943,12 @@ metadata_allocator@.contains(i)
                     );
                     let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     let item_index = entry.entry.item_index;
-                    &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(*overall_metadata)
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
                 }),
-                current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
                     <= overall_metadata.main_table_addr,
@@ -1954,6 +1958,7 @@ metadata_allocator@.contains(i)
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 ({
+                    let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                             log_entry.bytes[pos - log_entry.absolute_addr]
@@ -1976,6 +1981,7 @@ metadata_allocator@.contains(i)
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
+            let ghost current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
             let ghost entry = self.outstanding_entry_writes@[index as int].unwrap();
             let ghost item_index = entry.entry.item_index;
             // Proves that index * entry_slot_size will not overflow
@@ -2015,7 +2021,6 @@ metadata_allocator@.contains(i)
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(self.allocator_view().pending_alloc_check(index, committed_main_table_view, old_main_table_view));
                 
                 assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
                                                          index_to_offset(i, entry_slot_size as nat),

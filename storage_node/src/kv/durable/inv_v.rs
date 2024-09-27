@@ -7,6 +7,7 @@ use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::itemtablelayout_v::*;
 use crate::kv::durable::list_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::{kvspec_t::*, setup_v::*};
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
@@ -231,16 +232,16 @@ verus! {
             // the only way this can fail is if one of the log entries is ill-formed, but we know that is not the case
             DurableKvStore::<Perm, PM, K, I, L>::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
             
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log) is Some);
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
+            assert(apply_physical_log_entries(s, phys_log) is Some);
+            assert(apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
 
             // Applying the log to both s and the original state result in the same sequence of bytes
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log) == 
-                DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(wrpm_region@.committed(), phys_log)) 
+            assert(apply_physical_log_entries(s, phys_log) == 
+                apply_physical_log_entries(wrpm_region@.committed(), phys_log)) 
             by {
                 let mem = wrpm_region@.committed();
-                let crash_replay = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log);
-                let reg_replay = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem, phys_log);
+                let crash_replay = apply_physical_log_entries(s, phys_log);
+                let reg_replay = apply_physical_log_entries(mem, phys_log);
                 assert(crash_replay is Some);
                 assert(reg_replay is Some);
                 let crash_replay = crash_replay.unwrap();
@@ -283,7 +284,7 @@ verus! {
             ({
                 let recovered_log = UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata).unwrap();
                 let physical_log_entries = recovered_log.physical_op_list;
-                let mem_with_log_installed = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem, physical_log_entries).unwrap();
+                let mem_with_log_installed = apply_physical_log_entries(mem, physical_log_entries).unwrap();
                 let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
