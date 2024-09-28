@@ -277,9 +277,9 @@ verus! {
                 Some(e) => {
                     let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
                     let key_bytes = K::spec_to_bytes(e.key);
+                    let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
                     &&& pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of())
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(),
-                                              spec_crc_bytes(entry_bytes + key_bytes))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), crc_bytes)
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
                                               key_bytes)
@@ -2890,7 +2890,6 @@ metadata_allocator@.contains(i)
             self.finalize_pending_alloc_and_dealloc(Ghost(subregion_view), Ghost(overall_metadata));
         }
 
-        /*
         pub proof fn lemma_only_difference_is_entry(
             self,
             pm: PersistentMemoryRegionView,
@@ -2943,9 +2942,12 @@ metadata_allocator@.contains(i)
                 assert(i != index);
                 assert(old_self.outstanding_entry_write_matches_pm_view(old_pm, i, entry_size));
                 assert(self.outstanding_entry_write_matches_pm_view(pm, i, entry_size));
+                assert(pm.committed()[addr] == pm.state[addr].state_at_last_flush);
+                assert(old_pm.committed()[addr] == old_pm.state[addr].state_at_last_flush);
+                broadcast use pmcopy_axioms;
             }
         }
-        */
+
 /* Temporarily commented out for subregion work
 
         pub exec fn play_metadata_log<PM, L>(
