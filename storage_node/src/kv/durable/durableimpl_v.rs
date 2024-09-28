@@ -2762,8 +2762,6 @@ verus! {
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
 
-            assume(false); // tentative_create
-
             let log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
@@ -2772,6 +2770,8 @@ verus! {
                 Ghost(self.version_metadata), &self.overall_metadata,
                 Ghost(self.log@.commit_op_log().physical_op_list),
             );
+
+            assume(false); // tentative_create
 
             /*
 

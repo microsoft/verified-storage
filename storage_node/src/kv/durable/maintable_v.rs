@@ -292,10 +292,13 @@ verus! {
             match self.outstanding_entry_writes@[i] {
                 None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + main_table_entry_size),
                 Some(e) => {
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
-                                              ListEntryMetadata::spec_to_bytes(e.entry))
+                    let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
+                    let key_bytes = K::spec_to_bytes(e.key);
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(),
+                                              spec_crc_bytes(entry_bytes + key_bytes))
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
-                                              K::spec_to_bytes(e.key))
+                                              key_bytes)
                 },
             }
         }
@@ -1507,7 +1510,14 @@ metadata_allocator@.contains(i)
             let mut digest = CrcDigest::new();
             digest.write(&entry);
             digest.write(key);
+            proof {
+                reveal_with_fuel(Seq::flatten, 3);
+                assert(digest.bytes_in_digest().flatten() =~=
+                       ListEntryMetadata::spec_to_bytes(entry) + K::spec_to_bytes(*key));
+            }
             let crc = digest.sum64();
+            assert(crc.spec_to_bytes() == spec_crc_bytes(ListEntryMetadata::spec_to_bytes(entry) +
+                                                         K::spec_to_bytes(*key)));
 
             broadcast use pmcopy_axioms;
             
