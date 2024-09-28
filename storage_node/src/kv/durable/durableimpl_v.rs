@@ -2762,6 +2762,18 @@ verus! {
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
 
+            proof {
+                self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
+                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat),
+                    old(self).main_table,
+                    get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat),
+                    self.overall_metadata,
+                    metadata_index
+                );
+            }
+
             assume(false); // tentative_create
 
             let log_entry = self.main_table.create_validify_log_entry(

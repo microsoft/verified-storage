@@ -2890,7 +2890,7 @@ metadata_allocator@.contains(i)
             self.finalize_pending_alloc_and_dealloc(Ghost(subregion_view), Ghost(overall_metadata));
         }
 
-        pub proof fn lemma_only_difference_is_entry(
+        pub proof fn lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
             self,
             pm: PersistentMemoryRegionView,
             old_self: Self,
