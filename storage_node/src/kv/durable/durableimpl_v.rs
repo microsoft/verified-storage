@@ -3629,7 +3629,7 @@ verus! {
             }
         }
 
-        // #[verifier::spinoff_prover]
+        #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -3918,6 +3918,9 @@ verus! {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
+
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+                assert(self.version_metadata == deserialize_version_metadata(self.wrpm@.committed()));
                 
                 // We have to prove that each component's invariant holds after appending the new log entry,
                 // which is straightforward because they held beforehand and the append operation does 

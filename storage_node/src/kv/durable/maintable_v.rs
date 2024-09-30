@@ -77,10 +77,10 @@ verus! {
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
             &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& #[trigger] self.durable_main_table[i as int] is Some
-                    &&& #[trigger] self.durable_main_table[j as int] is Some
-                } ==> self.durable_main_table[i as int].unwrap().item_index() != 
-                        self.durable_main_table[j as int].unwrap().item_index()
+                    &&& self.durable_main_table[i as int] is Some
+                    &&& self.durable_main_table[j as int] is Some
+                } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
+                    #[trigger] self.durable_main_table[j as int].unwrap().item_index()
         }
 
         pub open spec fn len(self) -> nat

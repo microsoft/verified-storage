@@ -243,9 +243,9 @@ verus! {
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
-            &&& #[trigger] entries[i] is Some
-            &&& #[trigger] entries[j] is Some
-        } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
+            &&& entries[i] is Some
+            &&& entries[j] is Some
+        } ==> #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index()
     }
 
     // // This function parses metadata entries before they are validated. It works the same
