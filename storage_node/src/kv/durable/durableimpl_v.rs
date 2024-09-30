@@ -2696,7 +2696,7 @@ verus! {
             }
 
             let ghost self_before_main_table_create = *self;
-            let metadata_index = match self.main_table.tentative_create(
+            let main_table_index = match self.main_table.tentative_create(
                 &main_table_subregion,
                 &mut self.wrpm,
                 head_index, 
@@ -2705,7 +2705,7 @@ verus! {
                 Tracked(perm),
                 Ghost(self.overall_metadata),
             ) {
-                Ok(metadata_index) => metadata_index,
+                Ok(main_table_index) => main_table_index,
                 Err(e) => {
                     proof {
                         self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
@@ -2720,8 +2720,6 @@ verus! {
                 }
             };
 
-            let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
-                self.log@.commit_op_log().physical_op_list).unwrap();
             proof {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                     self_before_main_table_create, main_table_subregion, perm
@@ -2754,25 +2752,71 @@ verus! {
                                        self.overall_metadata.main_table_size as nat)
                 );
             }
+
+            let ghost old_main_table_view =
+                get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat);
+            let ghost current_main_table_view =
+                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat);
+            let ghost main_table_entry_addr = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+            let ghost main_table_entry_bytes =
+                extract_bytes(current_main_table_view.flush().committed(), main_table_entry_addr,
+                              main_table_entry_size as nat);
+
+            proof {
+
+                self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
+                    current_main_table_view,
+                    old(self).main_table,
+                    old_main_table_view,
+                    self.overall_metadata,
+                    main_table_index
+                );
+
+                assert forall|addr: int| {
+                    let start = self.overall_metadata.main_table_addr +
+                                index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& self.overall_metadata.main_table_addr <= addr
+                        < self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size
+                    &&& !(start <= addr < start + main_table_entry_size)
+                } implies self.wrpm@.flush().committed()[addr] == old(self).wrpm@.flush().committed()[addr] by {
+                    let relative_addr = addr - self.overall_metadata.main_table_addr;
+                    assert(self.wrpm@.flush().committed()[addr] ==
+                           current_main_table_view.flush().committed()[relative_addr]);
+                    assert(old(self).wrpm@.flush().committed()[addr] ==
+                           old_main_table_view.flush().committed()[relative_addr]);
+                    assert(self.wrpm@.flush().committed()[addr] ==
+                           self.wrpm@.flush().state[addr].state_at_last_flush);
+                    assert(old(self).wrpm@.flush().committed()[addr] ==
+                           old(self).wrpm@.flush().state[addr].state_at_last_flush);
+                    lemma_auto_addr_in_entry_divided_by_entry_size(main_table_index as nat,
+                                                                   self.overall_metadata.num_keys as nat,
+                                                                   main_table_entry_size as nat);
+                    assert(trigger_addr(relative_addr));
+                }
+                       
+                lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
+                    old(self).wrpm@.flush().committed(),
+                    self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list,
+                    old(self).main_table.free_indices(),
+                    main_table_index,
+                    self.overall_metadata
+                );
+            }
             
+            let ghost tentative_state_bytes2 =
+                apply_physical_log_entries(self.wrpm@.flush().committed(),
+                                           self.log@.commit_op_log().physical_op_list).unwrap();
+
             let ghost main_table_region =
-                extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat,
+                extract_bytes(tentative_state_bytes2, self.overall_metadata.main_table_addr as nat,
                               self.overall_metadata.main_table_size as nat);
             let ghost main_table_subregion_view =
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
-
-            proof {
-                self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
-                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                       self.overall_metadata.main_table_size as nat),
-                    old(self).main_table,
-                    get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
-                                       self.overall_metadata.main_table_size as nat),
-                    self.overall_metadata,
-                    metadata_index
-                );
-            }
 
             assume(false); // tentative_create
 
@@ -2780,7 +2824,7 @@ verus! {
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                          self.overall_metadata.main_table_size as nat)),
                 Ghost(self.wrpm@.flush().committed()),
-                metadata_index,
+                main_table_index,
                 Ghost(self.version_metadata), &self.overall_metadata,
                 Ghost(self.log@.commit_op_log().physical_op_list),
             );
@@ -2794,7 +2838,7 @@ verus! {
             let tracked fake_main_table_perm = TrustedMetadataPermission::fake_metadata_perm();
 
             let item_log_entry: OpLogEntryType<L> = OpLogEntryType::ItemTableEntryCommit { item_index };
-            let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { metadata_index };
+            let metadata_log_entry: OpLogEntryType<L> = OpLogEntryType::CommitMetadataEntry { main_table_index };
 
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &item_log_entry, Tracked(&fake_log_perm))?;
             self.log.tentatively_append_log_entry(&mut self.log_wrpm, kvstore_id, &metadata_log_entry, Tracked(&fake_log_perm))?;
@@ -2804,7 +2848,7 @@ verus! {
             self.pending_updates.push(metadata_log_entry);
 
             // 6. Return the index of the metadata entry so it can be used in the volatile index.
-            Ok((metadata_index, head_index))
+            Ok((main_table_index, head_index))
             */
             Ok((0, 0))
         }

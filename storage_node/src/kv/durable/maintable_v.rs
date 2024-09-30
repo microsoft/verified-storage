@@ -317,6 +317,8 @@ verus! {
         {
             &&& self.opaquable_inv(overall_metadata)
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size
+            &&& pm.no_outstanding_writes_in_range(overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                                                overall_metadata.main_table_size as int)
             &&& pm.len() >= overall_metadata.main_table_size
             &&& self.main_table_entry_size == overall_metadata.main_table_entry_size
             &&& overall_metadata.main_table_entry_size ==
@@ -2892,20 +2894,20 @@ metadata_allocator@.contains(i)
 
         pub proof fn lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
             self,
-            pm: PersistentMemoryRegionView,
+            main_table_region: PersistentMemoryRegionView,
             old_self: Self,
-            old_pm: PersistentMemoryRegionView,
+            old_main_table_region: PersistentMemoryRegionView,
             overall_metadata: OverallMetadata,
             index: u64,
         )
             requires
-                self.inv(pm, overall_metadata),
-                old_self.inv(old_pm, overall_metadata),
+                self.inv(main_table_region, overall_metadata),
+                old_self.inv(old_main_table_region, overall_metadata),
                 index < overall_metadata.num_keys,
-                pm.len() == old_pm.len() == overall_metadata.main_table_size,
+                main_table_region.len() == old_main_table_region.len() == overall_metadata.main_table_size,
                 overall_metadata.main_table_size >=
                     index_to_offset(overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat),
-                pm.committed() == old_pm.committed(),
+                main_table_region.committed() == old_main_table_region.committed(),
                 forall|i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                     self.outstanding_entry_writes@[i] == old_self.outstanding_entry_writes@[i],
             ensures
@@ -2913,38 +2915,32 @@ metadata_allocator@.contains(i)
                     let entry_size = overall_metadata.main_table_entry_size;
                     let start = index_to_offset(index as nat, entry_size as nat);
                     forall|addr: int| {
-                        &&& 0 <= addr < index_to_offset(overall_metadata.num_keys as nat,
-                                                      overall_metadata.main_table_entry_size as nat)
+                        &&& #[trigger] trigger_addr(addr)
+                        &&& 0 <= addr < main_table_region.len()
                         &&& !(start <= addr < start + entry_size)
-                    } ==> #[trigger] pm.flush().committed()[addr] == old_pm.flush().committed()[addr]
+                    } ==> main_table_region.flush().committed()[addr] == old_main_table_region.flush().committed()[addr]
                 })
         {
             let entry_size = overall_metadata.main_table_entry_size;
             let start = index_to_offset(index as nat, entry_size as nat);
-            assert(pm.len() >= index_to_offset(overall_metadata.num_keys as nat, entry_size as nat));
             assert forall|addr: int| {
-                       &&& 0 <= addr < index_to_offset(overall_metadata.num_keys as nat,
-                                                     overall_metadata.main_table_entry_size as nat)
+                       &&& #[trigger] trigger_addr(addr)
+                       &&& 0 <= addr < main_table_region.len()
                        &&& !(start <= addr < start + entry_size)
-                   } implies #[trigger] pm.flush().committed()[addr] == old_pm.flush().committed()[addr] by {
-                let i = addr / entry_size as int;
-                assert(index_to_offset(i as nat, entry_size as nat) + addr % entry_size as int == addr) by {
-                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod(addr, entry_size as int);
-                    vstd::arithmetic::mul::lemma_mul_is_commutative(addr / entry_size as int, entry_size as int);
+                   } implies main_table_region.flush().committed()[addr] ==
+                             old_main_table_region.flush().committed()[addr] by {
+                assert(old_main_table_region.state[addr].state_at_last_flush ==
+                       old_main_table_region.committed()[addr]);
+                assert(main_table_region.state[addr].state_at_last_flush == main_table_region.committed()[addr]);
+                if addr < index_to_offset(overall_metadata.num_keys as nat,
+                                          overall_metadata.main_table_entry_size as nat) {
+                    lemma_auto_addr_in_entry_divided_by_entry_size(index as nat, overall_metadata.num_keys as nat,
+                                                                   entry_size as nat);
+                    let i = addr / entry_size as int;
+                    assert(old_self.outstanding_entry_write_matches_pm_view(old_main_table_region, i, entry_size));
+                    assert(self.outstanding_entry_write_matches_pm_view(main_table_region, i, entry_size));
+                    broadcast use pmcopy_axioms;
                 }
-                if i >= overall_metadata.num_keys {
-                    vstd::arithmetic::mul::lemma_mul_inequality(overall_metadata.num_keys as int, i, entry_size as int);
-                    assert(false);
-                }
-                assert(0 <= i < overall_metadata.num_keys);
-                lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(i as nat, index as nat, entry_size as nat);
-                assert(i != index);
-                assert(old_self.outstanding_entry_write_matches_pm_view(old_pm, i, entry_size));
-                assert(self.outstanding_entry_write_matches_pm_view(pm, i, entry_size));
-                assert(pm.committed()[addr] == pm.state[addr].state_at_last_flush);
-                assert(old_pm.committed()[addr] == old_pm.state[addr].state_at_last_flush);
-                broadcast use pmcopy_axioms;
             }
         }
 

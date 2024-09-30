@@ -168,33 +168,6 @@ pub open spec fn update_bytes(s: Seq<u8>, addr: int, bytes: Seq<u8>) -> Seq<u8>
     Seq::new(s.len(), |i: int| if addr <= i < addr + bytes.len() { bytes[i - addr] } else { s[i] })
 }
 
-pub proof fn lemma_update_to_free_main_table_entry_commutes_with_log_entry_replay(
-    mem: Seq<u8>,
-    log_entry: AbstractPhysicalOpLogEntry,
-    free_indices: Set<u64>,
-    free_index: u64,
-    main_table_entry: Seq<u8>,
-    overall_metadata: OverallMetadata,
-)
-    requires
-        main_table_entry.len() == overall_metadata.main_table_entry_size,
-        log_entry_does_not_modify_free_main_table_entries(log_entry, free_indices, overall_metadata),
-        free_indices.contains(free_index),
-        apply_physical_log_entry(mem, log_entry) is Some,
-    ensures
-        ({
-            let offset = index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
-            let addr = overall_metadata.main_table_addr + offset;
-            apply_physical_log_entry(update_bytes(mem, addr, main_table_entry), log_entry) ==
-                Some(update_bytes(apply_physical_log_entry(mem, log_entry).unwrap(), addr, main_table_entry))
-        })
-{
-    let offset = index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
-    let addr = overall_metadata.main_table_addr + offset;
-    assert(apply_physical_log_entry(update_bytes(mem, addr, main_table_entry), log_entry) =~=
-           Some(update_bytes(apply_physical_log_entry(mem, log_entry).unwrap(), addr, main_table_entry)));
-}
-
 pub proof fn lemma_update_to_free_main_table_entry_commutes_with_log_replay(
     mem: Seq<u8>,
     op_log: Seq<AbstractPhysicalOpLogEntry>,
@@ -221,15 +194,75 @@ pub proof fn lemma_update_to_free_main_table_entry_commutes_with_log_replay(
     if op_log.len() == 0 {
         return;
     }
-    else {
-        lemma_update_to_free_main_table_entry_commutes_with_log_replay(
-            mem, op_log.drop_last(), free_indices, free_index, main_table_entry, overall_metadata
-        );
-        let penultimate_mem = apply_physical_log_entries(mem, op_log.drop_last()).unwrap();
-        lemma_update_to_free_main_table_entry_commutes_with_log_entry_replay(
-            penultimate_mem, op_log.last(), free_indices, free_index, main_table_entry, overall_metadata
-        );
+
+    lemma_update_to_free_main_table_entry_commutes_with_log_replay(
+        mem, op_log.drop_last(), free_indices, free_index, main_table_entry, overall_metadata
+    );
+    let penultimate_mem = apply_physical_log_entries(mem, op_log.drop_last()).unwrap();
+    
+    let offset = index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
+    let addr = overall_metadata.main_table_addr + offset;
+    let log_entry = op_log.last();
+    assert(apply_physical_log_entry(update_bytes(penultimate_mem, addr, main_table_entry), log_entry) =~=
+           Some(update_bytes(apply_physical_log_entry(penultimate_mem, log_entry).unwrap(), addr, main_table_entry)));
+}                
+
+pub proof fn lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
+    mem1: Seq<u8>,
+    mem2: Seq<u8>,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    free_indices: Set<u64>,
+    free_index: u64,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        log_entries_do_not_modify_free_main_table_entries(op_log, free_indices, overall_metadata),
+        free_indices.contains(free_index),
+        apply_physical_log_entries(mem1, op_log) is Some,
+        mem1.len() == mem2.len(),
+        0 <= free_index < overall_metadata.num_keys,
+        mem1.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+        overall_metadata.main_table_size >= index_to_offset(overall_metadata.num_keys as nat,
+                                                           overall_metadata.main_table_entry_size as nat),
+        forall|addr: int| {
+            let start =
+                overall_metadata.main_table_addr +
+                index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
+            let len = overall_metadata.main_table_entry_size;
+            &&& #[trigger] trigger_addr(addr)
+            &&& overall_metadata.main_table_addr <= addr
+                < overall_metadata.main_table_addr + overall_metadata.main_table_size
+            &&& !(start <= addr < start + len)
+        } ==> mem1[addr] == mem2[addr]
+    ensures
+        apply_physical_log_entries(mem2, op_log) is Some,
+        ({
+            let mem1_post = apply_physical_log_entries(mem1, op_log).unwrap();
+            let mem2_post = apply_physical_log_entries(mem2, op_log).unwrap();
+            &&& mem1_post.len() == mem2_post.len() == mem1.len()
+            &&& forall|addr: int| {
+                    let start =
+                        overall_metadata.main_table_addr +
+                        index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
+                    let len = overall_metadata.main_table_entry_size;
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& overall_metadata.main_table_addr <= addr
+                        < overall_metadata.main_table_addr + overall_metadata.main_table_size
+                    &&& !(start <= addr < start + len)
+                } ==> mem1_post[addr] == mem2_post[addr]
+        })
+    decreases
+        op_log.len()
+{
+    if op_log.len() == 0 {
+        return;
     }
+
+    lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
+        mem1, mem2, op_log.drop_last(), free_indices, free_index, overall_metadata
+    );
+    lemma_auto_addr_in_entry_divided_by_entry_size(free_index as nat, overall_metadata.num_keys as nat,
+                                                   overall_metadata.main_table_entry_size as nat);
 }                
 
 pub proof fn lemma_log_replay_preserves_size(

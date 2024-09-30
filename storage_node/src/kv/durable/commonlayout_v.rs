@@ -74,4 +74,47 @@ verus! {
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(addr, size as int, index as int, r as int);
     }
 
+    pub open spec fn trigger_addr(addr: int) -> bool
+    {
+        true
+    }
+
+    pub proof fn lemma_auto_addr_in_entry_divided_by_entry_size(index: nat, num_entries: nat, entry_size: nat)
+        requires
+            index < num_entries,
+        ensures
+            num_entries * entry_size == entry_size * num_entries,
+            (index + 1) * entry_size == index * entry_size + entry_size,
+            index * entry_size + entry_size <= num_entries * entry_size,
+            forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr < num_entries * entry_size ==> {
+                let i = addr / entry_size as int;
+                &&& 0 <= i < num_entries
+                &&& i * entry_size <= addr < i * entry_size + entry_size
+                &&& i == index <==> index * entry_size <= addr < index * entry_size + entry_size
+                &&& (i + 1) * entry_size == i * entry_size + entry_size
+            },
+    {
+        lemma_valid_entry_index(index, num_entries, entry_size);
+        assert forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr < num_entries * entry_size implies {
+            let i = addr / entry_size as int;
+            &&& 0 <= i < num_entries
+            &&& i * entry_size <= addr < i * entry_size + entry_size
+            &&& i == index <==> index * entry_size <= addr < index * entry_size + entry_size
+            &&& (i + 1) * entry_size == i * entry_size + entry_size
+        } by {
+            let i = addr / entry_size as int;
+            assert(index_to_offset(i as nat, entry_size as nat) + addr % entry_size as int == addr) by {
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(addr, entry_size as int);
+                vstd::arithmetic::mul::lemma_mul_is_commutative(addr / entry_size as int, entry_size as int);
+            }
+            if i >= num_entries {
+                vstd::arithmetic::mul::lemma_mul_inequality(num_entries as int, i, entry_size as int);
+                assert(false);
+            }
+            assert(0 <= i < num_entries);
+            lemma_valid_entry_index(i as nat, num_entries as nat, entry_size as nat);
+            lemma_entries_dont_overlap_unless_same_index(i as nat, index as nat, entry_size as nat);
+        }
+    }
+
 }
