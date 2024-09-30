@@ -505,6 +505,77 @@ verus! {
             }
         }
 
+        pub proof fn lemma_num_log_entries_less_than_or_equal_to_log_bytes_len(
+            current_offset: nat,
+            target_offset: nat,
+            mem: Seq<u8>,
+            log_start_addr: nat,
+            log_size: nat,
+            region_size: nat,
+            overall_metadata_addr: nat
+        )
+            requires 
+                current_offset <= target_offset <= mem.len(),
+                target_offset == mem.len(),
+                Self::parse_log_ops_helper(current_offset, target_offset, mem, 
+                    log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
+            ensures 
+                ({
+                    &&& Self::parse_log_ops_helper(current_offset, target_offset, mem, 
+                            log_start_addr, log_size, region_size, overall_metadata_addr) matches Some(log)
+                    &&& log.len() <= target_offset - current_offset
+                })
+            decreases target_offset - current_offset
+        {
+            broadcast use pmcopy_axioms;
+
+            if target_offset == current_offset {
+                // trivial
+            } else {
+                let op = Self::parse_log_op(current_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
+                assert(op is Some);
+                let entry_size = u64::spec_size_of() * 2 + op.unwrap().len;
+                assert(entry_size > 1);
+                let next_offset = current_offset + entry_size;
+                Self::lemma_num_log_entries_less_than_or_equal_to_log_bytes_len(
+                    next_offset, target_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
+            }
+            
+        }
+
+        // pub proof fn lemma_num_log_entries_less_than_log_region_size(
+        //     current_offset: nat,
+        //     target_offset: nat,
+        //     mem: Seq<u8>,
+        //     log_start_addr: nat,
+        //     log_size: nat,
+        //     region_size: nat,
+        //     overall_metadata_addr: nat
+        // )
+        //     requires 
+        //         current_offset <= target_offset <= mem.len(),
+        //         target_offset == mem.len(),
+        //         Self::parse_log_ops_helper(current_offset, target_offset, mem, 
+        //             log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
+        //     ensures 
+        //         ({
+        //             &&& Self::parse_log_ops_helper(current_offset, target_offset, mem, 
+        //                     log_start_addr, log_size, region_size, overall_metadata_addr) matches Some(log)
+        //             &&& log.len() < mem.len()
+        //         })
+                
+        //     decreases target_offset - current_offset 
+        // {
+        //     if target_offset == current_offset {
+        //         // trivial
+        //     }
+        //     let op = Self::parse_log_op(current_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
+        //     let entry_size = u64::spec_size_of() * 2 + op.unwrap().len;
+        //     let next_offset = current_offset + entry_size;
+        //     Self::lemma_num_log_entries_less_than_log_region_size(
+        //         next_offset, target_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
+        // }
+
         // This spec function parses an individual op log entry at the given offset. It returns None
         // if the log entry is invalid, i.e., its address and length don't fit within the log area or 
         // if the length is 0.

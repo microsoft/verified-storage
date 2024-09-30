@@ -2458,8 +2458,6 @@ metadata_allocator@.contains(i)
             };
 
             proof {
-                broadcast use pmcopy_axioms;
-
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                         log_entry.bytes[pos - log_entry.absolute_addr]
@@ -2504,6 +2502,8 @@ metadata_allocator@.contains(i)
                     &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                             parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
                 } by {
+                    broadcast use pmcopy_axioms;
+                    
                     let new_bytes = extract_bytes(new_main_table_region,
                         index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                         overall_metadata.main_table_entry_size as nat

@@ -1576,20 +1576,18 @@ verus! {
             overall_metadata: OverallMetadata, 
         )
             requires 
-                // overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
                 pm.len() == overall_metadata.region_size,
                 DurableKvStore::<Perm, PM, K, I, L>::physical_recover(pm.committed(), version_metadata, overall_metadata) is Some,
-                // 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
-                // ({
-                //     let base_log_state = UntrustedLogImpl::recover(pm.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-                //     let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                //     let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
-                //             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
-                //     &&& abstract_op_log matches Some(abstract_log)
-                // }),
+                ({
+                    let base_log_state = UntrustedLogImpl::recover(pm.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                    let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
+                            overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
+                    &&& abstract_op_log matches Some(abstract_log)
+                }),
             ensures 
                 ({
                     let base_log_state = UntrustedLogImpl::recover(pm.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
@@ -1600,9 +1598,17 @@ verus! {
                     &&& 0 < abstract_log.len() <= u64::MAX
                 })
         {
-            assume(false); // TODO @hayley
+            let base_log_state = UntrustedLogImpl::recover(pm.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+            if base_log_state.log.len() > u64::spec_size_of() {
+                let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+                UntrustedOpLog::<K, L>::lemma_num_log_entries_less_than_or_equal_to_log_bytes_len(0, phys_op_log_buffer.len(), 
+                    phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, 
+                    overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
+            }
+            else {
+                assume(false); // TODO @hayley
+            }
         }
-
 
         pub exec fn start(
             mut wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,

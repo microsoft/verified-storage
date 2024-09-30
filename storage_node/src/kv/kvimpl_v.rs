@@ -30,6 +30,8 @@ use crate::kv::setup_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
+use crate::pmem::pmemutil_v::*;
+use crate::log2::logimpl_v::*;
 
 use std::hash::Hash;
 
@@ -202,57 +204,13 @@ where
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
                 wrpm_region@.committed(), version_metadata, overall_metadata) is Some);
             assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.committed(), version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
-
-            // // TODO @hayley
-
-            // assert forall |s| 
-            //     {
-            //         let s_version_metadata = deserialize_version_metadata(s);
-            //         let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
-            //         &&& s_version_metadata == version_metadata
-            //         &&& s_overall_metadata == overall_metadata
-            //         &&& Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
-            //     } ==> #[trigger] perm.check_permission(s) 
-            // implies {
-            //     Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) ==>  
-            //         perm.check_permission(s)   
-            // } by {
-
-            // }
-
             assert forall |s| {
                 &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
                 &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
-            } ==> Self::recover(s, kvstore_id) == Some(state) by {
-                assume(false); // TODO @hayley
+            } implies Self::recover(s, kvstore_id) == Some(state) by {
+                broadcast use pmcopy_axioms;
             }
-
-            // assert forall |s| {
-            //     let s_version_metadata = deserialize_version_metadata(s);
-            //     let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
-            //     &&& s_version_metadata == version_metadata
-            //     &&& s_overall_metadata == overall_metadata
-            //     &&& Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
-            // } implies #[trigger] perm.check_permission(s) 
-            // by {
-            //     let s_version_metadata = deserialize_version_metadata(s);
-            //     let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
-            //     assert(s_version_metadata == version_metadata);
-            //     assert(s_overall_metadata == overall_metadata);
-            //     assume(false);
-            //     assert(Self::recover(s, kvstore_id) == Some(state));
-            // }
-
-            // assert forall |s| Some(durable_kvstore_state) == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) implies
-            //     #[trigger] perm.check_permission(s) 
-            // by {
-            //     // let s_version_metadata = deserialize_version_metadata(s);
-            //     // let s_overall_metadata = deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr);
-            //     // assert(s_version_metadata == version_metadata);
-            //     // assert(s_overall_metadata == overall_metadata);
-            //     assert(Self::recover(s, kvstore_id) == Some(state));
-            // }
-
+            // TODO @hayley prove that the is either empty or recovers
             DurableKvStore::<Perm, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
         }
     
