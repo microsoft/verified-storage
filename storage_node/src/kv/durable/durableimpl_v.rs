@@ -1925,8 +1925,6 @@ verus! {
                     extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
                         extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
                     VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                    no_outstanding_writes_to_version_metadata(wrpm_region@),
-                    no_outstanding_writes_to_overall_metadata(wrpm_region@, version_metadata.overall_metadata_addr as int),
                     version_and_overall_metadata_match_deserialized(old(wrpm_region)@.committed(), wrpm_region@.committed()),
                     deserialize_version_metadata(wrpm_region@.committed()) == version_metadata,
             {
@@ -1956,10 +1954,6 @@ verus! {
                     let replayed_ops = phys_log_view.subrange(0, index as int);
                     let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
 
-                    // From the loop invariant
-                    assert(current_mem is Some);
-                    assert(current_mem.unwrap() == wrpm_region@.committed());
-
                     let new_wrpm = wrpm_region@.write(op.absolute_addr as int, op.bytes@).flush();
                     let new_replayed_ops = phys_log_view.subrange(0, index + 1);
                     let new_mem = Self::apply_physical_log_entries(old_wrpm, new_replayed_ops);
@@ -1974,9 +1968,6 @@ verus! {
 
                     assert(Self::apply_physical_log_entries(old_wrpm, replayed_ops) is Some);
                     assert(replayed_ops == new_replayed_ops.subrange(0, new_replayed_ops.len() - 1));
-
-                    assert(step_mem.unwrap() == new_wrpm.committed());
-                    assert(step_mem.unwrap() == new_mem.unwrap());
 
                     assert(new_mem.unwrap() == new_wrpm.committed());
 
@@ -2749,6 +2740,8 @@ verus! {
                 assert(durable_main_table_subregion.committed() == old_durable_main_table_subregion.flush().committed());
                 assert(durable_main_table_region == durable_main_table_subregion.committed());
                 assert(self.pending_alloc_inv());
+                
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
             }
         }
 
@@ -3636,7 +3629,7 @@ verus! {
             }
         }
 
-        #[verifier::spinoff_prover]
+        // #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4682,7 +4675,10 @@ verus! {
                 self.wrpm.inv(),
                 pre_log_install_wrpm.inv(),
                 self.log.inv(pre_log_install_wrpm@, self.version_metadata, self.overall_metadata),
-                forall |s: Seq<u8>| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) <==> crash_pred(s),
+                forall |s: Seq<u8>| {
+                    &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) 
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                } <==> #[trigger] crash_pred(s),
                 forall |s| #[trigger] crash_pred(s) ==> perm.check_permission(s),
                 self.wrpm@.no_outstanding_writes(),
                 pre_log_install_wrpm@.no_outstanding_writes(),
@@ -4699,6 +4695,11 @@ verus! {
                     extract_bytes(self.wrpm@.committed(), self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
                 Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
                     Self::physical_recover_given_log(self.wrpm@.committed(), self.overall_metadata, AbstractOpLogState::initialize()),
+                deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata,
+                forall |s| {
+                    &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                } <==> #[trigger] crash_pred(s),
             ensures 
                 forall |s2: Seq<u8>| {
                     let current_state = self.wrpm@.flush().committed();
@@ -4927,7 +4928,10 @@ verus! {
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
-            let ghost clear_log_crash_pred = |s: Seq<u8>| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@);
+            let ghost clear_log_crash_pred = |s: Seq<u8>| {
+                &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+            };
 
             // 5. Clear the log
             proof {
