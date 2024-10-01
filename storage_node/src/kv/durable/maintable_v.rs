@@ -2359,6 +2359,136 @@ verus! {
             log_entry
         }
 
+        proof fn lemma_no_duplicate_item_indices_or_keys(
+            old_entries: Seq<Option<MainTableViewEntry<K>>>,
+            new_entries: Seq<Option<MainTableViewEntry<K>>>,
+            index: int,
+            new_item_index: u64,
+        )
+            requires
+                no_duplicate_item_indexes(old_entries),
+                no_duplicate_keys(old_entries),
+                0 <= index < new_entries.len(),
+                new_entries.len() == old_entries.len(),
+                forall |i: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& #[trigger] new_entries[i] is Some
+                } ==> {
+                    &&& old_entries[i] is Some
+                    &&& new_entries[i].unwrap().key() == old_entries[i].unwrap().key()
+                },
+                forall |i: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& #[trigger] new_entries[i] is Some
+                } ==> {
+                    &&& i != index ==> {
+                            &&& old_entries[i] is Some
+                            &&& new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index()
+                            &&& new_entries[i].unwrap().item_index() != new_item_index
+                        }
+                    &&& i == index ==> 
+                            new_entries[i].unwrap().item_index() == new_item_index
+                }
+            ensures 
+                forall |i: int, j: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& 0 <= j < new_entries.len()
+                    &&& i != j
+                    &&& #[trigger] new_entries[i] is Some
+                    &&& #[trigger] new_entries[j] is Some
+                } ==> {
+                    &&& new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
+                    &&& new_entries[i].unwrap().key() != new_entries[j].unwrap().key()
+                } 
+        {
+            assert forall |i: int, j: int| {
+                &&& 0 <= i < new_entries.len()
+                &&& 0 <= j < new_entries.len()
+                &&& i != j
+                &&& #[trigger] new_entries[i] is Some
+                &&& #[trigger] new_entries[j] is Some
+            } implies {
+                new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
+            } by {
+                if i != index && j != index {
+                    assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
+                    assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
+                }
+            }
+        }
+
+        // This lemma establishes some useful facts for create_update_item_index_log_entry.
+        // There are some unnecessary preconditions and lines in the body, but removing them 
+        // seems to increase the caller's verif time to the point where it times out. 
+        // TODO: figure out why this is and fix it.
+        proof fn lemma_index_is_not_pending_alloc_or_dealloc<PM>(
+            self,
+            subregion: PersistentMemorySubregion,
+            pm_region: &PM,
+            index: u64,
+            overall_metadata: OverallMetadata,
+            current_tentative_state: Seq<u8>,
+        )
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), overall_metadata),
+                subregion.len() == overall_metadata.main_table_size,
+                subregion.start() == overall_metadata.main_table_addr,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                0 <= index < self@.len(),
+                pm_region@.len() == overall_metadata.region_size,
+                // the index must refer to a currently-valid entry in the current durable table
+                self@.durable_main_table[index as int] is Some,
+                overall_metadata.main_table_entry_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
+                    <= overall_metadata.region_size <= u64::MAX,
+                ({
+                    let main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_main_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, overall_metadata)
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.inv(overall_metadata)
+
+                    // the index should not be deallocated in the tentative view
+                    &&& main_table_view.durable_main_table[index as int] is Some
+                }),
+                current_tentative_state.len() == overall_metadata.region_size,
+            ensures 
+                ({
+                    let subregion_view = subregion.view(pm_region);
+                    let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    let tentative_main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+                    &&& self.allocator_view().pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view)
+                    &&& subregion_view.committed() == extract_bytes(pm_region@.committed(), 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat)
+                    &&& current_main_table_view == Some(self@)
+                })
+        {
+            let subregion_view = subregion.view(pm_region);
+            let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+            assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
+            assert(subregion_view.can_crash_as(subregion_view.committed()));
+            assert(current_main_table_view == Some(self@));
+            
+            // these are obviously unnecessary but removing them impacts the *caller*'s verif performance.
+            let tentative_main_table_region = extract_bytes(current_tentative_state, 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+            let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+        }
+
+
         pub exec fn create_update_item_index_log_entry<PM>(
             &self,
             subregion: &PersistentMemorySubregion,
@@ -2443,18 +2573,7 @@ verus! {
             proof {
                 // We first have to establish that this index is not pending allocation or deallocation
                 // by triggering the pending alloc check on it.
-                let subregion_view = subregion.view(pm_region);
-                let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
-                assert(subregion_view.can_crash_as(subregion_view.committed()));
-                assert(current_main_table_view == Some(self@));
-                let tentative_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                assert(self.allocator_view().pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view));
+                self.lemma_index_is_not_pending_alloc_or_dealloc(*subregion, pm_region, index, *overall_metadata, current_tentative_state);
             }
 
             // For this operation, we have to log the whole new metadata table entry
@@ -2553,21 +2672,20 @@ verus! {
                     &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                             parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
                 } by {
-                    broadcast use pmcopy_axioms;
-                    
-                    let new_bytes = extract_bytes(new_main_table_region,
-                        index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
-                    let old_bytes = extract_bytes(old_main_table_region,
-                        index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.main_table_entry_size as nat);
-
+                    
                     if i == index {
-                        assert(extract_bytes(new_bytes, 0, u64::spec_size_of()) == extract_bytes(old_bytes, 0, u64::spec_size_of()));
+                        broadcast use pmcopy_axioms;
+                        let new_bytes = extract_bytes(new_main_table_region,
+                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                            overall_metadata.main_table_entry_size as nat
+                        );
+                        let old_bytes = extract_bytes(old_main_table_region,
+                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                            overall_metadata.main_table_entry_size as nat
+                        );
+                        lemma_establish_extract_bytes_equivalence(new_bytes, old_bytes);
                         assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
@@ -2581,23 +2699,7 @@ verus! {
 
                 // Prove that there are no duplicate entries or keys. This is required
                 // to prove that the table parses successfully.
-                assert forall |i: int, j: int| {
-                    &&& 0 <= i < new_entries.len()
-                    &&& 0 <= j < new_entries.len()
-                    &&& i != j
-                    &&& #[trigger] new_entries[i] is Some
-                    &&& #[trigger] new_entries[j] is Some
-                } implies {
-                    &&& new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
-                    &&& new_entries[i].unwrap().key() != new_entries[j].unwrap().key()
-                } by {
-                    if i != index && j != index {
-                        assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
-                        assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
-                    } 
-                    assert(new_entries[i].unwrap().key() == old_entries[i].unwrap().key());
-                    assert(new_entries[j].unwrap().key() == old_entries[j].unwrap().key());
-                }
+                Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
 
                 let new_main_table_view = new_main_table_view.unwrap();
                 let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
