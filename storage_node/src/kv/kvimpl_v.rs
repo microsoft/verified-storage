@@ -172,13 +172,7 @@ where
             wrpm_region@.no_outstanding_writes(),
             Self::recover(wrpm_region@.committed(), kvstore_id) == Some(state),
             forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                // let s_version_metadata = deserialize_version_metadata(s);
-                &&& Self::recover(s, kvstore_id) == Some(state)
-                
-                // &&& s_version_metadata == deserialize_version_metadata(wrpm_region@.committed())
-                // &&& deserialize_overall_metadata(s, s_version_metadata.overall_metadata_addr) == deserialize_overall_metadata(wrpm_region@.committed(), s_version_metadata.overall_metadata_addr)
-            },
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(state),
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
         ensures 
@@ -210,8 +204,14 @@ where
             } implies Self::recover(s, kvstore_id) == Some(state) by {
                 broadcast use pmcopy_axioms;
             }
-            // TODO @hayley prove that the is either empty or recovers
-            DurableKvStore::<Perm, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
+            let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+            assert(base_log_state.log.len() == 0 || base_log_state.log.len() > u64::spec_size_of());
+
+            if base_log_state.log.len() > u64::spec_size_of() {
+                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
+            } else {
+                assert(base_log_state.log.len() == 0);
+            }
         }
     
         DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 

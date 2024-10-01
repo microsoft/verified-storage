@@ -1587,6 +1587,7 @@ verus! {
                     let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& abstract_op_log matches Some(abstract_log)
+                    &&& base_log_state.log.len() > u64::spec_size_of()
                 }),
             ensures 
                 ({
@@ -1595,19 +1596,14 @@ verus! {
                     let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& abstract_op_log matches Some(abstract_log)
-                    &&& 0 < abstract_log.len() <= u64::MAX
+                    &&& 0 <= abstract_log.len() <= u64::MAX
                 })
         {
             let base_log_state = UntrustedLogImpl::recover(pm.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
-            if base_log_state.log.len() > u64::spec_size_of() {
-                let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
-                UntrustedOpLog::<K, L>::lemma_num_log_entries_less_than_or_equal_to_log_bytes_len(0, phys_op_log_buffer.len(), 
-                    phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, 
-                    overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
-            }
-            else {
-                assume(false); // TODO @hayley
-            }
+            let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
+            UntrustedOpLog::<K, L>::lemma_num_log_entries_less_than_or_equal_to_log_bytes_len(0, phys_op_log_buffer.len(), 
+                phys_op_log_buffer, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, 
+                overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
         }
 
         pub exec fn start(
@@ -1639,8 +1635,12 @@ verus! {
                     let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
                     let abstract_op_log = UntrustedOpLog::<K, L>::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
-                    &&& abstract_op_log matches Some(abstract_log)
-                    &&& 0 < abstract_log.len() <= u64::MAX
+                    ||| base_log_state.log.len() == 0 
+                    ||| {
+                            &&& abstract_op_log matches Some(abstract_log)
+                            &&& 0 <= abstract_log.len() <= u64::MAX
+                        }
+                    
                 }),
                 K::spec_size_of() > 0,
                 // TODO: move these into one of the metadata validity spec fns

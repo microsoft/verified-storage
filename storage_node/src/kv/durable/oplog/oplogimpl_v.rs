@@ -246,8 +246,6 @@ verus! {
                         Some(AbstractOpLogState::initialize())
                     } else {
                         if let Some(log_contents) = Self::get_log_contents(log) {
-                            // parsing the log only obtains physical entries, but we (should) know that there is a corresponding logical op log (even
-                            // if we don't know exactly what it is)
                             if let Some(physical_log_entries) =  Self::parse_log_ops(
                                 log_contents, 
                                 overall_metadata.log_area_addr as nat, 
@@ -275,17 +273,23 @@ verus! {
         // that the CRC matches the rest of the log 
         pub open spec fn get_log_contents(log: AbstractLogState) -> Option<Seq<u8>>
         {
-            let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
-            let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
-            let crc = u64::spec_from_bytes(crc_bytes);
-            // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
-            if !u64::bytes_parseable(crc_bytes) {
-                None
-            } else if crc != spec_crc_u64(log_contents) {
+            // log must be large enough for the following extract_bytes calls to make sense
+            if log.log.len() < u64::spec_size_of() * 2 {
                 None
             } else {
-                Some(log_contents)
+                let log_contents = extract_bytes(log.log, 0, (log.log.len() - u64::spec_size_of()) as nat);
+                let crc_bytes = extract_bytes(log.log, (log.log.len() - u64::spec_size_of()) as nat, u64::spec_size_of());
+                let crc = u64::spec_from_bytes(crc_bytes);
+                // if the crc written at the end of the transaction does not match the crc of the rest of the log contents, the log is invalid
+                if !u64::bytes_parseable(crc_bytes) {
+                    None
+                } else if crc != spec_crc_u64(log_contents) {
+                    None
+                } else {
+                    Some(log_contents)
+                }
             }
+            
         }
 
         pub proof fn lemma_if_not_committed_recovery_equals_drop_pending_appends<Perm, PM>(
@@ -542,39 +546,6 @@ verus! {
             }
             
         }
-
-        // pub proof fn lemma_num_log_entries_less_than_log_region_size(
-        //     current_offset: nat,
-        //     target_offset: nat,
-        //     mem: Seq<u8>,
-        //     log_start_addr: nat,
-        //     log_size: nat,
-        //     region_size: nat,
-        //     overall_metadata_addr: nat
-        // )
-        //     requires 
-        //         current_offset <= target_offset <= mem.len(),
-        //         target_offset == mem.len(),
-        //         Self::parse_log_ops_helper(current_offset, target_offset, mem, 
-        //             log_start_addr, log_size, region_size, overall_metadata_addr) is Some,
-        //     ensures 
-        //         ({
-        //             &&& Self::parse_log_ops_helper(current_offset, target_offset, mem, 
-        //                     log_start_addr, log_size, region_size, overall_metadata_addr) matches Some(log)
-        //             &&& log.len() < mem.len()
-        //         })
-                
-        //     decreases target_offset - current_offset 
-        // {
-        //     if target_offset == current_offset {
-        //         // trivial
-        //     }
-        //     let op = Self::parse_log_op(current_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
-        //     let entry_size = u64::spec_size_of() * 2 + op.unwrap().len;
-        //     let next_offset = current_offset + entry_size;
-        //     Self::lemma_num_log_entries_less_than_log_region_size(
-        //         next_offset, target_offset, mem, log_start_addr, log_size, region_size, overall_metadata_addr);
-        // }
 
         // This spec function parses an individual op log entry at the given offset. It returns None
         // if the log entry is invalid, i.e., its address and length don't fit within the log area or 
@@ -1046,8 +1017,11 @@ verus! {
                 let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
                 let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                         overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
-                &&& abstract_op_log matches Some(abstract_log)
-                &&& 0 < abstract_log.len() <= u64::MAX
+                ||| base_log_state.log.len() == 0 
+                ||| {
+                        &&& abstract_op_log matches Some(abstract_log)
+                        &&& 0 <= abstract_log.len() <= u64::MAX
+                    }
             }),
             overall_metadata.log_area_addr + overall_metadata.log_area_size <= u64::MAX,
             overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
