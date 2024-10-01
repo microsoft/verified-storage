@@ -267,6 +267,17 @@ verus! {
             Self::recover_from_component_views(self.main_table@, self.item_table@, self.durable_list@)
         }
 
+        pub closed spec fn key_index_list_view(self) -> Set<(K, u64, u64)>
+        {
+            Set::new(
+                |val: (K, u64, u64)| {
+                    exists |j: u64| {
+                        &&& 0 <= j < self.main_table@.durable_main_table.len()
+                        &&& #[trigger] self.main_table@.durable_main_table[j as int] matches Some(entry)
+                        &&& val == (entry.key(), j, entry.item_index())
+            }})
+        }
+
         pub closed spec fn tentative_view(self) -> Option<DurableKvStoreView<K, I, L>>
         {
             Self::physical_recover_after_committing_log(self.wrpm@.flush().committed(), self.overall_metadata, self.log@)
@@ -1612,7 +1623,7 @@ verus! {
             version_metadata: VersionMetadata,
             Tracked(perm): Tracked<&Perm>,
             Ghost(state): Ghost<DurableKvStoreView<K, I, L>>,
-        ) -> (result: Result<Self, KvError<K>>)
+        ) -> (result: Result<(Self, Vec<(Box<K>, u64, u64)>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires
@@ -1651,13 +1662,17 @@ verus! {
                 match result {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
-                    Ok(kvstore) => {
+                    Ok((kvstore, entry_list)) => {
+                        let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
+
                         &&& kvstore@ == state
                         &&& kvstore.valid()
                         &&& kvstore.wrpm_view().no_outstanding_writes()
                         &&& kvstore.constants() == wrpm_region.constants()
                         &&& kvstore.pending_allocations().is_empty()
                         &&& kvstore.pending_deallocations().is_empty()
+
+                        &&& entry_list_view.to_set() == kvstore.key_index_list_view()
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -1802,20 +1817,13 @@ verus! {
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
             }
 
-            /*
-            // TODO - Prove that the physical and logical recovery states match.
-            let ghost physical_recovery_state = Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata);
-            let ghost logical_recovery_state = Self::logical_recover(wrpm_region@.committed(), version_metadata, overall_metadata);
-            assert(physical_recovery_state == logical_recovery_state);
-            */
-
             proof {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
                     durable_kv_store.wrpm@);
                 durable_kv_store.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
             }
             
-            Ok(durable_kv_store)
+            Ok((durable_kv_store, entry_list))
         }
 
         // This function installs the log by blindly replaying physical log entries onto the WRPM region. All writes
@@ -1953,9 +1961,7 @@ verus! {
 
                     // Prove that any write to an address modified by recovery is crash-safe
                     lemma_safe_recovery_writes::<Perm, PM, K, I, L>(*wrpm_region, version_metadata, overall_metadata, phys_log_view, op.absolute_addr as int, op.bytes@);
-                }
-
-                proof {
+                    
                     let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                     let replayed_ops = phys_log_view.subrange(0, index as int);
                     let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
@@ -1965,13 +1971,8 @@ verus! {
                     let new_mem = Self::apply_physical_log_entries(old_wrpm, new_replayed_ops);
 
                     Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_wrpm, version_metadata, overall_metadata, new_replayed_ops);
-                    assert(new_mem is Some);
 
-                    let step_mem = Self::apply_physical_log_entry(current_mem.unwrap(), op@);
-
-                    assert(step_mem is Some);
                     assert(new_replayed_ops == replayed_ops + seq![op@]);
-
                     assert(Self::apply_physical_log_entries(old_wrpm, replayed_ops) is Some);
                     assert(replayed_ops == new_replayed_ops.subrange(0, new_replayed_ops.len() - 1));
 
@@ -1990,9 +1991,6 @@ verus! {
 
                 let ghost pre_write_wrpm = wrpm_region@;
 
-                assert(VersionMetadata::spec_size_of() + u64::spec_size_of() < op.absolute_addr);
-                assert(version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of() <= op.absolute_addr);
-
                 // write the current op's updates to the specified location on storage
                 wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
                 wrpm_region.flush();
@@ -2001,11 +1999,6 @@ verus! {
                     extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
 
                 index += 1;
-            }
-
-            proof {
-                let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
-                assert(phys_log_view.subrange(0, index as int) == phys_log_view);
             }
         }
 
@@ -3792,6 +3785,7 @@ verus! {
         }
 
         // #[verifier::spinoff_prover]
+        #[verifier::rlimit(25)] // TODO @hayley refactor and remove this
         pub fn tentative_update_item(
             &mut self,
             offset: u64,

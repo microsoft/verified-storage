@@ -214,9 +214,8 @@ where
             }
         }
     
-        DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
+        let (kvstore, entry_list) = DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
             version_metadata, Tracked(perm), Ghost(durable_kvstore_state))?;
-
 
         // 2. Set up the volatile index based on the contents of the KV store
 
