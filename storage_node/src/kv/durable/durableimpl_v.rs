@@ -2607,6 +2607,8 @@ verus! {
         {
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
+            let ghost main_table_addr = self.overall_metadata.main_table_addr;
+            let ghost main_table_size = self.overall_metadata.main_table_size;
             
             // 1. find a free slot in the item table and tentatively write the new item there
 
@@ -2818,7 +2820,77 @@ verus! {
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
 
-            assume(false); // tentative_create
+            proof {
+                let old_tentative_main_table_bytes =
+                    extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
+                                  self.overall_metadata.main_table_size as nat);
+
+                let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+                let main_table_entry_bytes = extract_bytes(main_table_region,
+                                                           start,
+                                                           main_table_entry_size as nat);
+                assert(self.main_table.outstanding_entry_write_matches_pm_view(main_table_subregion_view,
+                                                                               main_table_index as int,
+                                                                               main_table_entry_size));
+                let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
+                let entry_bytes = ListEntryMetadata::spec_to_bytes(entry);
+                let key_bytes = K::spec_to_bytes(*key);
+                let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
+                assert(entry.item_index == item_index);
+                assert(outstanding_bytes_match(
+                    main_table_subregion_view,
+                    (start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as int,
+                    key_bytes
+                ));
+                assert(outstanding_bytes_match(
+                    main_table_subregion_view,
+                    (start + u64::spec_size_of() * 2) as int,
+                    entry_bytes
+                ));
+                assert(outstanding_bytes_match(
+                    main_table_subregion_view,
+                    (start + u64::spec_size_of()) as int,
+                    crc_bytes
+                ));
+
+                /*
+                let op_log = self.log@.commit_op_log().physical_op_list;
+                let mem1a = old(self).wrpm@.flush().committed();
+                let mem1b = apply_physical_log_entries(mem1a, op_log).unwrap();
+                let mem1c = extract_bytes(mem1b, main_table_addr as nat, main_table_size as nat);
+                let mem2a = self.wrpm@.flush().committed();
+                let mem2b = apply_physical_log_entries(mem2a, op_log).unwrap();
+                let mem2c = extract_bytes(mem2b, main_table_addr as nat, main_table_size as nat);
+                */
+                let mem1 = old_tentative_main_table_bytes;
+                let mem2 = main_table_region;
+                /*
+                assert(tentative_state_bytes == mem1b);
+                assert(mem1 == mem1c);
+                assert(tentative_state_bytes2 == mem2b);
+                assert(mem2 == mem2c);
+                */
+                assert forall|addr: int| {
+                    let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& 0 <= addr < mem1.len()
+                    &&& !(start <= addr < start + main_table_entry_size)
+                } implies mem2[addr] == mem1[addr] by {
+                    assert(trigger_addr(main_table_addr + addr));
+                }
+
+                assume(false);
+                
+                lemma_main_table_recovery_after_updating_entry::<K>(
+                    old_tentative_main_table_bytes,
+                    main_table_region,
+                    self.overall_metadata.num_keys,
+                    self.overall_metadata.main_table_entry_size,
+                    main_table_index,
+                    self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry,
+                    *key
+                );
+            }
 
             let log_entry = self.main_table.create_validify_log_entry(
                 Ghost(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -2828,6 +2900,8 @@ verus! {
                 Ghost(self.version_metadata), &self.overall_metadata,
                 Ghost(self.log@.commit_op_log().physical_op_list),
             );
+
+            assume(false); // tentative_create
 
             /*
 

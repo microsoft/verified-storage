@@ -241,16 +241,16 @@ pub proof fn lemma_if_memories_differ_in_free_main_table_entry_their_differences
             let mem2_post = apply_physical_log_entries(mem2, op_log).unwrap();
             &&& mem1_post.len() == mem2_post.len() == mem1.len()
             &&& forall|addr: int| {
-                    let start =
-                        overall_metadata.main_table_addr +
-                        index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
-                    let len = overall_metadata.main_table_entry_size;
                     &&& #[trigger] trigger_addr(addr)
                     &&& overall_metadata.main_table_addr <= addr
                         < overall_metadata.main_table_addr + overall_metadata.main_table_size
-                    &&& !(start <= addr < start + len)
-                } ==> mem1_post[addr] == mem2_post[addr]
-        })
+                } ==> {
+                    let start = overall_metadata.main_table_addr +
+                                index_to_offset(free_index as nat, overall_metadata.main_table_entry_size as nat);
+                    let len = overall_metadata.main_table_entry_size;
+                    mem2_post[addr] == if start <= addr < start + len { mem2[addr] } else { mem1_post[addr] }
+                }
+        }),
     decreases
         op_log.len()
 {

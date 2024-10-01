@@ -1874,7 +1874,7 @@ metadata_allocator@.contains(i)
                 self@.durable_main_table[index as int] is None,
                 self.outstanding_entry_writes@[index as int] is Some,
                 parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
-                                          overall_metadata.main_table_entry_size) == Some(self@),
+                                      overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 mem.len() == overall_metadata.region_size,

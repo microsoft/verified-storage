@@ -680,4 +680,53 @@ verus! {
                parse_main_table::<K>(mem2, num_keys, main_table_entry_size));
     }
 
+    pub proof fn lemma_main_table_recovery_after_updating_entry<K>(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+        num_keys: u64,
+        main_table_entry_size: u32,
+        index: u64,
+        entry: ListEntryMetadata,
+        key: K,
+    )
+        where 
+            K: PmCopy + std::fmt::Debug,
+        requires
+            parse_main_table::<K>(mem1, num_keys, main_table_entry_size) is Some,
+            mem1.len() == mem2.len(),
+            index < num_keys,
+            forall|addr: int| {
+                let start = index_to_offset(index as nat, main_table_entry_size as nat);
+                &&& #[trigger] trigger_addr(addr)
+                &&& 0 <= addr < mem1.len()
+                &&& !(start <= addr < start + main_table_entry_size)
+            } ==> mem2[addr] == mem1[addr],
+            ({
+                let start = index_to_offset(index as nat, main_table_entry_size as nat);
+                let entry_bytes = extract_bytes(mem2, start, main_table_entry_size as nat);
+                let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
+                let crc_bytes = extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of());
+                let metadata_bytes = extract_bytes(entry_bytes, u64::spec_size_of() * 2,
+                                                   ListEntryMetadata::spec_size_of());
+                let key_bytes = extract_bytes(
+                    entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
+                );
+                &&& cdb_bytes == (CDB_FALSE as u64).spec_to_bytes()
+                &&& crc_bytes == spec_crc_bytes(metadata_bytes + key_bytes)
+                &&& metadata_bytes == entry.spec_to_bytes()
+                &&& key_bytes == key.spec_to_bytes()
+            }),
+        ensures
+            parse_main_table::<K>(mem2, num_keys, main_table_entry_size) is Some,
+            ({
+                let table1 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().durable_main_table;
+                let table2 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().durable_main_table;
+                &&& table2.len() == table1.len()
+                &&& table2[index as int] is None
+                &&& forall|i: int| 0 <= i < table2.len() && i != index ==> #[trigger] table2[i] == table1[i]
+            }),
+    {
+        assume(false);
+    }
+
 }
