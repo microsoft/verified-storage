@@ -38,29 +38,28 @@ use std::hash::Hash;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
-pub struct UntrustedKvStoreImpl<Perm, PM, K, I, L, V>
+pub struct UntrustedKvStoreImpl<Perm, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K>,
+    // V: VolatileKvIndex<K>,
 {
     id: u128,
     durable_store: DurableKvStore<Perm, PM, K, I, L>,
-    volatile_index: V,
-    node_size: u32,
+    volatile_index: VolatileKvIndexImpl::<K>,
 }
 
-impl<Perm, PM, K, I, L, V> UntrustedKvStoreImpl<Perm, PM, K, I, L, V>
+impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K>,
+    // V: VolatileKvIndex<K>,
 {
     pub open spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
@@ -181,6 +180,7 @@ where
                 Ok(kv) => {
                     &&& kv.wrpm_view().no_outstanding_writes()
                     &&& Some(kv@) == Self::recover(kv.wrpm_view().committed(), kvstore_id)
+                    // TODO: postcondition about the volatile index matching durable state
                 }
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                 Err(_) => true // TODO
@@ -242,9 +242,12 @@ where
             i += 1;
         }
 
-
-
-        Err(KvError::NotImplemented)
+        assume(false); // TODO @hayley
+        Ok(Self {
+            id: kvstore_id,
+            durable_store: kvstore,
+            volatile_index,
+        })
     }
 
 /*

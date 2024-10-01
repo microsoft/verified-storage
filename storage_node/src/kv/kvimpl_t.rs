@@ -83,27 +83,27 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
-pub struct KvStore<Perm, PM, K, I, L, V>
+pub struct KvStore<Perm, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K>,
+    // V: VolatileKvIndex<K>,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<Perm, PM, K, I, L, V>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<Perm, PM, K, I, L>,
 }
 
-impl<Perm, PM, K, I, L, V> KvStore<Perm, PM, K, I, L, V>
+impl<Perm, PM, K, I, L> KvStore<Perm, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    V: VolatileKvIndex<K>,
+    // V: VolatileKvIndex<K>,
 {
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
@@ -135,7 +135,7 @@ where
                 Err(_) => true
             }
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L, V>::untrusted_setup(pm_region, kvstore_id,
+        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::untrusted_setup(pm_region, kvstore_id,
             num_keys, num_list_entries_per_node, num_list_nodes)?;
         Ok(())
     }
