@@ -900,6 +900,7 @@ verus! {
                                 &&& valid_entry.key() == #[trigger] entry_list_view[i].0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_main_table.len()
+                                &&& 0 <= table_index < index
                                 &&& table.valid_item_indices().contains(item_index)
                                 &&& item_index_view.contains(item_index)
                             }
@@ -1078,7 +1079,45 @@ verus! {
                             let item_index = entry.2;
                             &&& table.durable_main_table[table_index as int] matches Some(valid_entry)
                             &&& valid_entry.item_index() == item_index
+                            &&& valid_entry.key() == entry.0
                         });
+
+                        proof {
+                            // Prove that adding this entry will maintain the invariant that there are no duplicate keys
+                            let entries = parse_main_entries::<K>(
+                                subregion.view(pm_region).committed(),
+                                overall_metadata.num_keys as nat, 
+                                overall_metadata.main_table_entry_size as nat 
+                            );
+                            assert(no_duplicate_keys(entries));
+
+                            // all main table indexes we have added to key_index_pairs so far are for indexes less than
+                            // the current one.
+                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                            assert forall |i: int| 0 <= i < key_index_pairs.len() implies {
+                                let entry = #[trigger] key_index_pairs[i];
+                                let table_index = entry.1;
+                                0 <= table_index < index
+                            } by {
+                                assert(#[trigger] entry_list_view[i] == (*key_index_pairs@[i].0, key_index_pairs@[i].1, key_index_pairs@[i].2));
+                            }
+    
+                            // all keys in key_index_pairs are different from `key` because `key` is the key of the current
+                            // index in the main table, which we haven't procesed yet and we know has a different 
+                            // key than all other main table entries
+                            assert forall |i: int| 0 <= i < key_index_pairs.len() implies
+                                *(#[trigger] key_index_pairs[i]).0 != key 
+                            by {
+                                let entry = #[trigger] key_index_pairs[i];
+                                assert((*entry.0, entry.1, entry.2) == old_entry_list_view[i]);
+                                let cur_key = *entry.0;
+                                let table_index = entry.1;
+                                assert(table.durable_main_table[table_index as int] is Some);
+                                let valid_entry = table.durable_main_table[table_index as int].unwrap();
+                                assert(valid_entry.key() == cur_key);
+                                assert(key == table.durable_main_table[index as int].unwrap().key());
+                            }
+                        }
 
                         key_index_pairs.push((key, index, metadata.item_index));
 
