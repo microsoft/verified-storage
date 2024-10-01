@@ -3635,7 +3635,163 @@ verus! {
             }
         }
 
-        #[verifier::spinoff_prover]
+        proof fn lemma_item_table_unchanged_by_log_replay(
+            self,
+            old_self: Self,
+            old_tentative_view: Seq<u8>,
+            new_tentative_view: Seq<u8>,
+        )
+            requires 
+                self.inv(),
+                old_self.inv(),
+                new_tentative_view == Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap(),
+                old_tentative_view == Self::apply_physical_log_entries(old_self.wrpm@.flush().committed(),
+                    old_self.log@.commit_op_log().physical_op_list).unwrap(),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() == old_self.wrpm@.len(),
+                self.version_metadata == old_self.version_metadata,
+                self.overall_metadata == old_self.overall_metadata,
+                new_tentative_view.len() == self.wrpm@.len(),
+                old_tentative_view.len() == old_self.wrpm@.len(),
+                AbstractPhysicalOpLogEntry::log_inv(old_self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+            ensures 
+                extract_bytes(new_tentative_view, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) ==
+                    extract_bytes(self.wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat),
+                extract_bytes(old_tentative_view, old_self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat) ==
+                    extract_bytes(old_self.wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat),
+        {
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
+                self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
+            Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(old_self.wrpm@.flush().committed(),
+                self.version_metadata, self.overall_metadata, old_self.log@.commit_op_log().physical_op_list);
+            Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
+
+            // Replaying the log does not change the item table bytes. This depends on a KV store invariant
+            Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(old_self.wrpm@.flush().committed(),
+                old_self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
+            Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(self.wrpm@.flush().committed(),
+                self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
+        
+            assert(forall |addr: int| {
+                &&& 0 <= addr < self.wrpm@.len()
+                &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
+            } ==> #[trigger] new_tentative_view[addr] == self.wrpm@.flush().committed()[addr]);
+            assert(forall |addr: int| {
+                &&& 0 <= addr < self.wrpm@.len()
+                &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
+            } ==> #[trigger] old_tentative_view[addr] == old_self.wrpm@.flush().committed()[addr]);
+            
+            lemma_establish_extract_bytes_equivalence(new_tentative_view, self.wrpm@.flush().committed());
+            lemma_establish_extract_bytes_equivalence(old_tentative_view, old_self.wrpm@.flush().committed());
+        }
+
+        proof fn lemma_tentative_item_table_update_does_not_modify_other_regions(
+            self,
+            old_self: Self,
+            old_tentative_view: Seq<u8>,
+            new_tentative_view: Seq<u8>,
+        )
+            requires 
+                self.inv(),
+                old_self.inv(),
+                new_tentative_view == Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap(),
+                old_tentative_view == Self::apply_physical_log_entries(old_self.wrpm@.flush().committed(),
+                    old_self.log@.commit_op_log().physical_op_list).unwrap(),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() == old_self.wrpm@.len(),
+                self.version_metadata == old_self.version_metadata,
+                self.overall_metadata == old_self.overall_metadata,
+                new_tentative_view.len() == self.wrpm@.len(),
+                old_tentative_view.len() == old_self.wrpm@.len(),
+                self.log@ == old_self.log@,
+                AbstractPhysicalOpLogEntry::log_inv(old_self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                forall |addr: int| {
+                    ||| self.overall_metadata.main_table_addr <= addr < self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size 
+                    ||| self.overall_metadata.log_area_addr <= addr < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size
+                    ||| self.overall_metadata.list_area_addr <= addr < self.overall_metadata.list_area_addr + self.overall_metadata.list_area_size 
+                } ==> new_tentative_view[addr] == old_tentative_view[addr],
+            ensures
+                extract_bytes(new_tentative_view, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
+                    extract_bytes(old_tentative_view, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
+                extract_bytes(new_tentative_view, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat) == 
+                    extract_bytes(old_tentative_view, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
+                extract_bytes(new_tentative_view, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat) == 
+                    extract_bytes(old_tentative_view, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat),
+        {
+            assert(extract_bytes(new_tentative_view, self.overall_metadata.main_table_addr as nat, 
+                self.overall_metadata.main_table_size as nat) == extract_bytes(old_tentative_view,
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+            assert(extract_bytes(new_tentative_view, self.overall_metadata.log_area_addr as nat, 
+                self.overall_metadata.log_area_size as nat) == extract_bytes(old_tentative_view, 
+                self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+            assert(extract_bytes(new_tentative_view, self.overall_metadata.list_area_addr as nat, 
+                self.overall_metadata.list_area_size as nat) == extract_bytes(old_tentative_view, 
+                self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));   
+        }  
+
+        proof fn lemma_pending_main_table_allocations_are_invalid(
+            self,
+            old_self: Self,
+            old_tentative_view: Seq<u8>,
+            new_tentative_view: Seq<u8>,
+        )
+            requires 
+                self.inv(),
+                old_self.inv(),
+                new_tentative_view == Self::apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    self.log@.commit_op_log().physical_op_list).unwrap(),
+                old_tentative_view == Self::apply_physical_log_entries(old_self.wrpm@.flush().committed(),
+                    old_self.log@.commit_op_log().physical_op_list).unwrap(),
+                self.wrpm@.len() == self.overall_metadata.region_size,
+                self.wrpm@.len() == old_self.wrpm@.len(),
+                self.version_metadata == old_self.version_metadata,
+                self.overall_metadata == old_self.overall_metadata,
+                new_tentative_view.len() == self.wrpm@.len(),
+                old_tentative_view.len() == old_self.wrpm@.len(),
+                self.log@ == old_self.log@,
+                AbstractPhysicalOpLogEntry::log_inv(old_self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
+                old_self.pending_alloc_inv(),
+                ({
+                    let new_tentative_main_table = parse_main_table::<K>(extract_bytes(new_tentative_view, 
+                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat), 
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+                    let old_tentative_main_table = parse_main_table::<K>(extract_bytes(old_tentative_view, 
+                        self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat), 
+                        self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+                    &&& new_tentative_main_table matches Some(new_tentative_main_table)
+                    &&& old_tentative_main_table matches Some(old_tentative_main_table)
+                    &&& new_tentative_main_table == old_tentative_main_table
+                })
+            ensures 
+                forall |idx: u64| #[trigger] old_self.main_table.allocator_view().pending_allocations.contains(idx) ==> 
+                    old_self.main_table@.durable_main_table[idx as int] is None,
+        {
+            let new_tentative_main_table_bytes = extract_bytes(new_tentative_view, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let new_tentative_main_table = parse_main_table::<K>(new_tentative_main_table_bytes, 
+                self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+
+            let old_main_table_bytes = extract_bytes(old_self.wrpm@.committed(), 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+            let old_main_table_subregion_view = get_subregion_view(old_self.wrpm@, 
+                self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+
+            assert(old_main_table_subregion_view.can_crash_as(old_main_table_bytes));
+            assert forall |idx: u64| #[trigger] old_self.main_table.allocator_view().pending_allocations.contains(idx) implies 
+                old_self.main_table@.durable_main_table[idx as int] is None
+            by {
+                assert(old_self.main_table.allocator_view().pending_alloc_check(
+                    idx, old_self.main_table@, new_tentative_main_table));
+            }
+        }
+
+        // #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -3770,7 +3926,6 @@ verus! {
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
                     self_before_tentative_item_write, item_table_subregion, perm);
                 item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
-                assert(version_and_overall_metadata_match_deserialized(old(self).wrpm@.committed(), self.wrpm@.committed()));
                 self.lemma_reestablish_inv_after_tentatively_write_item(
                     *old(self), item_index, *item
                 );
@@ -3780,11 +3935,10 @@ verus! {
 
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-                
                 Self::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
                     self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
                 Self::lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
-
+                
                 // Prove that this operation has not modified the main table, log, or list 
                 assert forall |addr: int| {
                     ||| self.overall_metadata.main_table_addr <= addr < self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size 
@@ -3795,12 +3949,7 @@ verus! {
                     Self::lemma_byte_equal_after_recovery_specific_byte(addr, old(self).wrpm@.flush().committed(), 
                         self.wrpm@.flush().committed(), self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
                 }
-                assert(extract_bytes(pre_append_tentative_view_bytes, self.overall_metadata.main_table_addr as nat, 
-                    self.overall_metadata.main_table_size as nat) == extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
-                assert(extract_bytes(pre_append_tentative_view_bytes, self.overall_metadata.log_area_addr as nat, 
-                    self.overall_metadata.log_area_size as nat) == extract_bytes(tentative_view_bytes, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
-                assert(extract_bytes(pre_append_tentative_view_bytes, self.overall_metadata.list_area_addr as nat, 
-                    self.overall_metadata.list_area_size as nat) == extract_bytes(tentative_view_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));          
+                self.lemma_tentative_item_table_update_does_not_modify_other_regions(*old(self), tentative_view_bytes, pre_append_tentative_view_bytes);        
 
                 let pre_append_tentative_main_table = parse_main_table::<K>(extract_bytes(pre_append_tentative_view_bytes, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat), 
@@ -3814,21 +3963,8 @@ verus! {
                 let pre_append_tentative_item_table = parse_item_table::<I, K>(pre_append_tentative_item_table_bytes, 
                     self.overall_metadata.num_keys as nat, pre_append_tentative_main_table.valid_item_indices());
 
-                // Replaying the log does not change the item table bytes. This depends on a KV store invariant
-                Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(old(self).wrpm@.flush().committed(),
-                    old(self).log@.physical_op_list, self.version_metadata, self.overall_metadata);
-                Self::lemma_item_table_bytes_unchanged_by_applying_log_entries(self.wrpm@.flush().committed(),
-                    self.log@.physical_op_list, self.version_metadata, self.overall_metadata);
-                // These assertions hit some necessary triggers to use the postconditions of the above proofs.
-                assert(forall |addr: int| {
-                    &&& 0 <= addr < self.wrpm@.len()
-                    &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
-                } ==> #[trigger] pre_append_tentative_view_bytes[addr] == self.wrpm@.flush().committed()[addr]);
-                assert(forall |addr: int| {
-                    &&& 0 <= addr < self.wrpm@.len()
-                    &&& self.overall_metadata.item_table_addr <= addr < self.overall_metadata.item_table_addr + self.overall_metadata.item_table_size
-                } ==> #[trigger] tentative_view_bytes[addr] == old(self).wrpm@.flush().committed()[addr]);
-
+                self.lemma_item_table_unchanged_by_log_replay(*old(self), tentative_view_bytes, pre_append_tentative_view_bytes);
+                
                 let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 let old_item_table_subregion = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -3847,13 +3983,7 @@ verus! {
                 self.lemma_update_item_index_log_entry_precondition(*old(self), offset, item_index, 
                     item_table_subregion, pre_append_tentative_view_bytes, perm);
                 assert(pre_append_tentative_item_table == tentative_item_table);
-
-                assert forall |idx: u64| #[trigger] old(self).main_table.allocator_view().pending_allocations.contains(idx) implies 
-                    old(self).main_table@.durable_main_table[idx as int] is None
-                by {
-                    assert(old(self).main_table.allocator_view().pending_alloc_check(
-                        idx, old(self).main_table@, pre_append_tentative_main_table));
-                }
+                self.lemma_pending_main_table_allocations_are_invalid(*old(self), tentative_view_bytes, pre_append_tentative_view_bytes);
             }
 
             // 3. Create a log entry that will overwrite the metadata table entry
@@ -3891,10 +4021,8 @@ verus! {
                 self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm);                 
             }
 
-            let ghost committed_log = self.log@.commit_op_log();
             let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
             let ghost current_flushed_mem = self.wrpm@.flush().committed();
-            let ghost recovery_state_with_new_log = Self::physical_recover_given_log(current_flushed_mem, self.overall_metadata, log_with_new_entry);
 
             // 4. Append the log entry to the operation log.
             let ghost pre_append_self = *self;
@@ -3907,7 +4035,6 @@ verus! {
                             self.overall_metadata.main_table_size as nat);
                         let old_main_table_subregion_view = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
                             self.overall_metadata.main_table_size as nat);
-                        assert(old_main_table_subregion_view.flush() == main_table_subregion_view);
                         assert(old_main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
                         assert(parse_main_table::<K>(main_table_subregion_view.committed(), self.overall_metadata.num_keys, 
                             self.overall_metadata.main_table_entry_size) is Some);
@@ -3924,10 +4051,8 @@ verus! {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
-
-                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
-                assert(self.version_metadata == deserialize_version_metadata(self.wrpm@.committed()));
-                
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));  
+                              
                 // We have to prove that each component's invariant holds after appending the new log entry,
                 // which is straightforward because they held beforehand and the append operation does 
                 // not modify any of their bytes.
@@ -3945,7 +4070,6 @@ verus! {
                 // component, since it's part of their invariants, so we just need to prove that it's true 
                 // for the whole KV store as well.
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
             }
