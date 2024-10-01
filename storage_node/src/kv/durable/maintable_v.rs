@@ -798,6 +798,12 @@ verus! {
                             &&& 0 <= (#[trigger] entry_list[i]).1 < overall_metadata.num_keys 
                             &&& 0 <= entry_list[i].2 < overall_metadata.num_keys
                         }
+                        // no duplicate keys
+                        &&& forall |k: int, l: int| {
+                            &&& 0 <= k < entry_list.len()
+                            &&& 0 <= l < entry_list.len()
+                            &&& k != l
+                        } ==> *(#[trigger] entry_list@[k]).0 != *(#[trigger] entry_list@[l]).0
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
                         &&& forall|idx: u64| 0 <= idx < main_table.outstanding_cdb_writes@.len() ==>
                             main_table.outstanding_cdb_writes@[idx as int] is None
@@ -875,8 +881,7 @@ verus! {
                     main_table_entry_size == overall_metadata.main_table_entry_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_main_table[i as int];
-                        entry is None <==> 
-metadata_allocator@.contains(i)
+                        entry is None <==> metadata_allocator@.contains(i)
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     forall |i: int, j: int| 0 <= i < metadata_allocator.len() && 0 <= j < metadata_allocator.len() && i != j ==>
@@ -904,6 +909,12 @@ metadata_allocator@.contains(i)
                         &&& 0 <= (#[trigger] key_index_pairs[i]).1 < overall_metadata.num_keys 
                         &&& 0 <= key_index_pairs[i].2 < overall_metadata.num_keys
                     },
+                    // no duplicate keys
+                    forall |k: int, l: int| {
+                        &&& 0 <= k < key_index_pairs.len()
+                        &&& 0 <= l < key_index_pairs.len()
+                        &&& k != l
+                    } ==> *(#[trigger] key_index_pairs@[k]).0 != *(#[trigger] key_index_pairs@[l]).0,
                     K::spec_size_of() > 0,
                     metadata_allocator@.len() <= index,
                     metadata_allocator@.no_duplicates(),
@@ -2063,15 +2074,13 @@ metadata_allocator@.contains(i)
                 assert(old_entries[index as int] is None);
 
                 assert(no_duplicate_item_indexes(entries)) by {
-
                     assert forall|i, j| {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
-                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
- by {
+                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index() by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
                     }
@@ -2256,18 +2265,21 @@ metadata_allocator@.contains(i)
                 assert(old_entries[index as int] is Some);
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
 
-                assert(no_duplicate_item_indexes(entries)) by {
-
+                assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
                     assert forall|i, j| {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
-                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
-                by {
+                    } implies {
+                        &&& entries[i].unwrap().item_index() != entries[j].unwrap().item_index() 
+                        &&& entries[i].unwrap().key() != entries[j].unwrap().key() 
+                    } by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
+                        assert(entries[i].unwrap().key() == old_entries[i].unwrap().key());
+                        assert(entries[j].unwrap().key() == old_entries[j].unwrap().key());
                     }
                 }
 
@@ -2283,8 +2295,8 @@ metadata_allocator@.contains(i)
                     let new_entry = parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
                     assert(new_main_table_view.unwrap().durable_main_table[i as int] =~= new_entry);
                 }
-                let new_main_table_view = new_main_table_view.unwrap();
 
+                let new_main_table_view = new_main_table_view.unwrap();
                 assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
@@ -2528,7 +2540,7 @@ metadata_allocator@.contains(i)
                 let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
 
-                // Prove that there are no duplicate entries. This is required
+                // Prove that there are no duplicate entries or keys. This is required
                 // to prove that the table parses successfully.
                 assert forall |i: int, j: int| {
                     &&& 0 <= i < new_entries.len()
@@ -2536,11 +2548,16 @@ metadata_allocator@.contains(i)
                     &&& i != j
                     &&& #[trigger] new_entries[i] is Some
                     &&& #[trigger] new_entries[j] is Some
-                } implies new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() by {
+                } implies {
+                    &&& new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
+                    &&& new_entries[i].unwrap().key() != new_entries[j].unwrap().key()
+                } by {
                     if i != index && j != index {
                         assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
                         assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
-                    }
+                    } 
+                    assert(new_entries[i].unwrap().key() == old_entries[i].unwrap().key());
+                    assert(new_entries[j].unwrap().key() == old_entries[j].unwrap().key());
                 }
 
                 let new_main_table_view = new_main_table_view.unwrap();

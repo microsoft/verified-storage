@@ -43,6 +43,7 @@ where
         ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
     // TODO: Check minimum log entry size
     &&& overall_metadata.num_keys > 0
+    &&& overall_metadata.num_list_entries_per_node > 0
     &&& overall_metadata_addr >= VersionMetadata::spec_size_of() + u64::spec_size_of()
     &&& overall_metadata.main_table_addr >= overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
     &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size

@@ -175,6 +175,7 @@ where
             forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(state),
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
+            vstd::std_specs::hash::obeys_key_model::<K>(),
         ensures 
             match result {
                 Ok(kv) => {
@@ -218,6 +219,28 @@ where
             version_metadata, Tracked(perm), Ghost(durable_kvstore_state))?;
 
         // 2. Set up the volatile index based on the contents of the KV store
+        // entry list contains keys, main table indexes, and item table indexes. We don't use the item indexes
+        // when setting up the volatile side of things, but we use the list that contains them as it would be 
+        // less efficient to create a copy of the list without the item indexes.
+        let mut volatile_index = VolatileKvIndexImpl::<K>::new(kvstore_id, overall_metadata.num_keys as usize, 
+            overall_metadata.num_list_entries_per_node as u64)?;
+
+        let mut i = 0;
+        while i < entry_list.len() 
+            invariant 
+                volatile_index.valid(),
+                forall |k: int, l: int| {
+                    &&& 0 <= k < entry_list.len()
+                    &&& 0 <= l < entry_list.len()
+                    &&& k != l
+                } ==> *(#[trigger] entry_list[k]).0 != *(#[trigger] entry_list[l]).0,
+                forall |index: int| i <= index < entry_list.len() ==> 
+                    volatile_index@[*(#[trigger] entry_list@[index]).0] is None,
+        {
+            let (key, index) = (*entry_list[i].0, entry_list[i].1);
+            volatile_index.insert_key(&key, index)?;
+            i += 1;
+        }
 
 
 
