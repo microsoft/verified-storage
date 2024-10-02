@@ -83,27 +83,24 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
-pub struct KvStore<Perm, PM, K, I, L>
+pub struct KvStore<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    // V: VolatileKvIndex<K>,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<Perm, PM, K, I, L>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermission<PM>, PM, K, I, L>,
+    // TODO: use generic Perm?
 }
 
-impl<Perm, PM, K, I, L> KvStore<Perm, PM, K, I, L>
+impl<PM, K, I, L> KvStore<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    // V: VolatileKvIndex<K>,
 {
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
@@ -129,66 +126,53 @@ where
             match result {
                 Ok(()) => {
                     &&& pm_region@.no_outstanding_writes()
-                    &&& AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
+                    &&& AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
                     &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
                 }
                 Err(_) => true
             }
     {
-        UntrustedKvStoreImpl::<Perm, PM, K, I, L>::untrusted_setup(pm_region, kvstore_id,
+        UntrustedKvStoreImpl::<TrustedKvPermission::<PM>, PM, K, I, L>::untrusted_setup(pm_region, kvstore_id,
             num_keys, num_list_entries_per_node, num_list_nodes)?;
         Ok(())
     }
 
-    /* 
-
-    /// The `KvStore` constructor calls the constructors for the durable and
-    /// volatile components of the key-value store.
-    /// `list_node_size` is the number of list entries in each node (not the number
-    /// of bytes used by each node)
-    pub fn setup(
-        metadata_pmem: &mut PM,
-        item_table_pmem: &mut PM,
-        list_pmem: &mut PM,
-        log_pmem: &mut PM,
+    pub exec fn start(
+        mut pm_region: PM,
         kvstore_id: u128,
-        num_keys: u64,
-        node_size: u32,
-    ) -> (result: Result<(), KvError<K>>)
-        requires
-            // pmem.inv(),
-            // ({
-            //     let metadata_size = ListEntryMetadata::spec_size_of();
-            //     let key_size = K::spec_size_of();
-            //     let metadata_slot_size = metadata_size + crate::pmem::traits_t::size_of::<u64>() + key_size + CDB_SIZE;
-            //     let list_element_slot_size = L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>();
-            //     &&& metadata_slot_size <= u64::MAX
-            //     &&& list_element_slot_size <= u64::MAX
-            //     &&& ABSOLUTE_POS_OF_METADATA_TABLE + (metadata_slot_size * num_keys) <= u64::MAX
-            //     &&& ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size <= u64::MAX
-            // }),
-            // L::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < u32::MAX, // size_of is u64, but we store it in a u32 here
-            // node_size < u32::MAX,
-            // 0 <= ItemTableMetadata::spec_size_of() + crate::pmem::traits_t::size_of::<u64>() < usize::MAX,
-            // ({
-            //     let item_slot_size = I::spec_size_of() + CDB_SIZE + crate::pmem::traits_t::size_of::<u64>();
-            //     &&& 0 <= item_slot_size < usize::MAX
-            //     &&& 0 <= item_slot_size * num_keys < usize::MAX
-            //     &&& 0 <= ABSOLUTE_POS_OF_TABLE_AREA + (item_slot_size * num_keys) < usize::MAX
-            // })
-        ensures
-            // match(result) {
-            //     Ok((log_region, list_regions, item_region)) => {
-            //         &&& log_region.inv()
-            //         &&& list_regions.inv()
-            //         &&& item_region.inv()
-            //     }
-            //     Err(_) => true // TODO
-            // }
+    ) -> (result: Result<Self, KvError<K>>)
+        requires 
+            pm_region.inv(),
+            AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(pm_region@.flush().committed(), kvstore_id) is Some,
+            K::spec_size_of() > 0,
+            I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
+            vstd::std_specs::hash::obeys_key_model::<K>(),
+        ensures 
+            match result {
+                Ok(kvstore) => kvstore.valid(),
+                Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
+                // TODO: proper handling of other error types
+                Err(KvError::LogErr { log_err }) => true,
+                Err(KvError::InternalError) => true,
+                Err(KvError::IndexOutOfRange) => true,
+                Err(KvError::PmemErr{ pmem_err }) => true,
+                Err(_) => false // TODO
+            }
     {
-        UntrustedKvStoreImpl::<PM, K, I, L, V>::untrusted_setup(metadata_pmem, item_table_pmem, list_pmem, log_pmem, kvstore_id, num_keys, node_size)
+        let mut wrpm_region = WriteRestrictedPersistentMemoryRegion::new(pm_region);
+        wrpm_region.flush(); // ensure there are no outstanding writes
+        let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(wrpm_region@.committed(), kvstore_id).unwrap();
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(kvstore_id, state);
+        let durable_store = UntrustedKvStoreImpl::<TrustedKvPermission::<PM>, PM, K, I, L>::untrusted_start(
+            wrpm_region, kvstore_id, Ghost(state), Tracked(&perm))?;
+
+        Ok(Self {
+            id: kvstore_id,
+            untrusted_kv_impl: durable_store
+        })
     }
 
+    /* 
     pub fn start(
         metadata_pmem: PM,
         item_table_pmem: PM,

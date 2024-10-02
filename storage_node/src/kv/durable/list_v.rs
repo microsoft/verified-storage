@@ -586,7 +586,7 @@ verus! {
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
                     Err(KvError::PmemErr { pmem_err }) => true,
                     Err(KvError::InternalError) => true,
-                    Err(_) => true // TODO
+                    Err(_) => false // TODO
                 }
         
         {

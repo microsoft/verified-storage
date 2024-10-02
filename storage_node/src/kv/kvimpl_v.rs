@@ -188,7 +188,6 @@ where
             wrpm_region.inv(),
             wrpm_region@.no_outstanding_writes(),
             Self::recover(wrpm_region@.committed(), kvstore_id) == Some(state),
-            forall |s| #[trigger] wrpm_region@.can_crash_as(s) ==> perm.check_permission(s),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(state),
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
@@ -201,7 +200,12 @@ where
                     &&& Some(kv@) == Self::recover(kv.wrpm_view().committed(), kvstore_id)
                 }
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
-                Err(_) => true // TODO
+                // TODO: proper handling of other error types
+                Err(KvError::LogErr { log_err }) => true,
+                Err(KvError::InternalError) => true, 
+                Err(KvError::IndexOutOfRange) => true,
+                Err(KvError::PmemErr{ pmem_err }) => true,
+                Err(_) => false 
             }
     {        
         // 1. Read the version and overall metadata from PM.
