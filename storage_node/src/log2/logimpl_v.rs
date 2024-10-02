@@ -464,7 +464,7 @@ impl UntrustedLogImpl {
             self@ == self@.drop_pending_appends(),
             extract_bytes(wrpm1@.committed(), log_start_addr, log_size) == 
                 extract_bytes(wrpm2@.committed(), log_start_addr, log_size),
-            0 <= log_start_addr < log_start_addr + log_size < region_size,
+            0 <= log_start_addr < log_start_addr + log_size <= region_size,
             0 < spec_log_header_area_size() <= spec_log_area_pos() < log_size,
 
         ensures 

@@ -79,10 +79,10 @@ verus! {
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
             &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& #[trigger] self.durable_main_table[i as int] is Some
-                    &&& #[trigger] self.durable_main_table[j as int] is Some
-                } ==> self.durable_main_table[i as int].unwrap().item_index() != 
-                        self.durable_main_table[j as int].unwrap().item_index()
+                    &&& self.durable_main_table[i as int] is Some
+                    &&& self.durable_main_table[j as int] is Some
+                } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
+                    #[trigger] self.durable_main_table[j as int].unwrap().item_index()
         }
 
         pub open spec fn len(self) -> nat
@@ -783,6 +783,12 @@ verus! {
                             &&& 0 <= (#[trigger] entry_list[i]).1 < overall_metadata.num_keys 
                             &&& 0 <= entry_list[i].2 < overall_metadata.num_keys
                         }
+                        // no duplicate keys
+                        &&& forall |k: int, l: int| {
+                            &&& 0 <= k < entry_list.len()
+                            &&& 0 <= l < entry_list.len()
+                            &&& k != l
+                        } ==> *(#[trigger] entry_list@[k]).0 != *(#[trigger] entry_list@[l]).0
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
                         &&& forall|idx: u64| 0 <= idx < main_table.outstanding_entry_writes@.len() ==>
                             main_table.outstanding_entry_writes@[idx as int] is None
@@ -858,8 +864,7 @@ verus! {
                     main_table_entry_size == overall_metadata.main_table_entry_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_main_table[i as int];
-                        entry is None <==> 
-metadata_allocator@.contains(i)
+                        entry is None <==> metadata_allocator@.contains(i)
                     },
                     forall |i: int| 0 <= i < metadata_allocator.len() ==> #[trigger] metadata_allocator[i] < index,
                     forall |i: int, j: int| 0 <= i < metadata_allocator.len() && 0 <= j < metadata_allocator.len() && i != j ==>
@@ -878,6 +883,7 @@ metadata_allocator@.contains(i)
                                 &&& valid_entry.key() == #[trigger] entry_list_view[i].0
                                 &&& valid_entry.item_index() == item_index
                                 &&& 0 <= table_index < table.durable_main_table.len()
+                                &&& 0 <= table_index < index
                                 &&& table.valid_item_indices().contains(item_index)
                                 &&& item_index_view.contains(item_index)
                             }
@@ -887,6 +893,12 @@ metadata_allocator@.contains(i)
                         &&& 0 <= (#[trigger] key_index_pairs[i]).1 < overall_metadata.num_keys 
                         &&& 0 <= key_index_pairs[i].2 < overall_metadata.num_keys
                     },
+                    // no duplicate keys
+                    forall |k: int, l: int| {
+                        &&& 0 <= k < key_index_pairs.len()
+                        &&& 0 <= l < key_index_pairs.len()
+                        &&& k != l
+                    } ==> *(#[trigger] key_index_pairs@[k]).0 != *(#[trigger] key_index_pairs@[l]).0,
                     K::spec_size_of() > 0,
                     metadata_allocator@.len() <= index,
                     metadata_allocator@.no_duplicates(),
@@ -1050,7 +1062,45 @@ metadata_allocator@.contains(i)
                             let item_index = entry.2;
                             &&& table.durable_main_table[table_index as int] matches Some(valid_entry)
                             &&& valid_entry.item_index() == item_index
+                            &&& valid_entry.key() == entry.0
                         });
+
+                        proof {
+                            // Prove that adding this entry will maintain the invariant that there are no duplicate keys
+                            let entries = parse_main_entries::<K>(
+                                subregion.view(pm_region).committed(),
+                                overall_metadata.num_keys as nat, 
+                                overall_metadata.main_table_entry_size as nat 
+                            );
+                            assert(no_duplicate_keys(entries));
+
+                            // all main table indexes we have added to key_index_pairs so far are for indexes less than
+                            // the current one.
+                            let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
+                            assert forall |i: int| 0 <= i < key_index_pairs.len() implies {
+                                let entry = #[trigger] key_index_pairs[i];
+                                let table_index = entry.1;
+                                0 <= table_index < index
+                            } by {
+                                assert(#[trigger] entry_list_view[i] == (*key_index_pairs@[i].0, key_index_pairs@[i].1, key_index_pairs@[i].2));
+                            }
+    
+                            // all keys in key_index_pairs are different from `key` because `key` is the key of the current
+                            // index in the main table, which we haven't procesed yet and we know has a different 
+                            // key than all other main table entries
+                            assert forall |i: int| 0 <= i < key_index_pairs.len() implies
+                                *(#[trigger] key_index_pairs[i]).0 != key 
+                            by {
+                                let entry = #[trigger] key_index_pairs[i];
+                                assert((*entry.0, entry.1, entry.2) == old_entry_list_view[i]);
+                                let cur_key = *entry.0;
+                                let table_index = entry.1;
+                                assert(table.durable_main_table[table_index as int] is Some);
+                                let valid_entry = table.durable_main_table[table_index as int].unwrap();
+                                assert(valid_entry.key() == cur_key);
+                                assert(key == table.durable_main_table[index as int].unwrap().key());
+                            }
+                        }
 
                         key_index_pairs.push((key, index, metadata.item_index));
 
@@ -1390,7 +1440,8 @@ metadata_allocator@.contains(i)
                         &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.outstanding_entry_writes@[i] == old(self).outstanding_entry_writes@[i]
+                            #[trigger] self.outstanding_entry_writes@[i] ==
+ old(self).outstanding_entry_writes@[i]
                         &&& self.outstanding_entry_writes@[index as int] matches Some(e)
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
@@ -1906,6 +1957,9 @@ metadata_allocator@.contains(i)
                     let item_index = entry.entry.item_index;
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(*overall_metadata)
+                    &&& forall|i| 0 <= i < overall_metadata.num_keys &&
+                           #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
+                           ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
@@ -1918,7 +1972,7 @@ metadata_allocator@.contains(i)
                     &&& metadata == entry.entry
                 }),
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
@@ -2043,17 +2097,28 @@ metadata_allocator@.contains(i)
                 assert(old_entries[index as int] is None);
 
                 assert(no_duplicate_item_indexes(entries)) by {
-
                     assert forall|i, j| {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
-                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
- by {
+                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index() by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
+                    }
+                }
+                assert(no_duplicate_keys(entries)) by {
+                    assert forall|i, j| {
+                        &&& 0 <= i < entries.len()
+                        &&& 0 <= j < entries.len()
+                        &&& i != j
+                        &&& #[trigger] entries[i] is Some
+                        &&& #[trigger] entries[j] is Some
+                    } implies entries[i].unwrap().key() != entries[j].unwrap().key() by {
+                        // TODO @jay
+                        assume(i == index ==> old_entries[j].unwrap().key() != entry.key);
+                        assume(j == index ==> old_entries[i].unwrap().key() != entry.key);
                     }
                 }
 
@@ -2137,7 +2202,7 @@ metadata_allocator@.contains(i)
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
@@ -2254,18 +2319,21 @@ metadata_allocator@.contains(i)
                 assert(old_entries[index as int] is Some);
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
 
-                assert(no_duplicate_item_indexes(entries)) by {
-
+                assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
                     assert forall|i, j| {
                         &&& 0 <= i < entries.len()
                         &&& 0 <= j < entries.len()
                         &&& i != j
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
-                    } implies entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
-                by {
+                    } implies {
+                        &&& entries[i].unwrap().item_index() != entries[j].unwrap().item_index() 
+                        &&& entries[i].unwrap().key() != entries[j].unwrap().key() 
+                    } by {
                         assert(i == index ==> old_entries[j].unwrap().item_index() != item_index);
                         assert(j == index ==> old_entries[i].unwrap().item_index() != item_index);
+                        assert(entries[i].unwrap().key() == old_entries[i].unwrap().key());
+                        assert(entries[j].unwrap().key() == old_entries[j].unwrap().key());
                     }
                 }
 
@@ -2281,8 +2349,8 @@ metadata_allocator@.contains(i)
                     let new_entry = parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
                     assert(new_main_table_view.unwrap().durable_main_table[i as int] =~= new_entry);
                 }
-                let new_main_table_view = new_main_table_view.unwrap();
 
+                let new_main_table_view = new_main_table_view.unwrap();
                 assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
@@ -2309,6 +2377,136 @@ metadata_allocator@.contains(i)
             }
             log_entry
         }
+
+        proof fn lemma_no_duplicate_item_indices_or_keys(
+            old_entries: Seq<Option<MainTableViewEntry<K>>>,
+            new_entries: Seq<Option<MainTableViewEntry<K>>>,
+            index: int,
+            new_item_index: u64,
+        )
+            requires
+                no_duplicate_item_indexes(old_entries),
+                no_duplicate_keys(old_entries),
+                0 <= index < new_entries.len(),
+                new_entries.len() == old_entries.len(),
+                forall |i: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& #[trigger] new_entries[i] is Some
+                } ==> {
+                    &&& old_entries[i] is Some
+                    &&& new_entries[i].unwrap().key() == old_entries[i].unwrap().key()
+                },
+                forall |i: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& #[trigger] new_entries[i] is Some
+                } ==> {
+                    &&& i != index ==> {
+                            &&& old_entries[i] is Some
+                            &&& new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index()
+                            &&& new_entries[i].unwrap().item_index() != new_item_index
+                        }
+                    &&& i == index ==> 
+                            new_entries[i].unwrap().item_index() == new_item_index
+                }
+            ensures 
+                forall |i: int, j: int| {
+                    &&& 0 <= i < new_entries.len()
+                    &&& 0 <= j < new_entries.len()
+                    &&& i != j
+                    &&& #[trigger] new_entries[i] is Some
+                    &&& #[trigger] new_entries[j] is Some
+                } ==> {
+                    &&& new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
+                    &&& new_entries[i].unwrap().key() != new_entries[j].unwrap().key()
+                } 
+        {
+            assert forall |i: int, j: int| {
+                &&& 0 <= i < new_entries.len()
+                &&& 0 <= j < new_entries.len()
+                &&& i != j
+                &&& #[trigger] new_entries[i] is Some
+                &&& #[trigger] new_entries[j] is Some
+            } implies {
+                new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() 
+            } by {
+                if i != index && j != index {
+                    assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
+                    assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
+                }
+            }
+        }
+
+        // This lemma establishes some useful facts for create_update_item_index_log_entry.
+        // There are some unnecessary preconditions and lines in the body, but removing them 
+        // seems to increase the caller's verif time to the point where it times out. 
+        // TODO: figure out why this is and fix it.
+        proof fn lemma_index_is_not_pending_alloc_or_dealloc<PM>(
+            self,
+            subregion: PersistentMemorySubregion,
+            pm_region: &PM,
+            index: u64,
+            overall_metadata: OverallMetadata,
+            current_tentative_state: Seq<u8>,
+        )
+            where 
+                PM: PersistentMemoryRegion,
+            requires 
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), overall_metadata),
+                subregion.len() == overall_metadata.main_table_size,
+                subregion.start() == overall_metadata.main_table_addr,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                0 <= index < self@.len(),
+                pm_region@.len() == overall_metadata.region_size,
+                // the index must refer to a currently-valid entry in the current durable table
+                self@.durable_main_table[index as int] is Some,
+                overall_metadata.main_table_entry_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
+                    <= overall_metadata.region_size <= u64::MAX,
+                ({
+                    let main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_main_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, overall_metadata)
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.inv(overall_metadata)
+
+                    // the index should not be deallocated in the tentative view
+                    &&& main_table_view.durable_main_table[index as int] is Some
+                }),
+                current_tentative_state.len() == overall_metadata.region_size,
+            ensures 
+                ({
+                    let subregion_view = subregion.view(pm_region);
+                    let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    let tentative_main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+                    &&& self.allocator_view().pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view)
+                    &&& subregion_view.committed() == extract_bytes(pm_region@.committed(), 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat)
+                    &&& current_main_table_view == Some(self@)
+                })
+        {
+            let subregion_view = subregion.view(pm_region);
+            let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+            assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
+            assert(subregion_view.can_crash_as(subregion_view.committed()));
+            assert(current_main_table_view == Some(self@));
+            
+            // these are obviously unnecessary but removing them impacts the *caller*'s verif performance.
+            let tentative_main_table_region = extract_bytes(current_tentative_state, 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+            let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+        }
+
 
         pub exec fn create_update_item_index_log_entry<PM>(
             &self,
@@ -2396,18 +2594,7 @@ metadata_allocator@.contains(i)
             proof {
                 // We first have to establish that this index is not pending allocation or deallocation
                 // by triggering the pending alloc check on it.
-                let subregion_view = subregion.view(pm_region);
-                let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
-                assert(subregion_view.can_crash_as(subregion_view.committed()));
-                assert(current_main_table_view == Some(self@));
-                let tentative_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                assert(self.allocator_view().pending_alloc_check(index, current_main_table_view.unwrap(), tentative_main_table_view));
+                self.lemma_index_is_not_pending_alloc_or_dealloc(*subregion, pm_region, index, *overall_metadata, current_tentative_state);
             }
 
             // For this operation, we have to log the whole new metadata table entry
@@ -2462,8 +2649,6 @@ metadata_allocator@.contains(i)
             };
 
             proof {
-                broadcast use pmcopy_axioms;
-
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                         log_entry.bytes[pos - log_entry.absolute_addr]
@@ -2508,19 +2693,20 @@ metadata_allocator@.contains(i)
                     &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                             parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
                 } by {
-                    let new_bytes = extract_bytes(new_main_table_region,
-                        index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
-                    let old_bytes = extract_bytes(old_main_table_region,
-                        index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.main_table_entry_size as nat);
-
+                    
                     if i == index {
-                        assert(extract_bytes(new_bytes, 0, u64::spec_size_of()) == extract_bytes(old_bytes, 0, u64::spec_size_of()));
+                        broadcast use pmcopy_axioms;
+                        let new_bytes = extract_bytes(new_main_table_region,
+                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                            overall_metadata.main_table_entry_size as nat
+                        );
+                        let old_bytes = extract_bytes(old_main_table_region,
+                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                            overall_metadata.main_table_entry_size as nat
+                        );
+                        lemma_establish_extract_bytes_equivalence(new_bytes, old_bytes);
                         assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
@@ -2532,20 +2718,9 @@ metadata_allocator@.contains(i)
                 let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
 
-                // Prove that there are no duplicate entries. This is required
+                // Prove that there are no duplicate entries or keys. This is required
                 // to prove that the table parses successfully.
-                assert forall |i: int, j: int| {
-                    &&& 0 <= i < new_entries.len()
-                    &&& 0 <= j < new_entries.len()
-                    &&& i != j
-                    &&& #[trigger] new_entries[i] is Some
-                    &&& #[trigger] new_entries[j] is Some
-                } implies new_entries[i].unwrap().item_index() != new_entries[j].unwrap().item_index() by {
-                    if i != index && j != index {
-                        assert(new_entries[i].unwrap().item_index() == old_entries[i].unwrap().item_index());
-                        assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
-                    }
-                }
+                Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
 
                 let new_main_table_view = new_main_table_view.unwrap();
                 let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();

@@ -191,7 +191,7 @@ verus! {
             }
             else {
                 let entries = parse_main_entries(mem, num_keys as nat, main_table_entry_size as nat);
-                if no_duplicate_item_indexes(entries) {
+                if no_duplicate_item_indexes(entries) && no_duplicate_keys(entries) {
                     Some(MainTableView::<K>::new(entries))
                 } else {
                     None
@@ -199,41 +199,6 @@ verus! {
             }
         }
     }
-
-    // pub open spec fn validate_main_entries_after_parse<K>(entries: Seq<DurableEntry<MainTableViewEntry<K>>>, 
-    //         num_keys: nat, main_table_entry_size: nat) -> bool 
-    //     where 
-    //         K: PmCopy
-    // {
-    //     // check the contents of each entry
-    //     &&& forall |i: int| 0 <= i < num_keys ==> validate_main_entry_after_parse(#[trigger] entries[i], num_keys)
-    //     // check that there are no duplicate item indexes
-    //     &&& no_duplicate_item_indexes(entries)
-    // }
-
-    // pub open spec fn validate_main_entry_after_parse<K>(
-    //         entry: DurableEntry<MainTableViewEntry<K>>, num_keys: nat) -> bool
-    //     where 
-    //         K: PmCopy
-    // {
-    //     match entry {
-    //         DurableEntry::Valid(entry) => {
-    //             // TODO: does it make ANY sense to check that the bytes are parseable 
-    //             // after they have been parsed?? 
-    //             let crc_bytes = entry.crc.spec_to_bytes();
-    //             let metadata_bytes = entry.entry.spec_to_bytes();
-    //             let key_bytes = entry.key.spec_to_bytes();
-
-    //             &&& entry.cdb == CDB_TRUE
-    //             &&& entry.crc == spec_crc_u64(metadata_bytes + key_bytes)
-    //             &&& u64::bytes_parseable(crc_bytes)
-    //             &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
-    //             &&& K::bytes_parseable(key_bytes)
-    //             &&& 0 <= entry.entry.item_index < num_keys
-    //         }
-    //         _ => true
-    //     }
-    // }
 
     pub open spec fn no_duplicate_item_indexes<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
         where 
@@ -243,66 +208,23 @@ verus! {
             &&& 0 <= i < entries.len()
             &&& 0 <= j < entries.len()
             &&& i != j
-            &&& #[trigger] entries[i] is Some
-            &&& #[trigger] entries[j] is Some
-        } ==> entries[i].unwrap().item_index() != entries[j].unwrap().item_index()
+            &&& entries[i] is Some
+            &&& entries[j] is Some
+        } ==> #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index()
     }
 
-    // // This function parses metadata entries before they are validated. It works the same
-    // // way as the old parse-after-validate function, although we have not yet checked 
-    // // that the fields are parseable or that the CDBs are correct. 
-    // pub open spec fn parse_main_entries_before_validate<K>(mem: Seq<u8>, num_keys: u64, 
-    //         main_table_entry_size: u32) -> Seq<DurableEntry<MainTableViewEntry<K>>>
-    //     where 
-    //         K: PmCopy
-    // {
-    //     Seq::new(num_keys as nat, |i: int| parse_main_entry_before_validate(extract_bytes(mem, (i * main_table_entry_size as int) as nat,
-    //         main_table_entry_size as nat), num_keys as nat))
-    // }
-
-    // pub open spec fn parse_main_entry_before_validate<K>(bytes: Seq<u8>, num_keys: nat) -> DurableEntry<MainTableViewEntry<K>>
-    // where 
-    //     K: PmCopy
-    // {
-    //     let cdb_bytes = extract_bytes(bytes, 0, u64::spec_size_of());
-    //     let crc_bytes = extract_bytes(bytes, u64::spec_size_of(), u64::spec_size_of());
-    //     let metadata_bytes = extract_bytes(bytes, u64::spec_size_of() * 2,
-    //                                     ListEntryMetadata::spec_size_of());
-    //     let key_bytes = extract_bytes(bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of());
-
-    //     let cdb = u64::spec_from_bytes(cdb_bytes);
-    //     let crc = u64::spec_from_bytes(crc_bytes);
-    //     let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
-    //     let key = K::spec_from_bytes(key_bytes);
-        
-    //     if cdb == CDB_FALSE {
-    //         DurableEntry::Invalid
-    //     } else {
-    //         DurableEntry::Valid(MainTableViewEntry::<K>::new(cdb, crc, metadata, key))
-    //     }
-    // }
-
-    // pub open spec fn parse_main_table2<K>(mem: Seq<u8>, num_keys: u64, 
-    //         main_table_entry_size: u32) -> Option<MainTableView<K>>
-    //     where 
-    //         K: PmCopy
-    // {
-    //     let table_entry_slot_size =
-    //           ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of();
-        
-    //     // Check that the sequence of bytes is large enough to parse
-    //     if mem.len() < num_keys * table_entry_slot_size {
-    //         None
-    //     } else {
-    //         // Parse the entries. These entries have not yet been validated so they may be meaningless/corrupted
-    //         let entries = parse_main_entries_before_validate(mem, num_keys, main_table_entry_size);
-    //         if validate_main_entries_after_parse(entries, num_keys as nat, main_table_entry_size as nat) {
-    //             Some(MainTableView::<K>::new(entries))
-    //         } else {
-    //             None
-    //         } 
-    //     }
-    // }
+    pub open spec fn no_duplicate_keys<K>(entries: Seq<Option<MainTableViewEntry<K>>>) -> bool 
+        where 
+            K: PmCopy 
+    {
+        forall |i: int, j: int| {
+            &&& 0 <= i < entries.len()
+            &&& 0 <= j < entries.len()
+            &&& i != j
+            &&& entries[i] is Some
+            &&& entries[j] is Some
+        } ==> #[trigger] entries[i].unwrap().key() != #[trigger] entries[j].unwrap().key()
+    }
 
     pub proof fn lemma_metadata_fits<K>(k: int, num_keys: int, main_table_entry_size: int)
         requires
@@ -663,13 +585,13 @@ verus! {
             }
             (None, Some(table2)) => {
                 let entries = parse_main_entries::<K>(mem1, num_keys as nat, main_table_entry_size as nat);
-                assert(!no_duplicate_item_indexes(entries));
+                assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table2.durable_main_table[i]);
             }
             (Some(table1), None) => {
                 let entries = parse_main_entries::<K>(mem2, num_keys as nat, main_table_entry_size as nat);
-                assert(!no_duplicate_item_indexes(entries));
+                assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
                 assert(forall |i: int| 0 <= i < num_keys ==>
                     #[trigger] entries[i] == table1.durable_main_table[i]);
             }
@@ -890,6 +812,25 @@ verus! {
                 &&& #[trigger] entries1[i] is Some
                 &&& #[trigger] entries1[j] is Some
                 &&& entries1[i].unwrap().item_index() == entries1[j].unwrap().item_index()
+            });
+            assert(false);
+        }
+        if !no_duplicate_keys(entries2) {
+            let (i, j) = choose|i: int, j: int| {
+                &&& 0 <= i < entries2.len()
+                &&& 0 <= j < entries2.len()
+                &&& i != j
+                &&& #[trigger] entries2[i] is Some
+                &&& #[trigger] entries2[j] is Some
+                &&& entries2[i].unwrap().key() == entries2[j].unwrap().key()
+            };
+            assert({
+                &&& 0 <= i < entries1.len()
+                &&& 0 <= j < entries1.len()
+                &&& i != j
+                &&& #[trigger] entries1[i] is Some
+                &&& #[trigger] entries1[j] is Some
+                &&& entries1[i].unwrap().key() == entries1[j].unwrap().key()
             });
             assert(false);
         }

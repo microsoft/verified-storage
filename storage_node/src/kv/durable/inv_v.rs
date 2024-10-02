@@ -302,7 +302,8 @@ verus! {
         pm_region: PersistentMemoryRegionView,
     ) -> bool 
     {
-        pm_region.no_outstanding_writes_in_range(0, VersionMetadata::spec_size_of() as int)
+        &&& pm_region.no_outstanding_writes_in_range(0, VersionMetadata::spec_size_of() as int)
+        &&& pm_region.no_outstanding_writes_in_range(VersionMetadata::spec_size_of() as int, (VersionMetadata::spec_size_of() + u64::spec_size_of()) as int)
     }
 
     pub open spec fn no_outstanding_writes_to_overall_metadata(
@@ -310,7 +311,8 @@ verus! {
         overall_metadata_addr: int,
     ) -> bool 
     {
-        pm_region.no_outstanding_writes_in_range(overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
+        &&& pm_region.no_outstanding_writes_in_range(overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
+        &&& pm_region.no_outstanding_writes_in_range(overall_metadata_addr + OverallMetadata::spec_size_of() as int, (overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()) as int)
     }
 
     pub open spec fn version_and_overall_metadata_match<K, L>(
@@ -323,6 +325,26 @@ verus! {
                 extract_bytes(mem2, 0, VersionMetadata::spec_size_of()+ u64::spec_size_of())
         &&& extract_bytes(mem1, overall_metadata_addr, OverallMetadata::spec_size_of() + u64::spec_size_of()) == 
                 extract_bytes(mem2, overall_metadata_addr, OverallMetadata::spec_size_of() + u64::spec_size_of())
+    }
+
+    pub open spec fn version_and_overall_metadata_match_deserialized(
+        mem1: Seq<u8>,
+        mem2: Seq<u8>,
+    ) -> bool
+    {
+        let version_metadata1 = deserialize_version_metadata(mem1);
+        let version_crc1 = deserialize_version_crc(mem1);
+        let version_metadata2 = deserialize_version_metadata(mem2);
+        let version_crc2 = deserialize_version_crc(mem2);
+        let overall_metadata1 = deserialize_overall_metadata(mem1, version_metadata1.overall_metadata_addr);
+        let overall_crc1 = deserialize_overall_crc(mem1, version_metadata1.overall_metadata_addr);
+        let overall_metadata2 = deserialize_overall_metadata(mem2, version_metadata2.overall_metadata_addr);
+        let overall_crc2 = deserialize_overall_crc(mem2, version_metadata2.overall_metadata_addr);
+
+        &&& version_metadata1 == version_metadata2 
+        &&& version_crc1 == version_crc2 
+        &&& overall_metadata1 == overall_metadata2 
+        &&& overall_crc1 == overall_crc2
     }
 
     // TODO: remove the generics and only require the parts of overall_metadata_valid in the 

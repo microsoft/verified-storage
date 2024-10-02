@@ -59,9 +59,9 @@ Starred functions * have an unverified implementation (which may be out of date 
   
 - KV store interface
     - [x] `setup`
-    - [ ] `start` - hayley-leblanc
-    - [ ] `create`
-    - [ ] `read_item`
+    - [x] `start` 
+    - [ ] `create` 
+    - [ ] `read_item` - hayley-leblanc
     - [ ] `update_item`
     - [ ] `delete`
     - [ ] `commit`

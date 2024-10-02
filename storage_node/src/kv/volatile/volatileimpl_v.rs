@@ -88,7 +88,7 @@ impl View for VolatileKvIndexEntryImpl
     open spec fn view(&self) -> Self::V
     {
         VolatileKvIndexEntry {
-            header_addr: self.header_addr as int,
+            header_addr: self.header_addr,
             list_len: self.list_len as int,
             entry_locations: self.entry_locations(),
         }
@@ -107,7 +107,7 @@ impl VolatileKvIndexEntryImpl
             result.num_list_entries_per_node == num_list_entries_per_node,
             result@.valid(),
             result@ == (VolatileKvIndexEntry{
-                header_addr: header_addr as int,
+                header_addr: header_addr,
                 list_len: 0,
                 entry_locations: Seq::empty()
             }),
