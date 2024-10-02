@@ -720,7 +720,7 @@ verus! {
             parse_main_table::<K>(mem2, num_keys, main_table_entry_size) is Some,
             ({
                 let table1 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().durable_main_table;
-                let table2 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().durable_main_table;
+                let table2 = parse_main_table::<K>(mem2, num_keys, main_table_entry_size).unwrap().durable_main_table;
                 &&& table2.len() == table1.len()
                 &&& table2[index as int] is None
                 &&& forall|i: int| 0 <= i < table2.len() && i != index ==> #[trigger] table2[i] == table1[i]
