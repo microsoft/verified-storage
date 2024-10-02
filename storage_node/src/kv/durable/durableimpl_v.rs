@@ -1786,7 +1786,7 @@ verus! {
                 &&& UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) ==
                       Some(AbstractOpLogState::initialize())
                 &&& parse_main_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
-                                             num_keys, main_table_entry_size) ==
+                                        num_keys, main_table_entry_size) ==
                       Some(self.main_table@)
                 &&& parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
                                             num_keys as nat, self.main_table@.valid_item_indices()) ==
