@@ -214,25 +214,25 @@ verus! {
             true
         }
 
-        // TODO: might be cleaner to define this elsewhere (like in the interface)
-        pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
-        {
-            &&& self.len() == volatile_index.contents.len()
-            &&& self.contents.dom().finite()
-            &&& volatile_index.contents.dom().finite()
-            &&& self.valid()
-            // all keys in the volatile index are stored at the indexed offset in the durable store
-            &&& forall |k: K| #[trigger] volatile_index.contains_key(k) ==> {
-                    let indexed_offset = volatile_index[k].unwrap().header_addr;
-                    &&& self.contains_key(indexed_offset)
-                    &&& self[indexed_offset].unwrap().key == k
-                }
-            // all offsets in the durable store have a corresponding entry in the volatile index
-            &&& forall |i: int| #[trigger] self.contains_key(i) ==> {
-                &&& volatile_index.contains_key(self[i].unwrap().key)
-                &&& volatile_index[self[i].unwrap().key].unwrap().header_addr == i
-            }
-        }
+        // // TODO: might be cleaner to define this elsewhere (like in the interface)
+        // pub open spec fn matches_volatile_index(&self, volatile_index: VolatileKvIndexView<K>) -> bool
+        // {
+        //     &&& self.len() == volatile_index.contents.len()
+        //     &&& self.contents.dom().finite()
+        //     &&& volatile_index.contents.dom().finite()
+        //     &&& self.valid()
+        //     // all keys in the volatile index are stored at the indexed offset in the durable store
+        //     &&& forall |k: K| #[trigger] volatile_index.contains_key(k) ==> {
+        //             let indexed_offset = volatile_index[k].unwrap().header_addr;
+        //             &&& self.contains_key(indexed_offset)
+        //             &&& self[indexed_offset].unwrap().key == k
+        //         }
+        //     // all offsets in the durable store have a corresponding entry in the volatile index
+        //     &&& forall |i: int| #[trigger] self.contains_key(i) ==> {
+        //         &&& volatile_index.contains_key(self[i].unwrap().key)
+        //         &&& volatile_index[self[i].unwrap().key].unwrap().header_addr == i
+        //     }
+        // }
     }
 
     #[verifier::reject_recursive_types(K)]
@@ -346,6 +346,11 @@ verus! {
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
             &&& Self::log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
             &&& self.abort_inv()
+
+            // &&& forall |val| self.key_index_list_view().contains(val) ==> {
+            //         &&& self@[val.1 as int] matches Some(entry)
+            //         &&& val.0 == entry.key()
+            //     }
         }
 
         pub closed spec fn valid(self) -> bool 
@@ -1679,6 +1684,18 @@ verus! {
                                 &&& 0 <= l < entry_list.len()
                                 &&& k != l
                             } ==> *(#[trigger] entry_list@[k]).0 != *(#[trigger] entry_list@[l]).0
+                        // all keys in the key index list correspond to an entry in the kvstore
+                        &&& forall |val| kvstore.key_index_list_view().contains(val) ==> {
+                            &&& kvstore@[val.1 as int] matches Some(entry)
+                            &&& val.0 == entry.key()
+                        }
+                        // all entries in the kvstore correspond to an element of the key index list
+                        &&& forall |i: int| #[trigger] kvstore@.contains_key(i) ==> {
+                            exists |v| {
+                                &&& #[trigger] kvstore.key_index_list_view().contains(v)
+                                &&& v.1 == i
+                            }
+                        }
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     Err(KvError::LogErr { log_err }) => true, // TODO: better handling for this and PmemErr
@@ -1821,12 +1838,22 @@ verus! {
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
                 assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
-            }
 
-            proof {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
                     durable_kv_store.wrpm@);
                 durable_kv_store.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
+
+                // the key index list contains an element corresponding to each entry in the durable store
+                assert forall |i: u64| #[trigger] durable_kv_store@.contains_key(i as int) implies {
+                    exists |v| {
+                        &&& #[trigger] durable_kv_store.key_index_list_view().contains(v)
+                        &&& v.1 == i
+                    }
+                } by {
+                    let entry = durable_kv_store.main_table@.durable_main_table[i as int].unwrap();
+                    let witness = (entry.key(), i, entry.item_index());
+                    assert(durable_kv_store.key_index_list_view().contains(witness));
+                }
             }
             
             Ok((durable_kv_store, entry_list))
@@ -2068,19 +2095,72 @@ verus! {
             
             assert(replayed_ops == new_replayed_ops.subrange(0, new_replayed_ops.len() - 1));
 
+            Self::lemma_installing_single_log_entry_preserves_crash_perm_and_metadata(
+                phys_log_view, index, old_wrpm, wrpm_region, version_metadata, overall_metadata, final_recovery_state
+            );
+
             let written_wrpm = wrpm_region@.write(op.absolute_addr as int, op.bytes);
-            assert forall |s| #[trigger] written_wrpm.can_crash_as(s) implies {
-                &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
-                &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
-            } by {
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(written_wrpm);
-                lemma_establish_extract_bytes_equivalence(s, wrpm_region@.committed());
-            }
-            assert(written_wrpm.can_crash_as(written_wrpm.flush().committed()));
-            assert(written_wrpm.can_crash_as(written_wrpm.committed()));
+            lemma_can_crash_as_committed_or_flushed(written_wrpm);
             assert(written_wrpm.flush().committed() == new_mem.unwrap());
             assert(version_and_overall_metadata_match_deserialized(wrpm_region@.committed(), written_wrpm.committed()));
             
+        }
+
+        proof fn lemma_installing_single_log_entry_preserves_crash_perm_and_metadata(
+            phys_log_view: Seq<AbstractPhysicalOpLogEntry>,
+            index: int,
+            old_wrpm: Seq<u8>,
+            current_wrpm: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+            final_recovery_state: DurableKvStoreView<K, I, L>,
+        )
+            requires 
+                old_wrpm.len() == current_wrpm@.len(),
+                0 <= index < phys_log_view.len(),
+                Self::physical_recover(current_wrpm@.committed(), version_metadata, overall_metadata) == 
+                    Some(final_recovery_state),
+                deserialize_version_metadata(current_wrpm@.committed()) == version_metadata,
+                version_and_overall_metadata_match_deserialized(old_wrpm, current_wrpm@.committed()),
+                extract_bytes(current_wrpm@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata),
+                no_outstanding_writes_to_version_metadata(current_wrpm@),
+                no_outstanding_writes_to_overall_metadata(current_wrpm@, version_metadata.overall_metadata_addr as int),
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
+                ({
+                    let replayed_ops = phys_log_view.subrange(0, index as int);
+                    let current_mem = Self::apply_physical_log_entries(old_wrpm, replayed_ops);
+                    &&& current_mem is Some 
+                    &&& current_mem.unwrap() == current_wrpm@.committed()
+                    &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(current_wrpm, version_metadata, overall_metadata, phys_log_view)
+                }),
+                ({
+                    let op = phys_log_view[index];
+                    forall |s| current_wrpm@.write(op.absolute_addr as int, op.bytes).can_crash_as(s) ==> {
+                        &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
+                        &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(current_wrpm@.committed(), version_metadata, overall_metadata).unwrap()
+                    }
+                }),
+            ensures 
+                ({
+                    let op = phys_log_view[index];
+                    let written_wrpm = current_wrpm@.write(op.absolute_addr as int, op.bytes);
+                    &&& forall |s| #[trigger] written_wrpm.can_crash_as(s) ==> {
+                            &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
+                            &&& version_and_overall_metadata_match_deserialized(s, current_wrpm@.committed())
+                        }
+                })
+        {
+            let op = phys_log_view[index];
+            let written_wrpm = current_wrpm@.write(op.absolute_addr as int, op.bytes);
+            assert forall |s| #[trigger] written_wrpm.can_crash_as(s) implies {
+                &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(final_recovery_state)
+                &&& version_and_overall_metadata_match_deserialized(s, current_wrpm@.committed())
+            } by {
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(written_wrpm);
+                lemma_establish_extract_bytes_equivalence(s, current_wrpm@.committed());
+            }
         }
 
         // This function takes an offset into the main table, looks up the corresponding item,

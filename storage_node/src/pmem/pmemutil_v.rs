@@ -104,6 +104,14 @@ verus! {
         }
     }
 
+    pub proof fn lemma_can_crash_as_committed_or_flushed(
+        region_view: PersistentMemoryRegionView,
+    )
+        ensures
+            region_view.can_crash_as(region_view.committed()),
+            region_view.can_crash_as(region_view.flush().committed())
+    {}
+
     // This lemma establishes that if a persistent memory region has
     // no outstanding writes, then a flush of them does nothing.
     pub proof fn lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(

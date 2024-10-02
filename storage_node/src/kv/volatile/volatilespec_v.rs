@@ -21,7 +21,7 @@ pub struct VolatileKvListEntryLocation
 
 pub struct VolatileKvIndexEntry
 {
-    pub header_addr: int,   // the address of the metadata header associated with this key
+    pub header_addr: u64,   // the address of the metadata header associated with this key
     pub list_len: int,      // the length of the list
     pub entry_locations: Seq<VolatileKvListEntryLocation>,
                           // the locations of the list entries, possibly including extra
@@ -69,7 +69,7 @@ where
         self[key] is Some
     }
 
-    pub open spec fn insert_key(self, key: K, header_addr: int) -> Self
+    pub open spec fn insert_key(self, key: K, header_addr: u64) -> Self
         recommends
             self.valid(),
             !self.contains_key(key),
@@ -263,7 +263,7 @@ where
         ensures
             self.valid(),
             match result {
-                Ok(()) => self@ == old(self)@.insert_key(*key, header_addr as int),
+                Ok(()) => self@ == old(self)@.insert_key(*key, header_addr),
                 Err(_) => false, // TODO
             }
     ;

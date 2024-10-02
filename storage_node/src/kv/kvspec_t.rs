@@ -162,7 +162,7 @@ verus! {
                 |k| { volatile_store_state.contains_key(k) },
                 |k| {
                     let index_entry = volatile_store_state[k].unwrap();
-                    let durable_entry = durable_store_state[index_entry.header_addr].unwrap();
+                    let durable_entry = durable_store_state[index_entry.header_addr as int].unwrap();
                     (durable_entry.item(), durable_entry.list().list)
                 }
             )

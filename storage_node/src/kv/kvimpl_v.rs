@@ -81,9 +81,25 @@ where
 
     pub closed spec fn valid(self) -> bool
     {
-        &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
+        &&& self.durable_store_matches_volatile_index()
+        // &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
+    }
+
+    pub closed spec fn durable_store_matches_volatile_index(self) -> bool 
+    {
+        // all keys in the volatile index are stored at the indexed offset in the durable store
+        &&& forall |k: K| #[trigger] self.volatile_index@.contains_key(k) ==> {
+                let indexed_offset = self.volatile_index@[k].unwrap().header_addr;
+                &&& self.durable_store@.contains_key(indexed_offset as int)
+                &&& self.durable_store@[indexed_offset as int].unwrap().key == k
+            }
+        // all offsets in the durable store have a corresponding entry in the volatile index
+        &&& forall |i: int| #[trigger] self.durable_store@.contains_key(i) ==> {
+            &&& self.volatile_index@.contains_key(self.durable_store@[i].unwrap().key)
+            &&& self.volatile_index@[self.durable_store@[i].unwrap().key].unwrap().header_addr == i
+        }
     }
 
     pub exec fn untrusted_setup(
@@ -178,9 +194,9 @@ where
         ensures 
             match result {
                 Ok(kv) => {
+                    &&& kv.valid()
                     &&& kv.wrpm_view().no_outstanding_writes()
                     &&& Some(kv@) == Self::recover(kv.wrpm_view().committed(), kvstore_id)
-                    // TODO: postcondition about the volatile index matching durable state
                 }
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                 Err(_) => true // TODO
@@ -218,13 +234,25 @@ where
         let (kvstore, entry_list) = DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
             version_metadata, Tracked(perm), Ghost(durable_kvstore_state))?;
 
-        // 2. Set up the volatile index based on the contents of the KV store
+        let ghost entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
+        assert(forall |i: int| 0 <= i < entry_list@.len() ==>
+            #[trigger] entry_list_view[i] == (*entry_list@[i].0, entry_list@[i].1, entry_list@[i].2));
+        assert(entry_list_view.to_set() == kvstore.key_index_list_view());
+
+        assert forall |i: int| 0 <= i < entry_list_view.len() implies
+            kvstore@.contains_key((#[trigger] entry_list_view[i].1) as int)
+        by {
+            assert(kvstore.key_index_list_view().contains(entry_list_view[i]));
+        }
+
+        // 3. Set up the volatile index based on the contents of the KV store
         // entry list contains keys, main table indexes, and item table indexes. We don't use the item indexes
         // when setting up the volatile side of things, but we use the list that contains them as it would be 
         // less efficient to create a copy of the list without the item indexes.
         let mut volatile_index = VolatileKvIndexImpl::<K>::new(kvstore_id, overall_metadata.num_keys as usize, 
             overall_metadata.num_list_entries_per_node as u64)?;
 
+        let ghost old_kvstore = kvstore;
         let mut i = 0;
         while i < entry_list.len() 
             invariant 
@@ -236,65 +264,116 @@ where
                 } ==> *(#[trigger] entry_list[k]).0 != *(#[trigger] entry_list[l]).0,
                 forall |index: int| i <= index < entry_list.len() ==> 
                     volatile_index@[*(#[trigger] entry_list@[index]).0] is None,
+                forall |index: int| 0 <= index < i ==> {
+                    &&& volatile_index@[*(#[trigger] entry_list@[index]).0] matches Some(volatile_entry)
+                    &&& volatile_entry.header_addr == entry_list@[index].1
+                    &&& kvstore@.contains_key(volatile_entry.header_addr as int)
+                },
+                forall |k| volatile_index@.contains_key(k) ==> {
+                    &&& volatile_index@[k] matches Some(volatile_entry)
+                    &&& exists |v| {
+                        &&& #[trigger] entry_list_view.contains(v)
+                        &&& v.0 == k
+                        &&& v.1 == volatile_entry.header_addr
+                    }
+                },
+                // forall |j: int| durable_store@.contains_key
+                forall |j: int| 0 <= j < entry_list@.len() ==>
+                    #[trigger] entry_list_view[j] == (*entry_list@[j].0, entry_list@[j].1, entry_list@[j].2),
+                forall |j: int| 0 <= j < entry_list_view.len() ==>
+                    kvstore@.contains_key((#[trigger] entry_list_view[j].1) as int),
+                kvstore == old_kvstore,
+                0 <= i <= entry_list_view.len(),
+                entry_list_view.len() == entry_list@.len() == entry_list.len(),
         {
+            if i < entry_list.len() {
+                assert(kvstore@.contains_key(entry_list_view[i as int].1 as int));
+            }
+            let ghost old_volatile_index = volatile_index;
             let (key, index) = (*entry_list[i].0, entry_list[i].1);
             volatile_index.insert_key(&key, index)?;
+
+            proof {
+                assert forall |k| volatile_index@.contains_key(k) implies {
+                    &&& volatile_index@[k] matches Some(volatile_entry)
+                    &&& exists |v| {
+                        &&& #[trigger] entry_list_view.contains(v)
+                        &&& v.0 == k
+                        &&& v.1 == volatile_entry.header_addr
+                    }
+                } by {
+                    let volatile_entry = volatile_index@[k].unwrap();
+                    if k == key {
+                        let v = entry_list_view[i as int];
+                        assert({
+                            &&& #[trigger] entry_list_view.contains(v)
+                            &&& v.0 == k
+                            &&& v.1 == volatile_entry.header_addr
+                        });
+                    } else {
+                        assert(old_volatile_index@.contains_key(k));
+                    }
+                }
+            }
+
             i += 1;
         }
 
-        assume(false); // TODO @hayley
-        Ok(Self {
+        let kvstore = Self {
             id: kvstore_id,
             durable_store: kvstore,
             volatile_index,
-        })
+        };
+
+        // 4. Prove postconditions
+        proof {
+            assert(kvstore.durable_store.key_index_list_view() == entry_list_view.to_set());
+
+            // Each key in the volatile index maps to a main table entry containing that same key
+            assert forall |k: K| #[trigger] kvstore.volatile_index@.contains_key(k) implies {
+                let indexed_offset = (#[trigger] kvstore.volatile_index@[k]).unwrap().header_addr;
+                &&& kvstore.durable_store@.contains_key(indexed_offset as int)
+                &&& kvstore.durable_store@[indexed_offset as int].unwrap().key == k
+            } by {
+                let index = kvstore.volatile_index@[k].unwrap().header_addr;
+                assert(exists |v| {
+                    &&& #[trigger] entry_list_view.contains(v) 
+                    &&& v.0 == k 
+                    &&& v.1 == index
+                });
+                let witness = choose |v| {
+                    &&& #[trigger] entry_list_view.contains(v) 
+                    &&& v.0 == k 
+                    &&& v.1 == index
+                };
+                assert(kvstore.durable_store.key_index_list_view().contains(witness));
+            }
+
+            assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
+                let index = #[trigger] entry_list_view[i].1;
+                kvstore.durable_store@.contains_key(index as int)
+            });
+            assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
+                let k = #[trigger] entry_list_view[i].0;
+                kvstore.volatile_index@.contains_key(k)
+            });
+
+            assert forall |i: int| #[trigger] kvstore.durable_store@.contains_key(i) implies {
+                &&& kvstore.volatile_index@.contains_key(kvstore.durable_store@[i].unwrap().key)
+                &&& kvstore.volatile_index@[kvstore.durable_store@[i].unwrap().key].unwrap().header_addr == i
+            } by {
+                let k = kvstore.durable_store@[i].unwrap().key;
+                assert(kvstore.volatile_index@.contains_key(k));
+            }
+
+            // TODO @hayley
+            assume(Some(kvstore@) == Self::recover(kvstore.wrpm_view().committed(), kvstore_id));
+        }
+
+        Ok(kvstore)
     }
 
 /*
-    pub fn untrusted_start(
-        metadata_region: PM,
-        item_table_region: PM,
-        list_region: PM,
-        log_region: PM,
-        kvstore_id: u128,
-        num_keys: u64,
-        node_size: u32,
-    ) -> (result: Result<Self, KvError<K>>)
-        requires 
-            // TODO 
-        ensures 
-            // TODO 
-    {
-        assume(false);
-        // First, start the durable component
-        let mut log_wrpm = WriteRestrictedPersistentMemoryRegion::new(log_region);
-        let mut metadata_wrpm = WriteRestrictedPersistentMemoryRegion::new(metadata_region);
-        let mut item_wrpm = WriteRestrictedPersistentMemoryRegion::new(item_table_region);
-        let mut list_wrpm = WriteRestrictedPersistentMemoryRegion::new(list_region);
-        let tracked fake_kv_permission = TrustedKvPermission::fake_kv_perm();
-        let (mut durable, key_index_pairs) = DurableKvStore::start(metadata_wrpm, item_wrpm, list_wrpm, log_wrpm, kvstore_id, num_keys, node_size, Tracked(&fake_kv_permission)).unwrap();
-
-        // Next, start the volatile component. To run YCSB workloads we may need to 
-        // add functionality to the durable component for this to work for an 
-        // existing KV store
-        let mut volatile = V::new(kvstore_id, num_keys as usize, durable.get_elements_per_node())?;
-
-        // TODO: move this into volatile constructor?
-        for i in 0..key_index_pairs.len() {
-            assume(false);
-            // let (key, index) = &key_index_pairs[i]; <- Verus has an issue with this syntax. TODO: report it
-            volatile.insert_key(&key_index_pairs[i].0, key_index_pairs[i].1)?;
-        }
-    
-        Ok(Self {
-            id: kvstore_id, 
-            durable_store: durable,
-            volatile_index: volatile,
-            node_size,
-            _phantom: Ghost(spec_phantom_data()),
-        })
-    }
-
     pub fn untrusted_create(
         &mut self,
         key: &K,
