@@ -2680,9 +2680,23 @@ verus! {
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
 
-            let tentative_state_bytes =
+            let old_tentative_state_bytes =
                 apply_physical_log_entries(old_self.wrpm@.flush().committed(),
                                            old_self.log@.commit_op_log().physical_op_list).unwrap();
+            let current_tentative_state_bytes =
+                apply_physical_log_entries(self.wrpm@.flush().committed(),
+                                           self.log@.commit_op_log().physical_op_list).unwrap();
+            let current_tentative_main_table_bytes =
+                extract_bytes(current_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let main_table_subregion_view =
+                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat);
+
+            let old_tentative_main_table_bytes =
+                extract_bytes(old_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+
             self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                 self_before_main_table_create, main_table_subregion, perm
             );
@@ -2765,24 +2779,9 @@ verus! {
                 main_table_index,
                 self.overall_metadata
             );
-            
-            let tentative_state_bytes2 =
-                apply_physical_log_entries(self.wrpm@.flush().committed(),
-                                           self.log@.commit_op_log().physical_op_list).unwrap();
-
-            let main_table_region =
-                extract_bytes(tentative_state_bytes2, self.overall_metadata.main_table_addr as nat,
-                              self.overall_metadata.main_table_size as nat);
-            let main_table_subregion_view =
-                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat);
-
-            let old_tentative_main_table_bytes =
-                extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
-                              self.overall_metadata.main_table_size as nat);
 
             let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
-            let main_table_entry_bytes = extract_bytes(main_table_region,
+            let main_table_entry_bytes = extract_bytes(current_tentative_main_table_bytes,
                                                        start,
                                                        main_table_entry_size as nat);
             assert(self.main_table.outstanding_entry_write_matches_pm_view(main_table_subregion_view,
@@ -2810,7 +2809,7 @@ verus! {
             ));
 
             let mem1 = old_tentative_main_table_bytes;
-            let mem2 = main_table_region;
+            let mem2 = current_tentative_main_table_bytes;
             assert forall|addr: int| {
                 let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
                 &&& #[trigger] trigger_addr(addr)
@@ -2820,7 +2819,7 @@ verus! {
                 assert(trigger_addr(main_table_addr + addr));
             }
 
-            let entry_bytes = extract_bytes(main_table_region, start, main_table_entry_size as nat);
+            let entry_bytes = extract_bytes(current_tentative_main_table_bytes, start, main_table_entry_size as nat);
             let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
             let crc_bytes = extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of());
             let metadata_bytes = extract_bytes(entry_bytes, u64::spec_size_of() * 2,
@@ -2828,11 +2827,11 @@ verus! {
             let key_bytes = extract_bytes(
                 entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
             );
-            assert(forall|addr: int| #![trigger tentative_state_bytes2[addr]] {
+            assert(forall|addr: int| #![trigger current_tentative_state_bytes[addr]] {
                        &&& trigger_addr(addr)
                        &&& main_table_addr <= addr < main_table_addr + main_table_size
                        &&& main_table_addr + start <= addr < main_table_addr + start + main_table_entry_size
-                   } ==> tentative_state_bytes2[addr] == self.wrpm@.flush().committed()[addr]);
+                   } ==> current_tentative_state_bytes[addr] == self.wrpm@.flush().committed()[addr]);
             lemma_valid_entry_index(main_table_index as nat, num_keys as nat, main_table_entry_size as nat);
             broadcast use pmcopy_axioms;
             
@@ -2866,7 +2865,7 @@ verus! {
 
             lemma_main_table_recovery_after_updating_entry::<K>(
                 old_tentative_main_table_bytes,
-                main_table_region,
+                current_tentative_main_table_bytes,
                 self.overall_metadata.num_keys,
                 self.overall_metadata.main_table_entry_size,
                 main_table_index,
@@ -2874,7 +2873,7 @@ verus! {
                 key
             );
 
-            let main_table_region1 = extract_bytes(tentative_state_bytes,
+            let main_table_region1 = extract_bytes(old_tentative_state_bytes,
                                                   overall_metadata.main_table_addr as nat,
                                                   overall_metadata.main_table_size as nat);
             let main_table_view1 = parse_main_table::<K>(main_table_region1,
