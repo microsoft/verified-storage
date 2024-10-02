@@ -73,4 +73,45 @@ pub proof fn lemma_seqs_flatten_equal_suffix(s: Seq<Seq<u8>>)
         assert(first + suffix.flatten() == first + middle.flatten() + last);
     }
 }
+
+pub proof fn lemma_injective_map_is_invertible<K, V>(map: Map<K, V>)
+    requires 
+        map.is_injective(),
+    ensures 
+        map == map.invert().invert()
+{
+    map.lemma_invert_is_injective();
+    map.invert().lemma_invert_is_injective();
+    assert(map.invert().dom() == map.values());
+    lemma_injective_map_inverse(map);
+    lemma_injective_map_inverse(map.invert());
+    assert(map =~= map.invert().invert());
+}
+
+pub proof fn lemma_injective_map_inverse<K, V>(map: Map<K, V>)
+    requires 
+        map.is_injective()
+    ensures 
+        forall |k: K| map.contains_key(k) ==> {
+            let v = map[k];
+            map.invert()[v] == k
+        }
+{
+    assert forall |k: K| map.contains_key(k) implies {
+        let v = map[k];
+        map.invert()[v] == k
+    } by {
+        let v = map[k];
+        if map.invert()[v] != k {
+            // if v maps to a different key in the map.invert(), then it must have been the case 
+            // that multiple keys mapped to the same value in the original map. but `map` is injective
+            // so that cannot be true.
+            let k_prime = map.invert()[v];
+            assert(map.contains_pair(k, v));
+            assert(map.contains_pair(k_prime, v));
+            assert(k != k_prime);
+            assert(false);
+        }
+    }
+}
 }

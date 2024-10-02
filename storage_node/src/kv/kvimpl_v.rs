@@ -66,6 +66,11 @@ where
         AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(mem, kv_id)
     }
 
+    pub closed spec fn constants(self) -> PersistentMemoryConstants
+    {
+        self.durable_store.constants()
+    }
+
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
     {
         AbstractKvStoreState {
@@ -372,6 +377,43 @@ where
         }
 
         Ok(kvstore)
+    }
+
+    pub exec fn read_item(
+        &self,
+        key: &K,
+    ) -> (result: Result<Box<I>, KvError<K>>)
+        requires 
+            self.valid(),
+        ensures 
+            match result {
+                Ok(item) => {
+                    match self@[*key] {
+                        Some(i) => i.0 == item,
+                        None => false,
+                    }
+                }
+                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                Err(_) => false,
+            }
+    {
+        // 1. Look up the table entry in the volatile index.
+        // If the key is not in the volatile index, return an error.
+        let index = match self.volatile_index.get(key) {
+            Some(index) => index,
+            None => {
+                proof {
+                    self.durable_store.lemma_main_table_index_key(); 
+                    assert(!self@.contains_key(*key));
+                }
+                return Err(KvError::KeyNotFound);
+            }
+        };
+
+        assume(false);
+
+        Err(KvError::NotImplemented)
     }
 
 /*

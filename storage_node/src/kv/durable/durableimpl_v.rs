@@ -1444,6 +1444,64 @@ verus! {
             self.durable_list.get_elements_per_node()
         }
 
+        // This lemma establishes the relationship between the key_to_index map used 
+        // to construct an abstract KV store view from durable state and the contents
+        // of that durable state.
+        pub proof fn lemma_main_table_index_key(self)
+            requires 
+                self.valid(),
+            ensures 
+                ({
+                    let index_to_key =  Map::new(
+                        |i: int| self@.contents.dom().contains(i),
+                        |i: int| self@.contents[i].key
+                    );
+                    let key_to_index = index_to_key.invert();
+                    forall |k| #[trigger] key_to_index.contains_key(k) ==> {
+                        let index = key_to_index[k];
+                        &&& self@.contains_key(index)
+                        &&& self@.contents[index].key() == k
+                    }
+                })
+        {
+            let index_to_key =  Map::new(
+                |i: int| self@.contents.dom().contains(i),
+                |i: int| self@.contents[i].key
+            );
+
+            // Prove that there are no duplicate keys in the main table; this implies that index_to_key 
+            // in injective, which is crucial for the rest of the proof.
+            let main_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, 
+                self.overall_metadata.main_table_size as nat);
+            assert(forall |s| #[trigger] main_table_subregion.can_crash_as(s) ==> 
+                parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(self.main_table@));
+            assert(main_table_subregion.can_crash_as(main_table_subregion.committed()));
+            assert(no_duplicate_keys(self.main_table@.durable_main_table));
+
+            // key_to_index is also injective since the inverse of a map is always injective.
+            let key_to_index = index_to_key.invert();
+            index_to_key.lemma_invert_is_injective();
+            assert(key_to_index.is_injective());
+
+            // Next, prove inverting key_to_index results in the original index_to_key map.
+            // This helps establish that the values of one of the maps is the domain of the other
+            lemma_injective_map_is_invertible(index_to_key);
+
+            // We also invoke a helper lemma to prove that each key-index pair in key_to_index
+            // has a corresponding index-key pair in index_to_keys. This helps prove that 
+            // index values in key_to_index are valid indices in the main table.
+            lemma_injective_map_inverse(key_to_index);
+
+            assert forall |k| #[trigger] key_to_index.contains_key(k) implies {
+                let i = key_to_index[k];
+                &&& self@.contains_key(i)
+                &&& self@.contents[i].key() == k
+            } by {
+                let i = key_to_index[k];
+                assert(self.main_table@.durable_main_table[i] is Some ==> self@.contains_key(i));
+            }
+        }
+
         pub fn setup(
             pm_region: &mut PM,
             version_metadata: VersionMetadata,
