@@ -70,7 +70,9 @@ where
     {
         AbstractKvStoreState {
             id: self.id,
-            contents: AbstractKvStoreState::<K, I, L>::construct_view_contents(self.volatile_index@, self.durable_store@),
+            // obtaining the view only from durable state (rather than using both durable and volatile) makes recovery states
+            // easier to reason about.
+            contents: AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(self.durable_store@),
         }
     }
 
@@ -210,6 +212,7 @@ where
         // 2. Call the durable KV store's start method
         let ghost durable_kvstore_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
             wrpm_region@.committed(), version_metadata, overall_metadata).unwrap();
+        assert(state.contents == AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(durable_kvstore_state));
 
         proof {
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
@@ -277,7 +280,6 @@ where
                         &&& v.1 == volatile_entry.header_addr
                     }
                 },
-                // forall |j: int| durable_store@.contains_key
                 forall |j: int| 0 <= j < entry_list@.len() ==>
                     #[trigger] entry_list_view[j] == (*entry_list@[j].0, entry_list@[j].1, entry_list@[j].2),
                 forall |j: int| 0 <= j < entry_list_view.len() ==>
@@ -350,14 +352,12 @@ where
             }
 
             assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
-                let index = #[trigger] entry_list_view[i].1;
-                kvstore.durable_store@.contains_key(index as int)
-            });
-            assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
                 let k = #[trigger] entry_list_view[i].0;
-                kvstore.volatile_index@.contains_key(k)
+                let index = #[trigger] entry_list_view[i].1;
+                &&& kvstore.volatile_index@.contains_key(k)
+                &&& kvstore.durable_store@.contains_key(index as int)
             });
-
+            // each key in the durable table corresponds to an entry in the volatile index
             assert forall |i: int| #[trigger] kvstore.durable_store@.contains_key(i) implies {
                 &&& kvstore.volatile_index@.contains_key(kvstore.durable_store@[i].unwrap().key)
                 &&& kvstore.volatile_index@[kvstore.durable_store@[i].unwrap().key].unwrap().header_addr == i
@@ -365,9 +365,6 @@ where
                 let k = kvstore.durable_store@[i].unwrap().key;
                 assert(kvstore.volatile_index@.contains_key(k));
             }
-
-            // TODO @hayley
-            assume(Some(kvstore@) == Self::recover(kvstore.wrpm_view().committed(), kvstore_id));
         }
 
         Ok(kvstore)

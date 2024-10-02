@@ -1658,6 +1658,7 @@ verus! {
                         } 
                 }),
                 K::spec_size_of() > 0,
+                memory_correctly_set_up_on_region::<K, I, L>(wrpm_region@.committed(), overall_metadata.kvstore_id),
                 // TODO: move these into one of the metadata validity spec fns
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
@@ -1675,6 +1676,11 @@ verus! {
                         &&& kvstore.constants() == wrpm_region.constants()
                         &&& kvstore.pending_allocations().is_empty()
                         &&& kvstore.pending_deallocations().is_empty()
+
+                        &&& memory_correctly_set_up_on_region::<K, I, L>(kvstore.wrpm_view().committed(), overall_metadata.kvstore_id)
+                        &&& deserialize_version_metadata(kvstore.wrpm_view().committed()) == version_metadata
+                        &&& deserialize_overall_metadata(kvstore.wrpm_view().committed(), version_metadata.overall_metadata_addr) == overall_metadata
+                        &&& Self::physical_recover(kvstore.wrpm_view().committed(), version_metadata, overall_metadata) == Some(state)
 
                         &&& entry_list_view.to_set() == kvstore.key_index_list_view()
 
@@ -1854,8 +1860,16 @@ verus! {
                     let witness = (entry.key(), i, entry.item_index());
                     assert(durable_kv_store.key_index_list_view().contains(witness));
                 }
+
+                assert(memory_correctly_set_up_on_region::<K, I, L>(durable_kv_store.wrpm@.committed(), overall_metadata.kvstore_id)) by {
+                    broadcast use pmcopy_axioms;
+                    lemma_establish_extract_bytes_equivalence(durable_kv_store.wrpm@.committed(), old_wrpm@.committed());
+                    assert(deserialize_version_metadata(durable_kv_store.wrpm@.committed()) == version_metadata);
+                    assert(deserialize_overall_metadata(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata);
+                    assert(deserialize_version_crc(old_wrpm@.committed()) == deserialize_version_crc(durable_kv_store.wrpm@.committed()));
+                    assert(deserialize_overall_crc(old_wrpm@.committed(), version_metadata.overall_metadata_addr) == deserialize_overall_crc(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr));
+                }
             }
-            
             Ok((durable_kv_store, entry_list))
         }
 
