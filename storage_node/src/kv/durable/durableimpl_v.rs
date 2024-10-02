@@ -2967,23 +2967,35 @@ verus! {
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
+            let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
 
             let old_tentative_state_bytes =
                 apply_physical_log_entries(old_self.wrpm@.flush().committed(),
                                            old_self.log@.commit_op_log().physical_op_list).unwrap();
+            let old_tentative_main_table_bytes =
+                extract_bytes(old_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let old_tentative_main_table_parsed = parse_main_table::<K>(old_tentative_main_table_bytes,
+                                                                        overall_metadata.num_keys,
+                                                                        overall_metadata.main_table_entry_size);
+            let old_durable_main_table_view =
+                get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat);
+            
             let current_tentative_state_bytes =
                 apply_physical_log_entries(self.wrpm@.flush().committed(),
                                            self.log@.commit_op_log().physical_op_list).unwrap();
             let current_tentative_main_table_bytes =
                 extract_bytes(current_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
                               self.overall_metadata.main_table_size as nat);
-            let main_table_subregion_view =
+            let current_durable_main_table_view =
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
-
-            let old_tentative_main_table_bytes =
-                extract_bytes(old_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
-                              self.overall_metadata.main_table_size as nat);
+            let current_durable_main_table_parsed = parse_main_table::<K>(
+                current_durable_main_table_view.committed(),
+                self.overall_metadata.num_keys,
+                self.overall_metadata.main_table_entry_size
+            );
 
             self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
                 self_before_main_table_create, main_table_subregion, perm
@@ -3004,34 +3016,17 @@ verus! {
                                       self.overall_metadata.main_table_size as nat).committed() =~=
                    extract_bytes(self.wrpm@.committed(), self.overall_metadata.main_table_addr as nat,
                                  self.overall_metadata.main_table_size as nat));
-            let current_main_table_parsed = parse_main_table::<K>(
-                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat).committed(),
-                self.overall_metadata.num_keys,
-                self.overall_metadata.main_table_entry_size
-            );
-            assert(current_main_table_parsed == Some(self.main_table@)) by {
+            assert(current_durable_main_table_parsed == Some(self.main_table@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(
                     get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                        self.overall_metadata.main_table_size as nat)
                 );
             }
 
-            let old_main_table_view =
-                get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat);
-            let current_main_table_view =
-                get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat);
-            let main_table_entry_addr = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
-            let main_table_entry_bytes =
-                extract_bytes(current_main_table_view.flush().committed(), main_table_entry_addr,
-                              main_table_entry_size as nat);
-
             self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
-                current_main_table_view,
+                current_durable_main_table_view,
                 old_self.main_table,
-                old_main_table_view,
+                old_durable_main_table_view,
                 self.overall_metadata,
                 main_table_index
             );
@@ -3046,9 +3041,9 @@ verus! {
             } implies self.wrpm@.flush().committed()[addr] == old_self.wrpm@.flush().committed()[addr] by {
                 let relative_addr = addr - self.overall_metadata.main_table_addr;
                 assert(self.wrpm@.flush().committed()[addr] ==
-                       current_main_table_view.flush().committed()[relative_addr]);
+                       current_durable_main_table_view.flush().committed()[relative_addr]);
                 assert(old_self.wrpm@.flush().committed()[addr] ==
-                       old_main_table_view.flush().committed()[relative_addr]);
+                       old_durable_main_table_view.flush().committed()[relative_addr]);
                 assert(self.wrpm@.flush().committed()[addr] ==
                        self.wrpm@.flush().state[addr].state_at_last_flush);
                 assert(old_self.wrpm@.flush().committed()[addr] ==
@@ -3068,42 +3063,16 @@ verus! {
                 self.overall_metadata
             );
 
-            let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
-            let main_table_entry_bytes = extract_bytes(current_tentative_main_table_bytes,
-                                                       start,
-                                                       main_table_entry_size as nat);
-            assert(self.main_table.outstanding_entry_write_matches_pm_view(main_table_subregion_view,
+            assert(self.main_table.outstanding_entry_write_matches_pm_view(current_durable_main_table_view,
                                                                            main_table_index as int,
                                                                            main_table_entry_size));
-            let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
-            let entry_bytes = ListEntryMetadata::spec_to_bytes(entry);
-            let key_bytes = K::spec_to_bytes(key);
-            let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
-            assert(entry.item_index == item_index);
-            assert(outstanding_bytes_match(
-                        main_table_subregion_view,
-                (start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as int,
-                key_bytes
-            ));
-            assert(outstanding_bytes_match(
-                main_table_subregion_view,
-                        (start + u64::spec_size_of() * 2) as int,
-                entry_bytes
-            ));
-            assert(outstanding_bytes_match(
-                main_table_subregion_view,
-                (start + u64::spec_size_of()) as int,
-                crc_bytes
-            ));
 
-            let mem1 = old_tentative_main_table_bytes;
-            let mem2 = current_tentative_main_table_bytes;
+            let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
             assert forall|addr: int| {
-                let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
                 &&& #[trigger] trigger_addr(addr)
-                    &&& 0 <= addr < mem1.len()
-                    &&& !(start <= addr < start + main_table_entry_size)
-            } implies mem2[addr] == mem1[addr] by {
+                &&& 0 <= addr < old_tentative_main_table_bytes.len()
+                &&& !(start <= addr < start + main_table_entry_size)
+            } implies current_tentative_main_table_bytes[addr] == old_tentative_main_table_bytes[addr] by {
                 assert(trigger_addr(main_table_addr + addr));
             }
 
@@ -3123,12 +3092,8 @@ verus! {
             lemma_valid_entry_index(main_table_index as nat, num_keys as nat, main_table_entry_size as nat);
             broadcast use pmcopy_axioms;
             
-            let current_main_table_region = extract_bytes(self.wrpm@.flush().committed(), main_table_addr as nat,
-                                                          main_table_size as nat);
-            assert(entry_bytes =~= extract_bytes(current_main_table_region, start, main_table_entry_size as nat));
-            let current_main_table_view = get_subregion_view(self.wrpm@, main_table_addr as nat, main_table_size as nat);
             assert(self.main_table.outstanding_entry_write_matches_pm_view(
-                current_main_table_view,
+                current_durable_main_table_view,
                 main_table_index as int,
                 main_table_entry_size
             ));
@@ -3136,14 +3101,14 @@ verus! {
             let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
             let key_bytes2 = K::spec_to_bytes(e.key);
             let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
-            assert(extract_bytes(current_main_table_view.flush().committed(),
+            assert(extract_bytes(current_durable_main_table_view.flush().committed(),
                                  (start + u64::spec_size_of() * 2) as nat, ListEntryMetadata::spec_size_of())
                    =~= metadata_bytes2);
-            assert(extract_bytes(current_main_table_view.flush().committed(),
+            assert(extract_bytes(current_durable_main_table_view.flush().committed(),
                                  (start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of()) as nat,
                                  K::spec_size_of())
                    =~= key_bytes2);
-            assert(extract_bytes(current_main_table_view.flush().committed(),
+            assert(extract_bytes(current_durable_main_table_view.flush().committed(),
                                  (start + u64::spec_size_of()) as nat, u64::spec_size_of())
                    =~= crc_bytes2);
             assert(cdb_bytes =~= (CDB_FALSE as u64).spec_to_bytes());
@@ -3161,16 +3126,10 @@ verus! {
                 key
             );
 
-            let main_table_region1 = extract_bytes(old_tentative_state_bytes,
-                                                  overall_metadata.main_table_addr as nat,
-                                                  overall_metadata.main_table_size as nat);
-            let main_table_view1 = parse_main_table::<K>(main_table_region1,
-                                                         overall_metadata.num_keys,
-                                                         overall_metadata.main_table_entry_size);
-            assume(!main_table_view1.unwrap().valid_item_indices().contains(item_index));
+            assume(!old_tentative_main_table_parsed.unwrap().valid_item_indices().contains(item_index));
             assume(forall|i| 0 <= i < overall_metadata.num_keys &&
-                       #[trigger] main_table_view1.unwrap().durable_main_table[i] is Some
-                       ==> main_table_view1.unwrap().durable_main_table[i].unwrap().key != key);
+                       #[trigger] old_tentative_main_table_parsed.unwrap().durable_main_table[i] is Some
+                       ==> old_tentative_main_table_parsed.unwrap().durable_main_table[i].unwrap().key != key);
             assert(0 <= e.entry.item_index < overall_metadata.num_keys);
         }
 
@@ -3564,13 +3523,13 @@ verus! {
                     );
                     let current_main_table_region = extract_bytes(tentative_view_bytes, 
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_main_table::<K>(current_main_table_region,
+                    let current_durable_main_table_view = parse_main_table::<K>(current_main_table_region,
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                     let new_main_table_region = extract_bytes(new_mem, 
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
-                    let old_item_index = current_main_table_view.durable_main_table[index as int].unwrap().item_index();
+                    let old_item_index = current_durable_main_table_view.durable_main_table[index as int].unwrap().item_index();
                     
                     &&& self.overall_metadata.main_table_addr <= log_entry.absolute_addr
                     &&& log_entry.absolute_addr + log_entry.len <=
@@ -3580,9 +3539,9 @@ verus! {
                     // after applying this log entry to the current tentative state,
                     // this entry's metadata index has been updated
                     &&& new_main_table_view is Some
-                    &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
+                    &&& new_main_table_view == current_durable_main_table_view.update_item_index(index as int, item_index)
                     &&& new_main_table_view.unwrap().valid_item_indices() == 
-                            current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                            current_durable_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
                 }),
                 self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
                 self.item_table.outstanding_item_table@[item_index as int] == Some(item),
