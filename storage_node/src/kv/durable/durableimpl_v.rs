@@ -386,6 +386,14 @@ verus! {
                 self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().committed()),
                 self.spec_overall_metadata() == deserialize_overall_metadata(self.wrpm_view().committed(), 
                     self.spec_version_metadata().overall_metadata_addr),
+                no_outstanding_writes_to_version_metadata(self.wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), 
+                    self.spec_overall_metadata_addr() as int),
+                forall |s| #[trigger] self.wrpm_view().can_crash_as(s) ==> {
+                    &&& self.spec_version_metadata() == deserialize_version_metadata(s)
+                    &&& self.spec_overall_metadata() == deserialize_overall_metadata(s, self.spec_overall_metadata_addr())
+                    &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(self@)
+                }
         {
             assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
@@ -399,8 +407,7 @@ verus! {
                 self.pending_deallocations() == Set::<u64>::empty(),
                 self.tentative_view() == Some(self@),
                 self.inv(),
-                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), 
-                    self.spec_overall_metadata_addr() as int),
+                
         {}
 
         pub closed spec fn log_entries_do_not_modify_item_table(op_log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool
@@ -469,10 +476,15 @@ verus! {
         pub exec fn get_version_metadata(&self) -> (out: VersionMetadata)
         ensures 
             out == self.spec_version_metadata()
-    {
-        self.version_metadata
-    }
+        {
+            self.version_metadata
+        }
 
+        pub proof fn lemma_reveal_overall_metadata_addr(self) 
+            ensures
+                self.spec_version_metadata().overall_metadata_addr == 
+                    self.spec_overall_metadata_addr()
+        {}
 
         pub exec fn get_overall_metadata(&self) -> (out: OverallMetadata)
             ensures 
@@ -2973,6 +2985,8 @@ verus! {
                 self.pending_allocations().is_empty(),
                 self.pending_deallocations().is_empty(),
                 self@ == old(self)@,
+
+                self.spec_version_metadata() == pre_self.spec_version_metadata(),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
@@ -4157,6 +4171,7 @@ verus! {
             );
         }
 
+        #[verifier::rlimit(25)] // TODO @hayley -- in DESPERATE need of refactoring
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4185,6 +4200,16 @@ verus! {
                 self.inv(),
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
+
+                // TODO @hayley can some of these new postconditions come from the invariant?
+                self@ == old(self)@,
+                self.spec_version_metadata() == old(self).spec_version_metadata(),
+                self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                no_outstanding_writes_to_version_metadata(self.wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
+                self.tentative_view() is Some,
+                self.pending_alloc_inv(),
+
                 match result {
                     Ok(()) => {
                         let spec_result = old(self).tentative_view().unwrap().update_item(offset as int, *item);
@@ -4197,6 +4222,7 @@ verus! {
                                 &&& v2[offset as int].unwrap().item == item
                                 &&& self.pending_allocations() == old(self).pending_allocations()
                                 &&& self.pending_deallocations() == old(self).pending_deallocations()
+                                &&& self.spec_num_log_entries_in_current_transaction() == old(self).spec_num_log_entries_in_current_transaction() + 1
                             }
                             Err(_) => false
                         }
@@ -5256,14 +5282,17 @@ verus! {
             Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<(), KvError<K>>)
             requires 
-                old(self).valid(),
+                old(self).inv(),
                 !old(self).transaction_committed(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| {
-                    ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
+                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
+                    &&& {
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
+                    }
                 } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),

@@ -94,22 +94,11 @@ where
         // &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
-
-        &&& self.durable_store.pending_allocations() == Set::<u64>::empty()
-        &&& self.durable_store.pending_deallocations() == Set::<u64>::empty()
-        &&& self.durable_store.pending_alloc_inv()
-
-        &&& self.durable_store.wrpm_view().no_outstanding_writes()
-        // this is implied by the fact that there are no outstanding writes at all,
-        // but we don't know what the overall metadata addr is here, so it's easier
-        // to just maintain this fact as an invariant
-        &&& no_outstanding_writes_to_overall_metadata(self.wrpm_view(), 
-                self.durable_store.spec_overall_metadata_addr() as int)
-        &&& self.durable_store.tentative_view() == Some(self.durable_store@)
     }
 
     pub closed spec fn inv(self) -> bool
     {
+        // &&& memory_correctly_set_up_on_region::<K, I, L>(self.wrpm_view().committed(), self.id)
         &&& self.durable_store_matches_volatile_index()
         &&& self.durable_store.inv()
         &&& self.volatile_index.valid()
@@ -477,7 +466,11 @@ where
             old(self).valid(),
             !old(self).transaction_committed(),
             Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+            // forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, kvstore_id) == Some(old(self)@)
+                ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
+            }
         ensures 
             self.valid(),
             !self.transaction_committed(),
@@ -503,9 +496,19 @@ where
                 Err(_) => false,
             }
     {
+        let version_metadata = self.durable_store.get_version_metadata();
+        let overall_metadata = self.durable_store.get_overall_metadata();
+
         proof { 
+            self.durable_store.lemma_reveal_overall_metadata_addr();
+            assert(version_metadata == self.durable_store.spec_version_metadata());
+            assert(overall_metadata == self.durable_store.spec_overall_metadata());
+            assert(version_metadata.overall_metadata_addr == self.durable_store.spec_overall_metadata_addr());
+
             self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_main_table_index_key(); 
+            self.durable_store.lemma_reveal_opaque_valid();
+            self.durable_store.lemma_reveal_opaque_inv();
         }
 
         // 1. Look up the table entry in the volatile index.
@@ -521,12 +524,16 @@ where
         proof {
             assert(self.volatile_index@.contains_key(*key));
             assert(self.durable_store@.contains_key(index as int));
+            assert(self@.contents.contains_key(*key)) by {
+                let index_to_key = Map::new(
+                    |i| self.durable_store@.contents.dom().contains(i),
+                    |i| self.durable_store@.contents[i].key
+                );
+                assert(index_to_key.contains_key(index as int));
+            }
 
-            let version_metadata = self.durable_store.spec_version_metadata();
-            let overall_metadata = self.durable_store.spec_overall_metadata();
             let durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
                     self.wrpm_view().committed(), version_metadata, overall_metadata);
-            self.durable_store.lemma_reveal_opaque_inv();
             
             assert forall |s| {
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
@@ -537,16 +544,81 @@ where
                 }
             }
         }
+        
+        // 2. Tentatively update the item in the durable store.
+        self.durable_store.tentative_update_item(index, new_item, Tracked(perm))?;
 
-        // 2. Tentatively update the item in the durable store
-        let result = self.durable_store.tentative_update_item(index, new_item, Tracked(perm));
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                // TODO @hayley
-                assume(false);
+        
+        proof {
+            self.durable_store.lemma_main_table_index_key(); 
+            self.durable_store.lemma_reveal_opaque_inv();
+
+
+            // TODO @hayley -- this is a crc issue. inv should specify that crcs are correct/have not changed
+            // and should be revealable
+            assert(memory_correctly_set_up_on_region::<K, I, L>(self.wrpm_view().committed(), kvstore_id)) by {
+                broadcast use pmcopy_axioms;
             }
+            self.durable_store.lemma_reveal_overall_metadata_addr();
+            assert(self.durable_store.tentative_view() is Some);
+            assert(self@.update_item(*key, *new_item) is Ok);
+
+            assert forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& {
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) == Some(self.durable_store@)
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) == self.durable_store.tentative_view()
+                }
+            } implies #[trigger] perm.check_permission(s) by {
+                let mem = self.wrpm_view().committed();
+                assert(memory_correctly_set_up_on_region::<K, I, L>(mem, kvstore_id));
+                assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
+                    broadcast use pmcopy_axioms;
+                }
+                assert(Self::recover(s, kvstore_id) is Some);
+                let recovered_state = Self::recover(s, kvstore_id).unwrap();
+                let recovered_durable_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata).unwrap();
+                
+                if recovered_durable_state == self.durable_store@ {
+                    assert(recovered_state == self@);
+                } else {
+                    assert(recovered_durable_state == self.durable_store.tentative_view().unwrap());
+                    assert(self.durable_store.tentative_view().unwrap() == 
+                        self.durable_store@.update_item(index as int, *new_item).unwrap());
+                    
+                    // this is the main thing you have to prove.
+                    // TODO @hayley Friday
+                    assume(AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(self.durable_store@.update_item(index as int, *new_item).unwrap()) ==
+                        self@.update_item(*key, *new_item).unwrap().contents);
+
+
+                    let updated_state = self@.update_item(*key, *new_item).unwrap();
+                    assert(recovered_state == updated_state);
+                }
+
+                assert({
+                    ||| Self::recover(s, kvstore_id) == Some(self@)
+                    ||| Self::recover(s, kvstore_id) == Some(self@.update_item(*key, *new_item).unwrap())
+                });
+            }
+
+
+            assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies perm.check_permission(s) by {
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
+                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
+                assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed()));
+                assert(DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) == Some(self.durable_store@));
+            }
+
+            assert(self.wrpm_view().len() >= VersionMetadata::spec_size_of());
         }
+
+        // 3. Commit the transaction
+        let result = self.durable_store.commit(Tracked(perm));
+        if let Err(e) = result {
+            assume(false);
+        }
+
 
         // TODO @hayley
         assume(false);
