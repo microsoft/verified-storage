@@ -39,37 +39,38 @@ use std::hash::Hash;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
-pub struct UntrustedKvStoreImpl<Perm, PM, K, I, L>
+pub struct UntrustedKvStoreImpl<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    // V: VolatileKvIndex<K>,
 {
     id: u128,
-    durable_store: DurableKvStore<Perm, PM, K, I, L>,
+    durable_store: DurableKvStore<TrustedKvPermission<PM>, PM, K, I, L>,
     volatile_index: VolatileKvIndexImpl::<K>,
 }
 
-impl<Perm, PM, K, I, L> UntrustedKvStoreImpl<Perm, PM, K, I, L>
+impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
-    Perm: CheckPermission<Seq<u8>>,
     PM: PersistentMemoryRegion,
     K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
-    // V: VolatileKvIndex<K>,
 {
     pub open spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
-        AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(mem, kv_id)
+        AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission<PM>, PM>(mem, kv_id)
     }
 
     pub closed spec fn constants(self) -> PersistentMemoryConstants
     {
         self.durable_store.constants()
+    }
+
+    pub closed spec fn transaction_committed(self) -> bool 
+    {
+        self.durable_store.transaction_committed()
     }
 
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
@@ -92,6 +93,25 @@ where
         &&& self.durable_store_matches_volatile_index()
         // &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
+        &&& self.volatile_index.valid()
+
+        &&& self.durable_store.pending_allocations() == Set::<u64>::empty()
+        &&& self.durable_store.pending_deallocations() == Set::<u64>::empty()
+        &&& self.durable_store.pending_alloc_inv()
+
+        &&& self.durable_store.wrpm_view().no_outstanding_writes()
+        // this is implied by the fact that there are no outstanding writes at all,
+        // but we don't know what the overall metadata addr is here, so it's easier
+        // to just maintain this fact as an invariant
+        &&& no_outstanding_writes_to_overall_metadata(self.wrpm_view(), 
+                self.durable_store.spec_overall_metadata_addr() as int)
+        &&& self.durable_store.tentative_view() == Some(self.durable_store@)
+    }
+
+    pub closed spec fn inv(self) -> bool
+    {
+        &&& self.durable_store_matches_volatile_index()
+        &&& self.durable_store.inv()
         &&& self.volatile_index.valid()
     }
 
@@ -138,7 +158,7 @@ where
             num_list_entries_per_node, num_list_nodes)?;
 
         // 3. Set up the other durable regions
-        DurableKvStore::<Perm, PM, K, I, L>::setup(pm_region, version_metadata, overall_metadata, overall_metadata.kvstore_id)?;
+        DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::setup(pm_region, version_metadata, overall_metadata, overall_metadata.kvstore_id)?;
         
         // 4. Prove that the resulting recovery view is an empty store
         proof {
@@ -155,7 +175,7 @@ where
     )
         requires
             memory_correctly_set_up_on_region::<K, I, L>(mem, overall_metadata.kvstore_id),
-            DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata) == Some(DurableKvStoreView::<K, I, L>::init()),
+            DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata) == Some(DurableKvStoreView::<K, I, L>::init()),
             ({
                 let read_version_metadata = deserialize_version_metadata(mem);
                 let read_version_crc = deserialize_version_crc(mem);
@@ -178,17 +198,17 @@ where
             &&& overall_metadata_valid::<K, I, L>(read_overall_metadata, read_version_metadata.overall_metadata_addr, read_overall_metadata.kvstore_id)
             &&& mem.len() >= VersionMetadata::spec_size_of() + u64::spec_size_of()
         });
-        let recovered_durable_store = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata).unwrap();
+        let recovered_durable_store = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(mem, version_metadata, overall_metadata).unwrap();
         assert(recovered_durable_store.contents == Map::<int, DurableKvStoreViewEntry<K, I, L>>::empty());
         let recovered_view = AbstractKvStoreState::construct_view_from_durable_state(recovered_durable_store);
         assert(recovered_view == Map::<K, (I, Seq<L>)>::empty());
     }
 
     pub fn untrusted_start(
-        mut wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
+        mut wrpm_region: WriteRestrictedPersistentMemoryRegion<TrustedKvPermission<PM>, PM>,
         kvstore_id: u128,
         Ghost(state): Ghost<AbstractKvStoreState<K, I, L>>,
-        Tracked(perm): Tracked<&Perm>,
+        Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
     ) -> (result: Result<Self, KvError<K>>)
         requires 
             wrpm_region.inv(),
@@ -220,17 +240,17 @@ where
         let overall_metadata = read_overall_metadata::<PM, K, I, L>(pm, &version_metadata, kvstore_id)?;
 
         // 2. Call the durable KV store's start method
-        let ghost durable_kvstore_state = DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
+        let ghost durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
             wrpm_region@.committed(), version_metadata, overall_metadata).unwrap();
         assert(state.contents == AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(durable_kvstore_state));
 
         proof {
-            assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(
+            assert(DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
                 wrpm_region@.committed(), version_metadata, overall_metadata) is Some);
             assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.committed(), version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
             assert forall |s| {
                 &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
-                &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+                &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
             } implies Self::recover(s, kvstore_id) == Some(state) by {
                 broadcast use pmcopy_axioms;
             }
@@ -238,13 +258,13 @@ where
             assert(base_log_state.log.len() == 0 || base_log_state.log.len() > u64::spec_size_of());
 
             if base_log_state.log.len() > u64::spec_size_of() {
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
+                DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::lemma_log_size_does_not_overflow_u64(wrpm_region@, version_metadata, overall_metadata);
             } else {
                 assert(base_log_state.log.len() == 0);
             }
         }
     
-        let (kvstore, entry_list) = DurableKvStore::<Perm, PM, K, I, L>::start(wrpm_region, overall_metadata, 
+        let (kvstore, entry_list) = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::start(wrpm_region, overall_metadata, 
             version_metadata, Tracked(perm), Ghost(durable_kvstore_state))?;
 
         let ghost entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
@@ -440,6 +460,93 @@ where
         ret
     }
 
+    pub exec fn untrusted_update_item(
+        &mut self,
+        key: &K,
+        new_item: &I,
+        kvstore_id: u128,
+        Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+            !old(self).transaction_committed(),
+            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+        ensures 
+            self.valid(),
+            !self.transaction_committed(),
+            match result {
+                Ok(()) => {
+                    match self@[*key] {
+                        Some(i) => i.0 == new_item,
+                        None => false,
+                    }
+                },
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyNotFound) => {
+                    &&& self@ == old(self)@
+                    &&& !self@.contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        proof { 
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key(); 
+        }
+
+        // 1. Look up the table entry in the volatile index.
+        // If the key is not in the volatile index, return an error.
+        let index = match self.volatile_index.get(key) {
+            Some(index) => index,
+            None => {
+                assert(!self@.contains_key(*key));
+                return Err(KvError::KeyNotFound);
+            }
+        };
+
+        proof {
+            assert(self.volatile_index@.contains_key(*key));
+            assert(self.durable_store@.contains_key(index as int));
+
+            let version_metadata = self.durable_store.spec_version_metadata();
+            let overall_metadata = self.durable_store.spec_overall_metadata();
+            let durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
+                    self.wrpm_view().committed(), version_metadata, overall_metadata);
+            self.durable_store.lemma_reveal_opaque_inv();
+            
+            assert forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& durable_kvstore_state == DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            } implies #[trigger] Self::recover(s, kvstore_id) == Some(self@) by {
+                assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
+                    broadcast use pmcopy_axioms;
+                }
+            }
+        }
+
+        // 2. Tentatively update the item in the durable store
+        let result = self.durable_store.tentative_update_item(index, new_item, Tracked(perm));
+        match result {
+            Ok(()) => {}
+            Err(e) => {
+                // TODO @hayley
+                assume(false);
+            }
+        }
+
+        // TODO @hayley
+        assume(false);
+        Err(KvError::NotImplemented)
+    }
+
 /*
     pub fn untrusted_create(
         &mut self,
@@ -489,32 +596,6 @@ where
         // }
 
         Ok(())
-    }
-
-    pub fn untrusted_read_item(&self, key: &K) -> (result: Result<Box<I>, KvError<K>>)
-        requires
-            self.valid()
-        ensures
-        // ({
-        //     let spec_result = self@.read_item_and_list(*key);
-        //     match (result, spec_result) {
-        //         (Some(output_item), Some((spec_item, pages))) => {
-        //             &&& spec_item == output_item
-        //         }
-        //         (Some(output_item), None) => false,
-        //         (None, Some((spec_item, pages))) => false,
-        //         (None, None) => true,
-        //     }
-        // })
-    {
-        assume(false); // TODO
-
-        // First, get the offset of the header in the durable store using the volatile index
-        let offset = self.volatile_index.get(key);
-        match offset {
-            Some(offset) => self.durable_store.read_item(self.id, offset),
-            None => Err(KvError::KeyNotFound) // TODO: get actual error from volatile?
-        }
     }
 
     // // // TODO: return a Vec<&L> to save space/reduce copies

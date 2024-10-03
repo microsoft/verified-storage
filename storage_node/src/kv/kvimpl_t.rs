@@ -91,7 +91,7 @@ where
     L: PmCopy + std::fmt::Debug + Copy,
 {
     id: u128,
-    untrusted_kv_impl: UntrustedKvStoreImpl<TrustedKvPermission<PM>, PM, K, I, L>,
+    untrusted_kv_impl: UntrustedKvStoreImpl<PM, K, I, L>,
     // TODO: use generic Perm?
 }
 
@@ -137,7 +137,7 @@ where
                 Err(_) => true
             }
     {
-        UntrustedKvStoreImpl::<TrustedKvPermission::<PM>, PM, K, I, L>::untrusted_setup(pm_region, kvstore_id,
+        UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_setup(pm_region, kvstore_id,
             num_keys, num_list_entries_per_node, num_list_nodes)?;
         Ok(())
     }
@@ -168,7 +168,7 @@ where
         wrpm_region.flush(); // ensure there are no outstanding writes
         let ghost state = AbstractKvStoreState::<K, I, L>::recover::<TrustedKvPermission::<PM>, PM>(wrpm_region@.committed(), kvstore_id).unwrap();
         let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(kvstore_id, state);
-        let durable_store = UntrustedKvStoreImpl::<TrustedKvPermission::<PM>, PM, K, I, L>::untrusted_start(
+        let durable_store = UntrustedKvStoreImpl::<PM, K, I, L>::untrusted_start(
             wrpm_region, kvstore_id, Ghost(state), Tracked(&perm))?;
 
         Ok(Self {

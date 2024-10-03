@@ -366,6 +366,26 @@ verus! {
             &&& self.pending_alloc_inv()
         }
 
+        pub proof fn lemma_valid_implies_inv(self) 
+            requires 
+                self.valid()
+            ensures
+                self.inv()
+        {}
+
+        pub proof fn lemma_reveal_opaque_inv(self)
+            requires 
+                self.inv(),
+            ensures 
+                Self::physical_recover(self.wrpm_view().committed(), self.spec_version_metadata(), 
+                    self.spec_overall_metadata()) == Some(self@),
+                self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().committed()),
+                self.spec_overall_metadata() == deserialize_overall_metadata(self.wrpm_view().committed(), 
+                    self.spec_version_metadata().overall_metadata_addr),
+        {
+            assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+        }
+
         pub closed spec fn log_entries_do_not_modify_item_table(op_log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool
         {
             forall |i: nat| i < op_log.len() ==> {
@@ -428,6 +448,14 @@ verus! {
         {
             self.version_metadata.overall_metadata_addr
         }
+
+        pub exec fn get_version_metadata(&self) -> (out: VersionMetadata)
+        ensures 
+            out == self.spec_version_metadata()
+    {
+        self.version_metadata
+    }
+
 
         pub exec fn get_overall_metadata(&self) -> (out: OverallMetadata)
             ensures 
@@ -1450,7 +1478,7 @@ verus! {
         // of the durable store vs. the overall kv store.
         pub proof fn lemma_main_table_index_key(self)
             requires 
-                self.valid(),
+                self.inv(),
             ensures 
                 ({
                     let index_to_key =  Map::new(
@@ -4028,7 +4056,6 @@ verus! {
             &mut self,
             offset: u64,
             item: &I,
-            kvstore_id: u128,
             Tracked(perm): Tracked<&Perm>,
         ) -> (result: Result<(), KvError<K>>)
             requires 
@@ -4037,8 +4064,10 @@ verus! {
                 !old(self).transaction_committed(),
                 !old(self).pending_deallocations().contains(offset),
                 old(self).pending_alloc_inv(),
-                forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ==> #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -4068,6 +4097,7 @@ verus! {
                         }
                     }
                     Err(KvError::OutOfSpace) => {
+                        &&& self.valid()
                         &&& self@ == old(self)@
                         &&& self.tentative_view() ==
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
@@ -4076,6 +4106,7 @@ verus! {
                         &&& self.pending_deallocations().is_empty()
                     }
                     Err(KvError::CRCMismatch) => {
+                        &&& self.valid()
                         &&& self@ == old(self)@
                         &&& self.tentative_view() ==
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
