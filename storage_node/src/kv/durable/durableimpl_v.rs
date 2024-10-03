@@ -364,6 +364,10 @@ verus! {
                                     self.overall_metadata,
                                     self.main_table@.valid_item_indices())
             &&& self.pending_alloc_inv()
+
+            &&& self.pending_allocations() == Set::<u64>::empty()
+            &&& self.pending_deallocations() == Set::<u64>::empty()
+            &&& self.tentative_view() == Some(self@)
         }
 
         pub proof fn lemma_valid_implies_inv(self) 
@@ -385,6 +389,19 @@ verus! {
         {
             assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
+
+        pub proof fn lemma_reveal_opaque_valid(self)
+            requires 
+                self.valid()
+            ensures
+                self.pending_alloc_inv(),
+                self.pending_allocations() == Set::<u64>::empty(),
+                self.pending_deallocations() == Set::<u64>::empty(),
+                self.tentative_view() == Some(self@),
+                self.inv(),
+                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), 
+                    self.spec_overall_metadata_addr() as int),
+        {}
 
         pub closed spec fn log_entries_do_not_modify_item_table(op_log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool
         {
@@ -1959,9 +1976,28 @@ verus! {
                     assert(deserialize_version_crc(old_wrpm@.committed()) == deserialize_version_crc(durable_kv_store.wrpm@.committed()));
                     assert(deserialize_overall_crc(old_wrpm@.committed(), version_metadata.overall_metadata_addr) == deserialize_overall_crc(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr));
                 }
+
+                assert(durable_kv_store.pending_allocations() == Set::<u64>::empty());
+                assert(durable_kv_store.pending_deallocations() == Set::<u64>::empty());
+                durable_kv_store.lemma_when_log_is_empty_tentative_view_matches_durable_view();
             }
             Ok((durable_kv_store, entry_list))
         }
+
+        proof fn lemma_when_log_is_empty_tentative_view_matches_durable_view(self) 
+            requires 
+                self.inv(),
+                self.log@.physical_op_list.len() == 0,
+                !self.log@.op_list_committed,
+            ensures 
+                Some(self@) == self.tentative_view()
+        {
+            assert(self.wrpm@.can_crash_as(self.wrpm@.flush().committed()));
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==>
+                UntrustedOpLog::<K, L>::recover(s, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+        }
+                
 
         // This function installs the log by blindly replaying physical log entries onto the WRPM region. All writes
         // made by this function are crash-safe; if we crash during this operation, replaying the full log on the resulting
@@ -3009,6 +3045,9 @@ verus! {
                 assert(self.pending_alloc_inv());
                 
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+
+                assert(self.pending_allocations() == Set::<u64>::empty());
+                assert(self.pending_deallocations() == Set::<u64>::empty());
             }
         }
 
@@ -3119,6 +3158,8 @@ verus! {
                 assert(durable_state_bytes == tentative_state_bytes);
                 assert(durable_main_table_region == main_table_subregion_view.committed());
                 assert(main_table_subregion_view.can_crash_as(durable_main_table_region));
+                assert(self.pending_allocations() == Set::<u64>::empty());
+                assert(self.pending_deallocations() == Set::<u64>::empty());
             }
         }
 
@@ -4421,7 +4462,7 @@ verus! {
             tentative_view_bytes: Seq<u8>,
         )
             requires 
-                old_self.valid(),
+                old_self.inv(),
                 old_self@.contains_key(index as int),
                 !old_self.transaction_committed(),
                 !self.transaction_committed(),
@@ -4604,7 +4645,7 @@ verus! {
 
         proof fn lemma_item_index_is_currently_valid(self, index: u64, item_index: u64)
             requires 
-                self.valid(),
+                self.inv(),
                 self@.contains_key(index as int),
                 self.pending_alloc_inv(),
                 !self.item_table.pending_deallocations_view().contains(item_index),
@@ -4663,10 +4704,11 @@ verus! {
             Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<(), KvError<K>>)
             requires
-                old(self).valid(),
+                old(self).inv(),
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
                 !old(self).pending_deallocations().contains(index),
+                !old(self).pending_allocations().contains(index),
                 old(self).pending_alloc_inv(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
@@ -4685,7 +4727,7 @@ verus! {
                     &&& tentative_view.contains_key(index as int)
                 }),
             ensures 
-                self.valid(),
+                self.inv(),
                 self.constants() == old(self).constants(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
                 match result {
@@ -5435,6 +5477,9 @@ verus! {
                 assert(self.inv_mem(self.wrpm@.committed()));
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
+
+                assert(self.pending_allocations() == Set::<u64>::empty());
+                assert(self.pending_deallocations() == Set::<u64>::empty());
             }
             
             Ok(())

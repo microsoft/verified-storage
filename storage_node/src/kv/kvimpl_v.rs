@@ -395,6 +395,9 @@ where
                 let k = kvstore.durable_store@[i].unwrap().key;
                 assert(kvstore.volatile_index@.contains_key(k));
             }
+
+            assert(kvstore.durable_store.valid());
+            kvstore.durable_store.lemma_reveal_opaque_valid();
         }
 
         Ok(kvstore)
@@ -419,7 +422,10 @@ where
                 Err(_) => false,
             }
     {
-        proof { self.durable_store.lemma_main_table_index_key(); }
+        proof {
+            self.durable_store.lemma_reveal_opaque_valid(); 
+            self.durable_store.lemma_main_table_index_key(); 
+        }
 
         // 1. Look up the table entry in the volatile index.
         // If the key is not in the volatile index, return an error.
