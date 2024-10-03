@@ -61,8 +61,8 @@ Starred functions * have an unverified implementation (which may be out of date 
     - [x] `setup`
     - [x] `start` 
     - [ ] `create` 
-    - [ ] `read_item` - hayley-leblanc
-    - [ ] `update_item`
+    - [x] `read_item`
+    - [ ] `update_item` - hayley-leblanc
     - [ ] `delete`
     - [ ] `commit`
     - [ ] `get_keys`
