@@ -2625,8 +2625,10 @@ verus! {
             requires
                 self.inv(),
                 !self.log@.op_list_committed,
-                forall|s| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) ==>
-                    #[trigger] perm.check_permission(s),
+                forall|s| {
+                    &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                } ==> #[trigger] perm.check_permission(s),
             ensures
                 condition_sufficient_to_create_wrpm_subregion(
                     self.wrpm@, perm, self.overall_metadata.item_table_addr,
@@ -3452,8 +3454,10 @@ verus! {
                     forall |s| #[trigger] old_self.wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@),
                 Self::apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list) == Some(tentative_view_bytes),
-                forall |s| Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(old_self@)
-                    ==> #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& version_and_overall_metadata_match_deserialized(s, old_self.wrpm@.committed())
+                    &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(old_self@)
+                } ==> #[trigger] perm.check_permission(s),
                 AbstractPhysicalOpLogEntry::log_inv(self.log@.physical_op_list, self.version_metadata, self.overall_metadata),
                 forall |addr: int| {
                     ||| 0 <= addr < self.overall_metadata.item_table_addr 
@@ -4050,8 +4054,68 @@ verus! {
             }
         }
 
-        // #[verifier::spinoff_prover]
-        #[verifier::rlimit(25)] // TODO @hayley refactor and remove this
+        proof fn lemma_state_after_tentative_item_write(
+            self,
+            old_self: Self,
+            item_table_subregion: WriteRestrictedPersistentMemorySubregion,
+            item_index: u64,
+            item: I,
+            perm: &Perm
+        )
+            requires 
+                old_self.inv(),
+                !old_self.log@.op_list_committed,
+                condition_sufficient_to_create_wrpm_subregion(
+                    old_self.wrpm@, perm, old_self.overall_metadata.item_table_addr,
+                    old_self.overall_metadata.item_table_size as nat,
+                    old_self.get_writable_mask_for_item_table(),
+                    old_self.condition_preserved_by_subregion_masks(),
+                ),
+                item_table_subregion.constants() == old_self.wrpm.constants(),
+                item_table_subregion.start() == old_self.overall_metadata.item_table_addr,
+                item_table_subregion.len() == old_self.overall_metadata.item_table_size,
+                item_table_subregion.initial_region_view() == old_self.wrpm@,
+                item_table_subregion.is_writable_absolute_addr_fn() == old_self.get_writable_mask_for_item_table(),
+                item_table_subregion.inv(&self.wrpm, perm),
+                self == (Self{ wrpm: self.wrpm, item_table: self.item_table, ..old_self }),
+                self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat),
+                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                old_self.item_table.free_list().contains(item_index),
+                self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
+                forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
+                    #[trigger] self.item_table.outstanding_item_table@[i] ==
+                               old_self.item_table.outstanding_item_table@[i],
+                self.item_table.outstanding_item_table@[item_index as int] == Some(item),
+                forall |other_index: u64| self.item_table.free_list().contains(other_index) <==>
+                    old_self.item_table.free_list().contains(other_index) && other_index != item_index,
+            ensures 
+                self.inv(),
+                // from lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates
+                self.wrpm.inv(),
+                self.wrpm.constants() == old_self.wrpm.constants(),
+                self.wrpm@.len() == item_table_subregion.initial_region_view().len(),
+                views_differ_only_where_subregion_allows(item_table_subregion.initial_region_view(), self.wrpm@,
+                                                         self.overall_metadata.item_table_addr as nat,
+                                                         self.overall_metadata.item_table_size as nat,
+                                                         old_self.get_writable_mask_for_item_table()),
+                self.main_table_view_matches(old_self.wrpm@),
+                self.list_area_view_matches(old_self.wrpm@),
+                self.log_area_view_matches(old_self.wrpm@),
+                ({
+                    let condition = old_self.condition_preserved_by_subregion_masks();
+                    &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
+                    &&& condition(self.wrpm@.committed())
+                })
+        {
+            self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
+                old_self, item_table_subregion, perm);
+            item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
+            self.lemma_reestablish_inv_after_tentatively_write_item(
+                old_self, item_index, item
+            );
+        }
+
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4186,12 +4250,7 @@ verus! {
                 self.log@.commit_op_log().physical_op_list).unwrap();
     
             proof {
-                self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                    self_before_tentative_item_write, item_table_subregion, perm);
-                item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
-                self.lemma_reestablish_inv_after_tentatively_write_item(
-                    *old(self), item_index, *item
-                );
+                self.lemma_state_after_tentative_item_write(*old(self), item_table_subregion, item_index, *item, perm);
             }
 
             let pm = self.wrpm.get_pm_region_ref();
