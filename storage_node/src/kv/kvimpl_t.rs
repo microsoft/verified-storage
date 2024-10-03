@@ -112,6 +112,11 @@ where
         self.untrusted_kv_impl.valid()
     }
 
+    pub closed spec fn constants(self) -> PersistentMemoryConstants
+    {
+        self.untrusted_kv_impl.constants()
+    }
+
     pub exec fn setup(
         pm_region: &mut PM,
         kvstore_id: u128,
@@ -170,6 +175,28 @@ where
             id: kvstore_id,
             untrusted_kv_impl: durable_store
         })
+    }
+
+    pub exec fn read_item(
+        &self,
+        key: &K,
+    ) -> (result: Result<Box<I>, KvError<K>>)
+        requires 
+            self.valid(),
+        ensures 
+            match result {
+                Ok(item) => {
+                    match self@[*key] {
+                        Some(i) => i.0 == item,
+                        None => false,
+                    }
+                }
+                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                Err(_) => false,
+            }
+    {
+        self.untrusted_kv_impl.read_item(key)
     }
 
     /* 

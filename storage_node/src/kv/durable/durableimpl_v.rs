@@ -1446,7 +1446,8 @@ verus! {
 
         // This lemma establishes the relationship between the key_to_index map used 
         // to construct an abstract KV store view from durable state and the contents
-        // of that durable state.
+        // of that durable state. This is very useful in proofs about the contents 
+        // of the durable store vs. the overall kv store.
         pub proof fn lemma_main_table_index_key(self)
             requires 
                 self.valid(),
@@ -1457,11 +1458,12 @@ verus! {
                         |i: int| self@.contents[i].key
                     );
                     let key_to_index = index_to_key.invert();
-                    forall |k| #[trigger] key_to_index.contains_key(k) ==> {
-                        let index = key_to_index[k];
-                        &&& self@.contains_key(index)
-                        &&& self@.contents[index].key() == k
-                    }
+                    &&& forall |k| #[trigger] key_to_index.contains_key(k) ==> {
+                            let index = key_to_index[k];
+                            &&& self@.contains_key(index)
+                            &&& self@.contents[index].key() == k
+                        }
+                    &&& index_to_key.is_injective()
                 })
         {
             let index_to_key =  Map::new(
