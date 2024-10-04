@@ -95,8 +95,8 @@ where
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
 
-        &&& self.durable_store.pending_allocations() == Set::<u64>::empty()
-        &&& self.durable_store.pending_deallocations() == Set::<u64>::empty()
+        &&& self.durable_store.pending_allocations().is_empty()
+        &&& self.durable_store.pending_deallocations().is_empty()
         &&& self.durable_store.pending_alloc_inv()
 
         &&& self.durable_store.wrpm_view().no_outstanding_writes()
@@ -539,17 +539,26 @@ where
                     broadcast use pmcopy_axioms;
                 }
             }
+
+            assert(!self.durable_store.pending_deallocations().contains(index)) by {
+                assert(self.durable_store.pending_deallocations().is_empty());
+                self.durable_store.pending_deallocations().lemma_len0_is_empty();
+                assert(self.durable_store.pending_deallocations().len() == 0);
+            }
         }
 
         // 2. Tentatively update the item in the durable store
         let result = self.durable_store.tentative_update_item(index, new_item, Tracked(perm));
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                // TODO @hayley
-                assume(false);
-            }
+        if let Err(e) = result {
+            assume(false);
+            
+            return Err(e);
         }
+
+        assume(false);
+
+        // 3. Commit the transaction
+        let result = self.durable_store.commit(Tracked(perm));
 
         // TODO @hayley
         assume(false);

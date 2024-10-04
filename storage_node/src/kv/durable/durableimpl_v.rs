@@ -347,6 +347,9 @@ verus! {
             &&& Self::log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
             &&& self.abort_inv()
 
+            &&& self.pending_allocations().finite()
+            &&& self.pending_deallocations().finite()
+
             // &&& forall |val| self.key_index_list_view().contains(val) ==> {
             //         &&& self@[val.1 as int] matches Some(entry)
             //         &&& val.0 == entry.key()
@@ -382,6 +385,8 @@ verus! {
                 self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().committed()),
                 self.spec_overall_metadata() == deserialize_overall_metadata(self.wrpm_view().committed(), 
                     self.spec_version_metadata().overall_metadata_addr),
+                self.pending_allocations().finite(),
+                self.pending_deallocations().finite(),
         {
             assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
@@ -1813,9 +1818,6 @@ verus! {
                                 &&& v.1 == i
                             }
                         }
-
-                        &&& kvstore.pending_allocations() == Set::<u64>::empty()
-                        &&& kvstore.pending_deallocations() == Set::<u64>::empty()
                         &&& kvstore.pending_alloc_inv()
                         &&& kvstore.tentative_view() == Some(kvstore@)
                     }
@@ -4198,6 +4200,7 @@ verus! {
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
                         &&& self.pending_deallocations().is_empty()
+                        &&& self.pending_allocations().is_empty()
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self.valid()
@@ -4207,6 +4210,7 @@ verus! {
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
                         &&& self.pending_deallocations().is_empty()
+                        &&& self.pending_allocations().is_empty()
                         &&& !self.constants().impervious_to_corruption
                     }
                     Err(_) => false,

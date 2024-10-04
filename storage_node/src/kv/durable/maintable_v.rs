@@ -2488,6 +2488,42 @@ verus! {
                 overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
         }
 
+        proof fn lemma_update_item_replaces_valid_item_index(
+            old_main_table_view: MainTableView<K>,
+            new_main_table_view: MainTableView<K>,
+            index: u64,
+            old_item_index: u64,
+            new_item_index: u64,
+        )
+            requires 
+                old_main_table_view.update_item_index(index as int, new_item_index) == Some(new_main_table_view),
+                old_main_table_view.valid_item_indices().contains(old_item_index),
+                !old_main_table_view.valid_item_indices().contains(new_item_index),
+                old_item_index != new_item_index,
+                0 <= index < new_main_table_view.durable_main_table.len(),
+                old_main_table_view.len() == new_main_table_view.len(),
+                new_main_table_view.durable_main_table.len() == old_main_table_view.durable_main_table.len(),
+                no_duplicate_item_indexes(old_main_table_view.durable_main_table),
+                ({
+                    &&& old_main_table_view.durable_main_table[index as int] matches Some(entry)
+                    &&& entry.item_index() == old_item_index
+                }),
+            ensures 
+                new_main_table_view.valid_item_indices() == 
+                    old_main_table_view.valid_item_indices().insert(new_item_index).remove(old_item_index)
+        {
+            assert(forall |i: int| 0 <= i < new_main_table_view.durable_main_table.len() && i != index ==> 
+                old_main_table_view.durable_main_table[i] == new_main_table_view.durable_main_table[i]);
+
+            assert({
+                &&& #[trigger] new_main_table_view.durable_main_table[index as int] matches Some(entry)
+                &&& entry.item_index() == new_item_index
+            });
+
+            assert(new_main_table_view.valid_item_indices() =~= 
+                old_main_table_view.valid_item_indices().insert(new_item_index).remove(old_item_index));
+        }
+
 
         pub exec fn create_update_item_index_log_entry<PM>(
             &self,
@@ -2676,7 +2712,6 @@ verus! {
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.main_table_entry_size as nat);
                     
                     if i == index {
-                        broadcast use pmcopy_axioms;
                         let new_bytes = extract_bytes(new_main_table_region,
                             index_to_offset(i, overall_metadata.main_table_entry_size as nat),
                             overall_metadata.main_table_entry_size as nat
@@ -2686,6 +2721,8 @@ verus! {
                             overall_metadata.main_table_entry_size as nat
                         );
                         lemma_establish_extract_bytes_equivalence(new_bytes, old_bytes);
+
+                        broadcast use pmcopy_axioms;
                         assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
                         assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
@@ -2708,20 +2745,9 @@ verus! {
                 assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_main_table.len() ==> 
                     new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
                 assert(new_main_table_view == updated_table_view);
-
-                assert(new_main_table_view.valid_item_indices() =~= 
-                    old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)) 
-                by {
-                    // all indexes besides the one we are updating are unchanged
-                    assert(forall |i: int| 0 <= i < updated_table_view.durable_main_table.len() && i != index ==> 
-                        old_main_table_view.durable_main_table[i] == updated_table_view.durable_main_table[i]);
-                    // the entry at index now contains the new item index, which means it has replaced the old item index
-                    // in new_main_table_view.valid_item_indices()
-                    assert({
-                        &&& #[trigger] updated_table_view.durable_main_table[index as int] matches Some(entry)
-                        &&& entry.item_index() == item_index
-                    });
-                }
+                assert(no_duplicate_item_indexes(old_main_table_view.durable_main_table));
+                Self::lemma_update_item_replaces_valid_item_index(old_main_table_view, updated_table_view,
+                    index, old_item_index, item_index);
             }
 
             Ok(log_entry)
@@ -2795,6 +2821,7 @@ verus! {
                 self.main_table_free_list@.unique_seq_to_set(); 
                 self.pending_allocations@.unique_seq_to_set(); 
                 self.pending_deallocations@.unique_seq_to_set(); 
+                assert(self.pending_allocations_view() =~= Set::<u64>::empty());
 
                 assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies
                     idx < overall_metadata.num_keys 
