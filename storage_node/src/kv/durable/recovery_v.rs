@@ -265,6 +265,52 @@ pub proof fn lemma_if_memories_differ_in_free_main_table_entry_their_differences
                                                    overall_metadata.main_table_entry_size as nat);
 }                
 
+pub proof fn lemma_if_memories_differ_in_index_table_their_differences_commute_with_log_replay(
+    mem1: Seq<u8>,
+    mem2: Seq<u8>,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        log_entries_do_not_modify_item_table(op_log, overall_metadata),
+        apply_physical_log_entries(mem1, op_log) is Some,
+        mem1.len() == mem2.len(),
+        mem1.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+        mem1.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
+        forall|addr: int| {
+            &&& #[trigger] trigger_addr(addr)
+            &&& 0 <= addr < mem1.len()
+            &&& !(overall_metadata.item_table_addr <= addr
+                < overall_metadata.item_table_addr + overall_metadata.item_table_size)
+        } ==> mem1[addr] == mem2[addr]
+    ensures
+        apply_physical_log_entries(mem2, op_log) is Some,
+        ({
+            let mem1_post = apply_physical_log_entries(mem1, op_log).unwrap();
+            let mem2_post = apply_physical_log_entries(mem2, op_log).unwrap();
+            &&& mem1_post.len() == mem2_post.len() == mem1.len()
+            &&& forall|addr: int| {
+                    &&& #[trigger] trigger_addr(addr)
+                    &&& 0 <= addr < mem1.len()
+                } ==> mem2_post[addr] ==
+                         if overall_metadata.item_table_addr <= addr
+                             < overall_metadata.item_table_addr + overall_metadata.item_table_size {
+                             mem2[addr]
+                         }
+                         else { mem1_post[addr] }
+        }),
+    decreases
+        op_log.len()
+{
+    if op_log.len() == 0 {
+        return;
+    }
+
+    lemma_if_memories_differ_in_index_table_their_differences_commute_with_log_replay(
+        mem1, mem2, op_log.drop_last(), overall_metadata
+    );
+}                
+
 pub proof fn lemma_log_replay_preserves_size(
     mem: Seq<u8>, 
     phys_log: Seq<AbstractPhysicalOpLogEntry>, 
@@ -434,6 +480,43 @@ pub proof fn lemma_byte_equal_after_recovery_specific_byte(
             assert(forall |i: int| 0 <= i < prefix.len() ==> prefix[i] == phys_log[i]);
         }
         // else, trivial
+    }
+}
+
+pub proof fn lemma_item_table_bytes_unchanged_by_applying_log_entries(
+    mem: Seq<u8>,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    version_metadata: VersionMetadata,
+    overall_metadata: OverallMetadata,
+)
+    requires 
+        mem.len() == overall_metadata.region_size,
+        overall_metadata.log_area_size <= mem.len(),
+        AbstractPhysicalOpLogEntry::log_inv(op_log, version_metadata, overall_metadata),
+        log_entries_do_not_modify_item_table(op_log, overall_metadata),
+    ensures 
+        apply_physical_log_entries(mem, op_log) is Some,
+        ({
+            let mem_with_log_installed = apply_physical_log_entries(mem, op_log).unwrap();
+            forall |addr: int| {
+                &&& 0 <= addr < mem.len() 
+                &&& overall_metadata.item_table_addr <= addr < overall_metadata.item_table_addr + overall_metadata.item_table_size
+            } ==> mem_with_log_installed[addr] == #[trigger] mem[addr] 
+        })
+{
+    lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(mem, version_metadata, overall_metadata, op_log);
+    let mem_with_log_installed = apply_physical_log_entries(mem, op_log).unwrap();
+
+    assert(forall |addr: int| {
+        &&& 0 <= addr < mem.len() 
+        &&& overall_metadata.item_table_addr <= addr < overall_metadata.item_table_addr + overall_metadata.item_table_size
+    } ==> !addr_modified_by_recovery(op_log, addr));
+
+    assert forall |addr: int| {
+        &&& 0 <= addr < mem.len() 
+        &&& !addr_modified_by_recovery(op_log, addr)
+    } implies mem_with_log_installed[addr] == mem[addr] by {
+        lemma_byte_unchanged_by_log_replay(addr, mem, version_metadata, overall_metadata, op_log);
     }
 }
 

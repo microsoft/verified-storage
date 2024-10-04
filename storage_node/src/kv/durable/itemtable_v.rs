@@ -291,6 +291,8 @@ verus! {
             }
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
                 self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int)
+            &&& pm_view.no_outstanding_writes_in_range(overall_metadata.num_keys * entry_size,
+                                                      overall_metadata.item_table_size as int)
             &&& forall|idx: u64| self.pending_allocations@.contains(idx) ==>
                 #[trigger] self.outstanding_item_table@[idx as int] is Some
 
@@ -550,7 +552,7 @@ verus! {
             Ok(item)
         }
 
-        proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
+        pub proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
             self: Self,
             v1: PersistentMemoryRegionView,
             v2: PersistentMemoryRegionView,

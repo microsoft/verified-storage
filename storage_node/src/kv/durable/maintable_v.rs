@@ -2116,9 +2116,8 @@ verus! {
                         &&& #[trigger] entries[i] is Some
                         &&& #[trigger] entries[j] is Some
                     } implies entries[i].unwrap().key() != entries[j].unwrap().key() by {
-                        // TODO @jay
-                        assume(i == index ==> old_entries[j].unwrap().key() != entry.key);
-                        assume(j == index ==> old_entries[i].unwrap().key() != entry.key);
+                        assert(i == index ==> old_entries[j].unwrap().key() != entry.key);
+                        assert(j == index ==> old_entries[i].unwrap().key() != entry.key);
                     }
                 }
 
@@ -2507,7 +2506,8 @@ verus! {
                 overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
         }
 
-
+        // TODO @hayley
+        #[verifier::rlimit(20)]
         pub exec fn create_update_item_index_log_entry<PM>(
             &self,
             subregion: &PersistentMemorySubregion,
