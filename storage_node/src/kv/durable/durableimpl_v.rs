@@ -3192,6 +3192,7 @@ verus! {
                     let t = self_before_main_table_create.tentative_main_table().durable_main_table;
                     forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key
                 }),
+                !old_self.tentative_main_table().valid_item_indices().contains(item_index),
             ensures
                 ({
                     let overall_metadata = self.overall_metadata;
@@ -3263,11 +3264,13 @@ verus! {
                 extract_bytes(old_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
                               self.overall_metadata.main_table_size as nat);
             let old_tentative_main_table_parsed = parse_main_table::<K>(old_tentative_main_table_bytes,
-                                                                        overall_metadata.num_keys,
-                                                                        overall_metadata.main_table_entry_size);
-            let old_durable_main_table_view =
-                get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                   self.overall_metadata.main_table_size as nat);
+                                                                        num_keys, main_table_entry_size);
+            let old_current_main_table_view =
+                get_subregion_view(old_self.wrpm@, main_table_addr as nat, main_table_size as nat);
+            let old_current_main_table_bytes =
+                extract_bytes(old_self.wrpm@.committed(), main_table_addr as nat, main_table_size as nat);
+            let old_current_main_table_parsed = parse_main_table::<K>(old_current_main_table_bytes,
+                                                                      num_keys, main_table_entry_size);
             
             let current_tentative_state_bytes =
                 apply_physical_log_entries(self.wrpm@.flush().committed(),
@@ -3313,7 +3316,7 @@ verus! {
             self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
                 current_durable_main_table_view,
                 old_self.main_table,
-                old_durable_main_table_view,
+                old_current_main_table_view,
                 self.overall_metadata,
                 main_table_index
             );
@@ -3330,7 +3333,7 @@ verus! {
                 assert(self.wrpm@.flush().committed()[addr] ==
                        current_durable_main_table_view.flush().committed()[relative_addr]);
                 assert(old_self.wrpm@.flush().committed()[addr] ==
-                       old_durable_main_table_view.flush().committed()[relative_addr]);
+                       old_current_main_table_view.flush().committed()[relative_addr]);
                 assert(self.wrpm@.flush().committed()[addr] ==
                        self.wrpm@.flush().state[addr].state_at_last_flush);
                 assert(old_self.wrpm@.flush().committed()[addr] ==
@@ -3413,11 +3416,38 @@ verus! {
                 key
             );
 
+            assert(old_tentative_main_table_parsed is Some);
+            let old_tentative_main_table_parsed = old_tentative_main_table_parsed.unwrap();
+            assert(old_current_main_table_parsed is Some);
+            let old_current_main_table_parsed = old_current_main_table_parsed.unwrap();
+            /*
+            assert(!old_tentative_main_table_parsed.valid_item_indices().contains(item_index)) by {
+                assert(old_self.pending_alloc_inv());
+                assert(old_self.main_table.pending_alloc_inv(old_current_main_table_bytes,
+                                                             old_tentative_main_table_bytes,
+                                                             overall_metadata));
+                assert(forall|idx: u64| 0 <= idx < old_tentative_main_table_parsed.durable_main_table.len() ==>
+                       old_self.main_table.allocator_view().pending_alloc_check(idx,
+                                                                                old_current_main_table_parsed,
+                                                                                old_tentative_main_table_parsed));
+                if old_tentative_main_table_parsed.valid_item_indices().contains(item_index) {
+                    let j = choose|j: int| {
+                        &&& 0 <= j < old_tentative_main_table_parsed.durable_main_table.len()
+                        &&& #[trigger] old_tentative_main_table_parsed.durable_main_table[j] matches Some(entry)
+                        &&& entry.item_index() == item_index
+                    };
+                    assert(old_self.main_table.allocator_view().pending_alloc_check(j as u64,
+                                                                                    old_current_main_table_parsed,
+                                                                                    old_tentative_main_table_parsed));
+                    assume(false);
+                }
+            }
+            */
+            
             // TODO @jay
-            assume(!old_tentative_main_table_parsed.unwrap().valid_item_indices().contains(item_index));
             assume(forall|i| 0 <= i < overall_metadata.num_keys &&
-                       #[trigger] old_tentative_main_table_parsed.unwrap().durable_main_table[i] is Some
-                       ==> old_tentative_main_table_parsed.unwrap().durable_main_table[i].unwrap().key != key);
+                       #[trigger] old_tentative_main_table_parsed.durable_main_table[i] is Some
+                       ==> old_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key);
             assert(0 <= e.entry.item_index < overall_metadata.num_keys);
         }
 

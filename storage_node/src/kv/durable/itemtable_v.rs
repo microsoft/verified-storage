@@ -363,7 +363,10 @@ verus! {
                     ||| self.free_list().contains(idx)
                 },
                 forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] current_valid_indices.contains(idx) ==> 
-                    !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
+                    !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx),
+                forall|idx: u64| #![trigger current_valid_indices.contains(idx)]
+                    0 <= idx < self.num_keys && self.free_list().contains(idx) ==>
+                    !current_valid_indices.contains(idx) && !tentative_valid_indices.contains(idx),
         {
             // Annoyingly, we have to have the entire alloc check specified here, presumably 
             // to hit the proper triggers. 
@@ -652,6 +655,8 @@ verus! {
                             ||| self.pending_allocations_view().contains(idx)
                             ||| self.free_list().contains(idx)
                         }
+                        &&& !current_valid_indices.contains(index)
+                        &&& !tentative_valid_indices.contains(index)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -670,15 +675,15 @@ verus! {
                                             current_valid_indices) == Some(self@)) by {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
+            
+            let entry_size = self.entry_size;
+            assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
+            assert(entry_size == u64::spec_size_of() + I::spec_size_of());
 
             proof {
                 self.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     current_valid_indices, tentative_valid_indices);
             }
-            
-            let entry_size = self.entry_size;
-            assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
-            assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
             // pop a free index from the free list
             let free_index = match self.free_list.pop() {
@@ -697,6 +702,14 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 }
             };
+
+
+            proof {
+                assert(old(self).free_list().contains(free_index));
+                assert(!current_valid_indices.contains(free_index));
+                assert(!tentative_valid_indices.contains(free_index));
+            }
+
             self.pending_allocations.push(free_index);
             assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
             assert(self.pending_allocations@[self.pending_allocations@.len() - 1] == free_index);
