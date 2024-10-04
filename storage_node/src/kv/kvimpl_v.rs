@@ -378,7 +378,7 @@ where
                     &&& v.0 == k 
                     &&& v.1 == index
                 };
-                assert(kvstore.durable_store.key_index_list_view().contains(witness));
+                assert(kvstore.durable_store.key_index_list_view().contains(witness));    
             }
 
             assert(forall |i: int| 0 <= i < entry_list_view.len() ==> {
@@ -394,6 +394,12 @@ where
             } by {
                 let k = kvstore.durable_store@[i].unwrap().key;
                 assert(kvstore.volatile_index@.contains_key(k));
+            }
+
+            assert(kvstore.wrpm_view().no_outstanding_writes() ==> 
+                no_outstanding_writes_to_overall_metadata(kvstore.wrpm_view(), kvstore.durable_store.spec_overall_metadata_addr() as int)) 
+            by {
+                kvstore.durable_store.lemma_overall_metadata_addr();
             }
         }
 
@@ -419,7 +425,10 @@ where
                 Err(_) => false,
             }
     {
-        proof { self.durable_store.lemma_main_table_index_key(); }
+        proof { 
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key(); 
+        }
 
         // 1. Look up the table entry in the volatile index.
         // If the key is not in the volatile index, return an error.

@@ -449,6 +449,12 @@ verus! {
             self.version_metadata.overall_metadata_addr
         }
 
+        pub proof fn lemma_overall_metadata_addr(self) 
+            ensures
+                self.spec_version_metadata().overall_metadata_addr == 
+                    self.spec_overall_metadata_addr()
+        {}
+
         pub exec fn get_version_metadata(&self) -> (out: VersionMetadata)
         ensures 
             out == self.spec_version_metadata()
@@ -1042,6 +1048,22 @@ verus! {
                 }
                 // else, trivial
             }
+        }
+
+        proof fn lemma_tentative_matches_durable_when_log_is_empty(self)
+            requires 
+                self.wrpm@.no_outstanding_writes(),
+                self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
+                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s),
+                self.log@.physical_op_list.len() == 0,
+                !self.log@.op_list_committed,
+                self.wrpm@.len() == self.overall_metadata.region_size,
+            ensures 
+                self.tentative_view() == Some(self@)
+        {
+            self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+            lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(self.wrpm@);
+            assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
 
         proof fn lemma_tentative_log_entry_append_is_crash_safe(
@@ -1761,9 +1783,10 @@ verus! {
                         &&& kvstore@ == state
                         &&& kvstore.valid()
                         &&& kvstore.wrpm_view().no_outstanding_writes()
+                        &&& kvstore.wrpm_view().len() == wrpm_region@.len()
                         &&& kvstore.constants() == wrpm_region.constants()
-                        &&& kvstore.pending_allocations().is_empty()
-                        &&& kvstore.pending_deallocations().is_empty()
+                        &&& kvstore.spec_version_metadata() == version_metadata 
+                        &&& kvstore.spec_overall_metadata() == overall_metadata
 
                         &&& memory_correctly_set_up_on_region::<K, I, L>(kvstore.wrpm_view().committed(), overall_metadata.kvstore_id)
                         &&& deserialize_version_metadata(kvstore.wrpm_view().committed()) == version_metadata
@@ -1790,6 +1813,11 @@ verus! {
                                 &&& v.1 == i
                             }
                         }
+
+                        &&& kvstore.pending_allocations() == Set::<u64>::empty()
+                        &&& kvstore.pending_deallocations() == Set::<u64>::empty()
+                        &&& kvstore.pending_alloc_inv()
+                        &&& kvstore.tentative_view() == Some(kvstore@)
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     // TODO: proper handling of other error types
@@ -1959,6 +1987,12 @@ verus! {
                     assert(deserialize_version_crc(old_wrpm@.committed()) == deserialize_version_crc(durable_kv_store.wrpm@.committed()));
                     assert(deserialize_overall_crc(old_wrpm@.committed(), version_metadata.overall_metadata_addr) == deserialize_overall_crc(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr));
                 }
+
+                assert(durable_kv_store.pending_allocations() == Set::<u64>::empty());
+                assert(durable_kv_store.pending_deallocations() == Set::<u64>::empty());
+
+                durable_kv_store.lemma_tentative_matches_durable_when_log_is_empty();
+                assert(durable_kv_store.tentative_view() == Some(durable_kv_store@));
             }
             Ok((durable_kv_store, entry_list))
         }
