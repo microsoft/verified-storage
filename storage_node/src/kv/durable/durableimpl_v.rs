@@ -1982,10 +1982,6 @@ verus! {
                 assert(memory_correctly_set_up_on_region::<K, I, L>(durable_kv_store.wrpm@.committed(), overall_metadata.kvstore_id)) by {
                     broadcast use pmcopy_axioms;
                     lemma_establish_extract_bytes_equivalence(durable_kv_store.wrpm@.committed(), old_wrpm@.committed());
-                    assert(deserialize_version_metadata(durable_kv_store.wrpm@.committed()) == version_metadata);
-                    assert(deserialize_overall_metadata(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata);
-                    assert(deserialize_version_crc(old_wrpm@.committed()) == deserialize_version_crc(durable_kv_store.wrpm@.committed()));
-                    assert(deserialize_overall_crc(old_wrpm@.committed(), version_metadata.overall_metadata_addr) == deserialize_overall_crc(durable_kv_store.wrpm@.committed(), version_metadata.overall_metadata_addr));
                 }
 
                 assert(durable_kv_store.pending_allocations() == Set::<u64>::empty());
