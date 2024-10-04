@@ -1986,6 +1986,9 @@ verus! {
 
                 assert(memory_correctly_set_up_on_region::<K, I, L>(durable_kv_store.wrpm@.committed(), overall_metadata.kvstore_id)) by {
                     broadcast use pmcopy_axioms;
+                    lemma_auto_from_bytes_equal::<u64>();
+                    lemma_auto_from_bytes_equal::<VersionMetadata>();
+                    lemma_auto_from_bytes_equal::<OverallMetadata>();
                     lemma_establish_extract_bytes_equivalence(durable_kv_store.wrpm@.committed(), old_wrpm@.committed());
                 }
 
@@ -4157,6 +4160,7 @@ verus! {
             );
         }
 
+        #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4707,7 +4711,7 @@ verus! {
 
         }
 
-        // #[verifier::spinoff_prover]
+        #[verifier::spinoff_prover]
         #[verifier::rlimit(25)] // TODO @hayley refactor and remove this
         pub fn tentative_delete(
             &mut self,
