@@ -2664,93 +2664,207 @@ verus! {
             };
 
             proof {
-                let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
-                    if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
-                        log_entry.bytes[pos - log_entry.absolute_addr]
-                    } else {
-                        pre_byte
-                    }
-                );
-                let subregion_view = subregion.view(pm_region);
-
-                let old_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let new_main_table_region = extract_bytes(new_mem, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
-
-                let old_main_table_view = parse_main_table::<K>(old_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
-                
-                let new_entry_view = MainTableViewEntry {
-                    entry: new_metadata_entry,
-                    key: *key,
-                };
-
-                // Prove that parsing each entry individually gives the expected entries.
-                // This helps prove that parsing the entire table suceeds and also that we 
-                // get the expected table contents.
-                assert forall |i: nat| i < overall_metadata.num_keys implies {
-                    let new_bytes = extract_bytes(new_main_table_region,
-                        #[trigger] index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
-                    let old_bytes = extract_bytes(old_main_table_region,
-                        index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                        overall_metadata.main_table_entry_size as nat
-                    );
-                    &&& validate_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat)
-                    &&& i == index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
-                            Some(new_entry_view)
-                    &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
-                            parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
-                } by {
-                    lemma_valid_entry_index(i, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
-                    lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.main_table_entry_size as nat);
-                    
-                    if i == index {
-                        let new_bytes = extract_bytes(new_main_table_region,
-                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                            overall_metadata.main_table_entry_size as nat
-                        );
-                        let old_bytes = extract_bytes(old_main_table_region,
-                            index_to_offset(i, overall_metadata.main_table_entry_size as nat),
-                            overall_metadata.main_table_entry_size as nat
-                        );
-                        lemma_establish_extract_bytes_equivalence(new_bytes, old_bytes);
-
-                        broadcast use pmcopy_axioms;
-                        assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
-                        assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
-                        assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
-                    } 
+                assert(log_entry.inv(version_metadata, *overall_metadata)) by {
+                    broadcast use pmcopy_axioms;
                 }
-
-                let old_entries = parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
-                    overall_metadata.main_table_entry_size as nat);
-                let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
-                    overall_metadata.main_table_entry_size as nat);
-
-                // Prove that there are no duplicate entries or keys. This is required
-                // to prove that the table parses successfully.
-                Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
-
-                let new_main_table_view = new_main_table_view.unwrap();
-                let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
-
-                // Prove that the new main table view is equivalent to updating the old table with the new item index.
-                assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_main_table.len() ==> 
-                    new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
-                assert(new_main_table_view == updated_table_view);
-                assert(no_duplicate_item_indexes(old_main_table_view.durable_main_table));
-                Self::lemma_update_item_replaces_valid_item_index(old_main_table_view, updated_table_view,
-                    index, old_item_index, item_index);
+                self.lemma_new_update_item_log_entry_is_correct(*subregion, pm_region, index, item_index, 
+                    new_metadata_entry, *key, crc, version_metadata, *overall_metadata, log_entry, current_tentative_state);
             }
 
             Ok(log_entry)
+        }
+
+        proof fn lemma_new_update_item_log_entry_is_correct<PM>(
+            self,
+            subregion: PersistentMemorySubregion,
+            pm_region: &PM,
+            index: u64,
+            item_index: u64,
+            new_metadata_entry: ListEntryMetadata,
+            key: K,
+            crc: u64,
+            version_metadata: VersionMetadata,
+            overall_metadata: OverallMetadata,
+            log_entry: PhysicalOpLogEntry,
+            current_tentative_state: Seq<u8>,
+        )
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                subregion.inv(pm_region),
+                self.inv(subregion.view(pm_region), overall_metadata),
+                0 <= index < overall_metadata.num_keys,
+                0 <= item_index < overall_metadata.num_keys,
+                new_metadata_entry.item_index == item_index,
+                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                !self@.valid_item_indices().contains(item_index),
+                self@.durable_main_table[index as int] is Some,
+                crc == spec_crc_u64(new_metadata_entry.spec_to_bytes() + key.spec_to_bytes()),
+                VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+                    <= overall_metadata.main_table_addr,
+                overall_metadata.main_table_entry_size ==
+                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
+                    <= overall_metadata.region_size <= u64::MAX,
+                current_tentative_state.len() == overall_metadata.region_size,
+                pm_region@.len() == overall_metadata.region_size,
+                subregion.start() == overall_metadata.main_table_addr,
+                subregion.len() == overall_metadata.main_table_size,
+                log_entry.inv(version_metadata, overall_metadata),
+                ({
+                    let old_main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let old_main_table_view = parse_main_table::<K>(old_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    &&& old_main_table_view matches Some(old_main_table_view)
+                    &&& !old_main_table_view.valid_item_indices().contains(item_index)
+                    &&& no_duplicate_item_indexes(old_main_table_view.durable_main_table)
+                    &&& no_duplicate_keys(old_main_table_view.durable_main_table)
+                    &&& old_main_table_view.durable_main_table[index as int] is Some
+                    &&& old_main_table_view.durable_main_table.len() == overall_metadata.num_keys
+                }),
+                ({
+                    let main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let main_table_view = parse_main_table::<K>(main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, overall_metadata)
+                    &&& main_table_view matches Some(main_table_view)
+                    &&& main_table_view.inv(overall_metadata)
+                    &&& !main_table_view.valid_item_indices().contains(item_index)
+
+                    // the index should not be deallocated in the tentative view
+                    &&& main_table_view.durable_main_table[index as int] matches Some(entry)
+                    // and it should match the new entry in all fields but the item index
+                    &&& entry.key == key
+                    &&& entry.entry.head == new_metadata_entry.head
+                    &&& entry.entry.tail == new_metadata_entry.tail
+                    &&& entry.entry.length == new_metadata_entry.length
+                    &&& entry.entry.first_entry_offset == new_metadata_entry.first_entry_offset
+                }),
+                ({
+                    let crc_bytes = crc.spec_to_bytes();
+                    let entry_bytes = new_metadata_entry.spec_to_bytes();
+                    log_entry.bytes@ == crc_bytes + entry_bytes
+                }),
+                log_entry.absolute_addr == overall_metadata.main_table_addr + (index * overall_metadata.main_table_entry_size) + u64::spec_size_of(),
+            ensures 
+                ({
+                    let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                            log_entry.bytes[pos - log_entry.absolute_addr]
+                        } else {
+                            pre_byte
+                        }
+                    );
+                    let old_main_table_region = extract_bytes(current_tentative_state, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let old_main_table_view = parse_main_table::<K>(old_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+                    let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
+                    let new_main_table_region = extract_bytes(new_mem, 
+                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                    let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                    &&& new_main_table_view matches Some(new_main_table_view)
+                    &&& old_main_table_view.update_item_index(index as int, item_index) matches Some(updated_old_table)
+                    &&& new_main_table_view == updated_old_table
+                    &&& new_main_table_view.valid_item_indices() == 
+                            old_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                })
+        {
+            lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
+            assert(log_entry.absolute_addr == overall_metadata.main_table_addr + index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of());
+
+            let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
+                if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
+                    log_entry.bytes[pos - log_entry.absolute_addr]
+                } else {
+                    pre_byte
+                }
+            );
+            let subregion_view = subregion.view(pm_region);
+
+            let old_main_table_region = extract_bytes(current_tentative_state, 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+            let new_main_table_region = extract_bytes(new_mem, 
+                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+            lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
+
+            let old_main_table_view = parse_main_table::<K>(old_main_table_region,
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+            let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+            let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
+            
+            let new_entry_view = MainTableViewEntry {
+                entry: new_metadata_entry,
+                key: key,
+            };
+
+            // Prove that parsing each entry individually gives the expected entries.
+            // This helps prove that parsing the entire table suceeds and also that we 
+            // get the expected table contents.
+            assert forall |i: nat| i < overall_metadata.num_keys implies {
+                let new_bytes = extract_bytes(new_main_table_region,
+                    #[trigger] index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                    overall_metadata.main_table_entry_size as nat
+                );
+                let old_bytes = extract_bytes(old_main_table_region,
+                    index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                    overall_metadata.main_table_entry_size as nat
+                );
+                &&& validate_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat)
+                &&& i == index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
+                        Some(new_entry_view)
+                &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
+                        parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
+            } by {
+                lemma_valid_entry_index(i, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(i, index as nat, overall_metadata.main_table_entry_size as nat);
+                
+                broadcast use pmcopy_axioms;
+                lemma_auto_from_bytes_equal::<u64>();
+                lemma_auto_from_bytes_equal::<ListEntryMetadata>();
+                lemma_auto_from_bytes_equal::<K>();
+
+                let new_bytes = extract_bytes(new_main_table_region,
+                    index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                    overall_metadata.main_table_entry_size as nat
+                );
+                let old_bytes = extract_bytes(old_main_table_region,
+                    index_to_offset(i, overall_metadata.main_table_entry_size as nat),
+                    overall_metadata.main_table_entry_size as nat
+                );
+                lemma_establish_extract_bytes_equivalence(new_bytes, old_bytes);
+
+                if i == index {
+                    assert(extract_bytes(new_bytes, u64::spec_size_of(), u64::spec_size_of()) == crc.spec_to_bytes());
+                    assert(extract_bytes(new_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) == new_metadata_entry.spec_to_bytes());
+                    assert(extract_bytes(new_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()) == key.spec_to_bytes());
+                }
+            }
+
+            let old_entries = parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
+                overall_metadata.main_table_entry_size as nat);
+            let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
+                overall_metadata.main_table_entry_size as nat);
+
+            // Prove that there are no duplicate entries or keys. This is required
+            // to prove that the table parses successfully.
+            Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
+
+            let new_main_table_view = new_main_table_view.unwrap();
+            let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
+
+            // Prove that the new main table view is equivalent to updating the old table with the new item index.
+            assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_main_table.len() ==>
+                new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
+            assert(new_main_table_view == updated_table_view);
+            assert(no_duplicate_item_indexes(old_main_table_view.durable_main_table));
+            Self::lemma_update_item_replaces_valid_item_index(old_main_table_view, updated_table_view,
+                index, old_item_index, item_index);
         }
 
         pub exec fn abort_transaction(

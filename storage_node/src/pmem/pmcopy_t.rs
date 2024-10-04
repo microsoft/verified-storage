@@ -44,7 +44,7 @@ verus! {
         axiom_to_from_bytes,
         axiom_u64_to_le_bytes,
         axiom_u64_from_le_bytes,
-        axiom_from_bytes_equal,
+        // axiom_from_bytes_equal,
     }
 
     // PmCopy provides functions to help reason about copying data to and from persistent memory.
@@ -198,11 +198,25 @@ verus! {
         admit();
     }
 
+    pub open spec fn from_bytes_equal<S: PmCopy>(s1: Seq<u8>, s2: Seq<u8>) -> bool 
+    {
+        S::spec_from_bytes(s1) == S::spec_from_bytes(s2)
+    }
+
+    pub proof fn lemma_auto_from_bytes_equal<S: PmCopy>() 
+        ensures 
+            forall |s1, s2| S::spec_from_bytes(s1) == S::spec_from_bytes(s2) ==> s1 == s2
+    {
+        assert forall |s1, s2| S::spec_from_bytes(s1) == S::spec_from_bytes(s2) implies s1 == s2 by {
+            axiom_from_bytes_equal::<S>(s1, s2);
+        }
+    }
+
     // TODO @hayley discuss adding this axiom
     // should it be broadcast?
-    pub broadcast proof fn axiom_from_bytes_equal<S: PmCopy>(s1: Seq<u8>, s2: Seq<u8>)
+    pub proof fn axiom_from_bytes_equal<S: PmCopy>(s1: Seq<u8>, s2: Seq<u8>)
         requires
-            #[trigger] S::spec_from_bytes(s1) == #[trigger] S::spec_from_bytes(s2)
+            S::spec_from_bytes(s1) == S::spec_from_bytes(s2)
         ensures 
             s1 == s2
     {

@@ -252,7 +252,9 @@ where
                 &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
                 &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
             } implies Self::recover(s, kvstore_id) == Some(state) by {
-                broadcast use pmcopy_axioms;
+                lemma_auto_from_bytes_equal::<u64>();
+                lemma_auto_from_bytes_equal::<VersionMetadata>();
+                lemma_auto_from_bytes_equal::<OverallMetadata>();
             }
             let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
             assert(base_log_state.log.len() == 0 || base_log_state.log.len() > u64::spec_size_of());
@@ -537,6 +539,9 @@ where
             } implies #[trigger] Self::recover(s, kvstore_id) == Some(self@) by {
                 assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
                     broadcast use pmcopy_axioms;
+                    lemma_auto_from_bytes_equal::<u64>();
+                    lemma_auto_from_bytes_equal::<VersionMetadata>();
+                    lemma_auto_from_bytes_equal::<OverallMetadata>();
                 }
             }
 
@@ -557,14 +562,13 @@ where
             return Err(e);
         }
 
+        // TODO @hayley
+        assume(false);
         
 
         // 3. Commit the transaction
         let result = self.durable_store.commit(Tracked(perm));
 
-        assume(false);
-
-        // TODO @hayley
         assume(false);
         Err(KvError::NotImplemented)
     }
