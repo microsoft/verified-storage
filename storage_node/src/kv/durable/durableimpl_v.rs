@@ -2974,6 +2974,7 @@ verus! {
                 self@ == old(self)@,
                 self.wrpm_view().no_outstanding_writes(),
                 self.spec_version_metadata() == pre_self.spec_version_metadata(),
+                self.tentative_view() == Some(self@),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
@@ -3103,6 +3104,7 @@ verus! {
                     &&& self.pending_deallocations().is_empty()
                 }),
                 self@ == old_self@,
+                self.tentative_view() == Some(self@),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);

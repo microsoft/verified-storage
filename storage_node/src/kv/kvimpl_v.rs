@@ -550,14 +550,10 @@ where
         // 2. Tentatively update the item in the durable store
         let result = self.durable_store.tentative_update_item(index, new_item, Tracked(perm));
         if let Err(e) = result {
-            // assume(false);
             proof {
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
-                // assert(self.durable_store.spec_version_metadata() == old(self).durable_store.spec_version_metadata());
-                // assert(no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.durable_store.spec_overall_metadata_addr() as int));
             }
-            
             return Err(e);
         }
 
