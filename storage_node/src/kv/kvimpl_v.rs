@@ -557,10 +557,12 @@ where
             return Err(e);
         }
 
-        assume(false);
+        
 
         // 3. Commit the transaction
         let result = self.durable_store.commit(Tracked(perm));
+
+        assume(false);
 
         // TODO @hayley
         assume(false);

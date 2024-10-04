@@ -1362,7 +1362,7 @@ verus! {
             crash_pred: spec_fn(Seq<u8>) -> bool,
         )
             requires
-                self.valid(),
+                self.inv(),
                 !self.transaction_committed(),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> crash_pred(s),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
@@ -5084,7 +5084,7 @@ verus! {
             perm: &Perm,
         )
             requires 
-                self.valid(),
+                self.inv(),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| crash_pred(s) ==> perm.check_permission(s),
                 forall |s: Seq<u8>| {
@@ -5266,7 +5266,7 @@ verus! {
             Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<(), KvError<K>>)
             requires 
-                old(self).valid(),
+                old(self).inv(),
                 !old(self).transaction_committed(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
@@ -5396,7 +5396,11 @@ verus! {
 
             let ghost pre_log_install_wrpm = self.wrpm;
 
+            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_item_indices()));
+
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
+
+            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_item_indices()));
 
             proof {
                 // Some functions/proofs use `extract_bytes`  and some use `get_subregion_view` 
@@ -5421,12 +5425,14 @@ verus! {
                 let durable_state_bytes = old(self).wrpm@.committed();
                 let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 assert(durable_main_table_region == old_subregion_view.committed());
-                
             }
 
             // 4. Update ghost state and finalize pending (de)allocations.
             self.main_table.finalize_main_table(Ghost(old(self).main_table), Ghost(old(self).wrpm@),
                 Ghost(self.wrpm@), Ghost(self.overall_metadata));
+
+            assert(self.item_table.opaquable_inv(self.overall_metadata, old(self).main_table@.valid_item_indices()));
+
             self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
                 Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_item_indices()), Ghost(self.main_table@.valid_item_indices()));
 

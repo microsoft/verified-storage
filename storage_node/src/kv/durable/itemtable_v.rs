@@ -1307,11 +1307,12 @@ verus! {
             &mut self,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
+            Ghost(old_valid_indices): Ghost<Set<u64>>,
             Ghost(valid_indices): Ghost<Set<u64>>,
         )
             requires
                 pm.no_outstanding_writes(),
-                old(self).opaquable_inv(overall_metadata, valid_indices),
+                old(self).opaquable_inv(overall_metadata, old_valid_indices),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
@@ -1488,7 +1489,7 @@ verus! {
                 old_self.num_keys == old(self).num_keys,
                 old_self@.durable_item_table.len() == old(self)@.durable_item_table.len(),
 
-                forall |idx: u64| #[trigger] valid_indices.contains(idx) ==> old(self).outstanding_item_table@[idx as int] is None,
+                forall |idx: u64| #[trigger] old_valid_indices.contains(idx) ==> old(self).outstanding_item_table@[idx as int] is None,
             ensures 
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
@@ -1511,7 +1512,7 @@ verus! {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                 overall_metadata.item_table_size as nat);
 
-            self.update_ghost_state_to_current_bytes(Ghost(pm), Ghost(overall_metadata), Ghost(valid_indices));
+            self.update_ghost_state_to_current_bytes(Ghost(pm), Ghost(overall_metadata), Ghost(old_valid_indices), Ghost(valid_indices));
 
             proof {
                 assert(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, valid_indices) == Some(self@));
