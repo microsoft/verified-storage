@@ -1820,6 +1820,9 @@ verus! {
                         }
                         &&& kvstore.pending_alloc_inv()
                         &&& kvstore.tentative_view() == Some(kvstore@)
+
+                        &&& kvstore.pending_allocations().is_empty()
+                        &&& kvstore.pending_deallocations().is_empty()
                     }
                     Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                     // TODO: proper handling of other error types
@@ -2969,6 +2972,8 @@ verus! {
                 self.pending_allocations().is_empty(),
                 self.pending_deallocations().is_empty(),
                 self@ == old(self)@,
+                self.wrpm_view().no_outstanding_writes(),
+                self.spec_version_metadata() == pre_self.spec_version_metadata(),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
@@ -3086,6 +3091,8 @@ verus! {
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
+                self.wrpm_view().no_outstanding_writes(),
+                self.spec_version_metadata() == old(self).spec_version_metadata(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
                 !self.transaction_committed(),
                 ({
@@ -4174,8 +4181,10 @@ verus! {
                 }),
             ensures 
                 self.inv(),
+                self.wrpm_view().len() == old(self).wrpm_view().len(),
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
+                self.spec_version_metadata() == old(self).spec_version_metadata(),
                 match result {
                     Ok(()) => {
                         let spec_result = old(self).tentative_view().unwrap().update_item(offset as int, *item);
@@ -4201,6 +4210,9 @@ verus! {
                                                                 AbstractOpLogState::initialize())
                         &&& self.pending_deallocations().is_empty()
                         &&& self.pending_allocations().is_empty()
+                        &&& self.pending_alloc_inv()
+                        &&& self.wrpm_view().no_outstanding_writes()
+                        &&& self.tentative_view() == Some(self@)
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self.valid()
@@ -4212,6 +4224,9 @@ verus! {
                         &&& self.pending_deallocations().is_empty()
                         &&& self.pending_allocations().is_empty()
                         &&& !self.constants().impervious_to_corruption
+                        &&& self.pending_alloc_inv()
+                        &&& self.wrpm_view().no_outstanding_writes()
+                        &&& self.tentative_view() == Some(self@)
                     }
                     Err(_) => false,
                 }
@@ -4428,6 +4443,7 @@ verus! {
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
+                assert(self.version_metadata == old(self).version_metadata);
             }
 
             Ok(())
