@@ -224,6 +224,7 @@ pub proof fn lemma_if_memories_differ_in_free_main_table_entry_their_differences
         mem1.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
         overall_metadata.main_table_size >= index_to_offset(overall_metadata.num_keys as nat,
                                                            overall_metadata.main_table_entry_size as nat),
+        overall_metadata.main_table_entry_size > 0,
         forall|addr: int| {
             let start =
                 overall_metadata.main_table_addr +

@@ -31,15 +31,15 @@ verus! {
     // represents a valid table entry that we can read and parse.
 
     pub proof fn lemma_valid_entry_index(index: nat, num_keys: nat, size: nat)
-        requires
-            index < num_keys
         ensures 
-            (index + 1) * size == index * size + size <= num_keys * size
+            (index + 1) * size == index * size + size,
+            index < num_keys ==> index * size + size <= num_keys * size
     {
-        vstd::arithmetic::mul::lemma_mul_inequality(index + 1 as int, num_keys as int, size as int);
+        if index < num_keys {
+            vstd::arithmetic::mul::lemma_mul_inequality(index + 1 as int, num_keys as int, size as int);
+        }
         vstd::arithmetic::mul::lemma_mul_basics(size as int);
-        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int,
-                                                                        index as int, 1);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(size as int, index as int, 1);
     }
 
     // This lemma proves that an index that is less than num_keys (i.e., within bounds of the table) 
@@ -81,23 +81,25 @@ verus! {
 
     pub proof fn lemma_auto_addr_in_entry_divided_by_entry_size(index: nat, num_entries: nat, entry_size: nat)
         requires
-            index < num_entries,
+            entry_size > 0,
         ensures
             num_entries * entry_size == entry_size * num_entries,
             (index + 1) * entry_size == index * entry_size + entry_size,
-            index * entry_size + entry_size <= num_entries * entry_size,
-            forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr < num_entries * entry_size ==> {
+            index < num_entries ==> index * entry_size + entry_size <= num_entries * entry_size,
+            forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr ==> {
                 let i = addr / entry_size as int;
-                &&& 0 <= i < num_entries
+                &&& 0 <= i
+                &&& addr < num_entries * entry_size <==> i < num_entries
                 &&& i * entry_size <= addr < i * entry_size + entry_size
                 &&& i == index <==> index * entry_size <= addr < index * entry_size + entry_size
                 &&& (i + 1) * entry_size == i * entry_size + entry_size
             },
     {
         lemma_valid_entry_index(index, num_entries, entry_size);
-        assert forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr < num_entries * entry_size implies {
+        assert forall|addr: int| #[trigger] trigger_addr(addr) && 0 <= addr implies {
             let i = addr / entry_size as int;
-            &&& 0 <= i < num_entries
+            &&& 0 <= i
+            &&& addr < num_entries * entry_size <==> i < num_entries
             &&& i * entry_size <= addr < i * entry_size + entry_size
             &&& i == index <==> index * entry_size <= addr < index * entry_size + entry_size
             &&& (i + 1) * entry_size == i * entry_size + entry_size
@@ -109,9 +111,7 @@ verus! {
             }
             if i >= num_entries {
                 vstd::arithmetic::mul::lemma_mul_inequality(num_entries as int, i, entry_size as int);
-                assert(false);
             }
-            assert(0 <= i < num_entries);
             lemma_valid_entry_index(i as nat, num_entries as nat, entry_size as nat);
             lemma_entries_dont_overlap_unless_same_index(i as nat, index as nat, entry_size as nat);
         }

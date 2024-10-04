@@ -3172,12 +3172,17 @@ verus! {
                            wrpm: self_before_main_table_create.wrpm,
                            ..old_self }),
                 self == (Self{ main_table: self.main_table, wrpm: self.wrpm, ..self_before_main_table_create }),
+                get_subregion_view(self_before_main_table_create.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                   self.overall_metadata.main_table_size as nat).committed() ==
+                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat).committed(),
                 forall|i: int| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
                     self.main_table.outstanding_entry_writes@[i] ==
                         self_before_main_table_create.main_table.outstanding_entry_writes@[i],
                 self_before_main_table_create.main_table.free_list().contains(main_table_index),
                 self.main_table.free_list() ==
                     self_before_main_table_create.main_table.free_list().remove(main_table_index),
+                self_before_main_table_create.tentative_main_table_valid(),
                 item_index < self.overall_metadata.num_keys,
                 ({
                     &&& self.main_table.outstanding_entry_writes@[main_table_index as int] matches Some(e)
@@ -3420,34 +3425,68 @@ verus! {
             let old_tentative_main_table_parsed = old_tentative_main_table_parsed.unwrap();
             assert(old_current_main_table_parsed is Some);
             let old_current_main_table_parsed = old_current_main_table_parsed.unwrap();
-            /*
-            assert(!old_tentative_main_table_parsed.valid_item_indices().contains(item_index)) by {
-                assert(old_self.pending_alloc_inv());
-                assert(old_self.main_table.pending_alloc_inv(old_current_main_table_bytes,
-                                                             old_tentative_main_table_bytes,
-                                                             overall_metadata));
-                assert(forall|idx: u64| 0 <= idx < old_tentative_main_table_parsed.durable_main_table.len() ==>
-                       old_self.main_table.allocator_view().pending_alloc_check(idx,
-                                                                                old_current_main_table_parsed,
-                                                                                old_tentative_main_table_parsed));
-                if old_tentative_main_table_parsed.valid_item_indices().contains(item_index) {
-                    let j = choose|j: int| {
-                        &&& 0 <= j < old_tentative_main_table_parsed.durable_main_table.len()
-                        &&& #[trigger] old_tentative_main_table_parsed.durable_main_table[j] matches Some(entry)
-                        &&& entry.item_index() == item_index
-                    };
-                    assert(old_self.main_table.allocator_view().pending_alloc_check(j as u64,
-                                                                                    old_current_main_table_parsed,
-                                                                                    old_tentative_main_table_parsed));
-                    assume(false);
+
+            let op_log = self.log@.physical_op_list;
+
+            assert forall|addr: int| {
+                let start = main_table_addr + index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+                let len = main_table_entry_size;
+                &&& #[trigger] trigger_addr(addr)
+                &&& main_table_addr <= addr < main_table_addr + main_table_size
+                &&& !(start <= addr < start + len)
+            } implies self_before_main_table_create.wrpm@.flush().committed()[addr] ==
+                      self.wrpm@.flush().committed()[addr] by {
+                let mem1 = self_before_main_table_create.wrpm@.flush().committed();
+                let mem2 = self.wrpm@.flush().committed();
+                let relative_addr = addr - main_table_addr;
+                lemma_auto_addr_in_entry_divided_by_entry_size(main_table_index as nat, num_keys as nat,
+                                                               main_table_entry_size as nat);
+                assert(trigger_addr(relative_addr));
+                let which_entry = relative_addr / main_table_entry_size as int;
+                if relative_addr >= index_to_offset(num_keys as nat, main_table_entry_size as nat) {
+                    assert(which_entry >= num_keys);
+                    assert(!old_self.get_writable_mask_for_main_table()(addr));
+                    assert(!main_table_subregion.is_writable_absolute_addr_fn()(addr));
+                    assert(mem1[addr] == mem2[addr]);
+                }
+                else {
+                    assert(index_to_offset(which_entry as nat, main_table_entry_size as nat) <= relative_addr <
+                           index_to_offset(which_entry as nat, main_table_entry_size as nat) + main_table_entry_size);
+                    assert(which_entry != main_table_index);
+                    assert(self_before_main_table_create.main_table.outstanding_entry_write_matches_pm_view(
+                        get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
+                                           main_table_size as nat),
+                        which_entry,
+                        main_table_entry_size
+                    ));
+                    assert(self.main_table.outstanding_entry_write_matches_pm_view(
+                        get_subregion_view(self.wrpm@, main_table_addr as nat, main_table_size as nat),
+                        which_entry,
+                        main_table_entry_size
+                    ));
+                    assert(self.main_table.outstanding_entry_writes@[which_entry] ==
+                           self_before_main_table_create.main_table.outstanding_entry_writes@[which_entry]);
+                    broadcast use pmcopy_axioms;
+                    assert(self_before_main_table_create.wrpm@.state[addr] == self.wrpm@.state[addr]);
                 }
             }
-            */
+            lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
+                self_before_main_table_create.wrpm@.flush().committed(),
+                self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list,
+                self_before_main_table_create.main_table.free_indices(),
+                main_table_index,
+                self.overall_metadata
+            );
             
-            // TODO @jay
-            assume(forall|i| 0 <= i < overall_metadata.num_keys &&
+            assert forall|i| 0 <= i < overall_metadata.num_keys &&
                        #[trigger] old_tentative_main_table_parsed.durable_main_table[i] is Some
-                       ==> old_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key);
+                       implies old_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key by {
+                // TODO @jay
+                assume(old_tentative_main_table_parsed == self_before_main_table_create.tentative_main_table());
+                assert(self_before_main_table_create.tentative_main_table().durable_main_table[i] is Some);
+                assert(self_before_main_table_create.tentative_main_table().durable_main_table[i].unwrap().key != key);
+            }
             assert(0 <= e.entry.item_index < overall_metadata.num_keys);
         }
 
