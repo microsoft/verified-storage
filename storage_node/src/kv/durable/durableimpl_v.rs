@@ -284,6 +284,82 @@ verus! {
             Self::physical_recover_after_committing_log(self.wrpm@.flush().committed(), self.overall_metadata, self.log@)
         }
 
+        pub closed spec fn tentative_main_table_valid(self) -> bool
+        {
+            let tentative_state_bytes =
+                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+            let tentative_main_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let tentative_main_table =
+                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
+                                      self.overall_metadata.main_table_entry_size);
+            &&& tentative_state_bytes is Some
+            &&& tentative_main_table is Some
+        }
+
+        pub closed spec fn tentative_main_table(self) -> MainTableView<K>
+            recommends
+                self.tentative_main_table_valid()
+        {
+            let tentative_state_bytes =
+                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+            let tentative_main_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let tentative_item_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.item_table_addr as nat,
+                              self.overall_metadata.item_table_size as nat);
+            let tentative_main_table =
+                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
+                                      self.overall_metadata.main_table_entry_size);
+            tentative_main_table.unwrap()
+        }
+
+        pub closed spec fn tentative_item_table_valid(self) -> bool
+        {
+            let tentative_state_bytes =
+                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+            let tentative_main_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let tentative_item_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.item_table_addr as nat,
+                              self.overall_metadata.item_table_size as nat);
+            let tentative_main_table =
+                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
+                                      self.overall_metadata.main_table_entry_size);
+            let tentative_item_table =
+                parse_item_table::<I, K>(tentative_item_table_bytes,
+                                         self.overall_metadata.num_keys as nat,
+                                         tentative_main_table.unwrap().valid_item_indices());
+            &&& tentative_state_bytes is Some
+            &&& tentative_main_table is Some
+            &&& tentative_item_table is Some
+        }
+        
+        pub closed spec fn tentative_item_table(self) -> DurableItemTableView<I>
+            recommends
+                self.tentative_item_table_valid()
+        {
+            let tentative_state_bytes =
+                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+            let tentative_main_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
+                              self.overall_metadata.main_table_size as nat);
+            let tentative_item_table_bytes =
+                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.item_table_addr as nat,
+                              self.overall_metadata.item_table_size as nat);
+            let tentative_main_table =
+                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
+                                      self.overall_metadata.main_table_entry_size);
+            let tentative_item_table =
+                parse_item_table::<I, K>(tentative_item_table_bytes,
+                                         self.overall_metadata.num_keys as nat,
+                                         tentative_main_table.unwrap().valid_item_indices());
+            tentative_item_table.unwrap()
+        }
+
         pub closed spec fn pending_allocations(self) -> Set<u64>
         {
             self.main_table.pending_allocations_view()
@@ -1199,6 +1275,30 @@ verus! {
                 }
             );
             DurableKvStoreView { contents }
+        }
+
+        proof fn lemma_if_key_missing_from_tentative_view_then_missing_from_tentative_main_table(self, key: K)
+            requires
+                self.tentative_view() is Some,
+                forall|e| #[trigger] self.tentative_view().unwrap().contents.contains_value(e) ==> e.key != key,
+            ensures
+                self.tentative_main_table_valid(),
+                ({
+                    let t = self.tentative_main_table().durable_main_table;
+                    forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key
+                })
+        {
+            let v = self.tentative_view().unwrap();
+            let t = self.tentative_main_table().durable_main_table;
+            assert forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some implies t[i].unwrap().key != key by {
+                if t[i].unwrap().key == key {
+                    assert(v.contents.contains_key(i));
+                    assert(v.contents[i].key == key);
+                    assert(v.contents.dom().contains(i));
+                    assert(v.contents.contains_value(v.contents[i]));
+                    assert(false);
+                }
+            }
         }
 
         pub exec fn get_elements_per_node(&self) -> u64 {
@@ -2445,6 +2545,7 @@ verus! {
                                       self.overall_metadata.log_area_size as nat));
         }
 
+        #[verifier::rlimit(20)]
         proof fn lemma_reestablish_inv_after_tentatively_write_item(
             self,
             old_self: Self,
@@ -2503,46 +2604,10 @@ verus! {
                 self.main_table_view_matches(old_self.wrpm@),
                 self.list_area_view_matches(old_self.wrpm@),
                 self.log_area_view_matches(old_self.wrpm@),
-                ({
-                    let old_tentative_state_bytes =
-                        apply_physical_log_entries(old_self.wrpm@.flush().committed(), old_self.log@.physical_op_list);
-                    let old_tentative_main_table_bytes =
-                        extract_bytes(old_tentative_state_bytes.unwrap(),
-                                      old_self.overall_metadata.main_table_addr as nat,
-                                      old_self.overall_metadata.main_table_size as nat);
-                    let old_tentative_item_table_bytes =
-                        extract_bytes(old_tentative_state_bytes.unwrap(),
-                                      old_self.overall_metadata.item_table_addr as nat,
-                                      old_self.overall_metadata.item_table_size as nat);
-                    let old_tentative_main_table =
-                        parse_main_table::<K>(old_tentative_main_table_bytes, old_self.overall_metadata.num_keys,
-                                              old_self.overall_metadata.main_table_entry_size);
-                    let old_tentative_item_table =
-                        parse_item_table::<I, K>(old_tentative_item_table_bytes,
-                                                 old_self.overall_metadata.num_keys as nat,
-                                                 old_tentative_main_table.unwrap().valid_item_indices());
-                    let new_tentative_state_bytes =
-                        apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
-                    let new_tentative_main_table_bytes =
-                        extract_bytes(new_tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
-                                      self.overall_metadata.main_table_size as nat);
-                    let new_tentative_item_table_bytes =
-                        extract_bytes(new_tentative_state_bytes.unwrap(), self.overall_metadata.item_table_addr as nat,
-                                      self.overall_metadata.item_table_size as nat);
-                    let new_tentative_main_table =
-                        parse_main_table::<K>(new_tentative_main_table_bytes, self.overall_metadata.num_keys,
-                                              self.overall_metadata.main_table_entry_size);
-                    let new_tentative_item_table =
-                        parse_item_table::<I, K>(new_tentative_item_table_bytes,
-                                                 self.overall_metadata.num_keys as nat,
-                                                 new_tentative_main_table.unwrap().valid_item_indices());
-                    &&& old_tentative_state_bytes is Some
-                    &&& new_tentative_state_bytes is Some
-                    &&& old_tentative_main_table is Some
-                    &&& new_tentative_main_table is Some
-                    &&& new_tentative_main_table == old_tentative_main_table
-                    &&& new_tentative_item_table == old_tentative_item_table
-                }),
+                self.tentative_main_table_valid(),
+                self.tentative_item_table_valid(),
+                self.tentative_main_table() == old_self.tentative_main_table(),
+                self.tentative_item_table() == old_self.tentative_item_table(),
         {
             let overall_metadata = self.overall_metadata;
             let log_area_addr = overall_metadata.log_area_addr;
@@ -3123,8 +3188,10 @@ verus! {
                     &&& e.entry.first_entry_offset == 0
                     &&& e.entry.item_index == item_index
                 }),
-                forall|e| #[trigger] self_before_main_table_create.tentative_view().unwrap().contents.contains_value(e)
-                    ==> e.key != key,
+                ({
+                    let t = self_before_main_table_create.tentative_main_table().durable_main_table;
+                    forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key
+                }),
             ensures
                 ({
                     let overall_metadata = self.overall_metadata;
@@ -3417,7 +3484,9 @@ verus! {
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
             let ghost main_table_size = self.overall_metadata.main_table_size;
 
-            assert(forall|e| #[trigger] self.tentative_view().unwrap().contents.contains_value(e) ==> e.key != key);
+            proof {
+                self.lemma_if_key_missing_from_tentative_view_then_missing_from_tentative_main_table(*key);
+            }
             
             // 1. find a free slot in the item table and tentatively write the new item there
 
@@ -3532,6 +3601,8 @@ verus! {
             };
 
             proof {
+                let t = self_before_main_table_create.tentative_main_table().durable_main_table;
+                assert(forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key);
                 self.lemma_justify_validify_log_entry(*old(self), self_before_main_table_create,
                                                       main_table_subregion, main_table_index,
                                                       item_index, head_index, *key, perm);
