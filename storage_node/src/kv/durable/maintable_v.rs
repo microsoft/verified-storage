@@ -76,11 +76,8 @@ verus! {
 
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
-            &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& self.durable_main_table[i as int] is Some
-                    &&& self.durable_main_table[j as int] is Some
-                } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
-                    #[trigger] self.durable_main_table[j as int].unwrap().item_index()
+            &&& no_duplicate_item_indexes(self.durable_main_table)
+            &&& no_duplicate_keys(self.durable_main_table)
         }
 
         pub open spec fn len(self) -> nat

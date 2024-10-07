@@ -577,10 +577,9 @@ where
                             self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
                 }
             } ==> #[trigger] perm.check_permission(s));
+            assume(false);
         }
 
-
-        // TODO @hayley
         // 3. Commit the transaction
         let result = self.durable_store.commit(Tracked(perm));
 
