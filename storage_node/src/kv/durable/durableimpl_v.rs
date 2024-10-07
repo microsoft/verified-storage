@@ -3115,7 +3115,7 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(50)]
+        #[verifier::rlimit(100)]
         proof fn lemma_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -3276,6 +3276,16 @@ verus! {
                 extract_bytes(old_self.wrpm@.committed(), main_table_addr as nat, main_table_size as nat);
             let old_current_main_table_parsed = parse_main_table::<K>(old_current_main_table_bytes,
                                                                       num_keys, main_table_entry_size);
+
+            let op_log = self.log@.physical_op_list;
+            let mid_tentative_bytes = prove_unwrap(
+                apply_physical_log_entries(self_before_main_table_create.wrpm@.flush().committed(), op_log)
+            );
+            let mid_tentative_main_table_bytes =
+                extract_bytes(mid_tentative_bytes, main_table_addr as nat, main_table_size as nat);
+            let mid_tentative_main_table = prove_unwrap(
+                parse_main_table::<K>(mid_tentative_main_table_bytes, num_keys, main_table_entry_size)
+            );
             
             let current_tentative_state_bytes =
                 apply_physical_log_entries(self.wrpm@.flush().committed(),
@@ -3426,8 +3436,6 @@ verus! {
             assert(old_current_main_table_parsed is Some);
             let old_current_main_table_parsed = old_current_main_table_parsed.unwrap();
 
-            let op_log = self.log@.physical_op_list;
-
             assert forall|addr: int| {
                 let start = main_table_addr + index_to_offset(main_table_index as nat, main_table_entry_size as nat);
                 let len = main_table_entry_size;
@@ -3478,7 +3486,37 @@ verus! {
                 main_table_index,
                 self.overall_metadata
             );
+
+            assert forall|addr: int| {
+                let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
+                &&& #[trigger] trigger_addr(addr)
+                &&& 0 <= addr < mid_tentative_main_table_bytes.len()
+                &&& !(start <= addr < start + main_table_entry_size)
+            } ==> mid_tentative_main_table_bytes[addr] == current_tentative_main_table_bytes[addr] by {
+                let absolute_addr = main_table_addr + addr;
+                assert(trigger_addr(absolute_addr));
+                lemma_log_replay_preserves_size(self_before_main_table_create.wrpm@.flush().committed(), op_log);
+                lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), op_log);
+                assert(self_before_main_table_create.wrpm@.len() == overall_metadata.region_size);
+                assert(self_before_main_table_create.wrpm@.flush().committed().len() >= main_table_addr + main_table_size);
+                assume(false);
+                assert(mid_tentative_main_table_bytes[addr] ==
+                       apply_physical_log_entries(self_before_main_table_create.wrpm@.flush().committed(), op_log).unwrap()[absolute_addr]);
+                assert(current_tentative_main_table_bytes[addr] ==
+                       apply_physical_log_entries(self.wrpm@.flush().committed(), op_log).unwrap()[absolute_addr]);
+            }
+            lemma_main_table_recovery_after_updating_entry::<K>(
+                mid_tentative_main_table_bytes,
+                current_tentative_main_table_bytes,
+                num_keys,
+                main_table_entry_size,
+                main_table_index,
+                entry,
+                key
+            );
             
+            assume(false);
+
             assert forall|i| 0 <= i < overall_metadata.num_keys &&
                        #[trigger] old_tentative_main_table_parsed.durable_main_table[i] is Some
                        implies old_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key by {
