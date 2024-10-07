@@ -4160,7 +4160,7 @@ verus! {
             );
         }
 
-        #[verifier::spinoff_prover]
+        // #[verifier::spinoff_prover]
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -4191,18 +4191,24 @@ verus! {
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
                 self.spec_version_metadata() == old(self).spec_version_metadata(),
+                self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                no_outstanding_writes_to_version_metadata(self.wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
+                self.pending_alloc_inv(),
                 match result {
                     Ok(()) => {
                         let spec_result = old(self).tentative_view().unwrap().update_item(offset as int, *item);
                         match spec_result {
                             Ok(spec_result) => {
                                 let v1 = old(self).tentative_view().unwrap();
-                                let v2 = self.tentative_view().unwrap();
+                                let v2 = self.tentative_view();
+                                &&& v2 matches Some(v2)
                                 &&& v2 == spec_result
                                 &&& v2.len() == v1.len()
                                 &&& v2[offset as int].unwrap().item == item
                                 &&& self.pending_allocations() == old(self).pending_allocations()
                                 &&& self.pending_deallocations() == old(self).pending_deallocations()
+                                &&& self.spec_num_log_entries_in_current_transaction() == old(self).spec_num_log_entries_in_current_transaction() + 1
                             }
                             Err(_) => false
                         }
@@ -4449,7 +4455,6 @@ verus! {
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
-                assert(self.version_metadata == old(self).version_metadata);
             }
 
             Ok(())
@@ -5276,8 +5281,11 @@ verus! {
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
                     Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 forall |s| {
-                    ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
+                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
+                    &&& {
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
+                    }
                 } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),

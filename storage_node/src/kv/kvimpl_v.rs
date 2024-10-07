@@ -482,7 +482,11 @@ where
             old(self).valid(),
             !old(self).transaction_committed(),
             Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
-            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
+            old(self)@.update_item(*key, *new_item) is Ok,
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                ||| Self::recover(s, kvstore_id) == Some(old(self)@)
+                ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
+            }
         ensures 
             self.valid(),
             !self.transaction_committed(),
@@ -562,10 +566,21 @@ where
             return Err(e);
         }
 
-        // TODO @hayley
-        assume(false);
-        
+        proof {
+            // TODO @hayley
+            assume(forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& {
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
+                            self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
+                            self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
+                }
+            } ==> #[trigger] perm.check_permission(s));
+        }
 
+
+        // TODO @hayley
         // 3. Commit the transaction
         let result = self.durable_store.commit(Tracked(perm));
 
