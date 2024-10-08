@@ -32,6 +32,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::log2::logimpl_v::*;
+use crate::util_v::*;
 
 use std::hash::Hash;
 
@@ -64,6 +65,11 @@ where
     pub open spec fn recover(mem: Seq<u8>, kv_id: u128) -> Option<AbstractKvStoreState<K, I, L>>
     {
         AbstractKvStoreState::<K, I, L>::recover::<Perm, PM>(mem, kv_id)
+    }
+
+    pub closed spec fn constants(self) -> PersistentMemoryConstants
+    {
+        self.durable_store.constants()
     }
 
     pub closed spec fn view(&self) -> AbstractKvStoreState<K, I, L>
@@ -372,6 +378,66 @@ where
         }
 
         Ok(kvstore)
+    }
+
+    pub exec fn read_item(
+        &self,
+        key: &K,
+    ) -> (result: Result<Box<I>, KvError<K>>)
+        requires 
+            self.valid(),
+        ensures 
+            match result {
+                Ok(item) => {
+                    match self@[*key] {
+                        Some(i) => i.0 == item,
+                        None => false,
+                    }
+                }
+                Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
+                Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                Err(_) => false,
+            }
+    {
+        proof { self.durable_store.lemma_main_table_index_key(); }
+
+        // 1. Look up the table entry in the volatile index.
+        // If the key is not in the volatile index, return an error.
+        let index = match self.volatile_index.get(key) {
+            Some(index) => index,
+            None => {
+                assert(!self@.contains_key(*key));
+                return Err(KvError::KeyNotFound);
+            }
+        };
+
+        proof {
+            assert(self.volatile_index@.contains_key(*key));
+            assert(self.durable_store@.contains_key(index as int));
+        }
+
+        // 2. Read the item from the durable store using the index we just obtained
+        let ret = self.durable_store.read_item(index);
+        
+        proof {
+            match &ret {
+                Ok(item) => {
+                    // We have to prove that successful reads from the index and durable store
+                    // imply that `key` is in self@
+                    let index_to_key = Map::new(
+                        |i: int| self.durable_store@.contents.dom().contains(i),
+                        |i: int| self.durable_store@.contents[i].key
+                    );
+                    let key_to_index = index_to_key.invert();
+                    assert(index_to_key.contains_key(index as int));
+                    assert(key_to_index.contains_key(*key));
+                }
+                Err(e) => {
+                    assert(e == KvError::<K>::CRCMismatch);
+                }
+            }
+        }
+        ret
     }
 
 /*
