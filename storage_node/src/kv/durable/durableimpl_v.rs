@@ -265,7 +265,7 @@ verus! {
     {
         pub closed spec fn view(&self) -> DurableKvStoreView<K, I, L>
         {
-            Self::recover_from_component_views(self.main_table@, self.item_table@, self.durable_list@)
+            Self::recover_from_component_views(self.main_table@, self.item_table@)
         }
 
         pub closed spec fn key_index_list_view(self) -> Set<(K, u64, u64)>
@@ -417,9 +417,11 @@ verus! {
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata, self.main_table@.valid_item_indices())
+            /* REMOVED UNTIL WE IMPLEMENT LISTS
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
                                     self.main_table@, self.overall_metadata)
+            */
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
             &&& log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
             &&& log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
@@ -557,17 +559,15 @@ verus! {
                     main_table_view.valid_item_indices()
                 );
                 if let Some(item_table_view) = item_table_view {
+                    /* REMOVED UNTIL WE IMPLEMENT LISTS
                     let list_view = DurableList::<K, L>::parse_all_lists(
                         main_table_view,
                         list_area_region,
                         overall_metadata.list_node_size,
                         overall_metadata.num_list_entries_per_node
                     );
-                    if let Some(list_view) = list_view {
-                            Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view))
-                    } else {
-                        None
-                    }
+                    */
+                    Some(Self::recover_from_component_views(main_table_view, item_table_view))
                 } else { 
                     None
                 }
@@ -1026,13 +1026,15 @@ verus! {
                     overall_metadata.num_keys as nat,
                     main_table_view.valid_item_indices()
                 ).unwrap();
+                /* REMOVED UNTIL WE IMPLEMENT LISTS
                 let list_view = DurableList::<K, L>::parse_all_lists(
                     main_table_view,
                     list_area_region,
                     overall_metadata.list_node_size,
                     overall_metadata.num_list_entries_per_node
                 ).unwrap();
-                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view)) == 
+                */
+                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view)) == 
                     Self::physical_recover(s1, version_metadata, overall_metadata));
                 let s2_with_log_installed = apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
                 Self::lemma_applying_same_log_preserves_states_differ_only_in_log_region(
@@ -1040,7 +1042,7 @@ verus! {
                 let s2_with_log_installed = apply_physical_log_entries(s2, op_log@.physical_op_list).unwrap();
                 lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                     s1_with_log_installed, s2_with_log_installed, version_metadata, overall_metadata);
-                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view)) == 
+                assert(Some(Self::recover_from_component_views(main_table_view, item_table_view)) == 
                     Self::physical_recover(s2, version_metadata, overall_metadata));
             }
         }
@@ -1222,6 +1224,7 @@ verus! {
                         main_table_view.valid_item_indices()
                     );
                     if let Some(item_table_view) = item_table_view {
+                        /* REMOVED UNTIL WE IMPLEMENT LISTS
                         // recover the list area from logical log
                         let list_area_region = extract_bytes(mem, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
                         let list_area_region = DurableList::<K, L>::replay_log_list_nodes(list_area_region, overall_metadata.list_node_size, logical_log_entries);
@@ -1231,11 +1234,8 @@ verus! {
                             overall_metadata.list_node_size,
                             overall_metadata.num_list_entries_per_node
                         );
-                        if let Some(list_view) = list_view {
-                            Some(Self::recover_from_component_views(main_table_view, item_table_view, list_view))
-                        } else {
-                            None
-                        }
+                        */
+                        Some(Self::recover_from_component_views(main_table_view, item_table_view))
                     } else {
                         None
                     }
@@ -1252,7 +1252,6 @@ verus! {
         pub open spec fn recover_from_component_views(
             recovered_main_table: MainTableView<K>, 
             recovered_item_table: DurableItemTableView<I>,
-            recovered_lists: DurableListView<K, L>
         ) -> DurableKvStoreView<K, I, L>
         {
             let contents = Map::new(
@@ -1264,6 +1263,7 @@ verus! {
                     let key = main_table_entry.key();
                     
                     let item = recovered_item_table.durable_item_table[item_index as int].unwrap();
+                        /* REMOVED UNTIL WE IMPLEMENT LISTS
                     let list_view = recovered_lists.durable_lists[key];
                     let list = DurableKvStoreList {
                             list: Seq::new(
@@ -1271,6 +1271,8 @@ verus! {
                                     |i: int| list_view[i].unwrap_valid().list_element()
                                 )
                     };
+                        */
+                    let list = DurableKvStoreList{ list: Seq::<L>::empty() };
                     DurableKvStoreViewEntry { key, item, list }
                 }
             );
@@ -1763,10 +1765,12 @@ verus! {
                 // each recovered component parses correctly
                 assert(parse_main_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap() == main_table@);
                 assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
+                   /* REMOVED UNTIL WE IMPLEMENT LISTS
                 assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
+                   */
 
                 assert(durable_kv_store@ == Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
-                assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@, durable_list@));
+                assert(durable_kv_store@ == Self::recover_from_component_views(main_table@, item_table@));
                 assert(PhysicalOpLogEntry::vec_view(durable_kv_store.pending_updates) == durable_kv_store.log@.physical_op_list);
 
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(
@@ -5653,9 +5657,11 @@ verus! {
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata, self.main_table@.valid_item_indices()),
+                /* REMOVED UNTIL WE IMPLEMENT LISTS
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),
                                       self.main_table@, self.overall_metadata),
+                */
                 forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.version_metadata == deserialize_version_metadata(s),
                 forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==>
                     self.overall_metadata == deserialize_overall_metadata(
@@ -6039,9 +6045,11 @@ verus! {
             self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
                 Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_item_indices()), Ghost(self.main_table@.valid_item_indices()));
 
+         /* REMOVED UNTIL WE IMPLEMENT LISTS
             // TODO: replace with finalize fn that finishes (de)allocs and updates ghost state
             self.durable_list.update_ghost_state_to_current_bytes(Ghost(self.wrpm@), Ghost(self.overall_metadata), 
                 Ghost(self.main_table@));
+         */
 
             // We now need a more restrictive crash predicate, as there are fewer legal crash states now that 
             // we have replayed the log. It's still the case that clear_log_crash_pred(s) ==> perm.check_permission(s)
@@ -6060,15 +6068,17 @@ verus! {
                     self.overall_metadata.item_table_size as nat);
                 let durable_list_area_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                     self.overall_metadata.list_area_size as nat);
-                
+
                 // Establish some facts about the possible crash states of the item table and list area
                 // to reestablish their invariants
                 // The assertions and lemmas here seem redundant, but the assertions appear to have an impact on a later proof,
                 // and the lemmas are required to reestablish the invariants.
                 assert(durable_item_table_subregion_view.can_crash_as(durable_item_table_subregion_view.committed()));
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_item_table_subregion_view);
+                   /* REMOVED UNTIL WE IMPLEMENT LISTS
                 assert(durable_list_area_subregion_view.can_crash_as(durable_list_area_subregion_view.committed()));
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(durable_list_area_subregion_view);
+                   */
             }
             
             let ghost pre_clear_wrpm = self.wrpm@;

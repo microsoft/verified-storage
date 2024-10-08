@@ -563,12 +563,14 @@ verus! {
                 subregion.inv(pm_region),
                 pm_region@.no_outstanding_writes(),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+        /* REMOVED UNTIL WE IMPLEMENT LISTS
                 Self::parse_all_lists(
                     main_table@, 
                     subregion.view(pm_region).committed(), 
                     overall_metadata.list_node_size, 
                     overall_metadata.num_list_entries_per_node
                 ) is Some,
+        */
             ensures 
                 // TODO: update postcondition
                 match result {

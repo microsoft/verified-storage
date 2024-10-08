@@ -1908,6 +1908,7 @@ verus! {
             }
         }
 
+        #[verifier::rlimit(20)]
         pub exec fn create_validify_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,

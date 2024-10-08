@@ -289,12 +289,14 @@ verus! {
                         overall_metadata.num_keys as nat,
                         main_table.valid_item_indices()
                     ) is Some
+              /* REMOVED UNTIL WE IMPLEMENT LISTS
                 &&& DurableList::<K, L>::parse_all_lists(
                     main_table,
                     list_area_region,
                     overall_metadata.list_node_size,
                     overall_metadata.num_list_entries_per_node
                 ) is Some
+              */
             })
     {}
     
