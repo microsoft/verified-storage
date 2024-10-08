@@ -2451,9 +2451,11 @@ verus! {
 
         spec fn get_writable_mask_for_item_table(self) -> (mask: spec_fn(int) -> bool)
         {
-            |addr: int| address_belongs_to_invalid_item_table_entry::<I>(addr - self.overall_metadata.item_table_addr,
-                                                                       self.overall_metadata.num_keys,
-                                                                       self.main_table@.valid_item_indices())
+            |addr: int| address_belongs_to_invalid_item_table_entry::<I>(
+                addr - self.overall_metadata.item_table_addr,
+                self.overall_metadata.num_keys,
+                self.main_table@.valid_item_indices().union(self.tentative_main_table().valid_item_indices())
+            )
         }
 
         proof fn lemma_writable_mask_for_item_table_suitable_for_creating_subregion(

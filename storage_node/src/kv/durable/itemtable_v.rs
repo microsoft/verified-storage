@@ -631,8 +631,10 @@ verus! {
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
-                    &&& address_belongs_to_invalid_item_table_entry::<I>(addr, overall_metadata.num_keys,
-                                                                       current_valid_indices)
+                    &&& address_belongs_to_invalid_item_table_entry::<I>(
+                        addr, overall_metadata.num_keys,
+                        current_valid_indices.union(tentative_valid_indices)
+                    )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).pending_alloc_inv(current_valid_indices, tentative_valid_indices),
             ensures
