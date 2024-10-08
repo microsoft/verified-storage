@@ -3718,7 +3718,7 @@ verus! {
             );
             let mid_tentative_main_table_bytes =
                 extract_bytes(mid_tentative_bytes, main_table_addr as nat, main_table_size as nat);
-            let mid_tentative_main_table = prove_unwrap(
+            let mid_tentative_main_table_parsed = prove_unwrap(
                 parse_main_table::<K>(mid_tentative_main_table_bytes, num_keys, main_table_entry_size)
             );
             
@@ -3728,6 +3728,10 @@ verus! {
             let current_tentative_main_table_bytes =
                 extract_bytes(current_tentative_state_bytes, self.overall_metadata.main_table_addr as nat,
                               self.overall_metadata.main_table_size as nat);
+            let current_tentative_main_table_parsed = prove_unwrap(
+                parse_main_table::<K>(current_tentative_main_table_bytes, num_keys, main_table_entry_size)
+            );
+                
             let current_durable_main_table_view =
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat);
@@ -3819,8 +3823,6 @@ verus! {
                 assert(current_tentative_main_table_bytes[addr] ==
                        apply_physical_log_entries(self.wrpm@.flush().committed(), op_log).unwrap()[absolute_addr]);
             }
-
-            assume(false);
             
             lemma_main_table_recovery_after_updating_entry::<K>(
                 mid_tentative_main_table_bytes,
@@ -3831,15 +3833,15 @@ verus! {
                 entry,
                 key
             );
-            
-            assume(false);
 
-            assert forall|i| 0 <= i < overall_metadata.num_keys &&
-                       #[trigger] old_tentative_main_table_parsed.durable_main_table[i] is Some
-                       implies old_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key by {
-                // TODO @jay
-                assume(old_tentative_main_table_parsed == self_before_main_table_create.tentative_main_table());
-                assert(self_before_main_table_create.tentative_main_table().durable_main_table[i] is Some);
+            assert(!current_tentative_main_table_parsed.valid_item_indices().contains(item_index));
+            assert forall|i| 0 <= i < num_keys &&
+                       #[trigger] current_tentative_main_table_parsed.durable_main_table[i] is Some
+                       implies current_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key by {
+                let table1 = mid_tentative_main_table_parsed.durable_main_table;
+                let table2 = current_tentative_main_table_parsed.durable_main_table;
+                assert(i != main_table_index);
+                assert(table2[i] == table1[i]);
                 assert(self_before_main_table_create.tentative_main_table().durable_main_table[i].unwrap().key != key);
             }
         }
