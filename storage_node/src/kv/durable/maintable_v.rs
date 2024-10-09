@@ -2689,8 +2689,16 @@ verus! {
                 }
                 self.lemma_new_update_item_log_entry_is_correct(*subregion, pm_region, index, item_index, 
                     new_metadata_entry, *key, crc, version_metadata, *overall_metadata, log_entry, current_tentative_state);
+
+                
+                assert forall |free_index: u64| self.free_list().contains(free_index) implies
+                    log_entry_does_not_modify_free_main_table_entry(log_entry@, free_index, *overall_metadata)
+                by {
+                    assert(free_index != index);
+                    lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(index as nat, free_index as nat, overall_metadata.main_table_entry_size as nat);
+                }
             }
-            assume(false); // TODO @hayley
 
             Ok(log_entry)
         }
