@@ -650,6 +650,9 @@ verus! {
                             ||| self.pending_allocations_view().contains(idx)
                             ||| self.free_list().contains(idx)
                         }
+                        // &&& views_only_differ_where_subregion_allows(old(self).wrpm@, self.wrpm@, 
+                        //         self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat, 
+                        //         )
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
