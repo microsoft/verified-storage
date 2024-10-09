@@ -4122,22 +4122,22 @@ verus! {
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
             };
             proof {
-                assert(AbstractPhysicalOpLogEntry::log_inv(self.log@.commit_op_log().physical_op_list,
-                                                           self.version_metadata, self.overall_metadata)) by {
-                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
-                }
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
                 lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
                     self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
                 self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm);                 
+                self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
+                    self_before_main_table_create, main_table_subregion, perm
+                );
             }
-
-            assume(false);
 
             let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
             let ghost current_flushed_mem = self.wrpm@.flush().committed();
 
             let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata,
                                                                self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+
+            assume(false);
 
             /*
 
