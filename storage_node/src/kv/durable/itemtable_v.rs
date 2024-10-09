@@ -13,6 +13,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::subregion_v::*;
+use crate::pmem::pmemutil_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -457,6 +458,45 @@ verus! {
             assert(validate_item_table_entry::<I, K>(entry_bytes));
         }
 
+        // This lemma proves that if we have an outstanding item at the given index, the corresponding bytes
+        // will pass validation after a flush
+        pub proof fn lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(
+            self,
+            pm_subregion: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            index: u64,
+        ) 
+            requires 
+                0 <= index < overall_metadata.num_keys,
+                self.outstanding_item_table_entry_matches_pm_view(pm_subregion, index as int),
+                self.outstanding_item_table@[index as int] is Some,
+                pm_subregion.len() >= overall_metadata.item_table_size,
+                overall_metadata.item_size == I::spec_size_of(),
+                overall_metadata.item_table_size >= overall_metadata.num_keys * (overall_metadata.item_size + u64::spec_size_of()) ,
+            ensures 
+                ({
+                    let entry_size = I::spec_size_of() + u64::spec_size_of();
+                    let bytes = pm_subregion.flush().committed();
+                    validate_item_table_entry::<I, K>(extract_bytes(bytes, 
+                        index_to_offset(index as nat, entry_size as nat), entry_size))
+                })
+        {
+            broadcast use pmcopy_axioms;
+
+            let outstanding_item = self.outstanding_item_table@[index as int].unwrap();
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            let start = index_to_offset(index as nat, entry_size as nat) as int;
+
+            lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_size);
+
+            lemma_outstanding_bytes_match_after_flush(pm_subregion, start, spec_crc_bytes(I::spec_to_bytes(outstanding_item)));
+            lemma_outstanding_bytes_match_after_flush(pm_subregion, start + u64::spec_size_of(), I::spec_to_bytes(outstanding_item));
+
+            lemma_extract_bytes_of_extract_bytes_equal(pm_subregion.flush().committed(), start as nat, start as nat, entry_size as nat, u64::spec_size_of());
+            lemma_extract_bytes_of_extract_bytes_equal(pm_subregion.flush().committed(), start as nat, (start + u64::spec_size_of()) as nat, entry_size as nat, I::spec_size_of());
+
+        }
+
         pub exec fn index_pending_deallocation(&self, item_index: u64) -> (out: bool)
             requires 
                 0 <= item_index < self.num_keys
@@ -637,12 +677,16 @@ verus! {
                     )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).pending_alloc_inv(current_valid_indices, tentative_valid_indices),
+                overall_metadata.item_size == I::spec_size_of(),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices),
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
                     Ok(index) => {
+                        let flushed_item_table_region = subregion.view(wrpm_region).flush().committed();
+                        let entry_size = I::spec_size_of() + u64::spec_size_of();
+
                         &&& index < overall_metadata.num_keys
                         &&& old(self).free_list().contains(index)
                         &&& self.pending_allocations_view().contains(index)
@@ -740,58 +784,63 @@ verus! {
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
 
             self.outstanding_item_table = Ghost(self.outstanding_item_table@.update(free_index as int, Some(*item)));
+            proof {
+                let pm_view = subregion.view(wrpm_region);
+                assert(pm_view.committed() =~= old_pm_view.committed());
+                assert forall|idx: u64| idx < overall_metadata.num_keys &&
+                    #[trigger] self.outstanding_item_table@[idx as int] is None implies
+                    pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
+                    lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                    assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
+                }
+                assert forall|idx: u64| current_valid_indices.contains(idx) implies {
+                    let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                    &&& idx < overall_metadata.num_keys
+                    &&& validate_item_table_entry::<I, K>(entry_bytes)
+                    &&& self@.durable_item_table[idx as int] is Some
+                    &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
+                } by {
+                    let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                    lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                    assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                                                        (idx * entry_size) as nat, entry_size as nat));
+                }
 
-            let ghost pm_view = subregion.view(wrpm_region);
-            assert(pm_view.committed() =~= old_pm_view.committed());
-            assert forall|idx: u64| idx < overall_metadata.num_keys &&
-                   #[trigger] self.outstanding_item_table@[idx as int] is None implies
-                pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
-                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
-            }
-            assert forall|idx: u64| current_valid_indices.contains(idx) implies {
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
-                &&& idx < overall_metadata.num_keys
-                &&& validate_item_table_entry::<I, K>(entry_bytes)
-                &&& self@.durable_item_table[idx as int] is Some
-                &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
-            } by {
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
-                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).committed(),
-                                                     (idx * entry_size) as nat, entry_size as nat));
-            }
-
-            assert forall |other_index: u64| self.free_list().contains(other_index) <==>
-                     old(self).free_list().contains(other_index) && other_index != free_index by {
-                if other_index != free_index {
-                    if old(self).free_list().contains(other_index) {
-                        let j = choose|j: int| 0 <= j < old(self).free_list@.len() && old(self).free_list@[j] == other_index;
-                        assert(self.free_list@[j] == other_index);
-                        assert(self.free_list().contains(other_index));
+                assert forall |other_index: u64| self.free_list().contains(other_index) <==>
+                        old(self).free_list().contains(other_index) && other_index != free_index by {
+                    if other_index != free_index {
+                        if old(self).free_list().contains(other_index) {
+                            let j = choose|j: int| 0 <= j < old(self).free_list@.len() && old(self).free_list@[j] == other_index;
+                            assert(self.free_list@[j] == other_index);
+                            assert(self.free_list().contains(other_index));
+                        }
                     }
                 }
+
+                assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
+                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, current_valid_indices) == Some(self@)
+                } by {
+                    old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
+                        old_pm_view, pm_view, s, overall_metadata, current_valid_indices, free_index
+                    );
+                }
+
+                assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                    self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int) 
+                by {
+                    lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                    assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
+                }
+
+                assert(self.free_list() =~= old(self).free_list().remove(free_index));
+            
+                // self.lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(pm_view, overall_metadata, free_index);
             }
 
-            assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
-                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, current_valid_indices) == Some(self@)
-            } by {
-                old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
-                    old_pm_view, pm_view, s, overall_metadata, current_valid_indices, free_index
-                );
-            }
-
-            assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
-                self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int) by {
-                lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
-            }
-
-            assert(self.free_list() =~= old(self).free_list().remove(free_index));
-
+            
             Ok(free_index)
         }
 

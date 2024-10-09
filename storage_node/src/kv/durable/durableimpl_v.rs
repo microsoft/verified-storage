@@ -5125,7 +5125,6 @@ verus! {
                 let old_list_area_region = extract_bytes(tentative_view_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
 
                 assert(new_main_table_region == old_main_table_region);
-                // assert(new_item_table_region == old_item_table_region); // not true
                 assert(new_list_area_region == old_list_area_region);
 
                 let old_flushed_item_table_region = extract_bytes(old(self).wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
@@ -5144,27 +5143,13 @@ verus! {
                 ).unwrap();
                 assert(new_main_table_view == old_main_table_view);
 
-                let temp_mask = |addr: int| address_belongs_to_invalid_item_table_entry::<I>(addr - self.overall_metadata.item_table_addr,
-                    self.overall_metadata.num_keys,
-                    old_main_table_view.valid_item_indices());
-
-                // TODO @hayley
-                assume(views_differ_only_where_subregion_allows(self.wrpm@, old(self).wrpm@, 
+                assert(views_differ_only_where_subregion_allows(self.wrpm@, old(self).wrpm@, 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                    temp_mask));
+                    self.get_writable_mask_for_item_table()));
 
                 assert(views_differ_only_where_subregion_allows(self.wrpm@.flush(), old(self).wrpm@.flush(), 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                    temp_mask));
-
-
-                // assert(views_differ_only_where_subregion_allows(self.wrpm@, old(self).wrpm@, 
-                //     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                //     self.get_writable_mask_for_item_table()));
-
-                // assert(views_differ_only_where_subregion_allows(self.wrpm@.flush(), old(self).wrpm@.flush(), 
-                //     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                //     self.get_writable_mask_for_item_table()));
+                    self.get_writable_mask_for_item_table()));
 
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
                     *old(self),
@@ -5174,21 +5159,31 @@ verus! {
                 assert(old(self).main_table@.valid_item_indices() == self.main_table@.valid_item_indices());
                 assert(new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices());
                 assert(!self.main_table@.valid_item_indices().contains(item_index));
-                // assert(!new_main_table_view.valid_item_indices().contains(item_index));
 
                 assert(self.wrpm@.can_crash_as(self.wrpm@.flush().committed()));
+
 
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     old_flushed_item_table_region,
                     new_flushed_item_table_region,
                     self.overall_metadata.num_keys,
-                    self.main_table@.valid_item_indices()
+                    new_main_table_view.valid_item_indices()
                 );
 
                 self.lemma_item_table_unchanged_by_log_replay(*old(self), tentative_view_bytes, current_tentative_bytes);
 
                 assert(old_flushed_item_table_region == old_item_table_region);
                 assert(new_flushed_item_table_region == new_item_table_region);
+
+                assert(self.item_table.pending_allocations_view().contains(item_index));
+                self.item_table.lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(
+                    item_table_subregion.view(&self.wrpm), self.overall_metadata, item_index);
+
+
+                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                assert(new_flushed_item_table_region == item_table_subregion.view(&self.wrpm).flush().committed());
+                assert(validate_item_table_entry::<I, K>(extract_bytes(new_flushed_item_table_region, 
+                    index_to_offset(item_index as nat, entry_size as nat), entry_size)));
 
                 assert(parse_item_table::<I, K>(
                     new_flushed_item_table_region,
@@ -5214,11 +5209,9 @@ verus! {
                     self.overall_metadata.num_keys as nat,
                     new_main_table_view.valid_item_indices()
                 );
-                assume(false); // TODO @hayley
+
                 assert(new_item_table_view is Some);
-
                 assert(new_item_table_view == old_item_table_view);
-
 
                 assert(Self::physical_recover_after_applying_log(tentative_view_bytes, 
                     self.overall_metadata) is Some);
