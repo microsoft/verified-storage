@@ -2048,6 +2048,7 @@ verus! {
             
         }
 
+        #[verifier::rlimit(20)]
         proof fn lemma_installing_single_log_entry_preserves_crash_perm_and_metadata(
             phys_log_view: Seq<AbstractPhysicalOpLogEntry>,
             index: int,
@@ -2187,13 +2188,16 @@ verus! {
             |s: Seq<u8>| {
                 &&& UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata) ==
                       Some(AbstractOpLogState::initialize())
-                &&& parse_main_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
-                                        num_keys, main_table_entry_size) ==
-                      Some(self.main_table@)
-                &&& parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
-                      Some(self.item_table@)
-                &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(self@)
+                &&& self.version_metadata == deserialize_version_metadata(s)
+                &&& self.overall_metadata == deserialize_overall_metadata(s, self.version_metadata.overall_metadata_addr)
+                &&& Some(self.main_table@) ==
+                       parse_main_table::<K>(extract_bytes(s, main_table_addr as nat, main_table_size as nat),
+                                             num_keys, main_table_entry_size)
+                      
+                &&& Some(self.item_table@) ==
+                       parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
+                                                num_keys as nat, self.main_table@.valid_item_indices())
+                &&& Some(self@) == Self::physical_recover(s, version_metadata, overall_metadata)
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
             }
         }
@@ -3696,6 +3700,9 @@ verus! {
                 }),
                 !old_self.tentative_main_table().valid_item_indices().contains(item_index),
             ensures
+                self.inv(),
+                Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) ==
+                    Some(self@),
                 ({
                     let overall_metadata = self.overall_metadata;
                     let subregion_view = get_subregion_view(self.wrpm@, overall_metadata.main_table_addr as nat,
@@ -4108,7 +4115,29 @@ verus! {
                 Ghost(self.log@.commit_op_log().physical_op_list),
             );
 
-            assume(false); // tentative_create
+            // Create a crash predicate for the validify operation and prove that it ensures the validify
+            // will be crash consistent.
+            let ghost crash_pred = |s: Seq<u8>| {
+                &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+            };
+            proof {
+                assert(AbstractPhysicalOpLogEntry::log_inv(self.log@.commit_op_log().physical_op_list,
+                                                           self.version_metadata, self.overall_metadata)) by {
+                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                }
+                lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
+                    self.version_metadata, self.overall_metadata, self.log@.commit_op_log().physical_op_list);
+                self.lemma_tentative_log_entry_append_is_crash_safe(crash_pred, perm);                 
+            }
+
+            assume(false);
+
+            let ghost log_with_new_entry = self.log@.tentatively_append_log_entry(log_entry@).commit_op_log();
+            let ghost current_flushed_mem = self.wrpm@.flush().committed();
+
+            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata,
+                                                               self.overall_metadata, Ghost(crash_pred), Tracked(perm));
 
             /*
 
