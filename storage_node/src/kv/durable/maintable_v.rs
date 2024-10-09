@@ -11,10 +11,12 @@ use vstd::prelude::*;
 use vstd::bytes::*;
 use crate::kv::durable::commonlayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
-use crate::kv::kvimpl_t::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::inv_v::*;
+use crate::kv::durable::oplog::oplogimpl_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::kv::durable::util_v::*;
+use crate::kv::kvimpl_t::*;
 use crate::kv::layout_v::*;
 use crate::kv::setup_v::*;
 use crate::pmem::crc_t::*;
@@ -192,7 +194,6 @@ verus! {
         pub pending_allocations: Vec<u64>,
         pub pending_deallocations: Vec<u64>,
         pub state: Ghost<MainTableView<K>>,
-        pub outstanding_cdb_writes: Ghost<Seq<Option<bool>>>,
         pub outstanding_entry_writes: Ghost<Seq<Option<MainTableViewEntry<K>>>>,
     }
 
@@ -243,8 +244,7 @@ verus! {
 
         pub open spec fn no_outstanding_writes_to_index(self, idx: int) -> bool
         {
-            &&& self.outstanding_cdb_writes@[idx] is None
-            &&& self.outstanding_entry_writes@[idx] is None
+            self.outstanding_entry_writes@[idx] is None
         }
 
         pub open spec fn no_outstanding_writes(self) -> bool
@@ -260,24 +260,9 @@ verus! {
         pub open spec fn free_indices(self) -> Set<u64> {
             Set::new(|i: u64| {
                 &&& 0 <= i < self@.durable_main_table.len() 
-                &&& self.outstanding_cdb_writes@[i as int] is None
                 &&& self.outstanding_entry_writes@[i as int] is None
                 &&& self@.durable_main_table[i as int] is None
             })
-        }
-
-        pub open spec fn outstanding_cdb_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
-                                                               main_table_entry_size: u32) -> bool
-        {
-            let start = index_to_offset(i as nat, main_table_entry_size as nat) as int;
-            match self.outstanding_cdb_writes@[i] {
-                None => pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of()),
-                Some(b) => {
-                    let cdb = if b { CDB_TRUE } else { CDB_FALSE };
-                    let cdb_bytes = u64::spec_to_bytes(cdb);
-                    outstanding_bytes_match(pm, start, cdb_bytes)
-                },
-            }
         }
 
         pub open spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: int,
@@ -285,12 +270,16 @@ verus! {
         {
             let start = index_to_offset(i as nat, main_table_entry_size as nat) as int;
             match self.outstanding_entry_writes@[i] {
-                None => pm.no_outstanding_writes_in_range(start + u64::spec_size_of(), start + main_table_entry_size),
+                None => pm.no_outstanding_writes_in_range(start, start + main_table_entry_size),
                 Some(e) => {
-                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2,
-                                              ListEntryMetadata::spec_to_bytes(e.entry))
+                    let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
+                    let key_bytes = K::spec_to_bytes(e.key);
+                    let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
+                    &&& pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of())
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), crc_bytes)
+                    &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
                     &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
-                                              K::spec_to_bytes(e.key))
+                                              key_bytes)
                 },
             }
         }
@@ -318,26 +307,23 @@ verus! {
             &&& forall |idx: u64| {
                 &&& 0 <= idx < self@.durable_main_table.len()
                 &&& !(#[trigger] self.pending_allocations@.contains(idx))
-            } ==> {
-                &&& self.outstanding_cdb_writes@[idx as int] is None
-                &&& self.outstanding_entry_writes@[idx as int] is None
-            }
+            } ==> self.outstanding_entry_writes@[idx as int] is None
         }
 
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.opaquable_inv(overall_metadata)
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size
+            &&& pm.no_outstanding_writes_in_range(overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+                                                overall_metadata.main_table_size as int)
             &&& pm.len() >= overall_metadata.main_table_size
             &&& self.main_table_entry_size == overall_metadata.main_table_entry_size
             &&& overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(self@)
-            &&& self@.durable_main_table.len() == self.outstanding_cdb_writes@.len() ==
-                    self.outstanding_entry_writes@.len() == overall_metadata.num_keys
-            &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
-                    self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
+            &&& self@.durable_main_table.len() == self.outstanding_entry_writes@.len() ==
+                   overall_metadata.num_keys
             &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
                     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
             &&& self@.inv(overall_metadata)
@@ -407,7 +393,6 @@ verus! {
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.inv(pm, overall_metadata)
-            &&& forall |i| 0 <= i < self.outstanding_cdb_writes@.len() ==> self.outstanding_cdb_writes@[i] is None
             &&& forall |i| 0 <= i < self.outstanding_entry_writes@.len() ==> self.outstanding_entry_writes@[i] is None
         }
 
@@ -802,8 +787,6 @@ verus! {
                             &&& k != l
                         } ==> *(#[trigger] entry_list@[k]).0 != *(#[trigger] entry_list@[l]).0
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
-                        &&& forall|idx: u64| 0 <= idx < main_table.outstanding_cdb_writes@.len() ==>
-                            main_table.outstanding_cdb_writes@[idx as int] is None
                         &&& forall|idx: u64| 0 <= idx < main_table.outstanding_entry_writes@.len() ==>
                             main_table.outstanding_entry_writes@[idx as int] is None
                         &&& main_table.pending_alloc_inv(subregion.view(pm_region).committed(), subregion.view(pm_region).committed(), overall_metadata)
@@ -1204,7 +1187,6 @@ verus! {
                     overall_metadata.num_keys, 
                     overall_metadata.main_table_entry_size 
                 ).unwrap()),
-                outstanding_cdb_writes: Ghost(Seq::<Option<bool>>::new(num_keys as nat, |i: int| None)),
                 outstanding_entry_writes: Ghost(Seq::<Option<MainTableViewEntry<K>>>::new(num_keys as nat,                                                                            |i: int| None)),
             };
             assert(main_table.pending_deallocations_view().is_empty()) by {
@@ -1230,11 +1212,9 @@ verus! {
 
                 let pm_view = subregion.view(pm_region);
 
-                assert forall |i| 0 <= i < main_table.state@.durable_main_table.len() implies {
-                    &&& main_table.outstanding_cdb_write_matches_pm_view(pm_view, i, overall_metadata.main_table_entry_size)
-                    &&& main_table.outstanding_entry_write_matches_pm_view(pm_view, i, overall_metadata.main_table_entry_size)
-                } by {
-                    
+                assert forall |i| 0 <= i < main_table.state@.durable_main_table.len() implies
+                    main_table.outstanding_entry_write_matches_pm_view(pm_view, i,
+                                                                       overall_metadata.main_table_entry_size) by {
                     let main_table_entry_size = overall_metadata.main_table_entry_size;
                     lemma_metadata_fits::<K>(i as int, num_keys as int, main_table_entry_size as int);
                     assert(pm_view.no_outstanding_writes_in_range(i * main_table_entry_size,
@@ -1262,7 +1242,6 @@ verus! {
                 self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
                 self@.durable_main_table[metadata_index as int] is Some,
-                self.outstanding_cdb_writes@[metadata_index as int] is None,
                 self.outstanding_entry_writes@[metadata_index as int] is None,
             ensures
                 ({
@@ -1310,7 +1289,7 @@ verus! {
 
             // 2. Check the CDB to determine whether the entry is valid
             proof {
-                assert(self.outstanding_cdb_write_matches_pm_view(pm_view, metadata_index as int, main_table_entry_size));
+                assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index as int, main_table_entry_size));
                 self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
                 assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
@@ -1457,7 +1436,6 @@ verus! {
                         &&& old(self).free_list().contains(index)
                         &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
-                        &&& self.outstanding_cdb_writes@ == old(self).outstanding_cdb_writes@
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self.outstanding_entry_writes@[i] ==
  old(self).outstanding_entry_writes@[i]
@@ -1490,13 +1468,6 @@ verus! {
                 None => {
                     assert(self.main_table_free_list@.to_set().len() == 0) by {
                         self.main_table_free_list@.lemma_cardinality_of_set();
-                    }
-
-                    assert forall |i| 0 <= i < self@.durable_main_table.len() implies
-                        self.outstanding_cdb_write_matches_pm_view(old_pm_view, i,
-                                                                   overall_metadata.main_table_entry_size) by {
-                        assert(old(self).outstanding_cdb_write_matches_pm_view(old_pm_view, i,
-                                                                             overall_metadata.main_table_entry_size));
                     }
 
                     assert forall |i| 0 <= i < self@.durable_main_table.len() implies
@@ -1553,7 +1524,14 @@ verus! {
             let mut digest = CrcDigest::new();
             digest.write(&entry);
             digest.write(key);
+            proof {
+                reveal_with_fuel(Seq::flatten, 3);
+                assert(digest.bytes_in_digest().flatten() =~=
+                       ListEntryMetadata::spec_to_bytes(entry) + K::spec_to_bytes(*key));
+            }
             let crc = digest.sum64();
+            assert(crc.spec_to_bytes() == spec_crc_bytes(ListEntryMetadata::spec_to_bytes(entry) +
+                                                         K::spec_to_bytes(*key)));
 
             broadcast use pmcopy_axioms;
             
@@ -1582,13 +1560,10 @@ verus! {
                 Ghost(self.outstanding_entry_writes@.update(free_index as int, Some(main_table_entry)));
 
             let ghost pm_view = subregion.view(wrpm_region);
-            assert forall |idx: int| 0 <= idx < self@.durable_main_table.len() implies {
-                &&& self.outstanding_cdb_write_matches_pm_view(pm_view, idx, main_table_entry_size)
-                &&& self.outstanding_entry_write_matches_pm_view(pm_view, idx, main_table_entry_size)
-            } by {
+            assert forall |idx: int| 0 <= idx < self@.durable_main_table.len() implies
+                       self.outstanding_entry_write_matches_pm_view(pm_view, idx, main_table_entry_size) by {
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);
-                assert(old(self).outstanding_cdb_write_matches_pm_view(old_pm_view, idx, main_table_entry_size));
                 assert(old(self).outstanding_entry_write_matches_pm_view(old_pm_view, idx, main_table_entry_size));
             }
 
@@ -1700,7 +1675,6 @@ verus! {
                 old(self).free_list() == self.free_list(),
                 old(self).pending_allocations_view() == self.pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view().insert(index),
-                old(self).outstanding_cdb_writes@ == self.outstanding_cdb_writes@,
                 old(self).outstanding_entry_writes@ == self.outstanding_entry_writes@,
                 self.allocator_inv(),
                 ({
@@ -1739,9 +1713,6 @@ verus! {
                 });
 
                 assert(forall |i| 0 <= i < self@.durable_main_table.len() ==>
-                    old(self).outstanding_cdb_write_matches_pm_view(pm_subregion, i, overall_metadata.main_table_entry_size) ==>
-                        self.outstanding_cdb_write_matches_pm_view(pm_subregion, i, overall_metadata.main_table_entry_size));
-                assert(forall |i| 0 <= i < self@.durable_main_table.len() ==>
                     old(self).outstanding_entry_write_matches_pm_view(pm_subregion, i, overall_metadata.main_table_entry_size) ==> 
                         self.outstanding_entry_write_matches_pm_view(pm_subregion, i, overall_metadata.main_table_entry_size));
                 
@@ -1777,8 +1748,8 @@ verus! {
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
-                old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
-                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
+                old(self)@.durable_main_table.len() == old(self).outstanding_entry_writes@.len() ==
+                    overall_metadata.num_keys,
                 pm.no_outstanding_writes(),
                 // entries in the pending allocations list have become
                 // valid in durable storage
@@ -1818,11 +1789,7 @@ verus! {
                     }
                 },
                 forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> 
-                    old(self).outstanding_cdb_writes@[idx as int] is None,
-                forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> 
                     old(self).outstanding_entry_writes@[idx as int] is None,
-                forall |i: int| 0 <= i < old(self)@.durable_main_table.len() ==> 
-                    old(self).outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
                 forall |i: int| 0 <= i < old(self)@.durable_main_table.len() ==> 
                     old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
             ensures 
@@ -1833,11 +1800,7 @@ verus! {
                 self.allocator_inv(),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
-                    self.outstanding_cdb_writes@[idx as int] is None,
-                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
                     self.outstanding_entry_writes@[idx as int] is None,
-                forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
-                    self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
                 forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
                     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
         {
@@ -1903,11 +1866,8 @@ verus! {
                 }
                 assert(self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata));
 
-                assert forall |i: int| 0 <= i < self@.durable_main_table.len() implies {
-                    &&& self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
-                    &&& self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
-                } by {
-                    assert(old(self).outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size));
+                assert forall |i: int| 0 <= i < self@.durable_main_table.len() implies
+                    self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size) by {
                     assert(old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size));
                 }
 
@@ -1945,13 +1905,15 @@ verus! {
             }
         }
 
+        #[verifier::rlimit(20)]
         pub exec fn create_validify_log_entry(
             &self,
             Ghost(subregion_view): Ghost<PersistentMemoryRegionView>,
+            Ghost(mem): Ghost<Seq<u8>>,
             index: u64,
             Ghost(version_metadata): Ghost<VersionMetadata>,
             overall_metadata: &OverallMetadata,
-            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
+            Ghost(op_log): Ghost<Seq<AbstractPhysicalOpLogEntry>>,
         ) -> (log_entry: PhysicalOpLogEntry)
             requires 
                 self.inv(subregion_view, *overall_metadata),
@@ -1964,9 +1926,13 @@ verus! {
                                           overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+                mem.len() == overall_metadata.region_size,
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
                     <= overall_metadata.region_size <= u64::MAX,
+                log_entries_do_not_modify_free_main_table_entries(op_log, self.free_indices(), *overall_metadata),
+                apply_physical_log_entries(mem, op_log) is Some,
                 ({
+                    let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
@@ -1982,18 +1948,30 @@ verus! {
                     let key_bytes = extract_bytes(
                         entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
                     );
+                    let crc = u64::spec_from_bytes(crc_bytes);
+                    let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
+                    let key = K::spec_from_bytes(key_bytes);
                     let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     let item_index = entry.entry.item_index;
-                    &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(*overall_metadata)
+                    &&& forall|i| 0 <= i < overall_metadata.num_keys &&
+                           #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
+                           ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
+                    &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
+                    &&& u64::bytes_parseable(crc_bytes)
+                    &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
+                    &&& K::bytes_parseable(key_bytes)
+                    &&& 0 <= metadata.item_index < overall_metadata.num_keys
+                    &&& key == entry.key
+                    &&& metadata == entry.entry
                 }),
-                current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
+ + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
@@ -2001,6 +1979,7 @@ verus! {
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 ({
+                    let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                             log_entry.bytes[pos - log_entry.absolute_addr]
@@ -2023,11 +2002,13 @@ verus! {
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
+            let ghost current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
             let ghost entry = self.outstanding_entry_writes@[index as int].unwrap();
             let ghost item_index = entry.entry.item_index;
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
+                lemma_log_replay_preserves_size(mem, op_log);
             }
             
             let index_offset = index * entry_slot_size as u64;
@@ -2049,6 +2030,8 @@ verus! {
                         pre_byte
                     }
                 );
+                assert(current_tentative_state.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size);
+                assert(new_mem.len() == current_tentative_state.len());
                 
                 let old_main_table_region = extract_bytes(current_tentative_state, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
@@ -2062,7 +2045,6 @@ verus! {
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                assert(self.allocator_view().pending_alloc_check(index, committed_main_table_view, old_main_table_view));
                 
                 assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
                                                          index_to_offset(i, entry_slot_size as nat),
@@ -2080,6 +2062,7 @@ verus! {
                            parse_main_entry::<K>(old_entry_bytes, overall_metadata.num_keys as nat)
                 } by {
                     let offset = index_to_offset(i, entry_slot_size as nat);
+                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
                     assert(new_main_table_region.len() >= offset + entry_slot_size);
@@ -2087,6 +2070,7 @@ verus! {
                     if i != index {
                         assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
                                extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
+                        assert(validate_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat));
                     } else {
                         // When `i == index`, the entry is valid because we just set its CDB to true,
                         // which makes its CDB a valid, parseable value. This also proves that this
@@ -2094,7 +2078,9 @@ verus! {
                         // `log_entry.bytes@ == CDB_TRUE.spec_to_bytes()`
                         let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                         let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
+                        let old_entry_bytes = extract_bytes(old_main_table_region, offset, entry_slot_size as nat);
                         assert(cdb_bytes =~= log_entry.bytes@);
+                        lemma_establish_extract_bytes_equivalence(entry_bytes, old_entry_bytes);
                     }
                 }
 
@@ -2122,6 +2108,19 @@ verus! {
                     }
                 }
 
+                assert(no_duplicate_keys(entries)) by {
+                    assert forall|i, j| {
+                        &&& 0 <= i < entries.len()
+                        &&& 0 <= j < entries.len()
+                        &&& i != j
+                        &&& #[trigger] entries[i] is Some
+                        &&& #[trigger] entries[j] is Some
+                    } implies entries[i].unwrap().key() != entries[j].unwrap().key() by {
+                        assert(i == index ==> old_entries[j].unwrap().key() != entry.key);
+                        assert(j == index ==> old_entries[i].unwrap().key() != entry.key);
+                    }
+                }
+
                 let updated_table = old_main_table_view.durable_main_table.update(
                     index as int,
                     Some(entry)
@@ -2145,7 +2144,24 @@ verus! {
                 // prove that it makes the corresponding item table index valid.
                 
                 assert(new_main_table_view.valid_item_indices() =~=
-                       old_main_table_view.valid_item_indices().insert(item_index));
+                       old_main_table_view.valid_item_indices().insert(item_index)) by {
+                    assert(forall|i: u64| #[trigger] new_main_table_view.valid_item_indices().contains(i) ==>
+                           old_main_table_view.valid_item_indices().insert(item_index).contains(i));
+                    assert forall|i: u64| old_main_table_view.valid_item_indices().insert(item_index).contains(i) implies
+                           #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
+                        if i == item_index {
+                            assert(new_main_table_view.durable_main_table[index as int] is Some);
+                        }
+                        else {
+                            let j = choose|j: int| {
+                                &&& 0 <= j < old_main_table_view.durable_main_table.len() 
+                                &&& #[trigger] old_main_table_view.durable_main_table[j] matches Some(entry)
+                                &&& entry.item_index() == i
+                            };
+                            assert(new_main_table_view.durable_main_table[j as int] is Some);
+                        }
+                    }
+                }
             }
 
             log_entry
@@ -2192,6 +2208,7 @@ verus! {
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
                 ({
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -2352,6 +2369,10 @@ verus! {
                                old_main_table_view.durable_main_table[j]);
                     }
                 }
+
+                lemma_log_entry_does_not_modify_free_main_table_entries(
+                    log_entry@, index, self.free_list(), *overall_metadata,
+                );
             }
             log_entry
         }
@@ -2591,6 +2612,8 @@ verus! {
                         &&& log_entry.absolute_addr + log_entry.len <=
                                 overall_metadata.main_table_addr + overall_metadata.main_table_size
                         &&& log_entry@.inv(version_metadata, *overall_metadata)
+                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                                                                            *overall_metadata)
 
                         // after applying this log entry to the current tentative state,
                         // this entry's metadata index has been updated
@@ -2667,6 +2690,7 @@ verus! {
                 self.lemma_new_update_item_log_entry_is_correct(*subregion, pm_region, index, item_index, 
                     new_metadata_entry, *key, crc, version_metadata, *overall_metadata, log_entry, current_tentative_state);
             }
+            assume(false); // TODO @hayley
 
             Ok(log_entry)
         }
@@ -2879,8 +2903,8 @@ verus! {
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
-                old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
-                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
+                old(self)@.durable_main_table.len() == old(self).outstanding_entry_writes@.len() ==
+                    overall_metadata.num_keys,
                 old(self)@.inv(overall_metadata),
                 forall |idx: u64| old(self).free_list().contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |idx: u64| old(self).free_indices().contains(idx) ==> idx < overall_metadata.num_keys,
@@ -2909,10 +2933,6 @@ verus! {
             ensures
                 self.valid(pm, overall_metadata),
                 self.allocator_inv(),
-                self.outstanding_cdb_writes@ == Seq::new(
-                    old(self).outstanding_cdb_writes@.len(),
-                    |i: int| None::<bool>
-                ),
                 self.outstanding_entry_writes@ == Seq::new(
                     old(self).outstanding_entry_writes@.len(),
                     |i: int| None::<MainTableViewEntry<K>>
@@ -2946,10 +2966,6 @@ verus! {
             }
 
             // Drop all outstanding updates from the view
-            self.outstanding_cdb_writes = Ghost(Seq::new(
-                old(self)@.durable_main_table.len(),
-                |i: int| None::<bool>
-            ));
             self.outstanding_entry_writes = Ghost(Seq::new(
                 old(self)@.durable_main_table.len(),
                 |i: int| None::<MainTableViewEntry<K>>
@@ -2959,10 +2975,9 @@ verus! {
                 // We now prove that aborting the transaction reestablishes invariants that 
                 // were broken.
 
-                assert forall |i| 0 <= i < self@.durable_main_table.len() implies {
-                    &&& self.outstanding_cdb_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
-                    &&& self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
-                } by {
+                assert forall |i| 0 <= i < self@.durable_main_table.len() implies
+                           self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
+                by {
                     let start = index_to_offset(i as nat, overall_metadata.main_table_entry_size as nat) as int;
                     assert(i < overall_metadata.num_keys);
                     assert(i * overall_metadata.main_table_entry_size <= overall_metadata.num_keys * overall_metadata.main_table_entry_size) by {
@@ -2997,9 +3012,7 @@ verus! {
                     } else {
                         // We need to hit the necessary triggers to prove that the index is pending 
                         // if it has outstanding writes.
-                        if old(self).outstanding_cdb_writes@[idx as int] is Some {
-                            assert(old(self).pending_allocations@.contains(idx));
-                        } else if old(self).outstanding_entry_writes@[idx as int] is Some {
+                        if old(self).outstanding_entry_writes@[idx as int] is Some {
                             assert(old(self).pending_allocations@.contains(idx));
                         }
                         // Prove that this index would have been added to the allocator.
@@ -3051,8 +3064,8 @@ verus! {
                         overall_metadata.main_table_size as nat);
                     parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
                 }),
-                old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
-                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
+                old(self)@.durable_main_table.len() == old(self).outstanding_entry_writes@.len() ==
+                    overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                 overall_metadata.main_table_entry_size ==
@@ -3065,15 +3078,11 @@ verus! {
                     &&& Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size)
                     &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
-                            self.outstanding_cdb_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
-                    &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
                             self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
                 }),
                 self.free_list() == old(self).free_list(),
                 self.pending_allocations_view() == old(self).pending_allocations_view(),
                 self.pending_deallocations_view() == old(self).pending_deallocations_view(),
-                self.outstanding_cdb_writes@ == Seq::new(old(self).outstanding_cdb_writes@.len(),
-                    |i: int| None::<bool>),
                 self.outstanding_entry_writes@ == Seq::new(old(self).outstanding_entry_writes@.len(),
                     |i: int| None::<MainTableViewEntry<K>>),
                 self.main_table_entry_size == old(self).main_table_entry_size,
@@ -3082,16 +3091,10 @@ verus! {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
             self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
-            self.outstanding_cdb_writes = Ghost(Seq::new(old(self).outstanding_cdb_writes@.len(),
-                |i: int| None::<bool>));
             self.outstanding_entry_writes = Ghost(Seq::new(old(self).outstanding_entry_writes@.len(),
                 |i: int| None));
 
             proof {
-                assert forall |i| 0 <= i < self@.durable_main_table.len() implies
-                    self.outstanding_cdb_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
-                by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat); }
-                
                 assert forall |i| 0 <= i < self@.durable_main_table.len() implies
                     self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
                 by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat); }
@@ -3118,8 +3121,8 @@ verus! {
                     &&& parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
                     &&& old_self.pending_alloc_inv(old_subregion_view.committed(), subregion_view.committed(), overall_metadata)
                 }),
-                old(self)@.durable_main_table.len() == old(self).outstanding_cdb_writes@.len() ==
-                    old(self).outstanding_entry_writes@.len() == overall_metadata.num_keys,
+                old(self)@.durable_main_table.len() == old(self).outstanding_entry_writes@.len() ==
+                    overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                 overall_metadata.main_table_entry_size ==
@@ -3136,15 +3139,11 @@ verus! {
                     &&& self.inv(subregion_view, overall_metadata)
                     &&& self.pending_alloc_inv(subregion_view.committed(), subregion_view.committed(), overall_metadata)
                     &&& forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
-                            self.outstanding_cdb_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
-                    &&& forall |i: int| 0 <= i < self@.durable_main_table.len() ==> 
                             self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
                 }),
                 self.pending_allocations_view().is_empty(),
                 self.pending_deallocations_view().is_empty(),
                 self.allocator_inv(),
-                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
-                    self.outstanding_cdb_writes@[idx as int] is None,
                 forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
                     self.outstanding_entry_writes@[idx as int] is None,
                 
@@ -3204,6 +3203,59 @@ verus! {
 
             self.finalize_pending_alloc_and_dealloc(Ghost(subregion_view), Ghost(overall_metadata));
         }
+
+        pub proof fn lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
+            self,
+            main_table_region: PersistentMemoryRegionView,
+            old_self: Self,
+            old_main_table_region: PersistentMemoryRegionView,
+            overall_metadata: OverallMetadata,
+            index: u64,
+        )
+            requires
+                self.inv(main_table_region, overall_metadata),
+                old_self.inv(old_main_table_region, overall_metadata),
+                index < overall_metadata.num_keys,
+                main_table_region.len() == old_main_table_region.len() == overall_metadata.main_table_size,
+                overall_metadata.main_table_size >=
+                    index_to_offset(overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat),
+                main_table_region.committed() == old_main_table_region.committed(),
+                forall|i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
+                    self.outstanding_entry_writes@[i] == old_self.outstanding_entry_writes@[i],
+            ensures
+                ({
+                    let entry_size = overall_metadata.main_table_entry_size;
+                    let start = index_to_offset(index as nat, entry_size as nat);
+                    forall|addr: int| {
+                        &&& #[trigger] trigger_addr(addr)
+                        &&& 0 <= addr < main_table_region.len()
+                        &&& !(start <= addr < start + entry_size)
+                    } ==> main_table_region.flush().committed()[addr] == old_main_table_region.flush().committed()[addr]
+                })
+        {
+            let entry_size = overall_metadata.main_table_entry_size;
+            let start = index_to_offset(index as nat, entry_size as nat);
+            assert forall|addr: int| {
+                       &&& #[trigger] trigger_addr(addr)
+                       &&& 0 <= addr < main_table_region.len()
+                       &&& !(start <= addr < start + entry_size)
+                   } implies main_table_region.flush().committed()[addr] ==
+                             old_main_table_region.flush().committed()[addr] by {
+                assert(old_main_table_region.state[addr].state_at_last_flush ==
+                       old_main_table_region.committed()[addr]);
+                assert(main_table_region.state[addr].state_at_last_flush == main_table_region.committed()[addr]);
+                if addr < index_to_offset(overall_metadata.num_keys as nat,
+                                          overall_metadata.main_table_entry_size as nat) {
+                    lemma_auto_addr_in_entry_divided_by_entry_size(index as nat, overall_metadata.num_keys as nat,
+                                                                   entry_size as nat);
+                    let i = addr / entry_size as int;
+                    assert(old_self.outstanding_entry_write_matches_pm_view(old_main_table_region, i, entry_size));
+                    assert(self.outstanding_entry_write_matches_pm_view(main_table_region, i, entry_size));
+                    broadcast use pmcopy_axioms;
+                }
+            }
+        }
+
 /* Temporarily commented out for subregion work
 
         pub exec fn play_metadata_log<PM, L>(

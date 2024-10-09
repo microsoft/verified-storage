@@ -291,6 +291,8 @@ verus! {
             }
             &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
                 self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int)
+            &&& pm_view.no_outstanding_writes_in_range(overall_metadata.num_keys * entry_size,
+                                                      overall_metadata.item_table_size as int)
             &&& forall|idx: u64| self.pending_allocations@.contains(idx) ==>
                 #[trigger] self.outstanding_item_table@[idx as int] is Some
 
@@ -361,7 +363,10 @@ verus! {
                     ||| self.free_list().contains(idx)
                 },
                 forall|idx: u64| 0 <= idx < self.num_keys && #[trigger] current_valid_indices.contains(idx) ==> 
-                    !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
+                    !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx),
+                forall|idx: u64| #![trigger current_valid_indices.contains(idx)]
+                    0 <= idx < self.num_keys && self.free_list().contains(idx) ==>
+                    !current_valid_indices.contains(idx) && !tentative_valid_indices.contains(idx),
         {
             // Annoyingly, we have to have the entire alloc check specified here, presumably 
             // to hit the proper triggers. 
@@ -550,7 +555,7 @@ verus! {
             Ok(item)
         }
 
-        proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
+        pub proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
             self: Self,
             v1: PersistentMemoryRegionView,
             v2: PersistentMemoryRegionView,
@@ -626,8 +631,10 @@ verus! {
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
-                    &&& address_belongs_to_invalid_item_table_entry::<I>(addr, overall_metadata.num_keys,
-                                                                       current_valid_indices)
+                    &&& address_belongs_to_invalid_item_table_entry::<I>(
+                        addr, overall_metadata.num_keys,
+                        current_valid_indices.union(tentative_valid_indices)
+                    )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).pending_alloc_inv(current_valid_indices, tentative_valid_indices),
             ensures
@@ -650,9 +657,8 @@ verus! {
                             ||| self.pending_allocations_view().contains(idx)
                             ||| self.free_list().contains(idx)
                         }
-                        // &&& views_only_differ_where_subregion_allows(old(self).wrpm@, self.wrpm@, 
-                        //         self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat, 
-                        //         )
+                        &&& !current_valid_indices.contains(index)
+                        &&& !tentative_valid_indices.contains(index)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -672,14 +678,14 @@ verus! {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
 
+            let entry_size = self.entry_size;
+            assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
+            assert(entry_size == u64::spec_size_of() + I::spec_size_of());
+
             proof {
                 self.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
                     current_valid_indices, tentative_valid_indices);
             }
-            
-            let entry_size = self.entry_size;
-            assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
-            assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
             // pop a free index from the free list
             let free_index = match self.free_list.pop() {
@@ -698,6 +704,14 @@ verus! {
                     return Err(KvError::OutOfSpace);
                 }
             };
+
+
+            proof {
+                assert(old(self).free_list().contains(free_index));
+                assert(!current_valid_indices.contains(free_index));
+                assert(!tentative_valid_indices.contains(free_index));
+            }
+
             self.pending_allocations.push(free_index);
             assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
             assert(self.pending_allocations@[self.pending_allocations@.len() - 1] == free_index);

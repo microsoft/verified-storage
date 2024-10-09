@@ -7,6 +7,7 @@ use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::itemtablelayout_v::*;
 use crate::kv::durable::list_v::*;
+use crate::kv::durable::recovery_v::*;
 use crate::log2::{logimpl_v::*, layout_v::*};
 use crate::kv::{kvspec_t::*, setup_v::*};
 use crate::pmem::{pmemutil_v::*, pmcopy_t::*, wrpm_t::*};
@@ -15,15 +16,6 @@ use std::hash::Hash;
 use super::oplog::logentry_v::PhysicalOpLogEntry;
 
 verus! {
-
-    pub open spec fn addr_modified_by_recovery(
-        log: Seq<AbstractPhysicalOpLogEntry>,
-        addr: int,
-    ) -> bool
-    {
-        exists |j: int| 0 <= j < log.len() &&
-            (#[trigger] log[j]).absolute_addr <= addr < log[j].absolute_addr + log[j].bytes.len()
-    }
 
     pub open spec fn recovery_write_invariant<Perm, PM, K, I, L>(
         wrpm_region: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -229,32 +221,32 @@ verus! {
 
             // applying the log entries obtained from the log succeeds
             // the only way this can fail is if one of the log entries is ill-formed, but we know that is not the case
-            DurableKvStore::<Perm, PM, K, I, L>::lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
+            lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
             
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log) is Some);
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
+            assert(apply_physical_log_entries(s, phys_log) is Some);
+            assert(apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
 
             // Applying the log to both s and the original state result in the same sequence of bytes
-            assert(DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log) == 
-                DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(wrpm_region@.committed(), phys_log)) 
+            assert(apply_physical_log_entries(s, phys_log) == 
+                apply_physical_log_entries(wrpm_region@.committed(), phys_log)) 
             by {
                 let mem = wrpm_region@.committed();
-                let crash_replay = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(s, phys_log);
-                let reg_replay = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem, phys_log);
+                let crash_replay = apply_physical_log_entries(s, phys_log);
+                let reg_replay = apply_physical_log_entries(mem, phys_log);
                 assert(crash_replay is Some);
                 assert(reg_replay is Some);
                 let crash_replay = crash_replay.unwrap();
                 let reg_replay = reg_replay.unwrap();
 
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_replay_preserves_size(mem, phys_log);
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_log_replay_preserves_size(s, phys_log);
+                lemma_log_replay_preserves_size(mem, phys_log);
+                lemma_log_replay_preserves_size(s, phys_log);
 
                 assert(s.len() == mem.len());
 
                 // the only bytes that differ between s and mem are ones that will be overwritten by recovery
                 assert(forall |i: int| 0 <= i < s.len() && s[i] != mem[i] ==> addr_modified_by_recovery(phys_log, i));
 
-                DurableKvStore::<Perm, PM, K, I, L>::lemma_mem_equal_after_recovery(mem, s, version_metadata, overall_metadata, phys_log);
+                lemma_mem_equal_after_recovery(mem, s, version_metadata, overall_metadata, phys_log);
             }
 
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) is Some);
@@ -283,7 +275,7 @@ verus! {
             ({
                 let recovered_log = UntrustedOpLog::<K, L>::recover(mem, version_metadata, overall_metadata).unwrap();
                 let physical_log_entries = recovered_log.physical_op_list;
-                let mem_with_log_installed = DurableKvStore::<Perm, PM, K, I, L>::apply_physical_log_entries(mem, physical_log_entries).unwrap();
+                let mem_with_log_installed = apply_physical_log_entries(mem, physical_log_entries).unwrap();
                 let main_table_region = extract_bytes(mem_with_log_installed, overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let item_table_region = extract_bytes(mem_with_log_installed, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
                 let list_area_region = extract_bytes(mem_with_log_installed, overall_metadata.list_area_addr as nat, overall_metadata.list_area_size as nat);
@@ -297,12 +289,14 @@ verus! {
                         overall_metadata.num_keys as nat,
                         main_table.valid_item_indices()
                     ) is Some
+              /* REMOVED UNTIL WE IMPLEMENT LISTS
                 &&& DurableList::<K, L>::parse_all_lists(
                     main_table,
                     list_area_region,
                     overall_metadata.list_node_size,
                     overall_metadata.num_list_entries_per_node
                 ) is Some
+              */
             })
     {}
     
