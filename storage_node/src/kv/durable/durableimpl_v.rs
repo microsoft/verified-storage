@@ -4950,11 +4950,6 @@ verus! {
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
-                // forall|addr: int| {
-                //     &&& 0 <= addr < item_table_subregion.view(&old(self).wrpm).len()
-                //     &&& address_belongs_to_invalid_item_table_entry::<I>(addr, old(self).overall_metadata.num_keys,
-                //                                                        old(self).main_table@.valid_item_indices())
-                // } ==> #[trigger] item_table_subregion.is_writable_relative_addr(addr),
                 condition_sufficient_to_create_wrpm_subregion(
                     old(self).wrpm@, perm, old(self).overall_metadata.item_table_addr,
                     old(self).overall_metadata.item_table_size as nat,
@@ -5086,9 +5081,6 @@ verus! {
 
                 self.lemma_state_after_tentative_item_write(*old(self), *item_table_subregion, item_index, *item, perm);
 
-                self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                    self_before_tentative_item_write, *item_table_subregion, perm);
-
                 lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
                     self.version_metadata, self.overall_metadata, self.log@.physical_op_list);
                 lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.physical_op_list);
@@ -5103,123 +5095,44 @@ verus! {
                     lemma_byte_equal_after_recovery_specific_byte(addr, old(self).wrpm@.flush().committed(), 
                         self.wrpm@.flush().committed(), self.version_metadata, self.overall_metadata, self.log@.physical_op_list);
                 }
-
                 self.lemma_tentative_item_table_update_does_not_modify_other_regions(*old(self), tentative_view_bytes, current_tentative_bytes);
 
+                // durable MAIN table bytes have not been modified. This follows from the fact that the main table region has 
+                // not been modified but is useful to state explicitly so that Verus can automate some reasoning about pending alloc invs
                 let old_durable_main_table_bytes = extract_bytes(old(self).wrpm@.committed(),
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let new_durable_main_table_bytes = extract_bytes(self.wrpm@.committed(),
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let new_tentative_main_table_bytes = extract_bytes(current_tentative_bytes,
-                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-
                 assert(new_durable_main_table_bytes == old_durable_main_table_bytes);
-                assert(self.main_table.pending_alloc_inv(new_durable_main_table_bytes, new_tentative_main_table_bytes, self.overall_metadata));
             
                 let new_main_table_region = extract_bytes(current_tentative_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let new_item_table_region = extract_bytes(current_tentative_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                let new_list_area_region = extract_bytes(current_tentative_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
                 let old_main_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                 let old_item_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                let old_list_area_region = extract_bytes(tentative_view_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-
-                assert(new_main_table_region == old_main_table_region);
-                assert(new_list_area_region == old_list_area_region);
-
                 let old_flushed_item_table_region = extract_bytes(old(self).wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                 let new_flushed_item_table_region = extract_bytes(self.wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-
                 
                 let new_main_table_view = parse_main_table::<K>(
                     new_main_table_region, 
                     self.overall_metadata.num_keys,
                     self.overall_metadata.main_table_entry_size
                 ).unwrap();
-                let old_main_table_view = parse_main_table::<K>(
-                    old_main_table_region, 
-                    self.overall_metadata.num_keys,
-                    self.overall_metadata.main_table_entry_size
-                ).unwrap();
-                assert(new_main_table_view == old_main_table_view);
 
-                assert(views_differ_only_where_subregion_allows(self.wrpm@, old(self).wrpm@, 
-                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                    self.get_writable_mask_for_item_table()));
-
-                assert(views_differ_only_where_subregion_allows(self.wrpm@.flush(), old(self).wrpm@.flush(), 
-                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat,
-                    self.get_writable_mask_for_item_table()));
-
-                self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
-                    *old(self),
-                    *item_table_subregion,
-                    perm
-                );
-                assert(old(self).main_table@.valid_item_indices() == self.main_table@.valid_item_indices());
-                assert(new_main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices());
-                assert(!self.main_table@.valid_item_indices().contains(item_index));
-
-                assert(self.wrpm@.can_crash_as(self.wrpm@.flush().committed()));
-
-
+                // Now, prove that the parsed/recovery view of the item table is unchanged 
+                // after this write.
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     old_flushed_item_table_region,
                     new_flushed_item_table_region,
                     self.overall_metadata.num_keys,
                     new_main_table_view.valid_item_indices()
                 );
-
                 self.lemma_item_table_unchanged_by_log_replay(*old(self), tentative_view_bytes, current_tentative_bytes);
 
-                assert(old_flushed_item_table_region == old_item_table_region);
-                assert(new_flushed_item_table_region == new_item_table_region);
-
-                assert(self.item_table.pending_allocations_view().contains(item_index));
+                // finally, we prove that the item we wrote to, though not currently in the valid set, passes validation
+                // after a flush
                 self.item_table.lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(
                     item_table_subregion.view(&self.wrpm), self.overall_metadata, item_index);
-
-
-                let entry_size = I::spec_size_of() + u64::spec_size_of();
                 assert(new_flushed_item_table_region == item_table_subregion.view(&self.wrpm).flush().committed());
-                assert(validate_item_table_entry::<I, K>(extract_bytes(new_flushed_item_table_region, 
-                    index_to_offset(item_index as nat, entry_size as nat), entry_size)));
-
-                assert(parse_item_table::<I, K>(
-                    new_flushed_item_table_region,
-                    self.overall_metadata.num_keys as nat,
-                    self.main_table@.valid_item_indices()
-                ) is Some);
-
-                assert(parse_item_table::<I, K>(
-                    old_flushed_item_table_region,
-                    self.overall_metadata.num_keys as nat,
-                    old_main_table_view.valid_item_indices()
-                ) is Some);
-
-                let old_item_table_view = parse_item_table::<I, K>(
-                    old_item_table_region,
-                    self.overall_metadata.num_keys as nat,
-                    new_main_table_view.valid_item_indices()
-                );
-                assert(old_item_table_view is Some);
-
-                let new_item_table_view = parse_item_table::<I, K>(
-                    new_item_table_region,
-                    self.overall_metadata.num_keys as nat,
-                    new_main_table_view.valid_item_indices()
-                );
-
-                assert(new_item_table_view is Some);
-                assert(new_item_table_view == old_item_table_view);
-
-                assert(Self::physical_recover_after_applying_log(tentative_view_bytes, 
-                    self.overall_metadata) is Some);
-                assert(Self::physical_recover_after_applying_log(current_tentative_bytes, 
-                    self.overall_metadata) is Some);
-                assert(self.tentative_view() == Self::physical_recover_after_applying_log(current_tentative_bytes, 
-                    self.overall_metadata));
-                assert(self.tentative_view() is Some);
             }
 
             Ok(item_index)
