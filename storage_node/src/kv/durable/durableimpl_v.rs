@@ -286,14 +286,19 @@ verus! {
 
         pub closed spec fn tentative_main_table_valid(self) -> bool
         {
+            Self::tentative_main_table_given_log_valid(self.wrpm@.flush().committed(), self.log@.physical_op_list, self.overall_metadata)
+        }
+
+        pub closed spec fn tentative_main_table_given_log_valid(bytes: Seq<u8>, log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> bool 
+        {
             let tentative_state_bytes =
-                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+                apply_physical_log_entries(bytes, log);
             let tentative_main_table_bytes =
-                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
-                              self.overall_metadata.main_table_size as nat);
+                extract_bytes(tentative_state_bytes.unwrap(), overall_metadata.main_table_addr as nat,
+                            overall_metadata.main_table_size as nat);
             let tentative_main_table =
-                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
-                                      self.overall_metadata.main_table_entry_size);
+                parse_main_table::<K>(tentative_main_table_bytes, overall_metadata.num_keys,
+                                    overall_metadata.main_table_entry_size);
             &&& tentative_state_bytes is Some
             &&& tentative_main_table is Some
         }
@@ -302,17 +307,18 @@ verus! {
             recommends
                 self.tentative_main_table_valid()
         {
-            let tentative_state_bytes =
-                apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list);
+            Self::tentative_main_table_given_log(self.wrpm@.flush().committed(), self.log@.physical_op_list, self.overall_metadata)
+        }
+
+        pub closed spec fn tentative_main_table_given_log(bytes: Seq<u8>, log: Seq<AbstractPhysicalOpLogEntry>, overall_metadata: OverallMetadata) -> MainTableView<K>
+        {
+            let tentative_state_bytes = apply_physical_log_entries(bytes, log);
             let tentative_main_table_bytes =
-                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.main_table_addr as nat,
-                              self.overall_metadata.main_table_size as nat);
-            let tentative_item_table_bytes =
-                extract_bytes(tentative_state_bytes.unwrap(), self.overall_metadata.item_table_addr as nat,
-                              self.overall_metadata.item_table_size as nat);
+                extract_bytes(tentative_state_bytes.unwrap(), overall_metadata.main_table_addr as nat,
+                            overall_metadata.main_table_size as nat);
             let tentative_main_table =
-                parse_main_table::<K>(tentative_main_table_bytes, self.overall_metadata.num_keys,
-                                      self.overall_metadata.main_table_entry_size);
+                parse_main_table::<K>(tentative_main_table_bytes, overall_metadata.num_keys,
+                                    overall_metadata.main_table_entry_size);
             tentative_main_table.unwrap()
         }
 
@@ -5012,14 +5018,20 @@ verus! {
                                 &&& self.main_table.pending_alloc_inv(durable_main_table_bytes, tentative_main_table_bytes, self.overall_metadata)
                                 &&& old(self).item_table.pending_alloc_inv(old(self).main_table@.valid_item_indices(), tentative_main_table.valid_item_indices())
 
-                                // there is now a valid item at the given index
-                                &&& validate_item_table_entry::<I, K>(extract_bytes(tentative_item_table_region, 
-                                        index_to_offset(index as nat, entry_size as nat), entry_size))
+                                &&& forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != index ==>
+                                        #[trigger] self.item_table.outstanding_item_table@[i] == old(self).item_table.outstanding_item_table@[i]
+                                &&& self.item_table.outstanding_item_table@[index as int] == Some(*item)
+                                // // there is now a valid item at the given index
+                                // &&& validate_item_table_entry::<I, K>(extract_bytes(tentative_item_table_region, 
+                                //         index_to_offset(index as nat, entry_size as nat), entry_size))
+                                // &&& parse_item_entry::<I, K>(extract_bytes(tentative_item_table_region, 
+                                //     index_to_offset(index as nat, entry_size as nat), entry_size)) == Some(*item)
 
                             })
                         &&& old(self).item_table.free_list().contains(index)
                         &&& self.item_table.pending_allocations_view().contains(index)
                         &&& self.main_table.allocator_view() == old(self).main_table.allocator_view()
+                        &&& self.tentative_view() == old(self).tentative_view()
                     }
                     Err(KvError::OutOfSpace) => {
                         &&& self.valid()
@@ -5162,6 +5174,7 @@ verus! {
                 !old(self).main_table@.valid_item_indices().contains(item_index),
                 Some(current_tentative_bytes) == apply_physical_log_entries(old(self).wrpm@.flush().committed(),
                     old(self).log@.physical_op_list),
+                old(self).item_table.outstanding_item_table@[item_index as int] is Some,
                 ({
                     let durable_main_table_region = extract_bytes(old(self).wrpm@.committed(),
                         old(self).overall_metadata.main_table_addr as nat, old(self).overall_metadata.main_table_size as nat);
@@ -5203,9 +5216,12 @@ verus! {
                 old(self).durable_list@ == self.durable_list@,
                 no_outstanding_writes_to_version_metadata(self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
+                self.tentative_view() is Some,
                 match result {
                     Ok(log_entry) => {
                         let new_log = self.log@.tentatively_append_log_entry(log_entry@);
+                        // let new_main_table_view = Self::tentative_main_table_given_log(self.wrpm@.flush().committed(),
+                        //     new_log.physical_op_list, self.overall_metadata);
                         let new_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
                             new_log.physical_op_list);
                         let new_main_table_region = extract_bytes(new_tentative_bytes.unwrap(), 
@@ -5235,13 +5251,16 @@ verus! {
                         // after applying this log entry to the current tentative state,
                         // this entry's metadata index has been updated
                         &&& new_main_table_view is Some
-                        &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
+                        &&& new_main_table_view.unwrap() == current_main_table_view.update_item_index(index as int, item_index).unwrap()
                         &&& new_main_table_view.unwrap().valid_item_indices() == 
                                 current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
 
                         // other success case guarantees
                         &&& old(self).log@ == self.log@
                         &&& old(self).wrpm@ == self.wrpm@
+                        // note -- the actual tentative view doesn't change because we haven't appended to the log yet.
+                        // when we do, we'll get the new main table view mentioned above
+                        &&& old(self).tentative_view() == self.tentative_view()
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self.valid()
@@ -5351,27 +5370,14 @@ verus! {
                 assert(new_main_table_view.valid_item_indices() == 
                     current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
 
-                // let entry_size = I::spec_size_of() + u64::spec_size_of();
-                // assert forall |i: u64| 0 <= i < self.overall_metadata.num_keys && new_main_table_view.valid_item_indices().contains(i) implies 
-                //     validate_item_table_entry::<I, K>(extract_bytes(new_item_table_region, index_to_offset(i as nat, entry_size as nat), entry_size))
-                // by {
-                //     if !current_main_table_view.valid_item_indices().contains(i) {
-
-                //     } // else, trivial
-                // }
-
-
                 assert(validate_item_table_entries::<I, K>(new_item_table_region, self.overall_metadata.num_keys as nat, new_main_table_view.valid_item_indices()));
-                
-
-
+        
                 let new_item_table_view = parse_item_table::<I, K>(
                     new_item_table_region,
                     self.overall_metadata.num_keys as nat,
                     new_main_table_view.valid_item_indices()
                 );
                 assert(new_item_table_view is Some);
-
 
                 let new_list_view = DurableList::<K, L>::parse_all_lists(
                     new_main_table_view,
@@ -5384,6 +5390,39 @@ verus! {
             }
             Ok(log_entry)
         }
+
+        // proof fn lemma_update_main_table_item_implies_overall_update(
+        //     s1: Seq<u8>,
+        //     s2: Seq<u8>,
+        //     key: K,
+            
+        //     overall_metadata: OverallMetadata
+        // )
+        //     requires 
+        //         Self::physical_recover_after_applying_log(s1, overall_metadata) is Some,
+        //         Self::physical_recover_after_applying_log(s2, overall_metadata) is Some,
+        //         ({
+        //             let main_table_region1 = extract_bytes(s1, 
+        //                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+        //             let main_table_view1 = parse_main_table::<K>(main_table_region1,
+        //                 self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+        //             let main_table_region2 = extract_bytes(s2, 
+        //                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+        //             let main_table_view2 = parse_main_table::<K>(main_table_region2,
+        //                 self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+        //             &&& main_table_view1 matches Some(main_table_view1)
+        //             &&& main_table_view2 matches Some(main_table_view2)
+        //             &&& main_table_view1 == main_table_view.
+        //         })
+
+        //     ensures 
+        //         ({
+        //             let v1 = Self::physical_recover_after_applying_log(s1, overall_metadata).unwrap();
+        //             let v2 = Self::physical_recover_after_applying_log(s2, overall_metadata).unwrap();
+        //         })
+        // {
+
+        // }
 
         exec fn append_log_entry_helper(
             &mut self,
@@ -5505,9 +5544,6 @@ verus! {
                         new_tentative_bytes, self.version_metadata, self.overall_metadata);
                 }
             }
-
-            
-
             Ok(())
         }
 
@@ -5596,7 +5632,15 @@ verus! {
             let ghost item_table_subregion_condition = self.condition_preserved_by_subregion_masks();
             proof {
                 self.lemma_writable_mask_for_item_table_suitable_for_creating_subregion(perm);
+                self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
+                    self.version_metadata, self.overall_metadata, self.log@.physical_op_list);
+                lemma_log_replay_preserves_size(self.wrpm@.flush().committed(),
+                    self.log@.physical_op_list);
             }
+
+            let ghost original_tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
+                self.log@.commit_op_log().physical_op_list).unwrap();
 
             let item_table_subregion = WriteRestrictedPersistentMemorySubregion::new_with_condition::<Perm, PM>(
                 &self.wrpm,
@@ -5640,12 +5684,83 @@ verus! {
                 let tentative_main_table = parse_main_table::<K>(main_table_region,
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
                 assert(old(self).main_table.allocator_view().pending_alloc_check(offset, old(self).main_table@, tentative_main_table.unwrap()));
+            
+                // TODO: is this useful here?
+                lemma_if_memories_differ_in_index_table_their_differences_commute_with_log_replay(
+                    old(self).wrpm@.flush().committed(), self.wrpm@.flush().committed(), self.log@.physical_op_list, self.overall_metadata
+                );
+                assert(self.tentative_view() == old(self).tentative_view());
+
+                // Prove that if we flush the bytes (and potentially apply the log), this item we just wrote will parse correctly
+                assert(item_table_subregion.view(&self.wrpm).flush().committed() == extract_bytes(self.wrpm@.flush().committed(),
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
+                self.item_table.lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(item_table_subregion.view(&self.wrpm),
+                    self.overall_metadata, item_index);
+                self.lemma_item_table_unchanged_by_log_replay(*old(self), original_tentative_view_bytes, pre_append_tentative_view_bytes);
+                assert(extract_bytes(self.wrpm@.flush().committed(), self.overall_metadata.item_table_addr as nat, 
+                    self.overall_metadata.item_table_size as nat) == extract_bytes(pre_append_tentative_view_bytes,
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
             }
 
             // 3. Create a log entry that will overwrite the metadata table entry
             // with a new one containing the new item table index
             let log_entry = self.create_update_item_log_entry_helper(Ghost(*old(self)), offset, item_index,
                 Ghost(pre_append_tentative_view_bytes), Tracked(perm))?;
+
+            proof {
+                // Before appending to the actual log, prove that if we replay the old log + the new entry on 
+                // the current bytes, we get the expected final state. Then, after the real append, we only have 
+                // to prove that the bytes on PM recover to the same tentative state. i hope.
+                let new_log = self.log@.tentatively_append_log_entry(log_entry@);
+                let new_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
+                    new_log.physical_op_list).unwrap();
+                let new_main_table_region = extract_bytes(new_tentative_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let new_item_table_region = extract_bytes(new_tentative_bytes, 
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                let new_item_table_view = parse_item_table::<I, K>(new_item_table_region, self.overall_metadata.num_keys as nat,
+                    new_main_table_view.valid_item_indices()).unwrap();
+
+                let current_main_table_region = extract_bytes(pre_append_tentative_view_bytes, 
+                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let current_item_table_region = extract_bytes(pre_append_tentative_view_bytes, 
+                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let current_main_table_view = parse_main_table::<K>(current_main_table_region,
+                    self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
+                let old_item_index = current_main_table_view.durable_main_table[offset as int].unwrap().item_index();
+                let current_item_table_view = parse_item_table::<I, K>(current_item_table_region, self.overall_metadata.num_keys as nat,
+                    current_main_table_view.valid_item_indices()).unwrap();
+
+                // replaying the log entry updates the main table -- passing
+                assert(new_main_table_view == current_main_table_view.update_item_index(offset as int, item_index).unwrap());
+                assert(new_main_table_view.valid_item_indices() == 
+                    current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
+
+                // other regions match between the two tentative views -- passing
+                assert(forall |addr: int| {
+                    &&& 0 <= addr < self.wrpm@.len() 
+                    &&& !(self.overall_metadata.main_table_addr <= addr < self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size)
+                } ==> new_tentative_bytes[addr] == pre_append_tentative_view_bytes[addr]);
+                assert(new_item_table_region == current_item_table_region);
+
+                let new_recovered_state = Self::physical_recover_after_applying_log(new_tentative_bytes, self.overall_metadata).unwrap();
+                let current_recovered_state = Self::physical_recover_after_applying_log(pre_append_tentative_view_bytes, self.overall_metadata).unwrap();
+                assert(current_recovered_state.update_item(offset as int, *item) is Ok);
+
+                // TODO @hayley prove these
+                assert forall |i: int| 0 <= i < new_item_table_view.durable_item_table.len() ==> {
+                    &&& i != item_index ==> new_item_table_view.durable_item_table[i] == current_item_table_view.durable_item_table[i]
+                    &&& i == item_index ==> {
+                        &&& current_item_table_view.durable_item_table[i] is None 
+                        &&& new_item_table_view.durable_item_table[i] == Some(*item)
+                    }
+                } by {
+                    // TODO @hayley THURSDAY
+                }
+                assert(new_recovered_state == current_recovered_state.update_item(offset as int, *item).unwrap());
+            }
 
             // Create a crash predicate for the append operation and prove that it ensures the append
             // will be crash consistent.
@@ -5684,20 +5799,24 @@ verus! {
                 //     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
                 // assert(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                 //     self.overall_metadata.list_area_size as nat) == get_subregion_view(old(self).wrpm@, 
-                //     self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat));
-                // assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                //     self.overall_metadata.item_table_size as nat) == get_subregion_view(pre_append_self.wrpm@, 
-                //     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
 
-                // // Prove that all crash states still recover to the current state. We already know this for each 
-                // // component, since it's part of their invariants, so we just need to prove that it's true 
-                // // for the whole KV store as well.
-                // self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
-                let updated_tentative_view = old(self).tentative_view().unwrap().update_item(offset as int, *item).unwrap();
-                assert(self.tentative_view() is Some);
+                // let updated_old_tentative_view = old(self).tentative_view().unwrap().update_item(offset as int, *item).unwrap();
+                // assert(self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@));
 
-                assume(false);
+                // let current_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(), self.log@.physical_op_list).unwrap;
+                // lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
+                //     self.version_metadata, self.overall_metadata, self.log@.physical_op_list);
+                // lemma_log_replay_preserves_size(self.wrpm@.flush().committed(),
+                //     self.log@.physical_op_list);
 
+                // the current tentative bytes are equivalent to applying the old log + new entry to pre append bytes
+
+
+                // assert(old(self).tentative_view() == pre_append_self.tentative_view());
+                // assert(Some(updated_old_tentative_view) == self.tentative_view());
+
+                assume(false); // @hayley
+ 
 
                 assume(self.inv());
                 assume(self.pending_alloc_inv());
