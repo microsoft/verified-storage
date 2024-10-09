@@ -4873,6 +4873,8 @@ verus! {
                     old_self.get_writable_mask_for_item_table(),
                     old_self.condition_preserved_by_subregion_masks(),
                 ),
+                old_self.tentative_view() is Some,
+                old_self.pending_alloc_inv(),
                 item_table_subregion.constants() == old_self.wrpm.constants(),
                 item_table_subregion.start() == old_self.overall_metadata.item_table_addr,
                 item_table_subregion.len() == old_self.overall_metadata.item_table_size,
@@ -4891,6 +4893,10 @@ verus! {
                 self.item_table.outstanding_item_table@[item_index as int] == Some(item),
                 forall |other_index: u64| self.item_table.free_list().contains(other_index) <==>
                     old_self.item_table.free_list().contains(other_index) && other_index != item_index,
+                get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat).committed()
+                    == get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                        self.overall_metadata.item_table_size as nat).committed()
             ensures 
                 self.inv(),
                 // from lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates
@@ -4910,7 +4916,6 @@ verus! {
                     &&& condition(self.wrpm@.committed())
                 })
         {
-            assume(false); // TODO @hayley
             self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
                 old_self, item_table_subregion, perm);
             item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
@@ -4945,11 +4950,11 @@ verus! {
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
-                forall|addr: int| {
-                    &&& 0 <= addr < item_table_subregion.view(&old(self).wrpm).len()
-                    &&& address_belongs_to_invalid_item_table_entry::<I>(addr, old(self).overall_metadata.num_keys,
-                                                                       old(self).main_table@.valid_item_indices())
-                } ==> #[trigger] item_table_subregion.is_writable_relative_addr(addr),
+                // forall|addr: int| {
+                //     &&& 0 <= addr < item_table_subregion.view(&old(self).wrpm).len()
+                //     &&& address_belongs_to_invalid_item_table_entry::<I>(addr, old(self).overall_metadata.num_keys,
+                //                                                        old(self).main_table@.valid_item_indices())
+                // } ==> #[trigger] item_table_subregion.is_writable_relative_addr(addr),
                 condition_sufficient_to_create_wrpm_subregion(
                     old(self).wrpm@, perm, old(self).overall_metadata.item_table_addr,
                     old(self).overall_metadata.item_table_size as nat,
@@ -5004,9 +5009,18 @@ verus! {
                                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                                 let tentative_main_table = parse_main_table::<K>(tentative_main_table_bytes, 
                                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
+                                let tentative_item_table_region = extract_bytes(tentative_bytes, 
+                                    self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                                let entry_size = I::spec_size_of() + u64::spec_size_of();
+                                
                                 &&& tentative_main_table matches Some(tentative_main_table)
                                 &&& self.main_table.pending_alloc_inv(durable_main_table_bytes, tentative_main_table_bytes, self.overall_metadata)
                                 &&& old(self).item_table.pending_alloc_inv(old(self).main_table@.valid_item_indices(), tentative_main_table.valid_item_indices())
+
+                                // there is now a valid item at the given index
+                                &&& validate_item_table_entry::<I, K>(extract_bytes(tentative_item_table_region, 
+                                        index_to_offset(index as nat, entry_size as nat), entry_size))
+
                             })
                         &&& old(self).item_table.free_list().contains(index)
                         &&& self.item_table.pending_allocations_view().contains(index)
@@ -5695,7 +5709,7 @@ verus! {
 
             proof { lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), 
                     self.log@.commit_op_log().physical_op_list); }
-            assume(false); // TODO @hayley
+
             let item_index = self.tentatively_write_item_helper(&item_table_subregion, item, Tracked(perm))?;
 
             let ghost pre_append_tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
