@@ -175,8 +175,8 @@ verus! {
             &&& {
                 &&& current_view.durable_main_table[idx as int] is Some
                 &&& tentative_view.durable_main_table[idx as int] is Some
-            } ==> current_view.durable_main_table[idx as int] ==
-                  tentative_view.durable_main_table[idx as int]
+            } ==> current_view.durable_main_table[idx as int].unwrap() ==
+                  tentative_view.durable_main_table[idx as int].unwrap()
         }
 
         pub open spec fn spec_abort_alloc_transaction(self) -> Self {
