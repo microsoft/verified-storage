@@ -477,8 +477,10 @@ verus! {
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     let bytes = pm_subregion.flush().committed();
-                    validate_item_table_entry::<I, K>(extract_bytes(bytes, 
-                        index_to_offset(index as nat, entry_size as nat), entry_size))
+                    &&& validate_item_table_entry::<I, K>(extract_bytes(bytes, 
+                            index_to_offset(index as nat, entry_size as nat), entry_size))
+                    &&& parse_item_entry::<I, K>(extract_bytes(bytes, 
+                            index_to_offset(index as nat, entry_size as nat), entry_size)) == self.outstanding_item_table@[index as int]
                 })
         {
             broadcast use pmcopy_axioms;
