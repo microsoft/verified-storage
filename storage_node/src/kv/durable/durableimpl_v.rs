@@ -3355,16 +3355,16 @@ verus! {
                                    self.overall_metadata.main_table_size as nat).committed() ==
                     get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                        self.overall_metadata.main_table_size as nat).committed(),
-                forall|i: int| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
-                    self.main_table.outstanding_entry_writes@[i] ==
-                        self_before_main_table_create.main_table.outstanding_entry_writes@[i],
+                forall|i: u64| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
+                    self.main_table.outstanding_entry_writes[i] ==
+                        self_before_main_table_create.main_table.outstanding_entry_writes[i],
                 self_before_main_table_create.main_table.free_list().contains(main_table_index),
                 self.main_table.free_list() ==
                     self_before_main_table_create.main_table.free_list().remove(main_table_index),
                 self_before_main_table_create.tentative_main_table_valid(),
                 item_index < self.overall_metadata.num_keys,
                 ({
-                    &&& self.main_table.outstanding_entry_writes@[main_table_index as int] matches Some(e)
+                    &&& self.main_table.outstanding_entry_writes[main_table_index] matches Some(e)
                     &&& e.key == key
                     &&& e.entry.head == list_node_index
                     &&& e.entry.tail == list_node_index
@@ -3409,7 +3409,7 @@ verus! {
                                       self.overall_metadata.main_table_size as nat);
                     let main_table_entry_size = self.overall_metadata.main_table_entry_size;
                     let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
-                    let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
+                    // let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
                     let entry_bytes = extract_bytes(current_tentative_main_table_bytes,
                                                     start, main_table_entry_size as nat);
                     let cdb_bytes = extract_bytes(entry_bytes, 0, u64::spec_size_of());
@@ -3419,14 +3419,14 @@ verus! {
                     let key_bytes = extract_bytes(
                         entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
                     );
-                    let e = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap();
+                    let e = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
                     let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
                     let key_bytes2 = K::spec_to_bytes(e.key);
                     let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
                     &&& current_durable_main_table_parsed == Some(self.main_table@)
                     &&& self.main_table.outstanding_entry_write_matches_pm_view(
                         current_durable_main_table_view,
-                        main_table_index as int,
+                        main_table_index,
                         self.overall_metadata.main_table_entry_size
                     )
                     &&& extract_bytes(current_durable_main_table_view.flush().committed(),
@@ -3440,7 +3440,7 @@ verus! {
                                          (start + u64::spec_size_of()) as nat, u64::spec_size_of())
                            == crc_bytes2
                     &&& cdb_bytes == (CDB_FALSE as u64).spec_to_bytes()
-                    &&& metadata_bytes == entry.spec_to_bytes()
+                    &&& metadata_bytes == metadata_bytes2
                     &&& key_bytes == key.spec_to_bytes()
                     &&& crc_bytes == spec_crc_bytes(metadata_bytes + key_bytes)
                 }),
@@ -3491,7 +3491,7 @@ verus! {
                     let crc = u64::spec_from_bytes(crc_bytes);
                     let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
                     let key = K::spec_from_bytes(key_bytes);
-                    let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap();
+                    let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
                     let item_index = entry.entry.item_index;
                     &&& mem.len() == overall_metadata.region_size
                     &&& self.main_table.inv(subregion_view, overall_metadata)
@@ -3501,7 +3501,7 @@ verus! {
                           overall_metadata.num_keys * overall_metadata.main_table_entry_size
                     &&& 0 <= main_table_index < self.main_table@.len()
                     &&& self.main_table@.durable_main_table[main_table_index as int] is None
-                    &&& self.main_table.outstanding_entry_writes@[main_table_index as int] is Some
+                    &&& self.main_table.outstanding_entry_writes[main_table_index] is Some
                     &&& log_entries_do_not_modify_free_main_table_entries(op_log, self.main_table.free_indices(),
                                                                         overall_metadata)
                     &&& apply_physical_log_entries(mem, op_log) is Some
@@ -3548,7 +3548,7 @@ verus! {
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
-            let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
+            let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
 
             let old_tentative_state_bytes =
                 apply_physical_log_entries(old_self.wrpm@.flush().committed(),
@@ -3661,7 +3661,7 @@ verus! {
             );
 
             assert(self.main_table.outstanding_entry_write_matches_pm_view(current_durable_main_table_view,
-                                                                           main_table_index as int,
+                                                                           main_table_index,
                                                                            main_table_entry_size));
 
             let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
@@ -3691,10 +3691,10 @@ verus! {
             
             assert(self.main_table.outstanding_entry_write_matches_pm_view(
                 current_durable_main_table_view,
-                main_table_index as int,
+                main_table_index,
                 main_table_entry_size
             ));
-            let e = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap();
+            let e = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
             let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
             let key_bytes2 = K::spec_to_bytes(e.key);
             let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
@@ -3709,7 +3709,7 @@ verus! {
                                  (start + u64::spec_size_of()) as nat, u64::spec_size_of())
                    =~= crc_bytes2);
             assert(cdb_bytes =~= (CDB_FALSE as u64).spec_to_bytes());
-            assert(metadata_bytes =~= entry.spec_to_bytes());
+            assert(metadata_bytes =~= entry.entry.spec_to_bytes());
             assert(key_bytes =~= key.spec_to_bytes());
             assert(crc_bytes =~= spec_crc_bytes(metadata_bytes + key_bytes));
 
@@ -3719,7 +3719,7 @@ verus! {
                 num_keys,
                 main_table_entry_size,
                 main_table_index,
-                self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry,
+                self.main_table.outstanding_entry_writes[main_table_index].unwrap().entry,
                 key
             );
             
@@ -3786,16 +3786,16 @@ verus! {
                                    self.overall_metadata.main_table_size as nat).committed() ==
                     get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                                        self.overall_metadata.main_table_size as nat).committed(),
-                forall|i: int| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
-                    self.main_table.outstanding_entry_writes@[i] ==
-                        self_before_main_table_create.main_table.outstanding_entry_writes@[i],
+                forall|i: u64| 0 <= i < self.overall_metadata.num_keys && i != main_table_index ==>
+                    self.main_table.outstanding_entry_writes[i] ==
+                        self_before_main_table_create.main_table.outstanding_entry_writes[i],
                 self_before_main_table_create.main_table.free_list().contains(main_table_index),
                 self.main_table.free_list() ==
                     self_before_main_table_create.main_table.free_list().remove(main_table_index),
                 self_before_main_table_create.tentative_main_table_valid(),
                 item_index < self.overall_metadata.num_keys,
                 ({
-                    &&& self.main_table.outstanding_entry_writes@[main_table_index as int] matches Some(e)
+                    &&& self.main_table.outstanding_entry_writes[main_table_index] matches Some(e)
                     &&& e.key == key
                     &&& e.entry.head == list_node_index
                     &&& e.entry.tail == list_node_index
@@ -3834,7 +3834,7 @@ verus! {
                     let crc = u64::spec_from_bytes(crc_bytes);
                     let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
                     let key = K::spec_from_bytes(key_bytes);
-                    let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap();
+                    let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
                     let item_index = entry.entry.item_index;
                     &&& mem.len() == overall_metadata.region_size
                     &&& self.main_table.inv(subregion_view, overall_metadata)
@@ -3844,7 +3844,7 @@ verus! {
                           overall_metadata.num_keys * overall_metadata.main_table_entry_size
                     &&& 0 <= main_table_index < self.main_table@.len()
                     &&& self.main_table@.durable_main_table[main_table_index as int] is None
-                    &&& self.main_table.outstanding_entry_writes@[main_table_index as int] is Some
+                    &&& self.main_table.outstanding_entry_writes[main_table_index] is Some
                     &&& log_entries_do_not_modify_free_main_table_entries(op_log, self.main_table.free_indices(),
                                                                         overall_metadata)
                     &&& apply_physical_log_entries(mem, op_log) is Some
@@ -3874,7 +3874,7 @@ verus! {
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             let main_table_addr = overall_metadata.main_table_addr;
             let main_table_size = overall_metadata.main_table_size;
-            let entry = self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap().entry;
+            let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
 
             let old_tentative_state_bytes =
                 apply_physical_log_entries(old_self.wrpm@.flush().committed(),
@@ -3929,26 +3929,26 @@ verus! {
                 self_before_main_table_create, main_table_subregion, perm
             );
 
-            assert forall|addr: int| {
+            assert forall|addr: u64| {
                 let start = main_table_addr + index_to_offset(main_table_index as nat, main_table_entry_size as nat);
                 let len = main_table_entry_size;
-                &&& #[trigger] trigger_addr(addr)
+                &&& #[trigger] trigger_addr(addr as int)
                 &&& main_table_addr <= addr < main_table_addr + main_table_size
                 &&& !(start <= addr < start + len)
-            } implies self_before_main_table_create.wrpm@.flush().committed()[addr] ==
-                      self.wrpm@.flush().committed()[addr] by {
+            } implies self_before_main_table_create.wrpm@.flush().committed()[addr as int] ==
+                      self.wrpm@.flush().committed()[addr as int] by {
                 let mem1 = self_before_main_table_create.wrpm@.flush().committed();
                 let mem2 = self.wrpm@.flush().committed();
                 let relative_addr = addr - main_table_addr;
                 lemma_auto_addr_in_entry_divided_by_entry_size(main_table_index as nat, num_keys as nat,
                                                                main_table_entry_size as nat);
                 assert(trigger_addr(relative_addr));
-                let which_entry = relative_addr / main_table_entry_size as int;
+                let which_entry = (relative_addr / main_table_entry_size as int) as u64;
                 if relative_addr >= index_to_offset(num_keys as nat, main_table_entry_size as nat) {
                     assert(which_entry >= num_keys);
-                    assert(!old_self.get_writable_mask_for_main_table()(addr));
-                    assert(!main_table_subregion.is_writable_absolute_addr_fn()(addr));
-                    assert(mem1[addr] == mem2[addr]);
+                    assert(!old_self.get_writable_mask_for_main_table()(addr as int));
+                    assert(!main_table_subregion.is_writable_absolute_addr_fn()(addr as int));
+                    assert(mem1[addr as int] == mem2[addr as int]);
                 }
                 else {
                     assert(index_to_offset(which_entry as nat, main_table_entry_size as nat) <= relative_addr <
@@ -3965,16 +3965,16 @@ verus! {
                         which_entry,
                         main_table_entry_size
                     ));
-                    assert(self.main_table.outstanding_entry_writes@[which_entry] ==
-                           self_before_main_table_create.main_table.outstanding_entry_writes@[which_entry]);
+                    assert(self.main_table.outstanding_entry_writes[which_entry] ==
+                           self_before_main_table_create.main_table.outstanding_entry_writes[which_entry]);
                     broadcast use pmcopy_axioms;
-                    assert(self_before_main_table_create.wrpm@.state[addr].state_at_last_flush ==
+                    assert(self_before_main_table_create.wrpm@.state[addr as int].state_at_last_flush ==
                            get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
                                               main_table_size as nat).committed()[addr - main_table_addr]);
-                    assert(self.wrpm@.state[addr].state_at_last_flush ==
+                    assert(self.wrpm@.state[addr as int].state_at_last_flush ==
                            get_subregion_view(self.wrpm@, main_table_addr as nat,
                                               main_table_size as nat).committed()[addr - main_table_addr]);
-                    assert(self_before_main_table_create.wrpm@.state[addr] == self.wrpm@.state[addr]);
+                    assert(self_before_main_table_create.wrpm@.state[addr as int] == self.wrpm@.state[addr as int]);
                 }
             }
 
@@ -4009,7 +4009,7 @@ verus! {
                 num_keys,
                 main_table_entry_size,
                 main_table_index,
-                entry,
+                entry.entry,
                 key
             );
 
