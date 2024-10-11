@@ -338,7 +338,7 @@ verus! {
             let tentative_item_table =
                 parse_item_table::<I, K>(tentative_item_table_bytes,
                                          self.overall_metadata.num_keys as nat,
-                                         tentative_main_table.unwrap().valid_item_indices());
+                                         tentative_main_table.unwrap().valid_durable_item_indices());
             &&& tentative_state_bytes is Some
             &&& tentative_main_table is Some
             &&& tentative_item_table is Some
@@ -362,7 +362,7 @@ verus! {
             let tentative_item_table =
                 parse_item_table::<I, K>(tentative_item_table_bytes,
                                          self.overall_metadata.num_keys as nat,
-                                         tentative_main_table.unwrap().valid_item_indices());
+                                         tentative_main_table.unwrap().valid_durable_item_indices());
             tentative_item_table.unwrap()
         }
 
@@ -395,12 +395,12 @@ verus! {
 
             let main_table_allocator_state = self.main_table.allocator_view().spec_abort_alloc_transaction();
             let item_table_allocator_state = self.item_table.allocator_view().spec_abort_alloc_transaction();
-            let valid_item_indices = self.main_table@.valid_item_indices();
+            let valid_durable_item_indices = self.main_table@.valid_durable_item_indices();
 
             &&& forall |idx: u64| 0 <= idx < self.main_table@.durable_main_table.len() ==> 
                     main_table_allocator_state.pending_alloc_check(idx, self.main_table@, self.main_table@)
             &&& forall |idx: u64| 0 <= idx < self.overall_metadata.num_keys ==> 
-                    item_table_allocator_state.pending_alloc_check(idx, valid_item_indices, valid_item_indices)
+                    item_table_allocator_state.pending_alloc_check(idx, valid_durable_item_indices, valid_durable_item_indices)
             
         }
 
@@ -422,7 +422,7 @@ verus! {
             &&& self.main_table.allocator_inv()
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
-                                  self.overall_metadata, self.main_table@.valid_item_indices())
+                                  self.overall_metadata, self.main_table@.valid_durable_item_indices())
             /* REMOVED UNTIL WE IMPLEMENT LISTS
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
@@ -453,7 +453,7 @@ verus! {
             &&& self.item_table.valid(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata,
-                                    self.main_table@.valid_item_indices())
+                                    self.main_table@.valid_durable_item_indices())
             &&& self.pending_alloc_inv()
         }
 
@@ -507,10 +507,10 @@ verus! {
                         tentative_main_table_region,
                         self.overall_metadata
                     )
-                &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
+                &&& self.main_table@.valid_durable_item_indices() == durable_main_table_view.valid_durable_item_indices()
                 &&& self.item_table.pending_alloc_inv(
-                        durable_main_table_view.valid_item_indices(),
-                        tentative_main_table_view.valid_item_indices(),
+                        durable_main_table_view.valid_durable_item_indices(),
+                        tentative_main_table_view.valid_durable_item_indices(),
                     )
             } else {
                 false
@@ -610,7 +610,7 @@ verus! {
                 let item_table_view = parse_item_table::<I, K>(
                     item_table_region,
                     overall_metadata.num_keys as nat,
-                    main_table_view.valid_item_indices()
+                    main_table_view.valid_durable_item_indices()
                 );
                 if let Some(item_table_view) = item_table_view {
                     /* REMOVED UNTIL WE IMPLEMENT LISTS
@@ -719,7 +719,7 @@ verus! {
                 UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
-                old_self.main_table@.valid_item_indices() == self.main_table@.valid_item_indices(),
+                old_self.main_table@.valid_durable_item_indices() == self.main_table@.valid_durable_item_indices(),
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -734,7 +734,7 @@ verus! {
                         self.overall_metadata.item_table_size as nat);      
                     &&& forall |s| #[trigger] item_table_subregion_view.can_crash_as(s) ==> 
                             parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat,
-                                                     self.main_table@.valid_item_indices())
+                                                     self.main_table@.valid_durable_item_indices())
                         == Some(old_self.item_table@)
                     &&& old_item_table_subregion_view.can_crash_as(item_table_subregion_view.committed())
                 }),
@@ -1115,7 +1115,7 @@ verus! {
                 let item_table_view = parse_item_table::<I, K>(
                     item_table_region,
                     overall_metadata.num_keys as nat,
-                    main_table_view.valid_item_indices()
+                    main_table_view.valid_durable_item_indices()
                 ).unwrap();
                 /* REMOVED UNTIL WE IMPLEMENT LISTS
                 let list_view = DurableList::<K, L>::parse_all_lists(
@@ -1312,7 +1312,7 @@ verus! {
                     let item_table_view = parse_item_table::<I, K>(
                         item_table_region,
                         overall_metadata.num_keys as nat,
-                        main_table_view.valid_item_indices()
+                        main_table_view.valid_durable_item_indices()
                     );
                     if let Some(item_table_view) = item_table_view {
                         /* REMOVED UNTIL WE IMPLEMENT LISTS
@@ -1572,7 +1572,7 @@ verus! {
 
                 // Item table recover succeeds
                 let item_table_bytes = extract_bytes(bytes, overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
-                let valid_indices = recovered_main_table.unwrap().valid_item_indices();
+                let valid_indices = recovered_main_table.unwrap().valid_durable_item_indices();
                 lemma_subrange_of_extract_bytes_equal(bytes, 0, overall_metadata.item_table_addr as nat, overall_metadata.log_area_addr as nat, overall_metadata.item_table_size as nat);
 
                 // List recover succeeds
@@ -1846,8 +1846,8 @@ verus! {
                 assert(durable_kv_store.main_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
                 assert(durable_kv_store.item_table.pending_alloc_inv(
-                    main_table@.valid_item_indices(),
-                    main_table@.valid_item_indices(),
+                    main_table@.valid_durable_item_indices(),
+                    main_table@.valid_durable_item_indices(),
                 ));
             }
 
@@ -1861,7 +1861,7 @@ verus! {
 
                 // each recovered component parses correctly
                 assert(parse_main_table::<K>(main_table_subregion.view(pm_region).committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap() == main_table@);
-                assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_item_indices()).unwrap() == item_table@);
+                assert(parse_item_table::<I, K>(item_table_subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, main_table@.valid_durable_item_indices()).unwrap() == item_table@);
                    /* REMOVED UNTIL WE IMPLEMENT LISTS
                 assert(DurableList::<K, L>::parse_all_lists(main_table@, list_area_subregion.view(pm_region).committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node).unwrap() == durable_list@);
                    */
@@ -2256,7 +2256,7 @@ verus! {
                 pm,
                 item_table_index,
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
+                Ghost(self.main_table@.valid_durable_item_indices()),
             )
         }
 
@@ -2293,7 +2293,7 @@ verus! {
                                              num_keys, main_table_entry_size) ==
                       Some(self.main_table@)
                 &&& parse_item_table::<I, K>(extract_bytes(s, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_durable_item_indices()) ==
                       Some(self.item_table@)
                 &&& Self::physical_recover(s, version_metadata, overall_metadata) == Some(self@)
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
@@ -2404,7 +2404,7 @@ verus! {
                 assert(extract_bytes(s1, item_table_addr as nat, item_table_size as nat) =~=
                        extract_bytes(s2, item_table_addr as nat, item_table_size as nat));
                 assert(parse_item_table::<I, K>(extract_bytes(s2, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_durable_item_indices()) ==
                       Some(self.item_table@));
                 assert(extract_bytes(s1, list_area_addr as nat, list_area_size as nat) =~=
                        extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
@@ -2556,7 +2556,7 @@ verus! {
             |addr: int| address_belongs_to_invalid_item_table_entry::<I>(
                 addr - self.overall_metadata.item_table_addr,
                                                                        self.overall_metadata.num_keys,
-                self.main_table@.valid_item_indices().union(self.tentative_main_table().valid_item_indices())
+                self.main_table@.valid_durable_item_indices().union(self.tentative_main_table().valid_durable_item_indices())
             )
         }
 
@@ -2605,12 +2605,12 @@ verus! {
                 let ss2 = extract_bytes(s2, item_table_addr as nat, item_table_size as nat);
                 assert forall|addr: int| 0 <= addr < ss2.len() && ss1[addr] != #[trigger] ss2[addr] implies
                            address_belongs_to_invalid_item_table_entry::<I>(
-                               addr, num_keys, self.main_table@.valid_item_indices()
+                               addr, num_keys, self.main_table@.valid_durable_item_indices()
                            ) by {
                 }
                 lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
                     ss1, ss2, num_keys,
-                    self.main_table@.valid_item_indices()
+                    self.main_table@.valid_durable_item_indices()
                 );
                 assert(UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, overall_metadata) ==
                        UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, overall_metadata))
@@ -2629,7 +2629,7 @@ verus! {
                                                  num_keys, main_table_entry_size) ==
                        Some(self.main_table@));
                 assert(parse_item_table::<I, K>(extract_bytes(s2, item_table_addr as nat, item_table_size as nat),
-                                            num_keys as nat, self.main_table@.valid_item_indices()) ==
+                                            num_keys as nat, self.main_table@.valid_durable_item_indices()) ==
                       Some(self.item_table@));
                 assert(extract_bytes(s1, list_area_addr as nat, list_area_size as nat) =~=
                        extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
@@ -2746,7 +2746,7 @@ verus! {
                 }),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                                    self.overall_metadata, self.main_table@.valid_durable_item_indices()),
                 old_self.item_table.free_list().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
@@ -2820,7 +2820,7 @@ verus! {
                 extract_bytes(old_tentative_bytes, item_table_addr as nat, item_table_size as nat);
             let old_tentative_item_table_parsed =
                 parse_item_table::<I, K>(old_tentative_item_table_bytes, num_keys as nat,
-                                         old_tentative_main_table_parsed.valid_item_indices());
+                                         old_tentative_main_table_parsed.valid_durable_item_indices());
             assert(old_tentative_item_table_parsed is Some);
             let old_tentative_item_table_parsed = old_tentative_item_table_parsed.unwrap();
             let old_durable_bytes = old_self.wrpm@.committed();
@@ -2833,16 +2833,16 @@ verus! {
             assert(old_durable_main_table_parsed is Some);
             let old_durable_main_table_parsed = old_durable_main_table_parsed.unwrap();
 
-            assert(old_self.item_table.pending_alloc_inv(old_durable_main_table_parsed.valid_item_indices(),
-                                                         old_tentative_main_table_parsed.valid_item_indices()));
+            assert(old_self.item_table.pending_alloc_inv(old_durable_main_table_parsed.valid_durable_item_indices(),
+                                                         old_tentative_main_table_parsed.valid_durable_item_indices()));
             assert(old_self.item_table.allocator_view().pending_alloc_check(
                 item_index,
-                old_durable_main_table_parsed.valid_item_indices(),
-                old_tentative_main_table_parsed.valid_item_indices()
+                old_durable_main_table_parsed.valid_durable_item_indices(),
+                old_tentative_main_table_parsed.valid_durable_item_indices()
             ));
             assert(old_self.item_table.free_list().contains(item_index));
-            assert(!old_tentative_main_table_parsed.valid_item_indices().contains(item_index));
-            assert(!old_self.main_table@.valid_item_indices().contains(item_index));
+            assert(!old_tentative_main_table_parsed.valid_durable_item_indices().contains(item_index));
+            assert(!old_self.main_table@.valid_durable_item_indices().contains(item_index));
             assert(old_self.main_table.pending_alloc_inv(old_durable_main_table_bytes,
                                                          old_tentative_main_table_bytes,
                                                          overall_metadata));
@@ -2877,7 +2877,7 @@ verus! {
             assert(new_tentative_main_table_parsed is Some);
             let new_tentative_main_table_parsed = new_tentative_main_table_parsed.unwrap();
             assert(new_tentative_main_table_parsed == old_tentative_main_table_parsed);
-            assert(!new_tentative_main_table_parsed.valid_item_indices().contains(item_index));
+            assert(!new_tentative_main_table_parsed.valid_durable_item_indices().contains(item_index));
 
             let old_current_main_table_region_view =
                 get_subregion_view(old_self.wrpm@, main_table_addr as nat, main_table_size as nat);
@@ -2946,7 +2946,7 @@ verus! {
                 &&& 0 <= addr < new_flushed_item_table_bytes.len()
                 &&& old_flushed_item_table_bytes[addr] != #[trigger] new_flushed_item_table_bytes[addr]
             } implies address_belongs_to_invalid_item_table_entry::<I>(
-                addr, num_keys, new_tentative_main_table_parsed.valid_item_indices()
+                addr, num_keys, new_tentative_main_table_parsed.valid_durable_item_indices()
             ) by {
                 let entry_size = (I::spec_size_of() + u64::spec_size_of()) as int;
                 assert(old_current_item_table_region_view.state[addr].state_at_last_flush ==
@@ -2990,12 +2990,12 @@ verus! {
                 old_flushed_item_table_bytes,
                 new_flushed_item_table_bytes,
                 num_keys,
-                new_tentative_main_table_parsed.valid_item_indices(),
+                new_tentative_main_table_parsed.valid_durable_item_indices(),
             );
 
             let new_tentative_item_table_parsed =
                 parse_item_table::<I, K>(new_tentative_item_table_bytes, num_keys as nat,
-                                         new_tentative_main_table_parsed.valid_item_indices()).unwrap();
+                                         new_tentative_main_table_parsed.valid_durable_item_indices()).unwrap();
             assert(new_tentative_item_table_parsed == old_tentative_item_table_parsed);
         }
 
@@ -3153,7 +3153,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.main_table@.valid_item_indices()));
+                                              Ghost(self.main_table@.valid_durable_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -3272,7 +3272,7 @@ verus! {
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.main_table@.valid_item_indices()));
+                                              Ghost(self.main_table@.valid_durable_item_indices()));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
             proof {
@@ -3365,18 +3365,19 @@ verus! {
                 item_index < self.overall_metadata.num_keys,
                 ({
                     &&& self.main_table.outstanding_entry_writes[main_table_index] matches Some(e)
+                    &&& e.entry matches EntryStatus::Created(entry)
                     &&& e.key == key
-                    &&& e.entry.head == list_node_index
-                    &&& e.entry.tail == list_node_index
-                    &&& e.entry.length == 0
-                    &&& e.entry.first_entry_offset == 0
-                    &&& e.entry.item_index == item_index
+                    &&& entry.head == list_node_index
+                    &&& entry.tail == list_node_index
+                    &&& entry.length == 0
+                    &&& entry.first_entry_offset == 0
+                    &&& entry.item_index == item_index
                 }),
                 ({
                     let t = self_before_main_table_create.tentative_main_table().durable_main_table;
                     forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key
                 }),
-                !old_self.tentative_main_table().valid_item_indices().contains(item_index),
+                !old_self.tentative_main_table().valid_durable_item_indices().contains(item_index),
             ensures
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 self.log.inv(old_self.wrpm@, self.version_metadata, self.overall_metadata),
@@ -3420,7 +3421,7 @@ verus! {
                         entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of()
                     );
                     let e = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
-                    let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
+                    let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry->Created_0);
                     let key_bytes2 = K::spec_to_bytes(e.key);
                     let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
                     &&& current_durable_main_table_parsed == Some(self.main_table@)
@@ -3492,7 +3493,7 @@ verus! {
                     let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
                     let key = K::spec_from_bytes(key_bytes);
                     let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
-                    let item_index = entry.entry.item_index;
+                    let item_index = entry.entry->Created_0.item_index;
                     &&& mem.len() == overall_metadata.region_size
                     &&& self.main_table.inv(subregion_view, overall_metadata)
                     &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
@@ -3507,14 +3508,14 @@ verus! {
                     &&& apply_physical_log_entries(mem, op_log) is Some
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(overall_metadata)
-                    &&& metadata_bytes == entry.entry.spec_to_bytes()
+                    &&& metadata_bytes == entry.entry->Created_0.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
                     &&& u64::bytes_parseable(crc_bytes)
                     &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
                     &&& K::bytes_parseable(key_bytes)
                     &&& key == entry.key
-                    &&& metadata == entry.entry
+                    &&& metadata == entry.entry->Created_0
                     &&& 0 <= metadata.item_index < overall_metadata.num_keys
                 }),
                 ({
@@ -3695,7 +3696,7 @@ verus! {
                 main_table_entry_size
             ));
             let e = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
-            let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
+            let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry->Created_0);
             let key_bytes2 = K::spec_to_bytes(e.key);
             let crc_bytes2 = spec_crc_bytes(metadata_bytes2 + key_bytes2);
             assert(extract_bytes(current_durable_main_table_view.flush().committed(),
@@ -3709,7 +3710,7 @@ verus! {
                                  (start + u64::spec_size_of()) as nat, u64::spec_size_of())
                    =~= crc_bytes2);
             assert(cdb_bytes =~= (CDB_FALSE as u64).spec_to_bytes());
-            assert(metadata_bytes =~= entry.entry.spec_to_bytes());
+            assert(metadata_bytes =~= entry.entry->Created_0.spec_to_bytes());
             assert(key_bytes =~= key.spec_to_bytes());
             assert(crc_bytes =~= spec_crc_bytes(metadata_bytes + key_bytes));
 
@@ -3719,11 +3720,11 @@ verus! {
                 num_keys,
                 main_table_entry_size,
                 main_table_index,
-                self.main_table.outstanding_entry_writes[main_table_index].unwrap().entry,
+                self.main_table.outstanding_entry_writes[main_table_index].unwrap().entry->Created_0,
                 key
             );
             
-            assert(0 <= e.entry.item_index < overall_metadata.num_keys);
+            assert(0 <= e.entry->Created_0.item_index < overall_metadata.num_keys);
         }
 
         proof fn lemma_justify_validify_log_entry(
@@ -3796,18 +3797,19 @@ verus! {
                 item_index < self.overall_metadata.num_keys,
                 ({
                     &&& self.main_table.outstanding_entry_writes[main_table_index] matches Some(e)
+                    &&& e.entry matches EntryStatus::Created(entry)
                     &&& e.key == key
-                    &&& e.entry.head == list_node_index
-                    &&& e.entry.tail == list_node_index
-                    &&& e.entry.length == 0
-                    &&& e.entry.first_entry_offset == 0
-                    &&& e.entry.item_index == item_index
+                    &&& entry.head == list_node_index
+                    &&& entry.tail == list_node_index
+                    &&& entry.length == 0
+                    &&& entry.first_entry_offset == 0
+                    &&& entry.item_index == item_index
                 }),
                 ({
                     let t = self_before_main_table_create.tentative_main_table().durable_main_table;
                     forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key
                 }),
-                !old_self.tentative_main_table().valid_item_indices().contains(item_index),
+                !old_self.tentative_main_table().valid_durable_item_indices().contains(item_index),
             ensures
                 ({
                     let overall_metadata = self.overall_metadata;
@@ -3835,7 +3837,7 @@ verus! {
                     let metadata = ListEntryMetadata::spec_from_bytes(metadata_bytes);
                     let key = K::spec_from_bytes(key_bytes);
                     let entry = self.main_table.outstanding_entry_writes[main_table_index].unwrap();
-                    let item_index = entry.entry.item_index;
+                    let item_index = entry.entry->Created_0.item_index;
                     &&& mem.len() == overall_metadata.region_size
                     &&& self.main_table.inv(subregion_view, overall_metadata)
                     &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
@@ -3850,16 +3852,16 @@ verus! {
                     &&& apply_physical_log_entries(mem, op_log) is Some
                     &&& main_table_view is Some
                     &&& main_table_view.unwrap().inv(overall_metadata)
-                    &&& metadata_bytes == entry.entry.spec_to_bytes()
+                    &&& metadata_bytes == entry.entry->Created_0.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
                     &&& u64::bytes_parseable(crc_bytes)
                     &&& ListEntryMetadata::bytes_parseable(metadata_bytes)
                     &&& K::bytes_parseable(key_bytes)
                     &&& key == entry.key
-                    &&& metadata == entry.entry
+                    &&& metadata == entry.entry->Created_0
                     &&& 0 <= metadata.item_index < overall_metadata.num_keys
-                    &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
+                    &&& !main_table_view.unwrap().valid_durable_item_indices().contains(item_index)
                     &&& forall|i| 0 <= i < overall_metadata.num_keys &&
                            #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
@@ -4009,11 +4011,11 @@ verus! {
                 num_keys,
                 main_table_entry_size,
                 main_table_index,
-                entry.entry,
+                entry.entry->Created_0,
                 key
             );
 
-            assert(!current_tentative_main_table_parsed.valid_item_indices().contains(item_index));
+            assert(!current_tentative_main_table_parsed.valid_durable_item_indices().contains(item_index));
             assert forall|i| 0 <= i < num_keys &&
                        #[trigger] current_tentative_main_table_parsed.durable_main_table[i] is Some
                        implies current_tentative_main_table_parsed.durable_main_table[i].unwrap().key != key by {
@@ -4130,8 +4132,8 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
-                Ghost(tentative_main_table_view.valid_item_indices()),
+                Ghost(self.main_table@.valid_durable_item_indices()),
+                Ghost(tentative_main_table_view.valid_durable_item_indices()),
             ) {
                 Ok(item_index) => item_index,
                 Err(e) => {
@@ -4263,16 +4265,16 @@ verus! {
                 item_table_subregion.inv(&self.wrpm, perm),
                 old_self.item_table.free_list().contains(item_index),
                 self.item_table.pending_allocations_view().contains(item_index),
-                !old_self.main_table@.valid_item_indices().contains(item_index),
-                !self.main_table@.valid_item_indices().contains(item_index),
+                !old_self.main_table@.valid_durable_item_indices().contains(item_index),
+                !self.main_table@.valid_durable_item_indices().contains(item_index),
                 ({
                     let tentative_main_table = parse_main_table::<K>(extract_bytes(tentative_view_bytes,
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                     old_self.item_table.allocator_view().pending_alloc_check(
                         item_index,
-                        old_self.main_table@.valid_item_indices(),
-                        tentative_main_table.valid_item_indices())
+                        old_self.main_table@.valid_durable_item_indices(),
+                        tentative_main_table.valid_durable_item_indices())
                 }),
                 old_self.overall_metadata == self.overall_metadata,
                 old_self.version_metadata == self.version_metadata,
@@ -4304,7 +4306,7 @@ verus! {
                     let old_item_table_subregion = get_subregion_view(old_self.wrpm@, 
                         self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
                     let old_item_table = parse_item_table::<I, K>(old_item_table_subregion.committed(), 
-                        self.overall_metadata.num_keys as nat, old_main_table.valid_item_indices()).unwrap();
+                        self.overall_metadata.num_keys as nat, old_main_table.valid_durable_item_indices()).unwrap();
                     &&& self.main_table@ == old_main_table
                 })
             ensures
@@ -4313,7 +4315,7 @@ verus! {
                     let tentative_main_table = parse_main_table::<K>(extract_bytes(tentative_view_bytes,
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
-                    &&& !tentative_main_table.valid_item_indices().contains(item_index)            
+                    &&& !tentative_main_table.valid_durable_item_indices().contains(item_index)            
                     // &&& tentative_main_table.durable_main_table[index as int] is Some
                 }),
 
@@ -4352,14 +4354,14 @@ verus! {
                 self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
                 self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
             assert(self.main_table@ == old_main_table);
-            assert(self.main_table@.valid_item_indices() == old_main_table.valid_item_indices());
+            assert(self.main_table@.valid_durable_item_indices() == old_main_table.valid_durable_item_indices());
 
             let old_item_table = parse_item_table::<I, K>(old_item_table_subregion.committed(), 
-                self.overall_metadata.num_keys as nat, old_main_table.valid_item_indices()).unwrap();
+                self.overall_metadata.num_keys as nat, old_main_table.valid_durable_item_indices()).unwrap();
 
             let tentative_item_table = parse_item_table::<I, K>(extract_bytes(tentative_view_bytes,
                 self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat),
-                self.overall_metadata.num_keys as nat, tentative_main_table.valid_item_indices()).unwrap();
+                self.overall_metadata.num_keys as nat, tentative_main_table.valid_durable_item_indices()).unwrap();
             
             assert(old_item_table_subregion.can_crash_as(old_item_table_subregion.committed()));
             assert(old_item_table_subregion.committed() == extract_bytes(old_self.wrpm@.committed(),
@@ -4367,8 +4369,8 @@ verus! {
 
             // the pending alloc check holds for this index, which proves that it is now pending allocation
             assert(old_self.item_table.allocator_view().pending_alloc_check(item_index,
-                                                           old_main_table.valid_item_indices(),
-                                                           tentative_main_table.valid_item_indices()));
+                                                           old_main_table.valid_durable_item_indices(),
+                                                           tentative_main_table.valid_durable_item_indices()));
         }
 
         proof fn lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(
@@ -4408,7 +4410,7 @@ verus! {
                     &&& tentative_view_bytes == old_mem_with_old_log_installed
                     &&& old_main_table_view matches Some(old_main_table_view)
                     &&& old_main_table_view.durable_main_table[index as int] matches Some(entry) 
-                    &&& !old_main_table_view.valid_item_indices().contains(item_index)
+                    &&& !old_main_table_view.valid_durable_item_indices().contains(item_index)
                 }),
                 ({
                     let new_mem = tentative_view_bytes.map(|pos: int, pre_byte: u8|
@@ -4437,8 +4439,8 @@ verus! {
                     // this entry's metadata index has been updated
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_durable_main_table_view.update_item_index(index as int, item_index)
-                    &&& new_main_table_view.unwrap().valid_item_indices() == 
-                            current_durable_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                    &&& new_main_table_view.unwrap().valid_durable_item_indices() == 
+                            current_durable_main_table_view.valid_durable_item_indices().insert(item_index).remove(old_item_index)
                 }),
                 self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
                 self.item_table.outstanding_item_table@[item_index as int] == Some(item),
@@ -4540,7 +4542,7 @@ verus! {
             ));
 
             let entry_size = I::spec_size_of() + u64::spec_size_of();
-            assert forall |idx: u64| new_mem_main_table.valid_item_indices().contains(idx) implies {
+            assert forall |idx: u64| new_mem_main_table.valid_durable_item_indices().contains(idx) implies {
                 let offset = index_to_offset(idx as nat, entry_size);
                 &&& validate_item_table_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size))
                 &&& idx != item_index ==> parse_item_entry::<I, K>(extract_bytes(new_item_table_region, offset, entry_size)) == 
@@ -4551,7 +4553,7 @@ verus! {
                 let bytes = extract_bytes(new_item_table_region, offset, entry_size);
                 lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                if !old_tentative_main_table.valid_item_indices().contains(idx) {
+                if !old_tentative_main_table.valid_durable_item_indices().contains(idx) {
                     // When idx == item_index, we want to prove that the current outstanding item at item_index is in the new
                     // tentative state. This is the only tricky case; the rest of the items have stayed the same, but we haven't
                     // previously explicitly validated this one.
@@ -4911,7 +4913,7 @@ verus! {
                 self == (Self{ wrpm: self.wrpm, item_table: self.item_table, ..old_self }),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),
-                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                    self.overall_metadata, self.main_table@.valid_durable_item_indices()),
                 old_self.item_table.free_list().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
@@ -4960,7 +4962,7 @@ verus! {
             requires 
                 item_table_subregion.inv(&old(self).wrpm, perm),
                 old(self).item_table.inv(item_table_subregion.view(&old(self).wrpm), old(self).overall_metadata,
-                    old(self).main_table@.valid_item_indices()),
+                    old(self).main_table@.valid_durable_item_indices()),
                 old(self).inv(),
                 item_table_subregion.constants() == old(self).wrpm.constants(),
                 item_table_subregion.start() == old(self).overall_metadata.item_table_addr,
@@ -4988,7 +4990,7 @@ verus! {
                 self.inv(),
                 self.wrpm.inv(),
                 self.item_table.inv(item_table_subregion.view(&self.wrpm), self.overall_metadata,
-                    self.main_table@.valid_item_indices()),
+                    self.main_table@.valid_durable_item_indices()),
                 self.overall_metadata == old(self).overall_metadata,
                 self.version_metadata == old(self).version_metadata,
                 self.wrpm_view().len() == old(self).wrpm_view().len(),
@@ -5017,10 +5019,10 @@ verus! {
                                 &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
                                 &&& condition(self.wrpm@.committed())
                             })
-                        &&& self.main_table@.valid_item_indices() == old(self).main_table@.valid_item_indices()
+                        &&& self.main_table@.valid_durable_item_indices() == old(self).main_table@.valid_durable_item_indices()
                         &&& index < self.overall_metadata.num_keys
                         &&& self.log@ == old(self).log@
-                        &&& !self.main_table@.valid_item_indices().contains(index)
+                        &&& !self.main_table@.valid_durable_item_indices().contains(index)
                         &&& ({
                                 // main table pending alloc inv holds
                                 let durable_main_table_bytes = extract_bytes(self.wrpm@.committed(),
@@ -5037,7 +5039,7 @@ verus! {
                                 
                                 &&& tentative_main_table matches Some(tentative_main_table)
                                 &&& self.main_table.pending_alloc_inv(durable_main_table_bytes, tentative_main_table_bytes, self.overall_metadata)
-                                &&& old(self).item_table.pending_alloc_inv(old(self).main_table@.valid_item_indices(), tentative_main_table.valid_item_indices())
+                                &&& old(self).item_table.pending_alloc_inv(old(self).main_table@.valid_durable_item_indices(), tentative_main_table.valid_durable_item_indices())
 
                                 &&& forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != index ==>
                                         #[trigger] self.item_table.outstanding_item_table@[i] == old(self).item_table.outstanding_item_table@[i]
@@ -5086,8 +5088,8 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
-                Ghost(tentative_main_table_view.valid_item_indices()),
+                Ghost(self.main_table@.valid_durable_item_indices()),
+                Ghost(tentative_main_table_view.valid_durable_item_indices()),
             ) {
                 Ok(item_index) => item_index,
                 Err(e) => {
@@ -5154,7 +5156,7 @@ verus! {
                     old_flushed_item_table_region,
                     new_flushed_item_table_region,
                     self.overall_metadata.num_keys,
-                    new_main_table_view.valid_item_indices()
+                    new_main_table_view.valid_durable_item_indices()
                 );
                 self.lemma_item_table_unchanged_by_log_replay(*old(self), tentative_view_bytes, current_tentative_bytes);
 
@@ -5189,7 +5191,7 @@ verus! {
                 old(self).item_table@ == pre_self.item_table@,
                 old(self).durable_list@ == pre_self.durable_list@,
                 old(self).log@ == pre_self.log@,
-                !old(self).main_table@.valid_item_indices().contains(item_index),
+                !old(self).main_table@.valid_durable_item_indices().contains(item_index),
                 Some(current_tentative_bytes) == apply_physical_log_entries(old(self).wrpm@.flush().committed(),
                     old(self).log@.physical_op_list),
                 old(self).item_table.outstanding_item_table@[item_index as int] is Some,
@@ -5207,7 +5209,7 @@ verus! {
                     &&& old(self).main_table.pending_alloc_inv(durable_main_table_region, tentative_main_table_region, old(self).overall_metadata)
                     &&& tentative_main_table_view matches Some(tentative_main_table_view)
                     &&& tentative_main_table_view.inv(old(self).overall_metadata)
-                    &&& !tentative_main_table_view.valid_item_indices().contains(item_index)
+                    &&& !tentative_main_table_view.valid_durable_item_indices().contains(item_index)
 
                     // the index should not be deallocated in the tentative view
                     &&& tentative_main_table_view.durable_main_table[index as int] is Some
@@ -5270,8 +5272,8 @@ verus! {
                         // this entry's metadata index has been updated
                         &&& new_main_table_view is Some
                         &&& new_main_table_view.unwrap() == current_main_table_view.update_item_index(index as int, item_index).unwrap()
-                        &&& new_main_table_view.unwrap().valid_item_indices() == 
-                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                        &&& new_main_table_view.unwrap().valid_durable_item_indices() == 
+                                current_main_table_view.valid_durable_item_indices().insert(item_index).remove(old_item_index)
 
                         // other success case guarantees
                         &&& old(self).log@ == self.log@
@@ -5388,15 +5390,15 @@ verus! {
                         &&& new_entry == current_entry
                     }
                 });
-                assert(new_main_table_view.valid_item_indices() == 
-                    current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
+                assert(new_main_table_view.valid_durable_item_indices() == 
+                    current_main_table_view.valid_durable_item_indices().insert(item_index).remove(old_item_index));
 
-                assert(validate_item_table_entries::<I, K>(new_item_table_region, self.overall_metadata.num_keys as nat, new_main_table_view.valid_item_indices()));
+                assert(validate_item_table_entries::<I, K>(new_item_table_region, self.overall_metadata.num_keys as nat, new_main_table_view.valid_durable_item_indices()));
         
                 let new_item_table_view = parse_item_table::<I, K>(
                     new_item_table_region,
                     self.overall_metadata.num_keys as nat,
-                    new_main_table_view.valid_item_indices()
+                    new_main_table_view.valid_durable_item_indices()
                 );
                 assert(new_item_table_view is Some);
 
@@ -5738,7 +5740,7 @@ verus! {
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 let new_item_table_view = parse_item_table::<I, K>(new_item_table_region, self.overall_metadata.num_keys as nat,
-                    new_main_table_view.valid_item_indices()).unwrap();
+                    new_main_table_view.valid_durable_item_indices()).unwrap();
 
                 let current_main_table_region = extract_bytes(pre_append_tentative_view_bytes, 
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
@@ -5748,7 +5750,7 @@ verus! {
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                 let old_item_index = current_main_table_view.durable_main_table[offset as int].unwrap().item_index();
                 let current_item_table_view = parse_item_table::<I, K>(current_item_table_region, self.overall_metadata.num_keys as nat,
-                    current_main_table_view.valid_item_indices()).unwrap();
+                    current_main_table_view.valid_durable_item_indices()).unwrap();
 
                 let new_recovered_state = Self::physical_recover_after_applying_log(new_tentative_bytes, self.overall_metadata).unwrap();
                 let current_recovered_state = Self::physical_recover_after_applying_log(pre_append_tentative_view_bytes, self.overall_metadata).unwrap();
@@ -5756,8 +5758,8 @@ verus! {
 
                 // This assertion proves that applying the new log entry results in an update item operation on the tentative state
                 assert(new_recovered_state == updated_current_state) by {
-                    assert(new_main_table_view.valid_item_indices() == 
-                        current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index));
+                    assert(new_main_table_view.valid_durable_item_indices() == 
+                        current_main_table_view.valid_durable_item_indices().insert(item_index).remove(old_item_index));
                     assert(forall |addr: int| {
                         &&& 0 <= addr < self.wrpm@.len() 
                         &&& !(self.overall_metadata.main_table_addr <= addr < self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size)
@@ -5872,7 +5874,7 @@ verus! {
                     let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_region, self.overall_metadata.num_keys,
                         self.overall_metadata.main_table_entry_size).unwrap();
 
-                    assert(self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices());
+                    assert(self.main_table@.valid_durable_item_indices() == durable_main_table_view.valid_durable_item_indices());
                     assert(old_durable_main_table_view.durable_main_table.len() == durable_main_table_view.durable_main_table.len());
                     assert(old_tentative_main_table_view.durable_main_table.len() == tentative_main_table_view.durable_main_table.len());
                     assert(old(self).pending_alloc_inv());
@@ -5906,8 +5908,8 @@ verus! {
                     assume(false); 
 
                     assert(self.item_table.pending_alloc_inv(
-                        durable_main_table_view.valid_item_indices(),
-                        tentative_main_table_view.valid_item_indices(),
+                        durable_main_table_view.valid_durable_item_indices(),
+                        tentative_main_table_view.valid_durable_item_indices(),
                     ));
                 }
 
@@ -6001,7 +6003,7 @@ verus! {
                     let item_index = self.main_table@.durable_main_table[index as int].unwrap().item_index();
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_main_table_view.delete(index as int)
-                    &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
+                    &&& new_main_table_view.unwrap().valid_durable_item_indices() == current_main_table_view.valid_durable_item_indices().remove(item_index)
                 }),
                 get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat) == 
                     get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat),
@@ -6046,7 +6048,7 @@ verus! {
                     &&& old_mem_old_log_item_table_region == old_mem_new_log_item_table_region
                     &&& old_mem_old_log_list_area_region == old_mem_new_log_list_area_region
                     &&& main_table_view == old_main_table_view.delete(index as int).unwrap()
-                    &&& main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index)
+                    &&& main_table_view.valid_durable_item_indices() == old_main_table_view.valid_durable_item_indices().remove(item_index)
 
                     &&& DurableList::<K, L>::parse_all_lists(main_table_view, new_mem_new_log_list_area_region, 
                             self.overall_metadata.list_node_size, self.overall_metadata.num_list_entries_per_node) is Some
@@ -6106,7 +6108,7 @@ verus! {
         
             assert(main_table_view == old_main_table_view.delete(index as int).unwrap());
             assert(old_main_table_view.durable_main_table[index as int] matches Some(entry) && entry.item_index() == item_index);
-            assert(main_table_view.valid_item_indices() == old_main_table_view.valid_item_indices().remove(item_index));
+            assert(main_table_view.valid_durable_item_indices() == old_main_table_view.valid_durable_item_indices().remove(item_index));
 
             DurableList::<K, L>::lemma_parse_all_lists_succeeds_after_record_delete(
                 old_main_table_view,
@@ -6125,13 +6127,12 @@ verus! {
                 self@.contains_key(index as int),
                 self.pending_alloc_inv(),
                 !self.item_table.pending_deallocations_view().contains(item_index),
-                self.main_table@.valid_item_indices().contains(item_index),
+                // self.main_table@.valid_durable_item_indices().contains(item_index),
                 ({
                     &&& self.main_table@.durable_main_table[index as int] matches Some(entry)
                     &&& entry.item_index() == item_index
                 }),
             ensures 
-                
                 !self.item_table.pending_allocations_view().contains(item_index),
                 !self.item_table.free_list().contains(item_index),
                 ({
@@ -6144,7 +6145,7 @@ verus! {
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
                     &&& tentative_view_bytes matches Some(tentative_view_bytes)
                     &&& tentative_main_table_view matches Some(tentative_main_table_view)
-                    &&& tentative_main_table_view.valid_item_indices().contains(item_index)
+                    &&& tentative_main_table_view.valid_durable_item_indices().contains(item_index)
                 })
         {
 
@@ -6167,8 +6168,8 @@ verus! {
             assert(durable_main_table_subregion.can_crash_as(durable_main_table_region));
             assert(self.main_table@ == durable_main_table_view);
             assert(self.item_table.allocator_view().pending_alloc_check(item_index,
-                                                       self.main_table@.valid_item_indices(),
-                                                       tentative_main_table_view.valid_item_indices()));
+                                                       self.main_table@.valid_durable_item_indices(),
+                                                       tentative_main_table_view.valid_durable_item_indices()));
 
         }
 
@@ -6267,21 +6268,21 @@ verus! {
             };
             let item_index = metadata.item_index;
 
-            // check that this item index is not already pending deallocation. This could happen 
-            // if we, e.g., update the item in this same transaction. if it is, abort the 
-            // transaction.
-            // TODO: it might be fine to just ignore this? aborting the transaction 
-            // is likely overkill, but it might complicate other things to not abort
-            if self.item_table.index_pending_deallocation(item_index) {
-                self.general_abort_after_failed_operation(Ghost(*old(self)), Tracked(perm));
-                return Err(KvError::EntryIsNotValid);
-            }
+            // // check that this item index is not already pending deallocation. This could happen 
+            // // if we, e.g., update the item in this same transaction. if it is, abort the 
+            // // transaction.
+            // // TODO: it might be fine to just ignore this? aborting the transaction 
+            // // is likely overkill, but it might complicate other things to not abort
+            // if self.item_table.index_pending_deallocation(item_index) {
+            //     self.general_abort_after_failed_operation(Ghost(*old(self)), Tracked(perm));
+            //     return Err(KvError::EntryIsNotValid);
+            // }
 
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
                 self.log@.commit_op_log().physical_op_list).unwrap();
             proof { 
                 lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
-                self.lemma_item_index_is_currently_valid(index, item_index);
+                // self.lemma_item_index_is_currently_valid(index, item_index);
             }
 
             // To tentatively delete a record, we need to obtain a log entry representing 
@@ -6465,9 +6466,9 @@ verus! {
                 let old_tentative_main_table_view = parse_main_table::<K>(old_tentative_main_table_subregion_state,
                     self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
 
-                assert(self.main_table@.valid_item_indices() == old(self).main_table@.valid_item_indices());
+                assert(self.main_table@.valid_durable_item_indices() == old(self).main_table@.valid_durable_item_indices());
 
-                assert(tentative_main_table_view.valid_item_indices() == old_tentative_main_table_view.valid_item_indices().remove(item_index));
+                assert(tentative_main_table_view.valid_durable_item_indices() == old_tentative_main_table_view.valid_durable_item_indices().remove(item_index));
                
                 assert(self.main_table@ == durable_main_table_view);
                 
@@ -6475,18 +6476,18 @@ verus! {
                     &&& 0 <= idx < self.overall_metadata.num_keys 
                     &&& idx != item_index  
                 } implies self.item_table.allocator_view().pending_alloc_check(idx,
-                                                              self.main_table@.valid_item_indices(), 
-                                                              tentative_main_table_view.valid_item_indices())
+                                                              self.main_table@.valid_durable_item_indices(), 
+                                                              tentative_main_table_view.valid_durable_item_indices())
                 by { 
                     assert(old(self).item_table.allocator_view().pending_alloc_check(idx,
-                                                                  self.main_table@.valid_item_indices(),
-                                                                  old_tentative_main_table_view.valid_item_indices()));
+                                                                  self.main_table@.valid_durable_item_indices(),
+                                                                  old_tentative_main_table_view.valid_durable_item_indices()));
                     assert(self.item_table.pending_deallocations_view() == old(self).item_table.pending_deallocations_view());
                     assert(self.item_table.pending_allocations_view() == old(self).item_table.pending_allocations_view()); 
                     assert(self.item_table.free_list() == old(self).item_table.free_list());
                 }
 
-                assert(!tentative_main_table_view.valid_item_indices().contains(item_index));
+                assert(!tentative_main_table_view.valid_durable_item_indices().contains(item_index));
 
                 // To prove that this index is not valid or pending in the current item table,
                 // we'll compare the current valid indices against the *old* tentative state's valid 
@@ -6495,13 +6496,13 @@ verus! {
                 // the pending alloc invariant holds for the old tentative state to prove what 
                 // we need to about the current item table's indexes.
                 self.item_table.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-                    self.main_table@.valid_item_indices(),
-                    old_tentative_main_table_view.valid_item_indices()
+                    self.main_table@.valid_durable_item_indices(),
+                    old_tentative_main_table_view.valid_durable_item_indices()
                 );
             }
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
-                Ghost(self.overall_metadata), Ghost(self.main_table@.valid_item_indices()),
-                Ghost(tentative_main_table_view.valid_item_indices()), Ghost(new_tentative_view_bytes));
+                Ghost(self.overall_metadata), Ghost(self.main_table@.valid_durable_item_indices()),
+                Ghost(tentative_main_table_view.valid_durable_item_indices()), Ghost(new_tentative_view_bytes));
 
             assert(self.pending_alloc_inv());
 
@@ -6520,7 +6521,7 @@ verus! {
                                         self.overall_metadata),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                                                        self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                                    self.overall_metadata, self.main_table@.valid_durable_item_indices()),
                 /* REMOVED UNTIL WE IMPLEMENT LISTS
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),
@@ -6880,11 +6881,11 @@ verus! {
 
             let ghost pre_log_install_wrpm = self.wrpm;
 
-            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_item_indices()));
+            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_durable_item_indices()));
 
             Self::install_log(&mut self.wrpm, self.version_metadata, self.overall_metadata, &self.pending_updates, Tracked(perm));
 
-            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_item_indices()));
+            assert(self.item_table.opaquable_inv(self.overall_metadata, self.main_table@.valid_durable_item_indices()));
 
             proof {
                 // Some functions/proofs use `extract_bytes`  and some use `get_subregion_view` 
@@ -6915,10 +6916,10 @@ verus! {
             self.main_table.finalize_main_table(Ghost(old(self).main_table), Ghost(old(self).wrpm@),
                 Ghost(self.wrpm@), Ghost(self.overall_metadata));
 
-            assert(self.item_table.opaquable_inv(self.overall_metadata, old(self).main_table@.valid_item_indices()));
+            assert(self.item_table.opaquable_inv(self.overall_metadata, old(self).main_table@.valid_durable_item_indices()));
 
             self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
-                Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_item_indices()), Ghost(self.main_table@.valid_item_indices()));
+                Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_durable_item_indices()), Ghost(self.main_table@.valid_durable_item_indices()));
 
          /* REMOVED UNTIL WE IMPLEMENT LISTS
             // TODO: replace with finalize fn that finishes (de)allocs and updates ghost state

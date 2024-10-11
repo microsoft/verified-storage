@@ -287,7 +287,7 @@ verus! {
                 &&& parse_item_table::<I, K>(
                         item_table_region,
                         overall_metadata.num_keys as nat,
-                        main_table.valid_item_indices()
+                        main_table.valid_durable_item_indices()
                     ) is Some
               /* REMOVED UNTIL WE IMPLEMENT LISTS
                 &&& DurableList::<K, L>::parse_all_lists(
