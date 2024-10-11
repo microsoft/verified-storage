@@ -191,8 +191,10 @@ verus! {
         }
     }
 
+    // we store an entry for deleted entries because we need its most recent values
+    // to ensure that associated resources like items are properly deallocated
     pub enum EntryStatus {
-        Deleted,
+        Deleted(ListEntryMetadata),
         Updated(ListEntryMetadata),
         Created(ListEntryMetadata),
     }
@@ -211,28 +213,18 @@ verus! {
                         entry,
                         key: self.key
                     }),
-                EntryStatus::Deleted => None,
+                EntryStatus::Deleted(_) => None, // TODO: should we return None or the value itself?
             }   
         }
 
-        exec fn get_entry_contents(&self) -> (out: Option<ListEntryMetadata>)
-            requires 
-                self.entry is Created || self.entry is Updated,
+        exec fn get_entry_contents(&self) -> (out: ListEntryMetadata)
             ensures 
-                out is Some,
                 match self.entry {
-                    EntryStatus::Created(e) => out.unwrap() == e,
-                    EntryStatus::Updated(e) => out.unwrap() == e,
-                    EntryStatus::Deleted => false,
+                    EntryStatus::Created(e) | EntryStatus::Updated(e) | EntryStatus::Deleted(e) => out == e,
                 }
         {
-            if let EntryStatus::Created(e) = self.entry {
-                Some(e)
-            } else if let EntryStatus::Updated(e) = self.entry {
-                Some(e)
-            } else {
-                assert(false);
-                None
+            match self.entry {
+                EntryStatus::Created(e) | EntryStatus::Updated(e) | EntryStatus::Deleted(e) => e,
             }
         }
     }
@@ -392,7 +384,7 @@ verus! {
                         &&& self.outstanding_entry_writes[j] matches Some(entry)
                         &&& match entry.entry {
                             EntryStatus::Created(e) | EntryStatus::Updated(e) => e.item_index == i,
-                            EntryStatus::Deleted => false
+                            EntryStatus::Deleted(_) => false
                         }
                     }
                     ||| {
@@ -498,7 +490,7 @@ verus! {
                             &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
                                                       key_bytes)
                         }
-                        EntryStatus::Updated(_) | EntryStatus::Deleted => {
+                        EntryStatus::Updated(_) | EntryStatus::Deleted(_) => {
                             pm.no_outstanding_writes_in_range(start, start + main_table_entry_size)
                         }
                     }
@@ -533,7 +525,7 @@ verus! {
                             &&& tentative_key_bytes == key_bytes
                             // e@
                         },
-                        EntryStatus::Deleted => {
+                        EntryStatus::Deleted(_) => {
                             // the entry should be invalid
                             let tentative_cdb_bytes = extract_bytes(mem, start, u64::spec_size_of());
                             tentative_cdb_bytes == CDB_FALSE.spec_to_bytes()
@@ -595,8 +587,7 @@ verus! {
                     entry.entry.item_index < overall_metadata.num_keys)
             &&& forall |i: u64| #[trigger] self.outstanding_entry_writes[i] is Some ==> {
                 match self.outstanding_entry_writes[i].unwrap().entry {
-                    EntryStatus::Created(entry) | EntryStatus::Updated(entry) => entry.item_index < overall_metadata.num_keys,
-                    EntryStatus::Deleted => true
+                    EntryStatus::Created(entry) | EntryStatus::Updated(entry) | EntryStatus::Deleted(entry) => entry.item_index < overall_metadata.num_keys,
                 }
             }
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
@@ -1544,7 +1535,7 @@ verus! {
             if self.outstanding_entry_writes.contents.contains_key(&metadata_index) {
                 broadcast use vstd::std_specs::hash::group_hash_axioms;
                 let entry = self.outstanding_entry_writes.contents.get(&metadata_index).unwrap();
-                Ok((Box::new(entry.key), Box::new(entry.get_entry_contents().unwrap())))
+                Ok((Box::new(entry.key), Box::new(entry.get_entry_contents())))
             } else {
                 assert(!self.outstanding_entry_writes.contents@.contains_key(metadata_index)) by {
                     broadcast use vstd::std_specs::hash::group_hash_axioms;
@@ -2490,9 +2481,10 @@ verus! {
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
-                // forall |i: u64| 0 <= i < self@.durable_main_table.len() && i != index ==>
-                //     self.outstanding_entry_write_matches_tentative_state(current_tentative_state, i, 
-                //         overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat),
+                ({
+                    &&& self.outstanding_entry_writes[index] matches Some(entry)
+                    &&& entry.entry is Deleted
+                }),
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
@@ -2522,7 +2514,8 @@ verus! {
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
-            let ghost item_index = self@.durable_main_table[index as int].unwrap().item_index();
+            let ghost item_index = self.outstanding_entry_writes[index].unwrap().entry->Deleted_0.item_index;
+
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
@@ -2606,10 +2599,6 @@ verus! {
                                                 overall_metadata.main_table_entry_size as nat);
                 assert(!self.pending_deallocations_view().contains(index));
                 assert(old_entries[index as int] is Some);
-
-                // TODO @hayley MONDAY: the problem is that item index was obtained from the durable state,
-                // not the outstanding state. we need to update the outstanding state to store the deleted
-                // entry so we can properly free the associated resources.
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
 
                 assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
