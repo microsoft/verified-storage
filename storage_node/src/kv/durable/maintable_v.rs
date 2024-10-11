@@ -1329,13 +1329,19 @@ verus! {
                 subregion.inv(pm_region),
                 self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
-                self@.durable_main_table[metadata_index as int] is Some,
-                self.outstanding_entry_writes[metadata_index] is None,
+                ({
+                    ||| self@.durable_main_table[metadata_index as int] is Some
+                    ||| self.outstanding_entry_writes.contents@.contains_key(metadata_index)
+                })
             ensures
                 ({
                     match result {
                         Ok((key, entry)) => {
-                            let meta = self@.durable_main_table[metadata_index as int].unwrap();
+                            let meta = if let Some(entry) = self.outstanding_entry_writes[metadata_index] {
+                                entry@
+                            } else {
+                                self@.durable_main_table[metadata_index as int].unwrap()
+                            };
                             &&& meta.key == key
                             &&& meta.entry == entry
                         },
@@ -1350,88 +1356,100 @@ verus! {
                 lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
             }
 
-            let slot_addr = metadata_index * (main_table_entry_size as u64);
-            let cdb_addr = slot_addr;
-            let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-            let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-            let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-
-            // 1. Read the CDB, metadata entry, key, and CRC at the index
-            let ghost mem = pm_view.committed();
-
-            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
-            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
-            let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
-
-            let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-            let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
-            let ghost true_key = K::spec_from_bytes(true_key_bytes);
-
-            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
-            let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
-                                             |i: int| entry_addr + subregion.start() + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
-            let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
-
-            // 2. Check the CDB to determine whether the entry is valid
-            proof {
-                assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
-                assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
-                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
-            }
-            let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
-                Ok(cdb) => cdb,
-                Err(_) => {
-                    assert(false);
-                    return Err(KvError::EntryIsNotValid);
+            // If there's an outstanding write to this entry, we'll return that instead of reading from PM.
+            if self.outstanding_entry_writes.contents.contains_key(&metadata_index) {
+                broadcast use vstd::std_specs::hash::group_hash_axioms;
+                assert(self.outstanding_entry_writes.contents@.contains_key(metadata_index));
+                let entry = self.outstanding_entry_writes.contents.get(&metadata_index).unwrap();
+                Ok((Box::new(entry.key), Box::new(entry.entry)))
+            } else {
+                assert(!self.outstanding_entry_writes.contents@.contains_key(metadata_index)) by {
+                    broadcast use vstd::std_specs::hash::group_hash_axioms;
                 }
-            };
-            let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
-                                       Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
-            match cdb_result {
-                Some(true) => {}, // continue 
-                Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
-                None => { return Err(KvError::CRCMismatch); },
-            }
 
-            proof {
-                assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
-                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
-                assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
-                       Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
-                assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
-                       Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
-            }
-            let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
-                Ok(crc) => crc,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
-            };
-            let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
-                Ok(metadata_entry) => metadata_entry,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
-            };
-            let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
-                Ok(key) => key,
-                Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
-            };
+                let slot_addr = metadata_index * (main_table_entry_size as u64);
+                let cdb_addr = slot_addr;
+                let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+                let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+                let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
 
-            // 3. Check for corruption
-            if !check_crc_for_two_reads(
-                metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
-                Ghost(crc_addrs)) 
-            {
-                return Err(KvError::CRCMismatch);
-            }
+                // 1. Read the CDB, metadata entry, key, and CRC at the index
+                let ghost mem = pm_view.committed();
 
-            // 4. Return the metadata entry and key
-            let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry));
-            let key = key.extract_init_val(Ghost(true_key));
-            Ok((key, metadata_entry))
+                let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
+                let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+                let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
+                let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
+
+                let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+                let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
+                let ghost true_key = K::spec_from_bytes(true_key_bytes);
+
+                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
+                let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
+                                                |i: int| entry_addr + subregion.start() + i);
+                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
+                let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
+
+                // 2. Check the CDB to determine whether the entry is valid
+                proof {
+                    assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
+                    self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
+                    assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
+                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
+                }
+                let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
+                    Ok(cdb) => cdb,
+                    Err(_) => {
+                        assert(false);
+                        return Err(KvError::EntryIsNotValid);
+                    }
+                };
+                let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
+                                        Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
+                match cdb_result {
+                    Some(true) => {}, // continue 
+                    Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
+                    None => { return Err(KvError::CRCMismatch); },
+                }
+
+                proof {
+                    assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
+                    assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
+                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
+                    assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
+                        Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
+                    assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
+                        Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
+                }
+                let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
+                    Ok(crc) => crc,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+                };
+                let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
+                    Ok(metadata_entry) => metadata_entry,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+                };
+                let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
+                    Ok(key) => key,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
+                };
+
+                // 3. Check for corruption
+                if !check_crc_for_two_reads(
+                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                    Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
+                    Ghost(crc_addrs)) 
+                {
+                    return Err(KvError::CRCMismatch);
+                }
+
+                // 4. Return the metadata entry and key
+                let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry));
+                let key = key.extract_init_val(Ghost(true_key));
+                Ok((key, metadata_entry))
+            }
         }
 
         proof fn lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
