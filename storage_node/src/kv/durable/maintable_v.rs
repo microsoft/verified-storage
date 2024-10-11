@@ -405,6 +405,18 @@ verus! {
             })
         }
 
+        pub open spec fn get_latest_version_at_index(self, idx: u64) -> Option<MainTableViewEntry<K>>
+        {
+            if !(0 <= idx < self@.durable_main_table.len()) {
+                None
+            } else if let Some(entry) = self.outstanding_entry_writes[idx] {
+                entry@
+            } else {
+                // no outstanding writes
+                self@.durable_main_table[idx as int]
+            }
+        }
+
         pub open spec fn pending_alloc_inv2(self) -> bool 
         {
             forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==>
@@ -491,6 +503,43 @@ verus! {
                         }
                     }
                 },
+            }
+        }
+
+        pub open spec fn outstanding_entry_write_matches_tentative_state(self, mem: Seq<u8>, 
+            i: u64, main_table_entry_size: u32, num_keys: nat) -> bool 
+        {
+            let start = index_to_offset(i as nat, main_table_entry_size as nat) as nat;
+            match self.outstanding_entry_writes[i] {
+                None => true, // if there's no outstanding write, nothing to compare
+                Some(e) => {
+                    // let entry_bytes = extract_bytes(mem, start, main_table_entry_size as nat);
+                    // e@ == parse_main_entry::<K>(entry_bytes, num_keys)
+                    match e.entry {
+                        EntryStatus::Created(entry) | EntryStatus::Updated(entry) => {
+                            // the entry should be valid and the bytes should match the entry
+                            let entry_bytes = ListEntryMetadata::spec_to_bytes(entry);
+                            let key_bytes = K::spec_to_bytes(e.key);
+                            let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
+
+                            let tentative_cdb_bytes = extract_bytes(mem, start, u64::spec_size_of());
+                            let tentative_crc_bytes = extract_bytes(mem, start + u64::spec_size_of(), u64::spec_size_of());
+                            let tentative_entry_bytes = extract_bytes(mem, start + u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of());
+                            let tentative_key_bytes = extract_bytes(mem, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(), K::spec_size_of());
+
+                            &&& tentative_cdb_bytes == CDB_TRUE.spec_to_bytes()
+                            &&& tentative_crc_bytes == crc_bytes 
+                            &&& tentative_entry_bytes == entry_bytes
+                            &&& tentative_key_bytes == key_bytes
+                            // e@
+                        },
+                        EntryStatus::Deleted => {
+                            // the entry should be invalid
+                            let tentative_cdb_bytes = extract_bytes(mem, start, u64::spec_size_of());
+                            tentative_cdb_bytes == CDB_FALSE.spec_to_bytes()
+                        }
+                    }
+                }
             }
         }
 
@@ -2441,6 +2490,9 @@ verus! {
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
+                // forall |i: u64| 0 <= i < self@.durable_main_table.len() && i != index ==>
+                //     self.outstanding_entry_write_matches_tentative_state(current_tentative_state, i, 
+                //         overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat),
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
@@ -2554,6 +2606,10 @@ verus! {
                                                 overall_metadata.main_table_entry_size as nat);
                 assert(!self.pending_deallocations_view().contains(index));
                 assert(old_entries[index as int] is Some);
+
+                // TODO @hayley MONDAY: the problem is that item index was obtained from the durable state,
+                // not the outstanding state. we need to update the outstanding state to store the deleted
+                // entry so we can properly free the associated resources.
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
 
                 assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
@@ -2814,18 +2870,31 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+
+                    let entry = self.get_latest_version_at_index(index);
+
                     &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
                     &&& !main_table_view.valid_durable_item_indices().contains(item_index)
 
                     // the index should not be deallocated in the tentative view
-                    &&& main_table_view.durable_main_table[index as int] is Some
+                    &&& main_table_view.durable_main_table[index as int] matches Some(tentative_entry)
+
+                    &&& entry matches Some(outstanding_entry)
+                    &&& outstanding_entry.key == tentative_entry.key
+                    &&& outstanding_entry.entry.head == tentative_entry.entry.head
+                    &&& outstanding_entry.entry.tail == tentative_entry.entry.tail
+                    &&& outstanding_entry.entry.length == tentative_entry.entry.length
+                    &&& outstanding_entry.entry.first_entry_offset == tentative_entry.entry.first_entry_offset
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                 version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
                     <= overall_metadata.main_table_addr,
+                forall |i: u64| 0 <= i < self@.durable_main_table.len() && i != index ==>
+                    self.outstanding_entry_write_matches_tentative_state(current_tentative_state, i, 
+                        overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat),
             ensures 
                 match result {
                     Ok(log_entry) => {
@@ -3010,6 +3079,18 @@ verus! {
                     &&& entry.entry.length == new_metadata_entry.length
                     &&& entry.entry.first_entry_offset == new_metadata_entry.first_entry_offset
                 }),
+                // forall |i: u64| 0 <= i < self@.durable_main_table.len() && i != index ==>
+                //     self.outstanding_entry_write_matches_tentative_state(current_tentative_state, i, 
+                //         overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat),
+                // ({
+                //     let entry = self.get_latest_version_at_index(index);
+                //     &&& entry matches Some(entry)
+                //     &&& entry.key == key
+                //     &&& entry.entry.head == new_metadata_entry.head 
+                //     &&& entry.entry.tail == new_metadata_entry.tail
+                //     &&& entry.entry.length == new_metadata_entry.length 
+                //     &&& entry.entry.first_entry_offset == new_metadata_entry.first_entry_offset 
+                // }),
                 ({
                     let crc_bytes = crc.spec_to_bytes();
                     let entry_bytes = new_metadata_entry.spec_to_bytes();
@@ -3039,6 +3120,10 @@ verus! {
                     &&& new_main_table_view == updated_old_table
                     &&& new_main_table_view.valid_durable_item_indices() == 
                             old_main_table_view.valid_durable_item_indices().insert(item_index).remove(old_item_index)
+
+                    // &&& forall |i: u64| 0 <= i < self@.durable_main_table.len() ==> 
+                    //         self.outstanding_entry_write_matches_tentative_state(new_main_table_region, i, 
+                    //             overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat)
                 })
         {
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
@@ -3083,8 +3168,7 @@ verus! {
                     overall_metadata.main_table_entry_size as nat
                 );
                 &&& validate_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat)
-                &&& i == index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
-                        Some(new_entry_view)
+                &&& i == index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == Some(new_entry_view)
                 &&& i != index ==> parse_main_entry::<K>(new_bytes, overall_metadata.num_keys as nat) == 
                         parse_main_entry::<K>(old_bytes, overall_metadata.num_keys as nat)
             } by {
@@ -3125,9 +3209,26 @@ verus! {
             let new_main_table_view = new_main_table_view.unwrap();
             let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
 
-            // Prove that the new main table view is equivalent to updating the old table with the new item index.
-            assert(forall |idx: int| 0 <= idx < new_main_table_view.durable_main_table.len() ==>
-                new_main_table_view.durable_main_table[idx] == updated_table_view.durable_main_table[idx]);
+            // // Prove that the new main table view is equivalent to updating the old table with the new item index.
+            // assert forall |idx: u64| 0 <= idx < new_main_table_view.durable_main_table.len() ==>
+            //     new_main_table_view.durable_main_table[idx as int] == updated_table_view.durable_main_table[idx as int]
+            // by {
+            //     if idx == index {
+            //         // let new_tentative_entry = 
+            //         assert(updated_table_view.durable_main_table[idx as int].unwrap().key == key);
+            //         assert(updated_table_view.durable_main_table[idx as int].unwrap().entry.item_index == new_metadata_entry.item_index);
+            //         assert(new_main_table_view.durable_main_table[idx as int].unwrap().entry.head == new_metadata_entry.head);
+
+            //         assert(updated_table_view.durable_main_table[idx as int].unwrap().entry.head == 
+            //             old_main_table_view.durable_main_table[idx as int].unwrap().entry.head);
+
+            //         assert(updated_table_view.durable_main_table[idx as int].unwrap().entry.head == new_metadata_entry.head);
+            //         // assume(false);
+            //         // assert(self.outstanding_entry_write_matches_tentative_state(new_main_table_region, idx, 
+            //         //     overall_metadata.main_table_entry_size, overall_metadata.num_keys as nat));
+            //     } // else, trivial
+            // }
+            // assume(false); // TODO @hayley
             assert(new_main_table_view == updated_table_view);
             assert(no_duplicate_item_indexes(old_main_table_view.durable_main_table));
             Self::lemma_update_item_replaces_valid_item_index(old_main_table_view, updated_table_view,
