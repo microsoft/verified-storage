@@ -1437,11 +1437,11 @@ verus! {
                 match result {
                     Ok(index) => {
                         &&& old(self).free_list().contains(index)
+                        &&& old(self)@.durable_main_table[index as int] is None
                         &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                            #[trigger] self.outstanding_entry_writes@[i] ==
- old(self).outstanding_entry_writes@[i]
+                            #[trigger] self.outstanding_entry_writes@[i] == old(self).outstanding_entry_writes@[i]
                         &&& self.outstanding_entry_writes@[index as int] matches Some(e)
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
@@ -1982,22 +1982,17 @@ verus! {
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
                 ({
                     let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
-                    let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
-                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
-                            log_entry.bytes[pos - log_entry.absolute_addr]
-                        } else {
-                            pre_byte
-                        }
-                    );
+                    let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
                     let current_main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let current_main_table_view = parse_main_table::<K>(current_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                    let new_main_table_region = extract_bytes(new_mem, 
+                    let new_main_table_region = extract_bytes(new_mem.unwrap(), 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                     let entry = self.outstanding_entry_writes@[index as int].unwrap();
+                    &&& new_mem is Some
                     &&& new_main_table_view == Some(current_main_table_view.insert(index as int, entry))
                     &&& new_main_table_view.unwrap().valid_item_indices() ==
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)

@@ -9,6 +9,7 @@ use crate::kv::durable::maintablelayout_v::*;
 use crate::kv::durable::oplog::logentry_v::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::kv::layout_v::*;
+use crate::log2::inv_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::pmemspec_t::*;
 use vstd::assert_seqs_equal;
@@ -521,4 +522,196 @@ pub proof fn lemma_item_table_bytes_unchanged_by_applying_log_entries(
     }
 }
 
+pub proof fn lemma_effect_of_apply_physical_log_entries_on_one_byte(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    version_metadata: VersionMetadata,
+    overall_metadata: OverallMetadata,
+    pos: int,
+)
+    requires
+        views_differ_only_in_log_region(v1, v2, overall_metadata.log_area_addr as nat,
+                                        overall_metadata.log_area_size as nat),
+        v1.len() == v2.len() == overall_metadata.region_size,
+        overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size,
+    ensures
+        ({
+            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
+            let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+            match (mem1, mem2) {
+                (Some(mem1_plus), Some(mem2_plus)) => {
+                    &&& mem1_plus.len() == mem2_plus.len() == overall_metadata.region_size
+                    &&& 0 <= pos < overall_metadata.log_area_addr ==> mem2_plus[pos] == mem1_plus[pos]
+                },
+                (None, None) => true,
+                (_, _) => false,
+            }
+        })
+    decreases
+        op_log.len()
+{
+    if op_log.len() != 0 {
+        lemma_effect_of_apply_physical_log_entries_on_one_byte(v1, v2, op_log.drop_last(), version_metadata,
+                                                               overall_metadata, pos);
+    }
+}
+
+pub proof fn lemma_effect_of_apply_physical_log_entries_on_views_differing_only_in_log_region(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    version_metadata: VersionMetadata,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        views_differ_only_in_log_region(v1, v2, overall_metadata.log_area_addr as nat,
+                                        overall_metadata.log_area_size as nat),
+        v1.len() == v2.len() == overall_metadata.region_size,
+        overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size,
+        overall_metadata.log_area_addr >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+        overall_metadata.log_area_addr >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
+    ensures
+        ({
+            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
+            let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+            match (mem1, mem2) {
+                (Some(mem1_plus), Some(mem2_plus)) => {
+                    &&& mem1_plus.len() == mem2_plus.len() == overall_metadata.region_size
+                    &&& extract_bytes(mem1_plus, overall_metadata.main_table_addr as nat,
+                                    overall_metadata.main_table_size as nat) ==
+                      extract_bytes(mem2_plus, overall_metadata.main_table_addr as nat,
+                                    overall_metadata.main_table_size as nat)
+                    &&& extract_bytes(mem1_plus, overall_metadata.item_table_addr as nat,
+                                    overall_metadata.item_table_size as nat) ==
+                      extract_bytes(mem2_plus, overall_metadata.item_table_addr as nat,
+                                    overall_metadata.item_table_size as nat)
+                },
+                (None, None) => true,
+                (_, _) => false,
+            }
+        })
+{
+    let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log);
+    let mem2 = apply_physical_log_entries(v2.flush().committed(), op_log);
+    lemma_effect_of_apply_physical_log_entries_on_one_byte(v1, v2, op_log, version_metadata, overall_metadata, 0);
+    match (mem1, mem2) {
+        (Some(mem1_plus), Some(mem2_plus)) => {
+            assert(extract_bytes(mem1_plus, overall_metadata.main_table_addr as nat,
+                                 overall_metadata.main_table_size as nat) =~=
+                   extract_bytes(mem2_plus, overall_metadata.main_table_addr as nat,
+                                 overall_metadata.main_table_size as nat)) by {
+                assert forall|addr| overall_metadata.main_table_addr <= addr
+                           < overall_metadata.main_table_addr + overall_metadata.main_table_size
+                           implies mem2_plus[addr] == mem1_plus[addr] by {
+                    lemma_effect_of_apply_physical_log_entries_on_one_byte(v1, v2, op_log, version_metadata,
+                                                                           overall_metadata, addr);
+                }
+            }
+            assert(extract_bytes(mem1_plus, overall_metadata.item_table_addr as nat,
+                                 overall_metadata.item_table_size as nat) =~=
+                   extract_bytes(mem2_plus, overall_metadata.item_table_addr as nat,
+                                 overall_metadata.item_table_size as nat)) by {
+                assert forall|addr| overall_metadata.item_table_addr <= addr
+                           < overall_metadata.item_table_addr + overall_metadata.item_table_size
+                           implies mem2_plus[addr] == mem1_plus[addr] by {
+                    lemma_effect_of_apply_physical_log_entries_on_one_byte(v1, v2, op_log, version_metadata,
+                                                                           overall_metadata, addr);
+                }
+            }
+        },
+        (_, _) => {},
+    }
+}
+
+pub proof fn lemma_apply_log_entries_then_apply_log_entry_equivalent_to_push_then_apply(
+    mem: Seq<u8>,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    log_entry: AbstractPhysicalOpLogEntry
+)
+    requires
+        apply_physical_log_entries(mem, op_log) is Some,
+        log_entry.absolute_addr + log_entry.len <= mem.len(),
+        log_entry.len == log_entry.bytes.len(),
+    ensures
+        ({
+            let mem_next1 = apply_physical_log_entry(apply_physical_log_entries(mem, op_log).unwrap(), log_entry);
+            let mem_next2 = apply_physical_log_entries(mem, op_log.push(log_entry));
+            &&& mem_next1 is Some
+            &&& mem_next1 == mem_next2
+        })
+{
+    lemma_log_replay_preserves_size(mem, op_log);
+    let op_log_plus = op_log.push(log_entry);
+    assert(op_log_plus.drop_last() =~= op_log);
+    assert(op_log_plus.last() == log_entry);
+}
+
+    /*
+pub proof fn lemma_effect_of_tentatively_append_log_entry_on_main_table_region(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    op_log1: AbstractOpLogState,
+    op_log2: AbstractOpLogState,
+    log_entry: AbstractPhysicalOpLogEntry,
+    version_metadata: VersionMetadata,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        !op_log1.op_list_committed,
+        AbstractPhysicalOpLogEntry::log_inv(op_log1.physical_op_list, version_metadata, overall_metadata),
+        log_entry.inv(version_metadata, overall_metadata),
+        op_log2 == op_log1.tentatively_append_log_entry(log_entry),
+        views_differ_only_in_log_region(v1, v2, overall_metadata.log_area_addr as nat,
+                                        overall_metadata.log_area_size as nat),
+        v1.len() == v2.len() == overall_metadata.region_size,
+        overall_metadata.region_size >= overall_metadata.log_area_addr + overall_metadata.log_area_size,
+        overall_metadata.log_area_addr >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+        log_entry.absolute_addr + log_entry.len <= overall_metadata.log_area_addr,
+        log_entry.len == log_entry.bytes.len(),
+        ({
+            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+            let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
+            let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+            &&& mem1 is Some
+            &&& mem2 is Some
+            &&& mem3 is Some
+        }),
+    ensures
+        ({
+            let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+            let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
+            let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+            let mem2_main_region = extract_bytes(mem2.unwrap(), overall_metadata.main_table_addr as nat,
+                                                 overall_metadata.main_table_size as nat);
+            let mem3_main_region = extract_bytes(mem3.unwrap(), overall_metadata.main_table_addr as nat,
+                                                 overall_metadata.main_table_size as nat);
+            &&& mem1 is Some
+            &&& mem2 is Some
+            &&& mem3 is Some
+            &&& mem1.unwrap().len() == mem2.unwrap().len() == mem3.unwrap().len() == v1.len()
+            &&& mem2_main_region.len() == mem3_main_region.len() == overall_metadata.main_table_size
+            &&& mem3_main_region == mem2_main_region
+        }),
+{
+    lemma_effect_of_tentatively_append_log_entry_on_one_byte(v1, v2, op_log1, op_log2, log_entry,
+                                                             version_metadata, overall_metadata, 0);
+    let mem1 = apply_physical_log_entries(v1.flush().committed(), op_log1.physical_op_list);
+    let mem2 = apply_physical_log_entry(mem1.unwrap(), log_entry);
+    let mem3 = apply_physical_log_entries(v2.flush().committed(), op_log2.physical_op_list);
+    let mem2_main_region = extract_bytes(mem2.unwrap(), overall_metadata.main_table_addr as nat,
+                                         overall_metadata.main_table_size as nat);
+    let mem3_main_region = extract_bytes(mem3.unwrap(), overall_metadata.main_table_addr as nat,
+                                         overall_metadata.main_table_size as nat);
+    assert (mem3_main_region =~= mem2_main_region) by {
+        assert forall|addr| 0 <= addr < mem2_main_region.len() implies
+            mem3_main_region[addr] == mem2_main_region[addr] by {
+            lemma_effect_of_tentatively_append_log_entry_on_one_byte(v1, v2, op_log1, op_log2, log_entry,
+                                                                     version_metadata, overall_metadata,
+                                                                     addr + overall_metadata.main_table_addr);
+        }
+    }
+}
+*/
+    
 }
