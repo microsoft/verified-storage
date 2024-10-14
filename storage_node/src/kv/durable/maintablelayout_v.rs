@@ -580,20 +580,20 @@ verus! {
             (Some(table1), Some(table2)) => {
                 assert(forall |i: int| {
                     &&& 0 <= i < num_keys 
-                    &&& #[trigger] table1.durable_main_table[i] is Some
-                } ==> table2.durable_main_table[i] is Some);
+                    &&& #[trigger] table1.contents[i] is Some
+                } ==> table2.contents[i] is Some);
             }
             (None, Some(table2)) => {
                 let entries = parse_main_entries::<K>(mem1, num_keys as nat, main_table_entry_size as nat);
                 assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
                 assert(forall |i: int| 0 <= i < num_keys ==>
-                    #[trigger] entries[i] == table2.durable_main_table[i]);
+                    #[trigger] entries[i] == table2.contents[i]);
             }
             (Some(table1), None) => {
                 let entries = parse_main_entries::<K>(mem2, num_keys as nat, main_table_entry_size as nat);
                 assert(!(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)));
                 assert(forall |i: int| 0 <= i < num_keys ==>
-                    #[trigger] entries[i] == table1.durable_main_table[i]);
+                    #[trigger] entries[i] == table1.contents[i]);
             }
             (None, None) => {}
         }
@@ -634,8 +634,8 @@ verus! {
         ensures
             parse_main_table::<K>(mem2, num_keys, main_table_entry_size) is Some,
             ({
-                let table1 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().durable_main_table;
-                let table2 = parse_main_table::<K>(mem2, num_keys, main_table_entry_size).unwrap().durable_main_table;
+                let table1 = parse_main_table::<K>(mem1, num_keys, main_table_entry_size).unwrap().contents;
+                let table2 = parse_main_table::<K>(mem2, num_keys, main_table_entry_size).unwrap().contents;
                 &&& table2.len() == table1.len()
                 &&& table2[index as int] is None
                 &&& forall|i: int| 0 <= i < table2.len() && i != index ==> #[trigger] table2[i] == table1[i]
