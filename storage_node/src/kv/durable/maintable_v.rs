@@ -438,10 +438,10 @@ verus! {
         
         pub open spec fn pending_alloc_check2(self, idx: u64) -> bool 
         {
-            // if an index is valid in the current state but deleted in the 
-            // tentative state, it is pending deallocation
+            // if an index is Deleted, it is pending deallocation, regardless
+            // of whether it is allocated in the durable state.
             &&& {
-                &&& self@.contents[idx as int] is Some 
+                // &&& self@.contents[idx as int] is Some 
                 &&& self.outstanding_entry_writes[idx] matches Some(entry)
                 &&& entry.entry is Deleted
             } <==> self.allocator_view().pending_deallocations.contains(idx)
@@ -453,17 +453,21 @@ verus! {
                 &&& (entry.entry is Created || entry.entry is Updated)
             } <==> self.allocator_view().pending_allocations.contains(idx)
             // if an index is invalid in the current state and has no outstanding updates,
-            // it is free. This includes cases where an index is invalid in the current state
-            // but has a deleted outstanding state.
+            // including no Deletes, it is free. Deleted indices are not added back 
+            // to the free list until the deletion is committed.
             &&& {
                 &&& self@.contents[idx as int] is None
-                &&& {
-                    ||| self.outstanding_entry_writes[idx] is None
-                    ||| {
-                        &&& self.outstanding_entry_writes[idx] matches Some(entry)
-                        &&& entry.entry is Deleted
-                    }
-                }
+                &&& (!({
+                    &&& self.outstanding_entry_writes[idx] matches Some(entry)
+                    &&& entry.entry is Deleted
+                }))
+                // &&& {
+                //     ||| self.outstanding_entry_writes[idx] is None
+                //     ||| {
+                //         &&& self.outstanding_entry_writes[idx] matches Some(entry)
+                //         &&& entry.entry is Deleted
+                //     }
+                // }
             } <==> self.allocator_view().free_list.contains(idx)
             
         }
@@ -3352,10 +3356,6 @@ verus! {
             }
 
             // Drop all outstanding updates from the view
-            // self.outstanding_entry_writes = Ghost(Seq::new(
-            //     old(self)@.contents.len(),
-            //     |i: int| None::<MainTableViewEntry<K>>
-            // ));
             self.outstanding_entry_writes.clear();
 
             proof {
