@@ -415,7 +415,7 @@ verus! {
             &&& self.main_table.inv(get_subregion_view(pm_view, self.overall_metadata.main_table_addr as nat,
                                                          self.overall_metadata.main_table_size as nat),
                                       self.overall_metadata)
-            &&& self.main_table.allocator_inv()
+            // &&& self.main_table.allocator_inv()
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
                                                      self.overall_metadata.item_table_size as nat),
                                   self.overall_metadata, self.main_table@.valid_item_indices())
@@ -3094,7 +3094,7 @@ verus! {
                         old(self).overall_metadata.main_table_entry_size) is Some
                 }),
 
-                old(self).main_table.allocator_inv(),
+                // old(self).main_table.allocator_inv(),
                 old(self).wrpm.inv(),
                 old(self).overall_metadata == pre_self.overall_metadata,
                 pre_self.overall_metadata == old_self.overall_metadata,
@@ -3231,7 +3231,7 @@ verus! {
                     get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
                                        self.overall_metadata.log_area_size as nat),
                 self.main_table.inv(main_table_subregion.view(&self.wrpm), self.overall_metadata),
-                self.main_table.allocator_inv(),
+                // self.main_table.allocator_inv(),
                 self.main_table@.durable_main_table == self_before_main_table_create.main_table@.durable_main_table,
                 main_table_subregion.view(&self.wrpm).committed() ==
                     main_table_subregion.view(&self_before_main_table_create.wrpm).committed(),
@@ -3662,7 +3662,7 @@ verus! {
                     get_subregion_view(old_self.wrpm@, self.overall_metadata.log_area_addr as nat,
                                        self.overall_metadata.log_area_size as nat),
                 self.main_table.inv(main_table_subregion.view(&self.wrpm), self.overall_metadata),
-                self.main_table.allocator_inv(),
+                // self.main_table.allocator_inv(),
                 self.main_table@.durable_main_table == self_before_main_table_create.main_table@.durable_main_table,
                 main_table_subregion.view(&self.wrpm).committed() ==
                     main_table_subregion.view(&self_before_main_table_create.wrpm).committed(),
