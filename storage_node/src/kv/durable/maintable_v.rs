@@ -281,10 +281,13 @@ verus! {
         }
 
         pub exec fn get(&self, i: u64) -> (out: Option<&OutstandingEntry<K>>)
+            requires
+                vstd::std_specs::hash::obeys_key_model::<K>(),
             ensures 
                 self.contents@.contains_key(i) ==> out == Some(&self@[i]),
                 !self.contents@.contains_key(i) ==> out == None::<&OutstandingEntry<K>>,
         {
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             self.contents.get(&i)
         }
     }
@@ -539,6 +542,8 @@ verus! {
                     !self.modified_indices@.contains(idx)
 
             &&& self.outstanding_entries.inv()
+
+            &&& vstd::std_specs::hash::obeys_key_model::<K>()
 
             // &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> #[trigger] self.modified_indices@.contains(idx)
             // &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.outstanding_entries@.contains_key(idx) ==>
@@ -1000,6 +1005,7 @@ verus! {
                 subregion.len() == overall_metadata.main_table_size,
                 subregion.view(pm_region).no_outstanding_writes(),
                 K::spec_size_of() > 0,
+                vstd::std_specs::hash::obeys_key_model::<K>(),
             ensures 
                 match result {
                     Ok((main_table, entry_list)) => {
@@ -3049,15 +3055,11 @@ verus! {
                         &&& self.modified_indices@.contains(j) ==> !self.main_table_free_list@.contains(j)
                         &&& self.main_table_free_list@.contains(j) ==> !self.modified_indices@.contains(j)
                     },
-
                     forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> 
                         #[trigger] self.modified_indices@.contains(idx),
-
                     self.outstanding_entries@ == old(self).outstanding_entries@,
                     self.modified_indices@ == old(self).modified_indices@,
-
                     self.main_table_free_list@.no_duplicates(),
-
                     forall |i: u64| {
                         let j = #[trigger] self.modified_indices[i as int];
                         &&& 0 <= i < index 
@@ -3066,6 +3068,7 @@ verus! {
                     } ==> self.main_table_free_list@.contains(self.modified_indices[i as int]),
                     forall |idx: u64| self.modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
                     forall |idx: u64| self.main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
+                    vstd::std_specs::hash::obeys_key_model::<K>(),
             {
                 let ghost free_list_at_top = self.main_table_free_list@;
                 let current_index = self.modified_indices[index];
@@ -3076,7 +3079,6 @@ verus! {
                     // if we allocated this index in the transaction, return it to the free list.
                     EntryStatus::Created | EntryStatus::CreatedThenDeleted => {
                         self.main_table_free_list.push(current_index);
-                        // assert(self.main_table_free_list@ == free_list_at_top.push(current_index));
                         assert(self.main_table_free_list@.subrange(0, free_list_at_top.len() as int) == free_list_at_top);
                         assert(self.main_table_free_list@[free_list_at_top.len() as int] == current_index);
                         assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
