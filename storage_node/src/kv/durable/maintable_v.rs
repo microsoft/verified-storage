@@ -539,6 +539,7 @@ verus! {
             &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> 
                     #[trigger] self.modified_indices@.contains(idx)
 
+            // free list and list of modified indices are always disjoint
             &&& forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) ==>
                     !self.main_table_free_list@.contains(idx)
             &&& forall |idx: u64| #[trigger] self.main_table_free_list@.contains(idx) ==>
@@ -555,6 +556,14 @@ verus! {
                     &&& !((self.outstanding_entries@[idx].status is Created || 
                                 self.outstanding_entries@[idx].status is CreatedThenDeleted)) 
                 } ==> self@.durable_main_table[idx as int] is Some
+            
+            // if idx has an outstanding write that is from a create, the idx is 
+            // currently invalid in the durable state 
+            &&& forall |idx: u64| {
+                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
+                    &&& (self.outstanding_entries@[idx].status is Created || 
+                                self.outstanding_entries@[idx].status is CreatedThenDeleted)
+                } ==> self@.durable_main_table[idx as int] is None
 
             &&& self.outstanding_entries.inv()
 
@@ -3195,40 +3204,7 @@ verus! {
                 if old(self).free_list().contains(idx) {
                     assert(old(self).free_indices().contains(idx));
                     assert(self.free_indices().contains(idx));
-                } else {
-                    // the old free list did not contain this index
-                    assert(!old(self).free_list().contains(idx));
-
-                    assert(!old(self).main_table_free_list@.contains(idx));
-                    assert(old(self)@.durable_main_table[idx as int] is Some || 
-                        old(self).modified_indices@.contains(idx));
-
-                    // it's impossible for idx to be in the free list if 
-                    // it wasn't modified in this transaction, because it wasn't
-                    // in it before
-                    if old(self)@.durable_main_table[idx as int] is Some && 
-                            !old(self).modified_indices@.contains(idx) 
-                    {
-                        assert(!old(self).outstanding_entries@.contains_key(idx));
-                        assert(false);
-                    }
-
-
-                    assert(old(self).modified_indices@.contains(idx));
-                    assert(old(self).outstanding_entries@.contains_key(idx));
-
-                    // // if idx is in the current free list but was not in the old one,
-                    // // it was allocated in this transaction
-                    // assert(forall |i: u64| {
-                    //     let j = #[trigger] old(self).modified_indices@[i as int];
-                    //     &&& 0 <= i < old(self).modified_indices@.len() 
-                    //     &&& old(self).outstanding_entries@.contains_key(j) 
-                    //     &&& (old(self).outstanding_entries@[j].status is Created || old(self).outstanding_entries@[j].status is CreatedThenDeleted)
-                    // } ==> self.main_table_free_list@.contains(old(self).modified_indices[i as int]));
-
-                    // assert(old(self)@.durable_main_table[idx as int] is None);
-                    // assert(self@.durable_main_table[idx as int] is None);
-                }
+                } // else, trivial
             }
         }
 
