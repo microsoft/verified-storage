@@ -98,7 +98,7 @@ verus! {
             }
         }
 
-        pub open spec fn insert(self, index: int, entry: MainTableViewEntry<K>) -> Self
+        pub open spec fn update(self, index: int, entry: MainTableViewEntry<K>) -> Self
         {
             Self{
                 durable_main_table: self.durable_main_table.update(index, Some(entry))
@@ -1443,6 +1443,8 @@ verus! {
                         &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self.outstanding_entry_writes@[i] == old(self).outstanding_entry_writes@[i]
                         &&& self.outstanding_entry_writes@[index as int] matches Some(e)
+                        &&& self.pending_allocations_view() == old(self).pending_allocations_view().insert(index)
+                        &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
                         &&& e.entry.tail == list_node_index
@@ -1492,6 +1494,9 @@ verus! {
                 },
             };
             self.pending_allocations.push(free_index);
+            assert(self.pending_allocations_view() == old(self).pending_allocations_view().insert(free_index)) by {
+                lemma_seq_push_to_set_equivalent_to_seq_to_set_insert(old(self).pending_allocations@, free_index);
+            }
             assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
             assert(forall |idx: u64| old(self).pending_allocations@.contains(idx) ==> self.pending_allocations@.contains(idx));
             
@@ -1993,7 +1998,7 @@ verus! {
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                     let entry = self.outstanding_entry_writes@[index as int].unwrap();
                     &&& new_mem is Some
-                    &&& new_main_table_view == Some(current_main_table_view.insert(index as int, entry))
+                    &&& new_main_table_view == Some(current_main_table_view.update(index as int, entry))
                     &&& new_main_table_view.unwrap().valid_item_indices() ==
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
                 }),
@@ -2134,7 +2139,7 @@ verus! {
                 }
                 let new_main_table_view = new_main_table_view.unwrap();
 
-                assert(new_main_table_view =~= old_main_table_view.insert(index as int, entry));
+                assert(new_main_table_view =~= old_main_table_view.update(index as int, entry));
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
                 // prove that it makes the corresponding item table index valid.

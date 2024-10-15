@@ -75,4 +75,25 @@ verus! {
         assert(forall |i: int| 0 <= i < s2.len() ==> #[trigger] s2[i] == (s1 + s2)[s1.len() + i]);
         assert(s1.to_set() + s2.to_set() == (s1 + s2).to_set());
     }
+
+    pub proof fn lemma_seq_push_to_set_equivalent_to_seq_to_set_insert<T>(s: Seq<T>, x: T)
+        ensures
+            s.push(x).to_set() == s.to_set().insert(x)
+    {
+        let s1 = s.push(x).to_set();
+        let s2 = s.to_set().insert(x);
+        assert(s1 =~= s2) by {
+            assert(forall|t: T| s1.contains(t) ==> s2.contains(t));
+            assert forall|t: T| s2.contains(t) implies s1.contains(t) by {
+                if t == x {
+                    assert(s.push(x)[s.len() as int] == x);
+                }
+                else {
+                    assert(s.to_set().contains(t));
+                    let j: int = choose|j: int| 0 <= j < s.len() && s[j] == t;
+                    assert(s.push(x)[j] == t);
+                }
+            }
+        }
+    }
 }
