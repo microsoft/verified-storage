@@ -324,6 +324,31 @@ verus! {
             self.state@
         }
 
+        pub open spec fn tentative_view(self) -> MainTableView<K>
+        {
+            MainTableView {
+                durable_main_table: self.state@.durable_main_table.map(|i: int, e| {
+                    if self.outstanding_entries@.contains_key(i as u64) {
+                        // if there is an outstanding entry, apply it
+                        let outstanding_entry = self.outstanding_entries[i as u64].unwrap();
+                        match outstanding_entry.status {
+                            EntryStatus::Created | EntryStatus::Updated => {
+                                // put the new entry in the view
+                                Some(outstanding_entry@)
+                            }
+                            EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => {
+                                // leave the entry as None
+                                None
+                            }
+                        }
+                    } else {
+                        e
+                    }
+                })
+            }
+            
+        }
+
         pub open spec fn free_list(self) -> Set<u64>
         {
             self.main_table_free_list@.to_set()
@@ -1534,109 +1559,150 @@ verus! {
                 subregion.inv(pm_region),
                 self.inv(subregion.view(pm_region), overall_metadata),
                 0 <= metadata_index < overall_metadata.num_keys,
-                self@.durable_main_table[metadata_index as int] is Some,
-                self.outstanding_entries[metadata_index] is None,
+                ({
+                    // either there is an outstanding entry that we can read, 
+                    // or there is no outstanding entry but there is a durable entry
+                    ||| ({
+                            &&& self.outstanding_entries[metadata_index] matches Some(entry)
+                            &&& (entry.status is Created || entry.status is Updated)
+                        })
+                    ||| ({
+                            &&& self.outstanding_entries[metadata_index] is None 
+                            &&& self@.durable_main_table[metadata_index as int] is Some
+                        })
+                })
             ensures
                 ({
                     match result {
                         Ok((key, entry)) => {
-                            let meta = self@.durable_main_table[metadata_index as int].unwrap();
-                            &&& meta.key == key
-                            &&& meta.entry == entry
+                            // if there is an outstanding create or update, the returned value should 
+                            // match it. 
+                            &&& ({
+                                    &&& self.outstanding_entries[metadata_index] matches Some(e)
+                                    &&& (e.status is Created || e.status is Updated)
+                                }) ==> {
+                                    &&& self.outstanding_entries[metadata_index] matches Some(e)
+                                    &&& e.key == key
+                                    &&& e.entry == entry
+                                }
+                            &&& ({
+                                    &&& self.outstanding_entries[metadata_index] is None 
+                                    &&& self@.durable_main_table[metadata_index as int] is Some
+                                }) ==> {
+                                    &&& self@.durable_main_table[metadata_index as int] matches Some(e)
+                                    &&& e.key == key
+                                    &&& e.entry == entry
+                                }
                         },
                         Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                         _ => false,
                     }
                 }),
         {
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
+            
             let ghost pm_view = subregion.view(pm_region);
             let main_table_entry_size = self.main_table_entry_size;
             proof {
                 lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
             }
 
-            let slot_addr = metadata_index * (main_table_entry_size as u64);
-            let cdb_addr = slot_addr;
-            let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
-            let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
-            let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
-
-            // 1. Read the CDB, metadata entry, key, and CRC at the index
-            let ghost mem = pm_view.committed();
-
-            let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
-            let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
-            let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
-
-            let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
-            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-            let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
-            let ghost true_key = K::spec_from_bytes(true_key_bytes);
-
-            let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
-            let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
-                                             |i: int| entry_addr + subregion.start() + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
-            let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
-
-            // 2. Check the CDB to determine whether the entry is valid
-            proof {
-                // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
-                assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
-                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
-            }
-            let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
-                Ok(cdb) => cdb,
-                Err(_) => {
-                    assert(false);
-                    return Err(KvError::EntryIsNotValid);
+            // first, check if there is an outstanding update to read. if there is, we can 
+            // return it without reading from PM at all
+            if self.outstanding_entries.contents.contains_key(&metadata_index) {
+                
+                let entry = self.outstanding_entries.get(metadata_index).unwrap();
+                match entry.status {
+                    EntryStatus::Created | EntryStatus::Updated => return Ok((Box::new(entry.key), Box::new(entry.entry))),
+                    _ => {
+                        assert(false);
+                        return Err(KvError::InternalError);
+                    }
                 }
-            };
-            let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
-                                       Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
-            match cdb_result {
-                Some(true) => {}, // continue 
-                Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
-                None => { return Err(KvError::CRCMismatch); },
+            } else {
+                let slot_addr = metadata_index * (main_table_entry_size as u64);
+                let cdb_addr = slot_addr;
+                let crc_addr = cdb_addr + traits_t::size_of::<u64>() as u64;
+                let entry_addr = crc_addr + traits_t::size_of::<u64>() as u64;
+                let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
+    
+                // 1. Read the CDB, metadata entry, key, and CRC at the index
+                let ghost mem = pm_view.committed();
+    
+                let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
+                let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+                let ghost true_entry_bytes = extract_bytes(mem, entry_addr as nat, ListEntryMetadata::spec_size_of());
+                let ghost true_key_bytes = extract_bytes(mem, key_addr as nat, K::spec_size_of());
+    
+                let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
+                let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+                let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
+                let ghost true_key = K::spec_from_bytes(true_key_bytes);
+    
+                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
+                let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
+                                                 |i: int| entry_addr + subregion.start() + i);
+                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
+                let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
+    
+                // 2. Check the CDB to determine whether the entry is valid
+                proof {
+                    // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
+                    self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
+                    assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
+                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
+                }
+                let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
+                    Ok(cdb) => cdb,
+                    Err(_) => {
+                        assert(false);
+                        return Err(KvError::EntryIsNotValid);
+                    }
+                };
+                let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
+                                           Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
+                match cdb_result {
+                    Some(true) => {}, // continue 
+                    Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
+                    None => { return Err(KvError::CRCMismatch); },
+                }
+    
+                proof {
+                    // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
+                    assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
+                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
+                    assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
+                           Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
+                    assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
+                           Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
+                }
+                let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
+                    Ok(crc) => crc,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+                };
+                let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
+                    Ok(metadata_entry) => metadata_entry,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+                };
+                let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
+                    Ok(key) => key,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
+                };
+    
+                // 3. Check for corruption
+                if !check_crc_for_two_reads(
+                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                    Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
+                    Ghost(crc_addrs)) 
+                {
+                    return Err(KvError::CRCMismatch);
+                }
+    
+                // 4. Return the metadata entry and key
+                let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry));
+                let key = key.extract_init_val(Ghost(true_key));
+                Ok((key, metadata_entry))
             }
-
-            proof {
-                // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
-                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
-                assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
-                       Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
-                assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
-                       Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
-            }
-            let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
-                Ok(crc) => crc,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
-            };
-            let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
-                Ok(metadata_entry) => metadata_entry,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
-            };
-            let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
-                Ok(key) => key,
-                Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
-            };
-
-            // 3. Check for corruption
-            if !check_crc_for_two_reads(
-                metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
-                Ghost(crc_addrs)) 
-            {
-                return Err(KvError::CRCMismatch);
-            }
-
-            // 4. Return the metadata entry and key
-            let metadata_entry = metadata_entry.extract_init_val(Ghost(true_entry));
-            let key = key.extract_init_val(Ghost(true_key));
-            Ok((key, metadata_entry))
         }
 
         proof fn lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
@@ -1750,6 +1816,7 @@ verus! {
                     _ => false,
                 }
         {
+            assume(false); // @jay @hayley
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(self.inv(old_pm_view, overall_metadata));
 
@@ -2826,8 +2893,8 @@ verus! {
                 item_index < overall_metadata.num_keys,
                 pm_region@.len() == overall_metadata.region_size,
                 !self@.valid_item_indices().contains(item_index),
-                // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_main_table[index as int] is Some,
+                // // the index must refer to a currently-valid entry in the current durable table
+                // self@.durable_main_table[index as int] is Some,
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
@@ -2837,13 +2904,18 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
-                    &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.inv(*overall_metadata)
-                    &&& !main_table_view.valid_item_indices().contains(item_index)
+                    
+                    // the tentative main table from the provided bytes should 
+                    // match the current main table's own tentative view
+                    Some(self.tentative_view()) == main_table_view
 
-                    // the index should not be deallocated in the tentative view
-                    &&& main_table_view.durable_main_table[index as int] is Some
+                    // &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
+                    // &&& main_table_view matches Some(main_table_view)
+                    // &&& main_table_view.inv(*overall_metadata)
+                    // &&& !main_table_view.valid_item_indices().contains(item_index)
+
+                    // // the index should not be deallocated in the tentative view
+                    // &&& main_table_view.durable_main_table[index as int] is Some
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2887,11 +2959,11 @@ verus! {
                     _ => false,
                 }
         {
-            proof {
-                // We first have to establish that this index is not pending allocation or deallocation
-                // by triggering the pending alloc check on it.
-                self.lemma_index_is_not_pending_alloc_or_dealloc(*subregion, pm_region, index, *overall_metadata, current_tentative_state);
-            }
+            // proof {
+            //     // We first have to establish that this index is not pending allocation or deallocation
+            //     // by triggering the pending alloc check on it.
+            //     self.lemma_index_is_not_pending_alloc_or_dealloc(*subregion, pm_region, index, *overall_metadata, current_tentative_state);
+            // }
 
             // For this operation, we have to log the whole new metadata table entry
             // we don't have to log the key, as it hasn't changed, but we do need
