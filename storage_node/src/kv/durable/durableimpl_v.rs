@@ -5592,7 +5592,7 @@ verus! {
             assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.committed()));
 
             self.main_table.tentatively_deallocate_entry(Ghost(main_table_subregion_view),
-                index, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
+                index, *metadata, *key, Ghost(self.overall_metadata), Ghost(new_tentative_view_bytes));
 
             proof {
                 let durable_main_table_subregion_state = extract_bytes(self.wrpm@.committed(), 
