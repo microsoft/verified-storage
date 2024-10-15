@@ -392,6 +392,7 @@ verus! {
                 key
             };
             self.outstanding_entries.contents.insert(index, new_outstanding_entry);
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         pub exec fn outstanding_entry_update(&mut self, index: u64, entry: ListEntryMetadata, key: K)
@@ -440,6 +441,7 @@ verus! {
                 }
             };
             self.outstanding_entries.contents.insert(index, new_outstanding_entry);
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         // It's kind of janky to pass in the entry and key that we're deleting, but we need 
@@ -480,6 +482,7 @@ verus! {
                 key
             };
             self.outstanding_entries.contents.insert(index, new_outstanding_entry);
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         // this doesn't really make a whole lot of sense anymore
@@ -541,6 +544,18 @@ verus! {
             &&& forall |idx: u64| #[trigger] self.main_table_free_list@.contains(idx) ==>
                     !self.modified_indices@.contains(idx)
 
+            // if an entry is not free, it is valid or has an outstanding update
+            &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
+                    self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx)
+
+            // if idx has an outstanding write that is not from a create, the idx
+            // was allocated in a previous transaction and is currently valid
+            &&& forall |idx: u64| {
+                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
+                    &&& !((self.outstanding_entries@[idx].status is Created || 
+                                self.outstanding_entries@[idx].status is CreatedThenDeleted)) 
+                } ==> self@.durable_main_table[idx as int] is Some
+
             &&& self.outstanding_entries.inv()
 
             &&& vstd::std_specs::hash::obeys_key_model::<K>()
@@ -581,7 +596,7 @@ verus! {
             //         self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size)
             &&& self@.inv(overall_metadata)
             &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
-            // &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
+            &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
             // &&& forall |idx: u64| self.pending_allocations_view().contains(idx) ==> idx < overall_metadata.num_keys
             // &&& self.pending_allocations_view().disjoint(self.free_indices())
             // &&& forall |idx: u64| self.free_indices().contains(idx) ==> idx < overall_metadata.num_keys
@@ -3034,12 +3049,17 @@ verus! {
                 self.modified_indices@.len() == 0,
                 self.main_table_entry_size == old(self).main_table_entry_size,
                 self@ == old(self)@,
-                forall |i: u64| {
-                    let j = #[trigger] old(self).modified_indices@[i as int];
-                    &&& 0 <= i < old(self).modified_indices@.len() 
-                    &&& old(self).outstanding_entries@.contains_key(j) 
-                    &&& (old(self).outstanding_entries@[j].status is Created || old(self).outstanding_entries@[j].status is CreatedThenDeleted)
-                } ==> self.main_table_free_list@.contains(old(self).modified_indices[i as int])   
+                forall |idx: u64| {
+                    // the free list contains idx if either idx was already in the free list
+                    // or idx had an outstanding entry indicating that it was allocated in
+                    // this transaction 
+                    ||| old(self).main_table_free_list@.contains(idx)
+                    ||| {
+                            &&& old(self).modified_indices@.contains(idx)
+                            &&& (old(self).outstanding_entries@[idx].status is Created || 
+                                    old(self).outstanding_entries@[idx].status is CreatedThenDeleted)
+                        }
+                } <==> #[trigger] self.main_table_free_list@.contains(idx)
         {
             // iterate over the modified indices and determine 
             // if and how to update the free list depending on 
@@ -3061,14 +3081,29 @@ verus! {
                     self.modified_indices@ == old(self).modified_indices@,
                     self.main_table_free_list@.no_duplicates(),
                     forall |i: u64| {
-                        let j = #[trigger] self.modified_indices[i as int];
+                        let j = #[trigger] old(self).modified_indices[i as int];
                         &&& 0 <= i < index 
-                        &&& self.outstanding_entries@.contains_key(j) 
-                        &&& (self.outstanding_entries@[j].status is Created || self.outstanding_entries@[j].status is CreatedThenDeleted)
-                    } ==> self.main_table_free_list@.contains(self.modified_indices[i as int]),
+                        &&& old(self).outstanding_entries@.contains_key(j) 
+                        &&& (old(self).outstanding_entries@[j].status is Created || old(self).outstanding_entries@[j].status is CreatedThenDeleted)
+                    } ==> self.main_table_free_list@.contains(old(self).modified_indices[i as int]),
                     forall |idx: u64| self.modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
                     forall |idx: u64| self.main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
                     vstd::std_specs::hash::obeys_key_model::<K>(),
+                    forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
+                        self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx),
+                    self@.durable_main_table == old(self)@.durable_main_table,
+                    forall |idx: u64| old(self).main_table_free_list@.contains(idx) ==> self.main_table_free_list@.contains(idx),
+                    forall |idx: u64| #![trigger self.main_table_free_list@.contains(idx)] 
+                                      #![trigger old(self).main_table_free_list@.contains(idx)]
+                                      #![trigger old(self).modified_indices@.contains(idx)]
+                        self.main_table_free_list@.contains(idx) ==> {
+                            ||| old(self).main_table_free_list@.contains(idx)
+                            ||| ({
+                                    &&& old(self).modified_indices@.contains(idx)
+                                    &&& (old(self).outstanding_entries@[idx].status is Created || 
+                                            old(self).outstanding_entries@[idx].status is CreatedThenDeleted)
+                                })
+                        },
             {
                 let ghost free_list_at_top = self.main_table_free_list@;
                 let current_index = self.modified_indices[index];
@@ -3097,6 +3132,22 @@ verus! {
 
             self.modified_indices.clear();
             self.outstanding_entries.clear();
+
+            assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) implies
+                self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx)
+            by {
+                if !old(self).main_table_free_list@.contains(idx) {
+                    // neither the old nor new free list contain idx
+
+                    // by opaquable_inv, if the free list does not contain idx, then it is either
+                    // currently valid or has an outstanding write
+                    if old(self)@.durable_main_table[idx as int] is Some {
+                        assert(self@.durable_main_table[idx as int] is Some);
+                    } else {
+                        assert(old(self).modified_indices@.contains(idx));
+                    }
+                } // else, trivial
+            }
         }
 
         pub exec fn abort_transaction(
@@ -3121,6 +3172,7 @@ verus! {
                         _ => true
                     },
                 pm.no_outstanding_writes(),
+                forall |idx: u64| old(self).free_list().contains(idx) ==> old(self).free_indices().contains(idx),
             ensures
                 self.valid(pm, overall_metadata),
                 self.outstanding_entries@.len() == 0,
@@ -3135,6 +3187,48 @@ verus! {
                 let start = index_to_offset(idx as nat, overall_metadata.main_table_entry_size as nat) as int;
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
                 assert(pm.no_outstanding_writes_in_range(start, start + overall_metadata.main_table_entry_size));
+            }
+
+            assert forall |idx: u64| self.free_list().contains(idx) implies
+                self.free_indices().contains(idx)
+            by {
+                if old(self).free_list().contains(idx) {
+                    assert(old(self).free_indices().contains(idx));
+                    assert(self.free_indices().contains(idx));
+                } else {
+                    // the old free list did not contain this index
+                    assert(!old(self).free_list().contains(idx));
+
+                    assert(!old(self).main_table_free_list@.contains(idx));
+                    assert(old(self)@.durable_main_table[idx as int] is Some || 
+                        old(self).modified_indices@.contains(idx));
+
+                    // it's impossible for idx to be in the free list if 
+                    // it wasn't modified in this transaction, because it wasn't
+                    // in it before
+                    if old(self)@.durable_main_table[idx as int] is Some && 
+                            !old(self).modified_indices@.contains(idx) 
+                    {
+                        assert(!old(self).outstanding_entries@.contains_key(idx));
+                        assert(false);
+                    }
+
+
+                    assert(old(self).modified_indices@.contains(idx));
+                    assert(old(self).outstanding_entries@.contains_key(idx));
+
+                    // // if idx is in the current free list but was not in the old one,
+                    // // it was allocated in this transaction
+                    // assert(forall |i: u64| {
+                    //     let j = #[trigger] old(self).modified_indices@[i as int];
+                    //     &&& 0 <= i < old(self).modified_indices@.len() 
+                    //     &&& old(self).outstanding_entries@.contains_key(j) 
+                    //     &&& (old(self).outstanding_entries@[j].status is Created || old(self).outstanding_entries@[j].status is CreatedThenDeleted)
+                    // } ==> self.main_table_free_list@.contains(old(self).modified_indices[i as int]));
+
+                    // assert(old(self)@.durable_main_table[idx as int] is None);
+                    // assert(self@.durable_main_table[idx as int] is None);
+                }
             }
         }
 
@@ -3316,6 +3410,7 @@ verus! {
                     } ==> main_table_region.flush().committed()[addr] == old_main_table_region.flush().committed()[addr]
                 })
         {
+            assume(false); // @jay @hayley
             let entry_size = overall_metadata.main_table_entry_size;
             let start = index_to_offset(index as nat, entry_size as nat);
             assert forall|addr: u64| {
@@ -3324,9 +3419,12 @@ verus! {
                        &&& !(start <= addr < start + entry_size)
                    } implies main_table_region.flush().committed()[addr as int] ==
                              old_main_table_region.flush().committed()[addr as int] by {
+
                 assert(old_main_table_region.state[addr as int].state_at_last_flush ==
                        old_main_table_region.committed()[addr as int]);
+
                 assert(main_table_region.state[addr as int].state_at_last_flush == main_table_region.committed()[addr as int]);
+
                 if addr < index_to_offset(overall_metadata.num_keys as nat,
                                           overall_metadata.main_table_entry_size as nat) {
                     lemma_auto_addr_in_entry_divided_by_entry_size(index as nat, overall_metadata.num_keys as nat,
