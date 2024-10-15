@@ -4516,8 +4516,8 @@ verus! {
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        #[verifier::rlimit(50)]
-        pub fn tentative_create_now(
+        #[verifier::rlimit(10)]
+        pub fn tentative_create(
             &mut self,
             key: &K,
             item: &I,
@@ -4542,19 +4542,11 @@ verus! {
                 ({
                     match result {
                         Ok((offset, head_node)) => {
-                            let spec_result = old(self).tentative_view().unwrap().create(offset as int, *key, *item);
-                            match spec_result {
-                                Ok(spec_result) => {
-                                    let v1 = old(self).tentative_view().unwrap();
-                                    let v2 = self.tentative_view().unwrap();
-                                    &&& self.tentative_view() == Some(spec_result)
-                                    &&& v2.contains_key(offset as int)
-                                    &&& v2[offset as int] is Some
-                                    &&& self.pending_allocations() == old(self).pending_allocations().insert(offset)
-                                    &&& self.pending_deallocations() == old(self).pending_deallocations()
-                                }
-                                Err(_) => false
-                            }
+                            &&& old(self).tentative_view().unwrap().create(offset as int, *key, *item) is Ok
+                            &&& self.tentative_view() ==
+                                Some(old(self).tentative_view().unwrap().create(offset as int, *key, *item).unwrap())
+                            &&& self.pending_allocations() == old(self).pending_allocations().insert(offset)
+                            &&& self.pending_deallocations() == old(self).pending_deallocations()
                         },
                         Err(KvError::OutOfSpace) => {
                             &&& self@ == old(self)@
