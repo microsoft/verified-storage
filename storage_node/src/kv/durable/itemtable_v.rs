@@ -59,6 +59,16 @@ verus! {
             self.durable_item_table.len()
         }
 
+        pub open spec fn update(self, index: int, item: I) -> Self
+        {
+            if index < 0 || index >= self.len() {
+                self
+            }
+            else {
+                Self{ durable_item_table: self.durable_item_table.update(index, Some(item)) }
+            }
+        }
+
         // // Inserting an entry and committing it are two separate operations. Inserted entries
         // // are invalid until they are explicitly committed. Attempting to insert at an index
         // // that already has a valid entry results in an error.
