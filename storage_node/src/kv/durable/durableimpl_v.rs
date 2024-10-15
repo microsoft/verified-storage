@@ -4159,7 +4159,7 @@ verus! {
                    self_before_main_table_create.tentative_hypothetical_item_table(new_valid_item_indices));
         }
 
-        proof fn lemma_finalize_tentative_create_proof(
+        proof fn lemma_finalize_tentative_create(
             self,
             old_self: Self,
             pre_append_self: Self,
@@ -4184,6 +4184,8 @@ verus! {
             self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
             log_entry@.inv(self.version_metadata, self.overall_metadata),
             self.log@ == pre_append_self.log@.tentatively_append_log_entry(log_entry@),
+            log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_list(),
+                                                              self.overall_metadata),
             self.wrpm.inv(),
             pre_append_self.wrpm@.len() == self.wrpm@.len() == self.overall_metadata.region_size,
             pre_append_self.tentative_main_table() == old_self.tentative_main_table(),
@@ -4204,6 +4206,8 @@ verus! {
                 Some(MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
             log_entries_do_not_modify_item_table(pre_append_self.log@.physical_op_list,
                                                  pre_append_self.overall_metadata),
+            !pre_append_self.log@.op_list_committed,
+            !self.log@.op_list_committed,
             self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
             self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
             ({
@@ -4287,8 +4291,12 @@ verus! {
             }),
         {
             let overall_metadata = self.overall_metadata;
+            let main_table_addr = overall_metadata.main_table_addr;
+            let main_table_size = overall_metadata.main_table_size;
             let item_table_addr = overall_metadata.item_table_addr;
             let item_table_size = overall_metadata.item_table_size;
+            let log_area_addr = overall_metadata.log_area_addr;
+            let log_area_size = overall_metadata.log_area_size;
             
             let tentative_state_before_create_validify_log_entry =
                 prove_unwrap(
@@ -4442,7 +4450,64 @@ verus! {
                                                                                          entry));
             assert(self.tentative_view().unwrap() =~=
                    old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap());
-            assume(self.inv());
+            
+            assert forall |s| #[trigger] self.wrpm@.can_crash_as(s) implies self.inv_mem(s) by {
+                let pre_s = lemma_get_crash_state_given_one_for_other_view_differing_only_where_subregion_allows(
+                    self.wrpm@,
+                    pre_append_self.wrpm@,
+                    s,
+                    log_area_addr as nat,
+                    log_area_size as nat,
+                    |addr: int| true,
+                );
+                assert(extract_version_metadata(s) =~= extract_version_metadata(pre_s));
+                assert(self.version_metadata == deserialize_version_metadata(s));
+                assert(extract_overall_metadata(s, self.version_metadata.overall_metadata_addr) =~=
+                       extract_overall_metadata(pre_s, self.version_metadata.overall_metadata_addr));
+                assert(self.overall_metadata ==
+                       deserialize_overall_metadata(s, self.version_metadata.overall_metadata_addr));
+                let recovered_log = UntrustedOpLog::<K, L>::recover(s, self.version_metadata, self.overall_metadata);
+                assert(recovered_log == Some(AbstractOpLogState::initialize())) by {
+                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+                }
+                let pre_recovered_log = UntrustedOpLog::<K, L>::recover(pre_s, self.version_metadata,
+                                                                        self.overall_metadata);
+                assert(pre_recovered_log == Some(AbstractOpLogState::initialize())) by {
+                    pre_append_self.log.lemma_reveal_opaque_op_log_inv(pre_append_self.wrpm,
+                                                                       pre_append_self.version_metadata,
+                                                                       pre_append_self.overall_metadata);
+                }
+                assert(apply_physical_log_entries(s, recovered_log.unwrap().physical_op_list) == Some(s));
+                assert(apply_physical_log_entries(pre_s, pre_recovered_log.unwrap().physical_op_list) == Some(pre_s));
+                assert(extract_bytes(s, main_table_addr as nat, main_table_size as nat) =~=
+                       extract_bytes(pre_s, main_table_addr as nat, main_table_size as nat));
+                assert(extract_bytes(s, item_table_addr as nat, item_table_size as nat) =~=
+                       extract_bytes(pre_s, item_table_addr as nat, item_table_size as nat));
+                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==
+                       Self::physical_recover(pre_s, self.version_metadata, self.overall_metadata));
+                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@));
+            }
+            assert(self.version_metadata == deserialize_version_metadata(self.wrpm@.committed())) by {
+                assert(extract_version_metadata(self.wrpm@.committed()) =~=
+                       extract_version_metadata(pre_append_self.wrpm@.committed()));
+            }
+            assert(self.main_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                                          self.overall_metadata.main_table_size as nat),
+                                       self.overall_metadata)) by {
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                          self.overall_metadata.main_table_size as nat) =~=
+                       get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                          self.overall_metadata.main_table_size as nat));
+            }
+            assert(self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                                          self.overall_metadata.item_table_size as nat),
+                                       self.overall_metadata, self.main_table@.valid_item_indices())) by {
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                          self.overall_metadata.item_table_size as nat) =~=
+                       get_subregion_view(pre_append_self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                                          self.overall_metadata.item_table_size as nat));
+            }
+            assert(PhysicalOpLogEntry::vec_view(self.pending_updates) =~= self.log@.physical_op_list);
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -4452,7 +4517,7 @@ verus! {
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
         #[verifier::rlimit(50)]
-        pub fn tentative_create(
+        pub fn tentative_create_now(
             &mut self,
             key: &K,
             item: &I,
@@ -4754,8 +4819,8 @@ verus! {
 
             // 6. Return the index of the metadata entry so it can be used in the volatile index.
             proof {
-                self.lemma_finalize_tentative_create_proof(*old(self), pre_append_self, *key, *item, main_table_index,
-                                                           item_index, log_entry);
+                self.lemma_finalize_tentative_create(*old(self), pre_append_self, *key, *item, main_table_index,
+                                                     item_index, log_entry);
             }
             Ok((main_table_index, head_index))
         }

@@ -1985,6 +1985,7 @@ verus! {
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
                 ({
                     let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
@@ -2164,6 +2165,17 @@ verus! {
                     }
                 }
             }
+
+            assert(log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                                                                     *overall_metadata)) by {
+                assert forall|free_index: u64| #[trigger] self.free_list().contains(free_index) implies
+                       log_entry_does_not_modify_free_main_table_entry(log_entry@, free_index, *overall_metadata) by {
+                    assert(free_index != index);
+                    lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(free_index as nat, index as nat, entry_slot_size as nat);
+                }
+            }                                                                            
+
 
             log_entry
         }
