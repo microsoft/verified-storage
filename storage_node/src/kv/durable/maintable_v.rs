@@ -290,6 +290,18 @@ verus! {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
             self.contents.get(&i)
         }
+
+        // returns the status to be used when recording an update to 
+        // the entry at index
+        pub open spec fn get_update_status(self, index: u64) -> EntryStatus 
+        {
+            if self@.contains_key(index) {
+                self@[index].status
+            } else {
+                EntryStatus::Updated
+            }
+            
+        }
     }
 
     #[verifier::reject_recursive_types(K)]
@@ -326,11 +338,17 @@ verus! {
 
         pub open spec fn tentative_view(self) -> MainTableView<K>
         {
+            Self::tentative_view_from_outstanding_entries(self@, self.outstanding_entries@)
+        }
+
+        pub open spec fn tentative_view_from_outstanding_entries(current_main_table: MainTableView<K>, 
+            outstanding_entries: Map<u64, OutstandingEntry<K>>) -> MainTableView<K>
+        {
             MainTableView {
-                durable_main_table: self.state@.durable_main_table.map(|i: int, e| {
-                    if self.outstanding_entries@.contains_key(i as u64) {
+                durable_main_table: current_main_table.durable_main_table.map(|i: int, e| {
+                    if outstanding_entries.contains_key(i as u64) {
                         // if there is an outstanding entry, apply it
-                        let outstanding_entry = self.outstanding_entries[i as u64].unwrap();
+                        let outstanding_entry = outstanding_entries[i as u64];
                         match outstanding_entry.status {
                             EntryStatus::Created | EntryStatus::Updated => {
                                 // put the new entry in the view
@@ -346,7 +364,6 @@ verus! {
                     }
                 })
             }
-            
         }
 
         pub open spec fn free_list(self) -> Set<u64>
@@ -438,11 +455,7 @@ verus! {
                     old(self).outstanding_entries@[index].status == self.outstanding_entries@[index].status,
                 !old(self).outstanding_entries@.contains_key(index) ==> self.outstanding_entries@[index].status is Updated,
                 ({
-                    let status = if old(self).outstanding_entries@.contains_key(index) {
-                        old(self).outstanding_entries@[index].status
-                    } else {
-                        EntryStatus::Updated
-                    };
+                    let status = self.outstanding_entries.get_update_status(index);
                     let new_entry = OutstandingEntry {
                         status,
                         entry, 
@@ -1600,7 +1613,7 @@ verus! {
                 }),
         {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
-            
+
             let ghost pm_view = subregion.view(pm_region);
             let main_table_entry_size = self.main_table_entry_size;
             proof {
@@ -2907,15 +2920,20 @@ verus! {
                     
                     // the tentative main table from the provided bytes should 
                     // match the current main table's own tentative view
-                    Some(self.tentative_view()) == main_table_view
-
-                    // &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, *overall_metadata)
-                    // &&& main_table_view matches Some(main_table_view)
-                    // &&& main_table_view.inv(*overall_metadata)
-                    // &&& !main_table_view.valid_item_indices().contains(item_index)
-
-                    // // the index should not be deallocated in the tentative view
-                    // &&& main_table_view.durable_main_table[index as int] is Some
+                    &&& Some(self.tentative_view()) == main_table_view
+                    &&& !main_table_view.unwrap().valid_item_indices().contains(item_index)
+                }),
+                ({
+                    // either there is an outstanding entry that we can read, 
+                    // or there is no outstanding entry but there is a durable entry
+                    ||| ({
+                            &&& self.outstanding_entries[index] matches Some(entry)
+                            &&& (entry.status is Created || entry.status is Updated)
+                        })
+                    ||| ({
+                            &&& self.outstanding_entries[index] is None 
+                            &&& self@.durable_main_table[index as int] is Some
+                        })
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2959,12 +2977,6 @@ verus! {
                     _ => false,
                 }
         {
-            // proof {
-            //     // We first have to establish that this index is not pending allocation or deallocation
-            //     // by triggering the pending alloc check on it.
-            //     self.lemma_index_is_not_pending_alloc_or_dealloc(*subregion, pm_region, index, *overall_metadata, current_tentative_state);
-            // }
-
             // For this operation, we have to log the whole new metadata table entry
             // we don't have to log the key, as it hasn't changed, but we do need
             // to log a CRC that covers both the metadata and the key. The CRC and 
@@ -3017,6 +3029,9 @@ verus! {
             };
 
             proof {
+                broadcast use pmcopy_axioms;
+                assert(log_entry.len == log_entry.bytes@.len());
+
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                         log_entry.bytes[pos - log_entry.absolute_addr]
@@ -3037,7 +3052,7 @@ verus! {
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                 let old_item_index = old_main_table_view.durable_main_table[index as int].unwrap().item_index();
-                
+
                 let new_entry_view = MainTableViewEntry {
                     entry: new_metadata_entry,
                     key: *key,
@@ -3085,7 +3100,6 @@ verus! {
                     overall_metadata.main_table_entry_size as nat);
                 let new_entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat);
-
                 // Prove that there are no duplicate entries or keys. This is required
                 // to prove that the table parses successfully.
                 Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
