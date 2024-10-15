@@ -2568,7 +2568,6 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry in the current durable table
-                // self@.durable_main_table[index as int] is Some,
                 parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
                                           overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
@@ -2581,7 +2580,6 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    // &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
                     &&& self.tentative_view() == main_table_view
@@ -2672,7 +2670,6 @@ verus! {
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                // assert(self.allocator_view().pending_alloc_check(index, committed_main_table_view, old_main_table_view));
                 
                 assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
                                                          index_to_offset(i, entry_slot_size as nat),
@@ -2719,7 +2716,6 @@ verus! {
                 let old_entries =
                     parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
                                                 overall_metadata.main_table_entry_size as nat);
-                // assert(!self.pending_deallocations_view().contains(index));
                 assert(old_entries[index as int] is Some);
                 assert(old_entries[index as int].unwrap().item_index() == item_index);
 
