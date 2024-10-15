@@ -400,6 +400,17 @@ verus! {
             forall|i| 0 <= i < self@.durable_main_table.len() ==> self.no_outstanding_writes_to_index(i)
         }
 
+        pub open spec fn get_latest_entry(self, index: u64) -> Option<MainTableViewEntry<K>>
+        {
+            if self.outstanding_entries@.contains_key(index) {
+                Some(self.outstanding_entries[index].unwrap()@)
+            } else if self@.durable_main_table[index as int] is Some {
+                self@.durable_main_table[index as int]
+            } else { 
+                None
+            }
+        }
+
         // We return the free indices as a set, not a seq, because the order they are listed in
         // doesn't actually matter, and then we don't have to worry about matching the order
         // they are kept in in executable code.
@@ -2557,8 +2568,7 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_main_table[index as int] is Some,
-                // !self.pending_deallocations_view().contains(index),
+                // self@.durable_main_table[index as int] is Some,
                 parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
                                           overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
@@ -2571,9 +2581,22 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let main_table_view = parse_main_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
+                    // &&& self.pending_alloc_inv(subregion_view.committed(), main_table_region, *overall_metadata)
                     &&& main_table_view matches Some(main_table_view)
                     &&& main_table_view.inv(*overall_metadata)
+                    &&& self.tentative_view() == main_table_view
+                }),
+                ({
+                    // either there is an outstanding entry that we can delete, 
+                    // or there is no outstanding entry but there is a durable entry
+                    ||| ({
+                            &&& self.outstanding_entries[index] matches Some(entry)
+                            &&& (entry.status is Created || entry.status is Updated)
+                        })
+                    ||| ({
+                            &&& self.outstanding_entries[index] is None 
+                            &&& self@.durable_main_table[index as int] is Some
+                        })
                 }),
                 current_tentative_state.len() == overall_metadata.region_size,
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
@@ -2601,14 +2624,15 @@ verus! {
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    let item_index = self@.durable_main_table[index as int].unwrap().item_index();
+                    let item_index = self.get_latest_entry(index).unwrap().item_index();
                     &&& new_main_table_view is Some
                     &&& new_main_table_view == current_main_table_view.delete(index as int)
                     &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
-            let ghost item_index = self@.durable_main_table[index as int].unwrap().item_index();
+            let ghost item_index = self.get_latest_entry(index).unwrap().item_index();
+
             // Proves that index * entry_slot_size will not overflow
             proof {
                 lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
@@ -2624,7 +2648,9 @@ verus! {
             };
 
             proof {
-                broadcast use pmcopy_axioms;
+                assert(log_entry.len == log_entry.bytes@.len()) by {
+                    broadcast use pmcopy_axioms;
+                }
 
                 let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                     if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -2666,11 +2692,14 @@ verus! {
                     lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(i, index as nat, entry_slot_size as nat);
                     assert(new_main_table_region.len() >= offset + entry_slot_size);
+                    
+                    broadcast use pmcopy_axioms;
+
                     // Handle the case where i != index separately from i == index.
                     if i != index {
                         assert(extract_bytes(new_main_table_region, offset, entry_slot_size as nat) =~=
                                extract_bytes(old_main_table_region, offset, entry_slot_size as nat));
-                        } else {
+                    } else {
                         // When `i == index`, the entry is valid because we just set its CDB to false,
                         // which makes its CDB a valid, parseable value. This also proves that this
                         // entry parses to an Invalid entry, since we know that
