@@ -4219,6 +4219,11 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let main_table_view = parse_main_table::<K>(main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
+                let new_main_table_region = extract_bytes(new_mem.unwrap(), 
+                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
+                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
+                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                 let entry_bytes = extract_bytes(
                     main_table_region,
                     index_to_offset(main_table_index as nat, overall_metadata.main_table_entry_size as nat),
@@ -4253,42 +4258,19 @@ verus! {
                 &&& 0 <= metadata.item_index < overall_metadata.num_keys
                 &&& key == entry.key
                 &&& metadata == entry.entry
-            }),
-            ({
-                let mem = pre_append_self.wrpm@.flush().committed();
-                let op_log = pre_append_self.log@.commit_op_log().physical_op_list;
-                let overall_metadata = self.overall_metadata;
-                let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
-                let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
-                let current_main_table_region = extract_bytes(current_tentative_state, 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let current_main_table_view = parse_main_table::<K>(current_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                let new_main_table_region = extract_bytes(new_mem.unwrap(), 
-                    overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                let new_main_table_view = parse_main_table::<K>(new_main_table_region,
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                let entry = pre_append_self.main_table.outstanding_entry_writes@[main_table_index as int].unwrap();
                 &&& new_mem is Some
-                &&& new_main_table_view == Some(current_main_table_view.update(main_table_index as int, entry))
+                &&& new_main_table_view == Some(main_table_view.unwrap().update(main_table_index as int, entry))
                 &&& entry == MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }
                 &&& new_main_table_view.unwrap().valid_item_indices() ==
-                    current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
+                    main_table_view.unwrap().valid_item_indices().insert(entry.entry.item_index)
             }),
         ensures
             self.inv(),
-            self.tentative_view() is Some,
             old_self.tentative_view().unwrap().create(main_table_index as int, key, item) is Ok,
-            self.tentative_view().unwrap() ==
-                old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap(),
-            ({
-                let ghost v1 = old_self.tentative_view().unwrap();
-                let ghost v2 = self.tentative_view().unwrap();
-                &&& v2.contains_key(main_table_index as int)
-                &&& v2[main_table_index as int] is Some
-                &&& self.pending_allocations() == old_self.pending_allocations().insert(main_table_index)
-                &&& self.pending_deallocations() == old_self.pending_deallocations()
-            }),
+            self.tentative_view() ==
+                Some(old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap()),
+            self.pending_allocations() == old_self.pending_allocations().insert(main_table_index),
+            self.pending_deallocations() == old_self.pending_deallocations(),
         {
             let overall_metadata = self.overall_metadata;
             let main_table_addr = overall_metadata.main_table_addr;
