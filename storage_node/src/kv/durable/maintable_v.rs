@@ -2147,8 +2147,26 @@ verus! {
             ensures 
                 self.inv(pm_subregion, overall_metadata),
                 old(self).free_list() == self.free_list(),
+                ({
+                    let status = old(self).outstanding_entries.get_delete_status(index);
+                    let new_entry = OutstandingEntry {
+                        status,
+                        entry, 
+                        key
+                    };
+                    self.outstanding_entries@ == old(self).outstanding_entries@.insert(index, new_entry)
+                }),
+                old(self)@ == self@,
+                old(self).main_table_entry_size == self.main_table_entry_size,
+                Some(self.tentative_view()) == old(self).tentative_view().delete(index as int),
         {
             self.outstanding_entry_delete(index, entry, key, Ghost(overall_metadata));
+
+            proof {
+                assert(old(self).tentative_view().durable_main_table[index as int] is Some);
+                assert(self.tentative_view().durable_main_table[index as int] is None);
+                assert(self.tentative_view().durable_main_table == old(self).tentative_view().durable_main_table.update(index as int, None));
+            }
         }
 
         exec fn finalize_outstanding_entries(
@@ -3446,24 +3464,28 @@ verus! {
                 self.outstanding_entries@.len() == 0,
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 self@ == old(self)@,
+                self.tentative_view() == self@,
         {
             self.clear_modified_indices_for_abort(Ghost(overall_metadata));
+            proof {
+                assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies
+                    self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
+                by {
+                    let start = index_to_offset(idx as nat, overall_metadata.main_table_entry_size as nat) as int;
+                    lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
+                    assert(pm.no_outstanding_writes_in_range(start, start + overall_metadata.main_table_entry_size));
+                }
 
-            assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies
-                self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
-            by {
-                let start = index_to_offset(idx as nat, overall_metadata.main_table_entry_size as nat) as int;
-                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
-                assert(pm.no_outstanding_writes_in_range(start, start + overall_metadata.main_table_entry_size));
-            }
+                assert forall |idx: u64| self.free_list().contains(idx) implies
+                    self.free_indices().contains(idx)
+                by {
+                    if old(self).free_list().contains(idx) {
+                        assert(old(self).free_indices().contains(idx));
+                        assert(self.free_indices().contains(idx));
+                    } // else, trivial
+                }
 
-            assert forall |idx: u64| self.free_list().contains(idx) implies
-                self.free_indices().contains(idx)
-            by {
-                if old(self).free_list().contains(idx) {
-                    assert(old(self).free_indices().contains(idx));
-                    assert(self.free_indices().contains(idx));
-                } // else, trivial
+                assert(self.tentative_view() == self@);
             }
         }
 
