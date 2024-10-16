@@ -1,6 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
+use vstd::set_lib::*;
 use crate::pmem::pmemspec_t::*;
 
 verus! {
@@ -113,5 +114,26 @@ pub proof fn lemma_injective_map_inverse<K, V>(map: Map<K, V>)
             assert(false);
         }
     }
+}
+
+// This lemma proves that a sequence with no duplicates whose values are in the range [min, max)
+// has a length less than or equal to the difference between min and max.
+pub proof fn lemma_seq_len_when_no_dup_and_all_values_in_range(s: Seq<int>, min: int, max: int)
+    requires 
+        s.no_duplicates(),
+        min <= max,
+        forall |e: int| s.contains(e) ==> min <= e < max,
+    ensures 
+        s.len() <= max - min,
+{
+    let s_set = s.to_set();
+    // s_set.len() == s.len() because s has no duplicates
+    s.unique_seq_to_set();
+    // because s_set only has values between min and max, it's a subset 
+    // of the set containing all values between min and max
+    assert(s_set.subset_of(set_int_range(min, max)));
+    lemma_int_range(min, max);
+    lemma_len_subset(s_set, set_int_range(min, max));
+    assert(s.len() <= set_int_range(min, max).len());
 }
 }

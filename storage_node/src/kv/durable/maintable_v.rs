@@ -483,6 +483,7 @@ verus! {
                     self.outstanding_entries@ == old(self).outstanding_entries@.insert(index, new_entry)
                 })
         {
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             let new_outstanding_entry = if self.outstanding_entries.contents.contains_key(&index) {
                 let old_entry = self.outstanding_entries.contents.get(&index).unwrap();
                 OutstandingEntry {
@@ -498,7 +499,6 @@ verus! {
                 }
             };
             self.outstanding_entries.contents.insert(index, new_outstanding_entry);
-            broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
         // It's kind of janky to pass in the entry and key that we're deleting, but we need 
@@ -610,6 +610,23 @@ verus! {
                         assert(old(self).modified_indices@.contains(idx));
                     }
                 }
+
+                assert(self.modified_indices@.len() <= self@.durable_main_table.len()) by {
+                    if self.modified_indices@.len() != old(self).modified_indices@.len() {
+                        // if we increased the length of the modified indices list, we have to prove
+                        // that it still hasn't grown beyond the length of the table itself
+                        assert(self.modified_indices@.len() == old(self).modified_indices@.len() + 1);
+                        // we need to temporarily view modified_indices as ints rather than u64s so we can invoke
+                        // the lemma that proves that its length is still less than num_keys
+                        let temp_view = self.modified_indices@.map_values(|e| e as int);
+                        assert forall |idx: int| temp_view.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+                            assert(self.modified_indices@.contains(idx as u64))
+                        }
+                        // this lemma proves that a sequence with values between 0 and num keys and no duplicates
+                        // cannot have a length longer than num_keys
+                        lemma_seq_len_when_no_dup_and_all_values_in_range(temp_view, 0, overall_metadata.num_keys as int);
+                    } 
+                }
             }
         }
 
@@ -661,8 +678,8 @@ verus! {
             //     !self.main_table_free_list@.contains(#[trigger] self.pending_deallocations[i])
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
 
-            &&& forall |idx: u64| self.main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys
-            &&& forall |idx: u64| self.modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.main_table_free_list@.contains(idx) ==> 0 <= idx < overall_metadata.num_keys
+            &&& forall |idx: u64| self.modified_indices@.contains(idx) ==> 0 <= idx < overall_metadata.num_keys
 
             &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> 
                     #[trigger] self.modified_indices@.contains(idx)
