@@ -277,22 +277,27 @@ verus! {
         //     }
         // }
 
-        // pub open spec fn outstanding_item_table_entry_matches_pm_view(
-        //     self,
-        //     pm: PersistentMemoryRegionView,
-        //     i: int
-        // ) -> bool
-        // {
-        //     let entry_size = I::spec_size_of() + u64::spec_size_of();
-        //     let start = index_to_offset(i as nat, entry_size as nat) as int;
-        //     match self.outstanding_item_table@[i as int] {
-        //         None => pm.no_outstanding_writes_in_range(start, start + entry_size),
-        //         Some(item) => {
-        //             &&& outstanding_bytes_match(pm, start, spec_crc_bytes(I::spec_to_bytes(item)))
-        //             &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), I::spec_to_bytes(item))
-        //         },
-        //     }
-        // }
+        pub open spec fn outstanding_item_table_entry_matches_pm_view(
+            self,
+            pm: PersistentMemoryRegionView,
+            i: u64
+        ) -> bool
+        {
+            let entry_size = I::spec_size_of() + u64::spec_size_of();
+            let start = index_to_offset(i as nat, entry_size as nat) as int;
+            match self.outstanding_items[i] {
+                None => pm.no_outstanding_writes_in_range(start, start + entry_size),
+                Some(item) => {
+                    match item.status {
+                        EntryStatus::Created => {
+                            &&& outstanding_bytes_match(pm, start, spec_crc_bytes(I::spec_to_bytes(item.item)))
+                            &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), I::spec_to_bytes(item.item))
+                        },
+                        _ => pm.no_outstanding_writes_in_range(start, start + entry_size),
+                    }
+                },
+            }
+        }
                                                                       
         pub open spec fn opaquable_inv(self, overall_metadata: OverallMetadata, valid_indices: Set<u64>,) -> bool
         {
@@ -343,8 +348,8 @@ verus! {
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
             }
-            // &&& forall|idx: u64| idx < overall_metadata.num_keys ==>
-            //     self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int)
+            &&& forall |idx: u64| idx < overall_metadata.num_keys ==>
+                self.outstanding_item_table_entry_matches_pm_view(pm_view, idx)
             &&& pm_view.no_outstanding_writes_in_range(overall_metadata.num_keys * entry_size,
                                                       overall_metadata.item_table_size as int)
             // &&& forall|idx: u64| self.pending_allocations@.contains(idx) ==>
@@ -532,6 +537,17 @@ verus! {
         //     false
         // }
 
+        pub open spec fn get_latest_item_at_index(self, index: u64) -> Option<I>
+        {
+            if self.outstanding_items@.contains_key(index) {
+                Some(self.outstanding_items[index].unwrap().item)
+            } else if self@.durable_item_table[index as int] is Some {
+                self@.durable_item_table[index as int]
+            } else {
+                None
+            }
+        }
+
         // Read an item from the item table given an index. Returns `None` if the index
         // does not contain a valid, uncorrupted item. 
         // TODO: should probably return result, not option
@@ -550,63 +566,83 @@ verus! {
                 self.valid(subregion.view(pm_region), overall_metadata, valid_indices),
                 item_table_index < self.num_keys,
                 valid_indices.contains(item_table_index),
-                // self.outstanding_item_table@[item_table_index as int] is None,
+                ({
+                    ||| ({
+                        &&& self.outstanding_items[item_table_index] matches Some(item)
+                        &&& item.status is Created
+                    })
+                    ||| self@.durable_item_table[item_table_index as int] is Some
+                }),
             ensures
                 match result {
-                    Ok(item) => item == self@.durable_item_table[item_table_index as int].unwrap(),
+                    Ok(item) => Some(*item) == self.get_latest_item_at_index(item_table_index),
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false,
                 },
         {
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
+
             let ghost pm_view = subregion.view(pm_region);
             let entry_size = self.entry_size;
             proof {
                 lemma_valid_entry_index(item_table_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
             }
-            let crc_addr = item_table_index * (entry_size as u64);
-            let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
-            // Read the item and CRC at this slot
-            let ghost mem = pm_view.committed();
-            let ghost entry_bytes = extract_bytes(mem, (item_table_index * entry_size) as nat, entry_size as nat);
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
-            let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
+            // if there is an outstanding version of this item, read it. if not, go to PM
+            // TODO: discuss whether this is actually what we want to do. for internal metadata
+            // We want to be sure to always read the most recent version, but I'm not sure about 
+            // returning tentative items. 
+            // Jowever, right now, this is the only thing we CAN do because the model currently 
+            // prevents us from reading outstanding bytes.
 
-            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-            let ghost true_item = I::spec_from_bytes(true_item_bytes);
+            if self.outstanding_items.contents.contains_key(&item_table_index) {
+                Ok(Box::new(self.outstanding_items.contents.get(&item_table_index).unwrap().item))
+            } else {
+                let crc_addr = item_table_index * (entry_size as u64);
+                let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
-            let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
+                // Read the item and CRC at this slot
+                let ghost mem = pm_view.committed();
+                let ghost entry_bytes = extract_bytes(mem, (item_table_index * entry_size) as nat, entry_size as nat);
+                let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
+                let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
 
-            proof {
-                self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index,
-                                                                    valid_indices);
-                assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
-                       Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
-                assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
-                       Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.committed()[item_addrs[i]]));
-                assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
-                assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
-                assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
+                let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
+                let ghost true_item = I::spec_from_bytes(true_item_bytes);
+
+                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
+                let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
+
+                proof {
+                    self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index,
+                                                                        valid_indices);
+                    assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
+                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
+                    assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
+                        Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.committed()[item_addrs[i]]));
+                    assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
+                    assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
+                    assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
+                }
+
+                assert(self.outstanding_item_table_entry_matches_pm_view(pm_view, item_table_index));
+                let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
+                    Ok(val) => val,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); }
+                };
+                let item = match subregion.read_relative_aligned::<I, PM>(pm_region, item_addr) {
+                    Ok(val) => val,
+                    Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
+                };
+                
+                if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) {
+                    return Err(KvError::CRCMismatch);
+                }
+
+                let item = item.extract_init_val(Ghost(true_item));
+                Ok(item)
             }
-
-            // assert(self.outstanding_item_table_entry_matches_pm_view(pm_view, item_table_index as int));
-            let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
-                Ok(val) => val,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); }
-            };
-            let item = match subregion.read_relative_aligned::<I, PM>(pm_region, item_addr) {
-                Ok(val) => val,
-                Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
-            };
-            
-            if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
-                          Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) {
-                return Err(KvError::CRCMismatch);
-            }
-
-            let item = item.extract_init_val(Ghost(true_item));
-            Ok(item)
         }
 
         pub proof fn lemma_changing_unused_entry_doesnt_affect_parse_item_table(
