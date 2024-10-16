@@ -6,6 +6,24 @@ use vstd::prelude::*;
 
 verus! {
 
+    #[derive(Copy, Clone)]
+    pub enum EntryStatus 
+    {
+        // the entry was created in this transaction.
+        // entries retain this state if they are subsequently
+        // updated (but not deleted) in the same transaction
+        Created, 
+        // the entry existed prior to the transaction and was 
+        // updated in this transaction.
+        Updated,
+        // the entry existed prior to this transaction and 
+        // was deleted in this transaction
+        Deleted,
+        // the entry was both created and deleted in this
+        // transaction
+        CreatedThenDeleted,
+    }
+
     pub open spec fn index_to_offset(index: nat, entry_size: nat) -> nat 
     {
         index * entry_size

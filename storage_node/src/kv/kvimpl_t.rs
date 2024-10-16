@@ -83,6 +83,7 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(I)]
 pub struct KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,

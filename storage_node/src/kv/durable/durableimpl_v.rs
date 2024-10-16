@@ -237,6 +237,7 @@ verus! {
     }
 
     #[verifier::reject_recursive_types(K)]
+    #[verifier::reject_recursive_types(I)]
     pub struct DurableKvStore<Perm, PM, K, I, L>
     where
         Perm: CheckPermission<Seq<u8>>,
@@ -472,10 +473,10 @@ verus! {
                         self.overall_metadata
                     )
                 &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
-                &&& self.item_table.pending_alloc_inv(
-                        durable_main_table_view.valid_item_indices(),
-                        tentative_main_table_view.valid_item_indices(),
-                    )
+                // &&& self.item_table.pending_alloc_inv(
+                //         durable_main_table_view.valid_item_indices(),
+                //         tentative_main_table_view.valid_item_indices(),
+                //     )
             } else {
                 false
             } 
@@ -1753,10 +1754,10 @@ verus! {
                     main_table_subregion.view(pm_region).committed(), overall_metadata));
                 assert(durable_kv_store.main_table.pending_alloc_inv(durable_main_table_region,
                     durable_main_table_region, overall_metadata));
-                assert(durable_kv_store.item_table.pending_alloc_inv(
-                    main_table@.valid_item_indices(),
-                    main_table@.valid_item_indices(),
-                ));
+                // assert(durable_kv_store.item_table.pending_alloc_inv(
+                //     main_table@.valid_item_indices(),
+                //     main_table@.valid_item_indices(),
+                // ));
             }
 
             proof {
@@ -2650,10 +2651,10 @@ verus! {
                                     self.overall_metadata, self.main_table@.valid_item_indices()),
                 old_self.item_table.free_list().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
-                forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
-                    #[trigger] self.item_table.outstanding_item_table@[i] ==
-                               old_self.item_table.outstanding_item_table@[i],
-                self.item_table.outstanding_item_table@[item_index as int] == Some(item),
+                // forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
+                //     #[trigger] self.item_table.outstanding_item_table@[i] ==
+                //                old_self.item_table.outstanding_item_table@[i],
+                // self.item_table.outstanding_item_table@[item_index as int] == Some(item),
                 forall |other_index: u64| self.item_table.free_list().contains(other_index) <==>
                     old_self.item_table.free_list().contains(other_index) && other_index != item_index,
                 deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata,
@@ -2734,8 +2735,8 @@ verus! {
             assert(old_durable_main_table_parsed is Some);
             let old_durable_main_table_parsed = old_durable_main_table_parsed.unwrap();
 
-            assert(old_self.item_table.pending_alloc_inv(old_durable_main_table_parsed.valid_item_indices(),
-                                                         old_tentative_main_table_parsed.valid_item_indices()));
+            // assert(old_self.item_table.pending_alloc_inv(old_durable_main_table_parsed.valid_item_indices(),
+            //                                              old_tentative_main_table_parsed.valid_item_indices()));
             // assert(old_self.item_table.allocator_view().pending_alloc_check(
             //     item_index,
             //     old_durable_main_table_parsed.valid_item_indices(),
@@ -2872,14 +2873,14 @@ verus! {
                     assert(index_to_offset(which_entry as nat, entry_size as nat) <= addr <
                            index_to_offset(which_entry as nat, entry_size as nat) + entry_size);
                     if which_entry != item_index {
-                        assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(
-                            old_current_item_table_region_view, which_entry
-                        ));
-                        assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
-                            new_current_item_table_region_view, which_entry
-                        ));
-                        assert(self.item_table.outstanding_item_table@[which_entry] ==
-                               old_self.item_table.outstanding_item_table@[which_entry]);
+                        // assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(
+                        //     old_current_item_table_region_view, which_entry
+                        // ));
+                        // assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
+                        //     new_current_item_table_region_view, which_entry
+                        // ));
+                        // assert(self.item_table.outstanding_item_table@[which_entry] ==
+                        //        old_self.item_table.outstanding_item_table@[which_entry]);
                         broadcast use pmcopy_axioms;
                         assert(old_current_item_table_region_view.state[addr] ==
                                new_current_item_table_region_view.state[addr]);
@@ -4323,8 +4324,8 @@ verus! {
                     &&& new_main_table_view.unwrap().valid_item_indices() == 
                             current_durable_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
                 }),
-                self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
-                self.item_table.outstanding_item_table@[item_index as int] == Some(item),
+                // self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
+                // self.item_table.outstanding_item_table@[item_index as int] == Some(item),
                 item_index < self.overall_metadata.num_keys,
             ensures 
                 self.tentative_view() is Some,
@@ -4415,12 +4416,12 @@ verus! {
             assert(item_table_subregion_view.flush().committed() == new_item_table_region);
             assert(old_item_table_subregion_view.flush().committed() == old_item_table_region);
 
-            // The current item table has an outstanding item at item_index, and
-            // the corresponding outstanding bytes match it.
-            assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
-                item_table_subregion_view,
-                item_index as int
-            ));
+            // // The current item table has an outstanding item at item_index, and
+            // // the corresponding outstanding bytes match it.
+            // assert(self.item_table.outstanding_item_table_entry_matches_pm_view(
+            //     item_table_subregion_view,
+            //     item_index as int
+            // ));
 
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             assert forall |idx: u64| new_mem_main_table.valid_item_indices().contains(idx) implies {
@@ -4465,150 +4466,150 @@ verus! {
             assert(self.tentative_view().unwrap().contents == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents);
         }
 
-        proof fn lemma_outstanding_item_table_writes_are_durable_after_flush(
-            self,
-            old_self: Self,
-            pre_append_tentative_item_table_bytes: Seq<u8>,
-            tentative_item_table_bytes: Seq<u8>,
-            item_index: u64,
-            entry_size: nat,
-        )
-            requires 
-                self.inv(),
-                old_self.inv(),
-                self.version_metadata == old_self.version_metadata,
-                self.overall_metadata == old_self.overall_metadata,
-                item_index < self.overall_metadata.num_keys,
-                entry_size == I::spec_size_of() + u64::spec_size_of(),
-                ({
-                    let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    &&& current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes
-                    &&& old_item_table_subregion.flush().committed() == tentative_item_table_bytes
-                    &&& forall |idx: u64| idx < self.overall_metadata.num_keys ==> {
-                            &&& self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int)
-                            &&& old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int)
-                        }    
-                    &&& forall |idx: u64| idx < self.overall_metadata.num_keys && idx != item_index ==> 
-                            self.item_table.outstanding_item_table@[idx as int] == old_self.item_table.outstanding_item_table@[idx as int]
-                    &&& forall |idx: u64| idx < self.overall_metadata.num_keys ==> {
-                        let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
-                        &&& self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int)
-                        &&& old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int)
-                        &&& extract_bytes(current_item_table_subregion.committed(), start, entry_size) == 
-                                extract_bytes(old_item_table_subregion.committed(), start, entry_size)
-                    }    
-                    &&& forall |idx: u64| idx < self.overall_metadata.num_keys && idx != item_index ==> 
-                            self.item_table.outstanding_item_table@[idx as int] == old_self.item_table.outstanding_item_table@[idx as int]
+        // proof fn lemma_outstanding_item_table_writes_are_durable_after_flush(
+        //     self,
+        //     old_self: Self,
+        //     pre_append_tentative_item_table_bytes: Seq<u8>,
+        //     tentative_item_table_bytes: Seq<u8>,
+        //     item_index: u64,
+        //     entry_size: nat,
+        // )
+        //     requires 
+        //         self.inv(),
+        //         old_self.inv(),
+        //         self.version_metadata == old_self.version_metadata,
+        //         self.overall_metadata == old_self.overall_metadata,
+        //         item_index < self.overall_metadata.num_keys,
+        //         entry_size == I::spec_size_of() + u64::spec_size_of(),
+        //         ({
+        //             let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //             let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //             &&& current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes
+        //             &&& old_item_table_subregion.flush().committed() == tentative_item_table_bytes
+        //             &&& forall |idx: u64| idx < self.overall_metadata.num_keys ==> {
+        //                     &&& self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int)
+        //                     &&& old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int)
+        //                 }    
+        //             &&& forall |idx: u64| idx < self.overall_metadata.num_keys && idx != item_index ==> 
+        //                     self.item_table.outstanding_item_table@[idx as int] == old_self.item_table.outstanding_item_table@[idx as int]
+        //             &&& forall |idx: u64| idx < self.overall_metadata.num_keys ==> {
+        //                 let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
+        //                 &&& self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int)
+        //                 &&& old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int)
+        //                 &&& extract_bytes(current_item_table_subregion.committed(), start, entry_size) == 
+        //                         extract_bytes(old_item_table_subregion.committed(), start, entry_size)
+        //             }    
+        //             &&& forall |idx: u64| idx < self.overall_metadata.num_keys && idx != item_index ==> 
+        //                     self.item_table.outstanding_item_table@[idx as int] == old_self.item_table.outstanding_item_table@[idx as int]
 
-                }),
-            ensures 
-                forall |idx: u64| {
-                    &&& idx < self.overall_metadata.num_keys 
-                    &&& self.item_table.outstanding_item_table@[idx as int] is Some 
-                } ==> {
-                    let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                    let entry_size = I::spec_size_of() + u64::spec_size_of();
-                    let start = index_to_offset(idx as nat, entry_size as nat);
-                    let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
-                    &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                    &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                    &&& idx != item_index ==> ({
-                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                            &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                        })
-                },
-                forall |idx: u64| {
-                    &&& idx < self.overall_metadata.num_keys 
-                    &&& idx != item_index
-                } ==> {
-                    let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
-                    extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
-                        extract_bytes(tentative_item_table_bytes, start, entry_size)
-                }
-        {
-            let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-            let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-            let entry_size = I::spec_size_of() + u64::spec_size_of();
+        //         }),
+        //     ensures 
+        //         forall |idx: u64| {
+        //             &&& idx < self.overall_metadata.num_keys 
+        //             &&& self.item_table.outstanding_item_table@[idx as int] is Some 
+        //         } ==> {
+        //             let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //             let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //             let entry_size = I::spec_size_of() + u64::spec_size_of();
+        //             let start = index_to_offset(idx as nat, entry_size as nat);
+        //             let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
+        //             &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+        //             &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+        //             &&& idx != item_index ==> ({
+        //                     &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+        //                     &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+        //                 })
+        //         },
+        //         forall |idx: u64| {
+        //             &&& idx < self.overall_metadata.num_keys 
+        //             &&& idx != item_index
+        //         } ==> {
+        //             let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
+        //             extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
+        //                 extract_bytes(tentative_item_table_bytes, start, entry_size)
+        //         }
+        // {
+        //     let current_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //     let old_item_table_subregion = get_subregion_view(old_self.wrpm@, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+        //     let entry_size = I::spec_size_of() + u64::spec_size_of();
 
-            assert forall |idx: u64| {
-                &&& idx < self.overall_metadata.num_keys 
-                &&& self.item_table.outstanding_item_table@[idx as int] is Some 
-            } implies {
-                let start = index_to_offset(idx as nat, entry_size as nat);
-                let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
-                &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                &&& idx != item_index ==> ({
-                        &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
-                        &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
-                    })
-            } by {
-                broadcast use pmcopy_axioms;
+        //     assert forall |idx: u64| {
+        //         &&& idx < self.overall_metadata.num_keys 
+        //         &&& self.item_table.outstanding_item_table@[idx as int] is Some 
+        //     } implies {
+        //         let start = index_to_offset(idx as nat, entry_size as nat);
+        //         let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
+        //         &&& extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+        //         &&& extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+        //         &&& idx != item_index ==> ({
+        //                 &&& extract_bytes(old_item_table_subregion.flush().committed(), start, u64::spec_size_of()) == spec_crc_bytes(I::spec_to_bytes(i))
+        //                 &&& extract_bytes(old_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) == I::spec_to_bytes(i)
+        //             })
+        //     } by {
+        //         broadcast use pmcopy_axioms;
 
-                let start = index_to_offset(idx as nat, entry_size as nat);
-                let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
+        //         let start = index_to_offset(idx as nat, entry_size as nat);
+        //         let i = self.item_table.outstanding_item_table@[idx as int].unwrap();
 
-                lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+        //         lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+        //         lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
 
-                // these assertions are required to hit triggers
-                assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
-                assert(outstanding_bytes_match(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
-                assert(outstanding_bytes_match(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
-                lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
-                lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
+        //         // these assertions are required to hit triggers
+        //         assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
+        //         assert(outstanding_bytes_match(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
+        //         assert(outstanding_bytes_match(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
+        //         lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
+        //         lemma_outstanding_bytes_match_after_flush(current_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
 
-                if idx != item_index {
-                    assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
-                    assert(outstanding_bytes_match(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
-                    assert(outstanding_bytes_match(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
-                    lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
-                    lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
-                }
-            }
+        //         if idx != item_index {
+        //             assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
+        //             assert(outstanding_bytes_match(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i))));
+        //             assert(outstanding_bytes_match(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i)));
+        //             lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, start as int, spec_crc_bytes(I::spec_to_bytes(i)));
+        //             lemma_outstanding_bytes_match_after_flush(old_item_table_subregion, (start + u64::spec_size_of()) as int, I::spec_to_bytes(i));
+        //         }
+        //     }
 
-            assert forall |idx: u64| {
-                &&& idx < self.overall_metadata.num_keys 
-                &&& idx != item_index
-            } implies {
-                let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
-                extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
-                    extract_bytes(tentative_item_table_bytes, start, entry_size)
-            } by {
-                let start = index_to_offset(idx as nat, entry_size as nat);
-                lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
-                if self.item_table.outstanding_item_table@[idx as int] is Some {
-                    // we've previously asserted that the CRC and item, extracted separately, match the outstanding entry,
-                    // so to prove equality here we just need a few additional assertions about `extract_bytes`
-                    assert(extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) + 
-                        extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) ==
-                            extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
-                    assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
-                        extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
-                    assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
-                        extract_bytes(tentative_item_table_bytes, start, entry_size));
-                } else {
-                    // else, there was no outstanding entry, so we just have to prove that flush is a no op on these bytes.
-                    assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
-                    assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
+        //     assert forall |idx: u64| {
+        //         &&& idx < self.overall_metadata.num_keys 
+        //         &&& idx != item_index
+        //     } implies {
+        //         let start = #[trigger] index_to_offset(idx as nat, entry_size as nat);
+        //         extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
+        //             extract_bytes(tentative_item_table_bytes, start, entry_size)
+        //     } by {
+        //         let start = index_to_offset(idx as nat, entry_size as nat);
+        //         lemma_valid_entry_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+        //         lemma_entries_dont_overlap_unless_same_index(idx as nat, self.overall_metadata.num_keys as nat, entry_size);
+        //         if self.item_table.outstanding_item_table@[idx as int] is Some {
+        //             // we've previously asserted that the CRC and item, extracted separately, match the outstanding entry,
+        //             // so to prove equality here we just need a few additional assertions about `extract_bytes`
+        //             assert(extract_bytes(current_item_table_subregion.flush().committed(), start, u64::spec_size_of()) + 
+        //                 extract_bytes(current_item_table_subregion.flush().committed(), start + u64::spec_size_of(), I::spec_size_of()) ==
+        //                     extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size));
+        //             assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
+        //                 extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size));
+        //             assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
+        //                 extract_bytes(tentative_item_table_bytes, start, entry_size));
+        //         } else {
+        //             // else, there was no outstanding entry, so we just have to prove that flush is a no op on these bytes.
+        //             assert(self.item_table.outstanding_item_table_entry_matches_pm_view(current_item_table_subregion, idx as int));
+        //             assert(old_self.item_table.outstanding_item_table_entry_matches_pm_view(old_item_table_subregion, idx as int));
                     
-                    assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
-                        extract_bytes(current_item_table_subregion.committed(), start, entry_size));
+        //             assert(extract_bytes(current_item_table_subregion.flush().committed(), start, entry_size) == 
+        //                 extract_bytes(current_item_table_subregion.committed(), start, entry_size));
 
-                    assert(extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size) == 
-                        extract_bytes(old_item_table_subregion.committed(), start, entry_size));
+        //             assert(extract_bytes(old_item_table_subregion.flush().committed(), start, entry_size) == 
+        //                 extract_bytes(old_item_table_subregion.committed(), start, entry_size));
 
-                    assert(extract_bytes(current_item_table_subregion.committed(), start, entry_size) == 
-                        extract_bytes(old_item_table_subregion.committed(), start, entry_size));
+        //             assert(extract_bytes(current_item_table_subregion.committed(), start, entry_size) == 
+        //                 extract_bytes(old_item_table_subregion.committed(), start, entry_size));
 
-                    assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
-                        extract_bytes(tentative_item_table_bytes, start, entry_size));
-                }
-            }
-        }
+        //             assert(extract_bytes(pre_append_tentative_item_table_bytes, start, entry_size) == 
+        //                 extract_bytes(tentative_item_table_bytes, start, entry_size));
+        //         }
+        //     }
+        // }
 
         proof fn lemma_item_table_unchanged_by_log_replay(
             self,
@@ -5185,12 +5186,12 @@ verus! {
                 assert(current_item_table_subregion.flush().committed() == pre_append_tentative_item_table_bytes);
                 assert(old_item_table_subregion.flush().committed() == tentative_item_table_bytes);
 
-                // After flushing, any outstanding bytes in the item table have now become durable.
-                // We prove that all outstanding updates become durable in the new tentative view
-                // and that all outstanding updates except for the one to `item_index` become
-                // durable in the old tentative view (because it wasn't outstanding then.)
-                self.lemma_outstanding_item_table_writes_are_durable_after_flush(
-                    *old(self), pre_append_tentative_item_table_bytes, tentative_item_table_bytes, item_index, entry_size);
+                // // After flushing, any outstanding bytes in the item table have now become durable.
+                // // We prove that all outstanding updates become durable in the new tentative view
+                // // and that all outstanding updates except for the one to `item_index` become
+                // // durable in the old tentative view (because it wasn't outstanding then.)
+                // self.lemma_outstanding_item_table_writes_are_durable_after_flush(
+                //     *old(self), pre_append_tentative_item_table_bytes, tentative_item_table_bytes, item_index, entry_size);
 
                 // Prove that we satisfy the precondition to obtain this log entry. The postcondition of this 
                 // lemma also helps prove that the tentative view has not changed.

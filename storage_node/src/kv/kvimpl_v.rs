@@ -39,6 +39,7 @@ use std::hash::Hash;
 verus! {
 
 #[verifier::reject_recursive_types(K)]
+#[verifier::reject_recursive_types(I)]
 pub struct UntrustedKvStoreImpl<Perm, PM, K, I, L>
 where
     Perm: CheckPermission<Seq<u8>>,
