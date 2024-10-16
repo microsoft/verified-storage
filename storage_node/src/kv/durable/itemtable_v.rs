@@ -1110,7 +1110,6 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
             Ghost(durable_valid_indices): Ghost<Set<u64>>,
             Ghost(tentative_valid_indices): Ghost<Set<u64>>,
-            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             requires 
                 old(self).inv(pm_subregion, overall_metadata, durable_valid_indices),

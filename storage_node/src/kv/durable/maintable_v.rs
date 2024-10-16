@@ -2120,29 +2120,32 @@ verus! {
             entry: ListEntryMetadata,
             key: K,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(current_tentative_state): Ghost<Seq<u8>>, 
         )
             requires 
                 0 <= index < overall_metadata.num_keys,
-                old(self).inv(pm_subregion, overall_metadata),
                 ({
-                    // we can only delete an existing entry, so either 
-                    // there already has to be an outstanding entry or there
-                    // has to be a valid durable entry at this index
-                    ||| {
-                            &&& old(self).outstanding_entries@.contains_key(index)
-                            &&& old(self).outstanding_entries@[index].key == key
-                            &&& old(self).outstanding_entries@[index].entry == entry
-                            &&& (old(self).outstanding_entries@[index].status is Updated || 
-                                    old(self).outstanding_entries@[index].status is Created)
-                        }
-                    ||| {
-                            &&& old(self)@.durable_main_table[index as int] is Some
-                            &&& !old(self).outstanding_entries@.contains_key(index)
-                            &&& old(self)@.durable_main_table[index as int].unwrap().key == key
-                            &&& old(self)@.durable_main_table[index as int].unwrap().entry == entry
-                        }
+                    &&& old(self).tentative_view().durable_main_table[index as int] matches Some(e)
+                    &&& e.entry == entry 
+                    &&& e.key == key
                 }),
+                // ({
+                //     // we can only delete an existing entry, so either 
+                //     // there already has to be an outstanding entry or there
+                //     // has to be a valid durable entry at this index
+                //     ||| {
+                //             &&& old(self).outstanding_entries@.contains_key(index)
+                //             &&& old(self).outstanding_entries@[index].key == key
+                //             &&& old(self).outstanding_entries@[index].entry == entry
+                //             &&& (old(self).outstanding_entries@[index].status is Updated || 
+                //                     old(self).outstanding_entries@[index].status is Created)
+                //         }
+                //     ||| {
+                //             &&& old(self)@.durable_main_table[index as int] is Some
+                //             &&& !old(self).outstanding_entries@.contains_key(index)
+                //             &&& old(self)@.durable_main_table[index as int].unwrap().key == key
+                //             &&& old(self)@.durable_main_table[index as int].unwrap().entry == entry
+                //         }
+                // }),
                 !old(self).free_list().contains(index),
             ensures 
                 self.inv(pm_subregion, overall_metadata),
@@ -2653,18 +2656,11 @@ verus! {
                             pre_byte
                         }
                     );
-                    let current_main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let current_main_table_view = parse_main_table::<K>(current_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                     let new_main_table_region = extract_bytes(new_mem, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    let item_index = self.get_latest_entry(index).unwrap().item_index();
-                    &&& new_main_table_view is Some
-                    &&& new_main_table_view == current_main_table_view.delete(index as int)
-                    &&& new_main_table_view.unwrap().valid_item_indices() == current_main_table_view.valid_item_indices().remove(item_index)
+                    new_main_table_view == self.tentative_view().delete(index as int)
                 }),
         {
             let entry_slot_size = overall_metadata.main_table_entry_size;
@@ -2701,22 +2697,18 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 let new_main_table_region = extract_bytes(new_mem, 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
-
-                let committed_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let old_main_table_view = parse_main_table::<K>(old_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size);
+                lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
                 
                 assert forall |i: nat| #![trigger extract_bytes(new_main_table_region,
                                                          index_to_offset(i, entry_slot_size as nat),
                                                          entry_slot_size as nat)]
                            i < overall_metadata.num_keys implies {
                     let offset = index_to_offset(i, entry_slot_size as nat);
-                    let old_entry_bytes = extract_bytes(old_main_table_region, offset,
-                                                        entry_slot_size as nat);
+                    let old_entry_bytes = extract_bytes(old_main_table_region, offset, entry_slot_size as nat);
                     let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
                     &&& validate_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat)
                     &&& i == index ==>
@@ -2749,14 +2741,10 @@ verus! {
                 assert(validate_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
                     overall_metadata.main_table_entry_size as nat));
                 let entries = parse_main_entries::<K>(new_main_table_region, overall_metadata.num_keys as nat,
-                    overall_metadata.main_table_entry_size as nat);
-                assert(new_main_table_region.len() >= overall_metadata.num_keys * overall_metadata.main_table_entry_size);
-                
+                    overall_metadata.main_table_entry_size as nat);                
                 let old_entries =
                     parse_main_entries::<K>(old_main_table_region, overall_metadata.num_keys as nat,
                                                 overall_metadata.main_table_entry_size as nat);
-                assert(old_entries[index as int] is Some);
-                assert(old_entries[index as int].unwrap().item_index() == item_index);
 
                 assert(no_duplicate_item_indexes(entries) && no_duplicate_keys(entries)) by {
                     assert forall|i, j| {
@@ -2779,36 +2767,9 @@ verus! {
                 let updated_table = old_main_table_view.durable_main_table.update(index as int, None);
                 assert(updated_table.len() == old_main_table_view.durable_main_table.len());
                 assert(updated_table.len() == overall_metadata.num_keys);
-                assert forall |i: nat| i < overall_metadata.num_keys && i != index implies 
-                    #[trigger] updated_table[i as int] == new_main_table_view.unwrap().durable_main_table[i as int]
-                by {
-                    lemma_valid_entry_index(i, overall_metadata.num_keys as nat, entry_slot_size as nat);
-                    let offset = index_to_offset(i, entry_slot_size as nat);
-                    let entry_bytes = extract_bytes(new_main_table_region, offset, entry_slot_size as nat);
-                    let new_entry = parse_main_entry::<K>(entry_bytes, overall_metadata.num_keys as nat);
-                    assert(new_main_table_view.unwrap().durable_main_table[i as int] =~= new_entry);
-                }
 
                 let new_main_table_view = new_main_table_view.unwrap();
                 assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
-
-                // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
-                // prove that it makes the corresponding item table index invalid.
-                
-                assert(new_main_table_view.valid_item_indices() =~=
-                       old_main_table_view.valid_item_indices().remove(item_index)) by {
-                    assert forall|i: u64| old_main_table_view.valid_item_indices().remove(item_index).contains(i)
-                        implies #[trigger] new_main_table_view.valid_item_indices().contains(i) by {
-                        let j = choose|j: int| {
-                            &&& 0 <= j < old_main_table_view.durable_main_table.len() 
-                            &&& #[trigger] old_main_table_view.durable_main_table[j] matches
-                                Some(entry)
-                            &&& entry.item_index() == i
-                        };
-                        assert(new_main_table_view.durable_main_table[j] ==
-                               old_main_table_view.durable_main_table[j]);
-                    }
-                }
 
                 lemma_log_entry_does_not_modify_free_main_table_entries(
                     log_entry@, index, self.free_list(), *overall_metadata,
