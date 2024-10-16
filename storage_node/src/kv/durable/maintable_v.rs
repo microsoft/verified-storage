@@ -666,12 +666,13 @@ verus! {
 
             &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> 
                     #[trigger] self.modified_indices@.contains(idx)
+            &&& self.outstanding_entries@.len() == self.modified_indices@.len()
 
             // free list and list of modified indices are always disjoint
             &&& forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) ==>
                     !self.main_table_free_list@.contains(idx)
-            &&& forall |idx: u64| #[trigger] self.main_table_free_list@.contains(idx) ==>
-                    !self.modified_indices@.contains(idx)
+            &&& forall |idx: u64| self.main_table_free_list@.contains(idx) ==>
+                    !(#[trigger] self.modified_indices@.contains(idx))
 
             // if an entry is not free, it is valid or has an outstanding update
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
@@ -705,6 +706,8 @@ verus! {
             &&& self.outstanding_entries.inv()
 
             &&& vstd::std_specs::hash::obeys_key_model::<K>()
+
+            &&& self.modified_indices@.len() <= self@.durable_main_table.len()
 
             // &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> #[trigger] self.modified_indices@.contains(idx)
             // &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.outstanding_entries@.contains_key(idx) ==>
@@ -2124,6 +2127,8 @@ verus! {
                             &&& old(self).outstanding_entries@.contains_key(index)
                             &&& old(self).outstanding_entries@[index].key == key
                             &&& old(self).outstanding_entries@[index].entry == entry
+                            &&& (old(self).outstanding_entries@[index].status is Updated || 
+                                    old(self).outstanding_entries@[index].status is Created)
                         }
                     ||| {
                             &&& old(self)@.durable_main_table[index as int] is Some
@@ -2250,177 +2255,344 @@ verus! {
             // }  
         }
 
-        pub exec fn finalize_pending_alloc_and_dealloc(
+        exec fn finalize_outstanding_entries(
             &mut self,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
-            requires
-                old(self).opaquable_inv(overall_metadata),
-                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
-                pm.len() >= overall_metadata.main_table_size,
-                old(self).main_table_entry_size == overall_metadata.main_table_entry_size,
-                overall_metadata.main_table_entry_size ==
-                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-                forall |s| #[trigger] pm.can_crash_as(s) ==> 
-                    parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
+            requires 
+                old(self).outstanding_entries.inv(),
+                old(self).modified_indices@.no_duplicates(),
+                old(self).main_table_free_list@.no_duplicates(),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
-                pm.no_outstanding_writes(),
-                // entries in the pending allocations list have become
-                // valid in durable storage
-                // forall |idx: u64| {
-                //     &&& 0 <= idx < old(self)@.durable_main_table.len()
-                //     &&& #[trigger] old(self).pending_allocations_view().contains(idx) 
-                // } ==> old(self)@.durable_main_table[idx as int] is Some,
-                // entries in the pending deallocations list have become
-                // invalid in durable storage
-                // forall |idx: u64| {
-                //     &&& 0 <= idx < old(self)@.durable_main_table.len()
-                //     &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
-                // } ==> old(self)@.durable_main_table[idx as int] is None,
-                parse_main_table::<K>(pm.committed(), 
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
-                // the pending alloc invariant doesn't hold right now because we have 
-                // not finalized the pending (de)allocs, but we need to use some
-                // information from it that is still true in order to reestablish
-                // the invariant for the postcondition.
-                // forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> {
-                //     let entry = #[trigger] old(self)@.durable_main_table[idx as int];
-                //     match entry {
-                //         None => {
-                //             ||| old(self).free_list().contains(idx)
-                //             ||| old(self).pending_deallocations_view().contains(idx)
-                //         },
-                //         Some(entry) => {
-                //             // if the entry is valid, either it was pending allocation
-                //             // or it's just valid and not in any of the three lists
-                //             ||| old(self).pending_allocations_view().contains(idx)
-                //             ||| ({
-                //                 &&& !old(self).free_list().contains(idx)
-                //                 &&& !old(self).pending_deallocations_view().contains(idx)
-                //                 &&& !old(self).pending_allocations_view().contains(idx)
-                //             })
-                //         },
-                //     }
-                // },
-                forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> 
-                    old(self).outstanding_entries[idx] is None,
-                // forall |i: u64| 0 <= i < old(self)@.durable_main_table.len() ==> 
-                //     old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
+                forall |idx: u64| old(self).main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
+                forall |idx: u64| old(self).modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
+                forall |i: u64| 0 <= i < old(self).modified_indices.len() ==> { 
+                    let j = #[trigger] old(self).modified_indices@[i as int];
+                    &&& old(self).modified_indices@.contains(j) ==> !old(self).main_table_free_list@.contains(j)
+                    &&& old(self).main_table_free_list@.contains(j) ==> !old(self).modified_indices@.contains(j)
+                },
+                forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) <==> 
+                    #[trigger]  old(self).modified_indices@.contains(idx),
+                vstd::std_specs::hash::obeys_key_model::<K>(),
+
+                forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() && !old(self).main_table_free_list@.contains(idx) ==>
+                    old(self)@.durable_main_table[idx as int] is Some || #[trigger] old(self).modified_indices@.contains(idx),
+
+                // we have already committed the log when we finalize outstanding entries, so deleted entries
+                // are invalid and created/updated entries are valid
+                forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) ==> {
+                    let entry = old(self).outstanding_entries[idx].unwrap();
+                    match entry.status {
+                        EntryStatus::Created | EntryStatus::Updated => old(self)@.durable_main_table[idx as int] is Some,
+                        EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => old(self)@.durable_main_table[idx as int] is None
+                    }
+                },
+
+                // we have not yet updated the free list, but all entries that are Some were either already valid or 
+                // were created in this transaction, so they aren't in the free list
+                forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() && old(self)@.durable_main_table[idx as int] is Some ==>
+                    !(#[trigger] old(self).main_table_free_list@.contains(idx)),
+
+                old(self).modified_indices@.len() <= old(self)@.durable_main_table.len(),
             ensures 
-                self.inv(pm, overall_metadata),
-                self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
-                // self.pending_allocations_view().is_empty(),
-                // self.pending_deallocations_view().is_empty(),
-                // self.allocator_inv(),
-                self@.valid_item_indices() == old(self)@.valid_item_indices(),
-                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
-                    self.outstanding_entries[idx] is None,
-                // forall |i: u64| 0 <= i < self@.durable_main_table.len() ==> 
-                //     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
+                self.opaquable_inv(overall_metadata),
+                self.outstanding_entries@.len() == 0,
+                self.main_table_entry_size == old(self).main_table_entry_size,
+                self@ == old(self)@,
+                forall |idx: u64| {
+                    // the free list contains idx if idx was already in the 
+                    // free list or if idx was deleted/deallocated in this
+                    // transaction. 
+                    ||| old(self).main_table_free_list@.contains(idx)
+                    ||| {
+                        &&& old(self).modified_indices@.contains(idx)
+                        &&& (old(self).outstanding_entries@[idx].status is Deleted || 
+                                old(self).outstanding_entries@[idx].status is CreatedThenDeleted)
+                    }
+                } <==> #[trigger] self.main_table_free_list@.contains(idx)
         {
-            // // add the pending deallocations to the free list 
-            // // this also clears self.pending_deallocations
-            // self.main_table_free_list.append(&mut self.pending_deallocations);
+            // iterate over the modified indices and determine if
+            // and how to update the free list.
+            // deleted indices go back in the free list, created/updated
+            // ones do not.
+            let mut index = 0;
+            while index < self.modified_indices.len() 
+                invariant 
+                    self.modified_indices@.no_duplicates(),
+                    self@ == old(self)@,
+                    self.main_table_entry_size == old(self).main_table_entry_size,
+                    forall |i: u64| index <= i < self.modified_indices.len() ==> { 
+                        let j = #[trigger] self.modified_indices@[i as int];
+                        &&& self.modified_indices@.contains(j) ==> !self.main_table_free_list@.contains(j)
+                        &&& self.main_table_free_list@.contains(j) ==> !self.modified_indices@.contains(j)
+                    },
+                    forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> 
+                        #[trigger] self.modified_indices@.contains(idx),
+                    self.outstanding_entries@ == old(self).outstanding_entries@,
+                    self.modified_indices@ == old(self).modified_indices@,
+                    self.main_table_free_list@.no_duplicates(),
+                    vstd::std_specs::hash::obeys_key_model::<K>(),
+                    self@.durable_main_table == old(self)@.durable_main_table,
+                    forall |idx: u64| self.modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
+                    forall |idx: u64| self.main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
+                    forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
+                        self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx),
 
-            // // clear the pending allocations list
-            // self.pending_allocations = Vec::new();
+                    self.modified_indices@.len() <= self@.durable_main_table.len(),
 
-            // TODO @hayley update modified_indices
+                    forall |i: int| {
+                        let idx = #[trigger] self.modified_indices@[i];
+                        &&& index <= i < self.modified_indices@.len()
+                        &&& self@.durable_main_table[idx as int] is Some
+                    } ==> {
+                        let idx = self.modified_indices@[i];
+                        !(self.main_table_free_list@.contains(idx))
+                    },
 
-            proof {
-                // assert(self.pending_allocations@.len() == 0);
-                // assert(self.pending_deallocations@.len() == 0);
-                // self.pending_allocations@.unique_seq_to_set();
-                // self.pending_deallocations@.unique_seq_to_set();
-                self.main_table_free_list@.unique_seq_to_set();
+                    forall |i: int| {
+                        let idx = #[trigger] self.modified_indices@[i];
+                        &&& 0 <= i < index
+                        &&& self.outstanding_entries[idx] matches Some(entry)
+                        &&& (entry.status is Deleted || entry.status is CreatedThenDeleted)
+                    } ==> {
+                        let idx = self.modified_indices@[i];
+                        self.main_table_free_list@.contains(idx)
+                    },
 
-                // assert(self.main_table_free_list@ == 
-                //     old(self).main_table_free_list@ + old(self).pending_deallocations@);
-                assert(self.main_table_free_list@.subrange(0, old(self).main_table_free_list@.len() as int) == 
-                    old(self).main_table_free_list@);
-                // assert(self.main_table_free_list@.subrange(old(self).main_table_free_list@.len() as int,
-                //     self.main_table_free_list@.len() as int) == old(self).pending_deallocations@);
+                    // no entries are removed from the free list
+                    forall |idx: u64| old(self).main_table_free_list@.contains(idx) ==>
+                        self.main_table_free_list@.contains(idx),
 
-                let durable_main_table_region = pm.committed();
-                let current_view = parse_main_table::<K>(durable_main_table_region, 
-                    overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                assert(current_view == self@);
-//                 assert forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() implies
-//                     self.allocator_view().pending_alloc_check(idx, current_view, current_view) 
-//                 by {
-//                     let entry = current_view.durable_main_table[idx as int];
-//                     match entry {
-//                         None => {
-//                             // this index was either pending deallocation or it was already free
-//                             assert({
-//                                 ||| old(self).main_table_free_list@.contains(idx)
-//                                 ||| old(self).pending_deallocations@.contains(idx)
-//                             });
-                            
-//                             assert(self.main_table_free_list@.contains(idx));
-//                             assert(self.free_list().contains(idx));
-//                         }
-// ,
-//                         Some(entry) => {
-//                             // This index was either pending allocation or already allocated
-//                             assert({
-//                                 ||| old(self).pending_allocations_view().contains(idx)
-//                                 ||| ({
-//                                     &&& !old(self).free_list().contains(idx)
-//                                     &&& !old(self).pending_deallocations_view().contains(idx)
-//                                     &&& !old(self).pending_allocations_view().contains(idx)
-//                                 })
-//                             });
-//                             if old(self).pending_allocations_view().contains(idx) {
-//                                 assert(!old(self).free_list().contains(idx));
-//                                 assert(!old(self).pending_deallocations_view().contains(idx));
-//                                 assert(!self.free_list().contains(idx));
-//                             } // else, trivial -- it wasn't in any of the sets before so it isn't now
-//                         }
-// ,
-//                     }
-//                 }
-//                 assert(self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata));
+                    // all new free list elements are associated with a deleted entry
+                    forall |idx: u64| !old(self).main_table_free_list@.contains(idx) && self.main_table_free_list@.contains(idx) ==> {
+                        &&& self.outstanding_entries[idx] matches Some(entry)
+                        &&& (entry.status is Deleted || entry.status is CreatedThenDeleted)
+                    },
 
-                // assert forall |i: u64| 0 <= i < self@.durable_main_table.len() implies
-                //     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size) by {
-                //     assert(old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size));
-                // }
+                    
+            {
+                let ghost free_list_at_top = self.main_table_free_list@;
+                let current_index = self.modified_indices[index];
+                assert(self.modified_indices@.contains(current_index)); // required for triggers
+                assert(current_index < overall_metadata.num_keys);
 
-                // assert(self.main_table_free_list@.subrange(old(self).main_table_free_list@.len() as int, 
-                //     self.main_table_free_list@.len() as int) == old(self).pending_deallocations@);
-                // assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
-                //     if !old(self).main_table_free_list@.contains(idx) {
-                //         assert(old(self).pending_deallocations@.contains(idx));
-                //     } 
-                // }
+                let current_entry = self.outstanding_entries.get(current_index).unwrap();
+                match current_entry.status {
+                    EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => {
+                        self.main_table_free_list.push(current_index);
+                        assert(self.main_table_free_list@.subrange(0, free_list_at_top.len() as int) == free_list_at_top);
+                        assert(self.main_table_free_list@[free_list_at_top.len() as int] == current_index);
+                        assert(self.main_table_free_list@.contains(current_index));
+                        assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
+                            if idx != current_index {
+                                assert(free_list_at_top.contains(idx));
+                            }
+                        }
+                    }
+                    // Otherwise, do nothing. newly created and updated indices 
+                    // are not added back into the free list
+                    _ => {}
+                }
+                index += 1;
+            }
 
-                assert(forall |idx: u64| #[trigger] old(self).main_table_free_list@.contains(idx) ==> 
-                    old(self)@.durable_main_table[idx as int] is None);
+            self.modified_indices.clear();
+            self.outstanding_entries.clear();
 
+            assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) implies
+                self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx)
+            by {
+                if !old(self).main_table_free_list@.contains(idx) {
+                    // neither the old nor new free list contain idx
 
-                // assert(forall |idx: u64| {
-                //     &&& 0 <= idx < old(self)@.durable_main_table.len()
-                //     &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
-                // } ==> old(self)@.durable_main_table[idx as int] is None);
-
-                // assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies 
-                //     self.free_indices().contains(idx) 
-                // by {
-                //     if !old(self).main_table_free_list@.contains(idx) {
-                //         assert(old(self).pending_deallocations_view().contains(idx));
-                //         assert(forall |idx: u64| {
-                //             &&& 0 <= idx < old(self)@.durable_main_table.len()
-                //             &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
-                //         } ==> old(self)@.durable_main_table[idx as int] is None);
-                //         assert(old(self)@.durable_main_table[idx as int] is None);
-                //     }
-                //     assert(self@.durable_main_table[idx as int] is None);
-                // }
-                // assert(self.free_list() == self.free_indices());
+                    // by opaquable_inv, if the free list does not contain idx, then it is either
+                    // currently valid or has an outstanding write
+                    if old(self)@.durable_main_table[idx as int] is Some {
+                        assert(self@.durable_main_table[idx as int] is Some);
+                    } else {
+                        assert(old(self).modified_indices@.contains(idx));
+                    }
+                } // else, trivial
             }
         }
+
+//         pub exec fn finalize_pending_alloc_and_dealloc(
+//             &mut self,
+//             Ghost(pm): Ghost<PersistentMemoryRegionView>,
+//             Ghost(overall_metadata): Ghost<OverallMetadata>,
+//         )
+//             requires
+//                 old(self).opaquable_inv(overall_metadata),
+//                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+//                 pm.len() >= overall_metadata.main_table_size,
+//                 old(self).main_table_entry_size == overall_metadata.main_table_entry_size,
+//                 overall_metadata.main_table_entry_size ==
+//                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+//                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
+//                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
+//                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
+//                 pm.no_outstanding_writes(),
+//                 // entries in the pending allocations list have become
+//                 // valid in durable storage
+//                 // forall |idx: u64| {
+//                 //     &&& 0 <= idx < old(self)@.durable_main_table.len()
+//                 //     &&& #[trigger] old(self).pending_allocations_view().contains(idx) 
+//                 // } ==> old(self)@.durable_main_table[idx as int] is Some,
+//                 // entries in the pending deallocations list have become
+//                 // invalid in durable storage
+//                 // forall |idx: u64| {
+//                 //     &&& 0 <= idx < old(self)@.durable_main_table.len()
+//                 //     &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+//                 // } ==> old(self)@.durable_main_table[idx as int] is None,
+//                 parse_main_table::<K>(pm.committed(), 
+//                     overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
+//                 // the pending alloc invariant doesn't hold right now because we have 
+//                 // not finalized the pending (de)allocs, but we need to use some
+//                 // information from it that is still true in order to reestablish
+//                 // the invariant for the postcondition.
+//                 // forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> {
+//                 //     let entry = #[trigger] old(self)@.durable_main_table[idx as int];
+//                 //     match entry {
+//                 //         None => {
+//                 //             ||| old(self).free_list().contains(idx)
+//                 //             ||| old(self).pending_deallocations_view().contains(idx)
+//                 //         },
+//                 //         Some(entry) => {
+//                 //             // if the entry is valid, either it was pending allocation
+//                 //             // or it's just valid and not in any of the three lists
+//                 //             ||| old(self).pending_allocations_view().contains(idx)
+//                 //             ||| ({
+//                 //                 &&& !old(self).free_list().contains(idx)
+//                 //                 &&& !old(self).pending_deallocations_view().contains(idx)
+//                 //                 &&& !old(self).pending_allocations_view().contains(idx)
+//                 //             })
+//                 //         },
+//                 //     }
+//                 // },
+//                 forall |idx: u64| 0 <= idx < old(self)@.durable_main_table.len() ==> 
+//                     old(self).outstanding_entries[idx] is None,
+//                 // forall |i: u64| 0 <= i < old(self)@.durable_main_table.len() ==> 
+//                 //     old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
+//             ensures 
+//                 self.inv(pm, overall_metadata),
+//                 // self.pending_alloc_inv(pm.committed(), pm.committed(), overall_metadata),
+//                 // self.pending_allocations_view().is_empty(),
+//                 // self.pending_deallocations_view().is_empty(),
+//                 // self.allocator_inv(),
+//                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
+//                 self.outstanding_entries@.len() == 0,
+//                 // forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
+//                 //     self.outstanding_entries[idx] is None,
+//                 // forall |i: u64| 0 <= i < self@.durable_main_table.len() ==> 
+//                 //     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size),
+//         {
+//             // // add the pending deallocations to the free list 
+//             // // this also clears self.pending_deallocations
+//             // self.main_table_free_list.append(&mut self.pending_deallocations);
+
+//             // // clear the pending allocations list
+//             // self.pending_allocations = Vec::new();
+
+//             // TODO @hayley update modified_indices
+
+//             // let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+//             //     overall_metadata.main_table_size as nat);
+//             // self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
+
+// //             proof {
+// //                 // assert(self.pending_allocations@.len() == 0);
+// //                 // assert(self.pending_deallocations@.len() == 0);
+// //                 // self.pending_allocations@.unique_seq_to_set();
+// //                 // self.pending_deallocations@.unique_seq_to_set();
+// //                 self.main_table_free_list@.unique_seq_to_set();
+
+// //                 // assert(self.main_table_free_list@ == 
+// //                 //     old(self).main_table_free_list@ + old(self).pending_deallocations@);
+// //                 assert(self.main_table_free_list@.subrange(0, old(self).main_table_free_list@.len() as int) == 
+// //                     old(self).main_table_free_list@);
+// //                 // assert(self.main_table_free_list@.subrange(old(self).main_table_free_list@.len() as int,
+// //                 //     self.main_table_free_list@.len() as int) == old(self).pending_deallocations@);
+
+// //                 let durable_main_table_region = pm.committed();
+// //                 let current_view = parse_main_table::<K>(durable_main_table_region, 
+// //                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
+// //                 assert(current_view == self@);
+// // //                 assert forall |idx: u64| 0 <= idx < current_view.durable_main_table.len() implies
+// // //                     self.allocator_view().pending_alloc_check(idx, current_view, current_view) 
+// // //                 by {
+// // //                     let entry = current_view.durable_main_table[idx as int];
+// // //                     match entry {
+// // //                         None => {
+// // //                             // this index was either pending deallocation or it was already free
+// // //                             assert({
+// // //                                 ||| old(self).main_table_free_list@.contains(idx)
+// // //                                 ||| old(self).pending_deallocations@.contains(idx)
+// // //                             });
+                            
+// // //                             assert(self.main_table_free_list@.contains(idx));
+// // //                             assert(self.free_list().contains(idx));
+// // //                         }
+// // // ,
+// // //                         Some(entry) => {
+// // //                             // This index was either pending allocation or already allocated
+// // //                             assert({
+// // //                                 ||| old(self).pending_allocations_view().contains(idx)
+// // //                                 ||| ({
+// // //                                     &&& !old(self).free_list().contains(idx)
+// // //                                     &&& !old(self).pending_deallocations_view().contains(idx)
+// // //                                     &&& !old(self).pending_allocations_view().contains(idx)
+// // //                                 })
+// // //                             });
+// // //                             if old(self).pending_allocations_view().contains(idx) {
+// // //                                 assert(!old(self).free_list().contains(idx));
+// // //                                 assert(!old(self).pending_deallocations_view().contains(idx));
+// // //                                 assert(!self.free_list().contains(idx));
+// // //                             } // else, trivial -- it wasn't in any of the sets before so it isn't now
+// // //                         }
+// // // ,
+// // //                     }
+// // //                 }
+// // //                 assert(self.pending_alloc_inv(durable_main_table_region, durable_main_table_region, overall_metadata));
+
+// //                 // assert forall |i: u64| 0 <= i < self@.durable_main_table.len() implies
+// //                 //     self.outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size) by {
+// //                 //     assert(old(self).outstanding_entry_write_matches_pm_view(pm, i, overall_metadata.main_table_entry_size));
+// //                 // }
+
+// //                 // assert(self.main_table_free_list@.subrange(old(self).main_table_free_list@.len() as int, 
+// //                 //     self.main_table_free_list@.len() as int) == old(self).pending_deallocations@);
+// //                 // assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
+// //                 //     if !old(self).main_table_free_list@.contains(idx) {
+// //                 //         assert(old(self).pending_deallocations@.contains(idx));
+// //                 //     } 
+// //                 // }
+
+// //                 assert(forall |idx: u64| #[trigger] old(self).main_table_free_list@.contains(idx) ==> 
+// //                     old(self)@.durable_main_table[idx as int] is None);
+
+
+// //                 // assert(forall |idx: u64| {
+// //                 //     &&& 0 <= idx < old(self)@.durable_main_table.len()
+// //                 //     &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+// //                 // } ==> old(self)@.durable_main_table[idx as int] is None);
+
+// //                 // assert forall |idx: u64| self.main_table_free_list@.contains(idx) implies 
+// //                 //     self.free_indices().contains(idx) 
+// //                 // by {
+// //                 //     if !old(self).main_table_free_list@.contains(idx) {
+// //                 //         assert(old(self).pending_deallocations_view().contains(idx));
+// //                 //         assert(forall |idx: u64| {
+// //                 //             &&& 0 <= idx < old(self)@.durable_main_table.len()
+// //                 //             &&& #[trigger] old(self).pending_deallocations_view().contains(idx) 
+// //                 //         } ==> old(self)@.durable_main_table[idx as int] is None);
+// //                 //         assert(old(self)@.durable_main_table[idx as int] is None);
+// //                 //     }
+// //                 //     assert(self@.durable_main_table[idx as int] is None);
+// //                 // }
+// //                 // assert(self.free_list() == self.free_indices());
+// //             }
+//         }
 
         #[verifier::rlimit(20)]
         pub exec fn create_validify_log_entry(
@@ -3576,52 +3748,52 @@ verus! {
             }
         }
 
-        pub exec fn update_ghost_state_to_current_bytes(
-            &mut self,
-            Ghost(pm): Ghost<PersistentMemoryRegionView>,
-            Ghost(overall_metadata): Ghost<OverallMetadata>,
-        )
-            requires
-                pm.no_outstanding_writes(),
-                old(self).opaquable_inv(overall_metadata),
-                ({
-                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                        overall_metadata.main_table_size as nat);
-                    parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
-                }),
-                old(self)@.durable_main_table.len() == overall_metadata.num_keys,
-                pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
-                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
-                overall_metadata.main_table_entry_size ==
-                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-            ensures 
-                self.opaquable_inv(overall_metadata),
-                ({
-                    let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                        overall_metadata.main_table_size as nat);
-                    &&& Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size)
-                    // &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
-                    //         self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
-                }),
-                self.free_list() == old(self).free_list(),
-                // self.pending_allocations_view() == old(self).pending_allocations_view(),
-                // self.pending_deallocations_view() == old(self).pending_deallocations_view(),
-                self.outstanding_entries@.len() == 0,
-                self.main_table_entry_size == old(self).main_table_entry_size,
+        // pub exec fn update_ghost_state_to_current_bytes(
+        //     &mut self,
+        //     Ghost(pm): Ghost<PersistentMemoryRegionView>,
+        //     Ghost(overall_metadata): Ghost<OverallMetadata>,
+        // )
+        //     requires
+        //         pm.no_outstanding_writes(),
+        //         old(self).opaquable_inv(overall_metadata),
+        //         ({
+        //             let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+        //                 overall_metadata.main_table_size as nat);
+        //             parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+        //         }),
+        //         old(self)@.durable_main_table.len() == overall_metadata.num_keys,
+        //         pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
+        //         overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+        //         overall_metadata.main_table_entry_size ==
+        //             ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
+        //     ensures 
+        //         self.opaquable_inv(overall_metadata),
+        //         ({
+        //             let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+        //                 overall_metadata.main_table_size as nat);
+        //             &&& Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
+        //                 overall_metadata.num_keys, overall_metadata.main_table_entry_size)
+        //             // &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
+        //             //         self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
+        //         }),
+        //         self.free_list() == old(self).free_list(),
+        //         // self.pending_allocations_view() == old(self).pending_allocations_view(),
+        //         // self.pending_deallocations_view() == old(self).pending_deallocations_view(),
+        //         self.outstanding_entries@.len() == 0,
+        //         self.main_table_entry_size == old(self).main_table_entry_size,
 
-        {
-            let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                overall_metadata.main_table_size as nat);
-            self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
-            self.outstanding_entries.clear();
+        // {
+        //     let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+        //         overall_metadata.main_table_size as nat);
+        //     self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
+        //     self.outstanding_entries.clear();
 
-            proof {
-                // assert forall |i| 0 <= i < self@.durable_main_table.len() implies
-                //     self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
-                // by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat); }
-            }
-        }
+        //     proof {
+        //         // assert forall |i| 0 <= i < self@.durable_main_table.len() implies
+        //         //     self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
+        //         // by { lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat); }
+        //     }
+        // }
 
         pub exec fn finalize_main_table(
             &mut self,
@@ -3638,10 +3810,12 @@ verus! {
                         overall_metadata.main_table_size as nat);
                     let old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
-                    &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+                    // &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+                    &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) ==
+                            Some(old(self).tentative_view())
                     &&& old_self.inv(old_subregion_view, overall_metadata)
                     &&& parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
-                    &&& old_self.pending_alloc_inv(old_subregion_view.committed(), subregion_view.committed(), overall_metadata)
+                    // &&& old_self.pending_alloc_inv(old_subregion_view.committed(), subregion_view.committed(), overall_metadata)
                 }),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
@@ -3653,76 +3827,52 @@ verus! {
                 // old_self.pending_allocations_view() == old(self).pending_allocations_view(),
                 // old_self.pending_deallocations_view() == old(self).pending_deallocations_view(),
                 old_self.main_table_entry_size == overall_metadata.main_table_entry_size,
+                // we have already committed the log when we finalize the main table, so deleted entries
+                // are invalid and created/updated entries are valid
+                forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) ==> {
+                    let entry = old(self).outstanding_entries[idx].unwrap();
+                    match entry.status {
+                        EntryStatus::Created | EntryStatus::Updated => old(self)@.durable_main_table[idx as int] is Some,
+                        EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => old(self)@.durable_main_table[idx as int] is None
+                    }
+                },
             ensures 
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
                     &&& self.inv(subregion_view, overall_metadata)
-                    &&& self.pending_alloc_inv(subregion_view.committed(), subregion_view.committed(), overall_metadata)
+                    // &&& self.pending_alloc_inv(subregion_view.committed(), subregion_view.committed(), overall_metadata)
                     // &&& forall |i: u64| 0 <= i < self@.durable_main_table.len() ==> 
                     //         self.outstanding_entry_write_matches_pm_view(subregion_view, i, overall_metadata.main_table_entry_size)
                 }),
+                self.outstanding_entries@.len() == 0,
+                self.state@ == old(self).tentative_view(),
                 // self.pending_allocations_view().is_empty(),
                 // self.pending_deallocations_view().is_empty(),
                 // self.allocator_inv(),
-                forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
-                    self.outstanding_entries[idx] is None,
+                // forall |idx: u64| 0 <= idx < self@.durable_main_table.len() ==> 
+                //     self.outstanding_entries[idx] is None,
                 
         {
-            let ghost old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
-                overall_metadata.main_table_size as nat);
-            let ghost old_main_table_view = parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
-            let ghost main_table_view = parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-
-            self.update_ghost_state_to_current_bytes(Ghost(pm), Ghost(overall_metadata));
+            self.finalize_outstanding_entries(Ghost(subregion_view), Ghost(overall_metadata));
             
+            self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
+            assert(self.state@ == old(self).tentative_view());
+
             proof {
                 assert(Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size));
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
             
-                // // TODO: combine these w/ proper triggers
-                // assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
-                //      #[trigger] self.pending_allocations_view().contains(idx) ==> 
-                //             self@.durable_main_table[idx as int] is Some
-                // } by {
-                //     // trigger the pending alloc check
-                //     assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
-                // }
-                // assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
-                //     &&& #[trigger] self.pending_deallocations_view().contains(idx) ==> 
-                //             {self@.durable_main_table[idx as int] is None}
-                // } by {
-                //     // trigger the pending alloc check
-                //     assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
-                // }
-
-                // assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() implies {
-                //     let entry = #[trigger] self@.durable_main_table[idx as int];
-                //     match entry {
-                //         None => {
-                //             ||| self.free_list().contains(idx)
-                //             ||| self.pending_deallocations_view().contains(idx)
-                //         },
-                //         Some(entry) => {
-                //             // if the entry is valid, either it was pending allocation
-                //             // or it's just valid and not in any of the three lists
-                //             ||| self.pending_allocations_view().contains(idx)
-                //             ||| ({
-                //                 &&& !self.free_list().contains(idx)
-                //                 &&& !self.pending_deallocations_view().contains(idx)
-                //                 &&& !self.pending_allocations_view().contains(idx)
-                //             })
-                //         },
-                //     }
-                // } by {
-                //     assert(old_self.allocator_view().pending_alloc_check(idx, old_main_table_view, main_table_view));
-                // }
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < self@.durable_main_table.len() 
+                    && !(#[trigger] self.outstanding_entries@.contains_key(idx))
+                } implies self.no_outstanding_writes_to_entry(subregion_view, idx, overall_metadata.main_table_entry_size) by {
+                    lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
+                }
             }
-
-            self.finalize_pending_alloc_and_dealloc(Ghost(subregion_view), Ghost(overall_metadata));
         }
 
         pub proof fn lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
