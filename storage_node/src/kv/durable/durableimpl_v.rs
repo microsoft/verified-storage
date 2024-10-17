@@ -418,8 +418,8 @@ verus! {
                                       self.overall_metadata)
             // &&& self.main_table.allocator_inv()
             &&& self.item_table.inv(get_subregion_view(pm_view, self.overall_metadata.item_table_addr as nat,
-                                                     self.overall_metadata.item_table_size as nat),
-                                  self.overall_metadata, self.main_table@.valid_item_indices())
+                                                     self.overall_metadata.item_table_size as nat), self.overall_metadata)
+                                //   self.overall_metadata, self.main_table@.valid_item_indices())
             /* REMOVED UNTIL WE IMPLEMENT LISTS
             &&& self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                        self.overall_metadata.list_area_size as nat),
@@ -433,6 +433,9 @@ verus! {
             &&& self.abort_inv()
 
             &&& self.tentative_main_table() == self.main_table.tentative_view()
+
+            &&& self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices()
+            &&& self.main_table@.valid_item_indices() == self.item_table.durable_valid_indices()
 
             // &&& forall |val| self.key_index_list_view().contains(val) ==> {
             //         &&& self@[val.1 as int] matches Some(entry)
@@ -450,7 +453,7 @@ verus! {
                                                        self.overall_metadata.item_table_size as nat),
                                     self.overall_metadata,
                                     self.main_table@.valid_item_indices())
-            &&& self.pending_alloc_inv()
+            // &&& self.pending_alloc_inv()
         }
 
         pub closed spec fn pending_alloc_inv(self) -> bool
@@ -2647,8 +2650,7 @@ verus! {
                     &&& condition(self.wrpm@.committed())
                 }),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                                       self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                                                       self.overall_metadata.item_table_size as nat), self.overall_metadata),
                 old_self.item_table.free_list().contains(item_index),
                 self.item_table@.durable_item_table == old_self.item_table@.durable_item_table,
                 // forall |i: int| 0 <= i < self.overall_metadata.num_keys && i != item_index ==>
@@ -4929,7 +4931,7 @@ verus! {
                 self.item_table == old(self).item_table,
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat),self.overall_metadata, self.main_table@.valid_item_indices()),
+                    self.overall_metadata.item_table_size as nat),self.overall_metadata),
                 match result {
                     Ok(()) => {
                         &&& self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@)
@@ -5641,11 +5643,8 @@ verus! {
                 }
             };
             let item_index = metadata.item_index;
-            // TODO @hayley NEXT
             assert(!self.item_table.free_list().contains(item_index));
 
-
-            
             // // TODO @hayley come back to this. this should provably not happen now
             // // check that this item index is not already pending deallocation. This could happen 
             // // if we, e.g., update the item in this same transaction. if it is, abort the 
@@ -5787,17 +5786,23 @@ verus! {
                 index, *metadata, *key, Ghost(self.overall_metadata));
 
             let ghost item_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                    self.overall_metadata.item_table_size as nat); 
+                    self.overall_metadata.item_table_size as nat);
+
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, 
-                Ghost(self.overall_metadata), Ghost(self.main_table@.valid_item_indices()),
-                Ghost(self.main_table.tentative_view().valid_item_indices()));
+                Ghost(self.overall_metadata));
 
 
-            assume(false);
             assert(self.inv()) by {
+                // TODO @hayley
                 // assert(self.version_metadata == old(self).version_metadata);
                 assume(deserialize_version_metadata(self.wrpm@.committed()) == 
                     deserialize_version_metadata(old(self).wrpm@.committed()));
+
+                assume(log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
+                    self.main_table.free_list(),
+                    self.overall_metadata));
+                assume(self.tentative_main_table() == self.main_table.tentative_view());
+                assume(self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices());
 
                 assert(self.main_table.inv(main_table_subregion.view(pm), self.overall_metadata));
                 assert(main_table_subregion.view(pm) == get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -5805,8 +5810,6 @@ verus! {
 
                 assert(self.main_table@.valid_item_indices() == old(self).main_table@.valid_item_indices());
             }
-
-            assume(false);
             assert(self.valid());
             
 
@@ -6027,8 +6030,7 @@ verus! {
                                                            self.overall_metadata.main_table_size as nat),
                                         self.overall_metadata),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
-                                                       self.overall_metadata.item_table_size as nat),
-                                    self.overall_metadata, self.main_table@.valid_item_indices()),
+                                                       self.overall_metadata.item_table_size as nat), self.overall_metadata),
                 /* REMOVED UNTIL WE IMPLEMENT LISTS
                 self.durable_list.inv(get_subregion_view(self.wrpm@, self.overall_metadata.list_area_addr as nat,
                                                          self.overall_metadata.list_area_size as nat),

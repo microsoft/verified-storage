@@ -2122,6 +2122,7 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires 
+                old(self).inv(pm_subregion, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
                 ({
                     &&& old(self).tentative_view().durable_main_table[index as int] matches Some(e)
@@ -2147,6 +2148,8 @@ verus! {
                 //         }
                 // }),
                 !old(self).free_list().contains(index),
+                old(self).outstanding_entries.inv(),
+                // old(self).opaquable_inv(overall_metadata),
             ensures 
                 self.inv(pm_subregion, overall_metadata),
                 old(self).free_list() == self.free_list(),
