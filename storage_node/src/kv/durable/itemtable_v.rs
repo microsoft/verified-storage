@@ -13,6 +13,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::traits_t;
 use crate::pmem::subregion_v::*;
+use crate::util_v::*;
 use builtin::*;
 use builtin_macros::*;
 use std::hash::Hash;
@@ -598,6 +599,157 @@ verus! {
             }
         }
 
+        exec fn outstanding_item_create(&mut self, index: u64, item: I, 
+                Ghost(overall_metadata): Ghost<OverallMetadata>, Ghost(valid_indices): Ghost<Set<u64>>) 
+            requires 
+                // since we've removed this index from the free list, opaquable_inv 
+                // doesn't hold here. most preconditions are conjuncts from opaquable_inv
+                // that do currently hold; we reestablish the rest in this function
+                old(self).outstanding_items.inv(),
+                old(self).outstanding_items[index] is None,
+                old(self)@.durable_item_table[index as int] is None,
+                forall |idx: u64| old(self).outstanding_items@.contains_key(idx) <==> 
+                    #[trigger] old(self).modified_indices@.contains(idx),
+                forall |idx: u64| old(self).modified_indices@.contains(idx) ==>
+                    idx < overall_metadata.num_keys,
+                forall |idx: u64| old(self).free_list@.contains(idx) ==>
+                    idx < overall_metadata.num_keys,
+
+                !old(self).free_list@.contains(index),
+                forall |idx: u64| #[trigger] old(self).modified_indices@.contains(idx) ==>
+                    !old(self).free_list@.contains(idx),
+                forall |idx: u64| old(self).free_list@.contains(idx) ==>
+                    !(#[trigger] old(self).modified_indices@.contains(idx)),
+                forall |idx: u64| 0 <= idx < old(self)@.durable_item_table.len() && !old(self).free_list@.contains(idx) && idx != index ==>
+                    old(self)@.durable_item_table[idx as int] is Some || #[trigger] old(self).modified_indices@.contains(idx),
+                forall |idx: u64| {
+                    &&& 0 <= idx < old(self)@.durable_item_table.len() 
+                    &&& {
+                        ||| old(self)@.durable_item_table[idx as int] is Some
+                        ||| old(self).outstanding_items[idx] is Some
+                    }
+                } ==> !(#[trigger] old(self).free_list@.contains(idx)),
+                forall |idx: u64| {
+                    &&& #[trigger] old(self).outstanding_items@.contains_key(idx) 
+                    &&& old(self).outstanding_items@[idx].status is Created 
+                } ==> old(self)@.durable_item_table[idx as int] is None,
+                forall |idx: u64| {
+                    &&& #[trigger] old(self).outstanding_items@.contains_key(idx) 
+                    &&& old(self).outstanding_items@[idx].status is Deleted 
+                } ==> old(self)@.durable_item_table[idx as int] is Some,
+                forall |idx: u64| #[trigger] old(self).outstanding_items@.contains_key(idx) ==> ({
+                    ||| old(self).outstanding_items@[idx].status is Created
+                    ||| old(self).outstanding_items@[idx].status is Deleted
+                }),
+
+                index < overall_metadata.num_keys,
+                old(self).modified_indices@.len() <= old(self)@.durable_item_table.len(),
+                old(self)@.durable_item_table.len() == overall_metadata.num_keys,
+
+                old(self).item_size == overall_metadata.item_size,
+                old(self).free_list@.no_duplicates(),
+                old(self).modified_indices@.no_duplicates(),
+                old(self).entry_size == I::spec_size_of() + u64::spec_size_of(),
+                old(self).outstanding_items@.len() == old(self).modified_indices@.len(),
+            ensures 
+                self.opaquable_inv(overall_metadata, valid_indices),
+                self.outstanding_items.inv(),
+                self@ == old(self)@,
+                self.entry_size == old(self).entry_size,
+                self.num_keys == old(self).num_keys,
+                self.free_list@ == old(self).free_list@,
+                forall |idx: u64| self.outstanding_items@.contains_key(idx) <==> 
+                    #[trigger] self.modified_indices@.contains(idx),
+                ({
+                    let outstanding_item = OutstandingItem {
+                        status: EntryStatus::Created,
+                        item
+                    };
+                    self.outstanding_items@ == old(self).outstanding_items@.insert(index, outstanding_item)
+                })
+        {
+            let outstanding_item = OutstandingItem {
+                status: EntryStatus::Created,
+                item
+            };
+            self.outstanding_items.contents.insert(index, outstanding_item);
+
+            self.modified_indices.push(index);
+
+            proof {
+                assert(!old(self).modified_indices@.contains(index));
+
+                // trigger useful facts about the new modified_indices list
+                assert forall |idx: u64| self.modified_indices@.contains(idx) implies
+                    idx < overall_metadata.num_keys
+                by {
+                    if idx == index { assert(index < overall_metadata.num_keys); } 
+                    else { assert(old(self).modified_indices@.contains(idx)); }
+                }
+                assert(self.modified_indices@.subrange(0, self.modified_indices@.len() - 1) == old(self).modified_indices@);
+                assert(self.modified_indices@[self.modified_indices@.len() - 1] == index);
+
+                broadcast use vstd::std_specs::hash::group_hash_axioms;
+
+                // Prove that modified indices and outstanding items still match
+                assert forall |idx: u64| self.outstanding_items@.contains_key(idx) implies 
+                    #[trigger] self.modified_indices@.contains(idx) 
+                by {
+                    if idx == index {
+                        assert(self.modified_indices@.contains(index));
+                    } else {
+                        assert(old(self).outstanding_items@.contains_key(idx));
+                        assert(old(self).modified_indices@.contains(idx));
+                    }
+                }
+                assert forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) implies
+                    self.outstanding_items@.contains_key(idx)
+                by {
+                    if idx == index {
+                        assert(self.outstanding_items.contents@.contains_key(idx));
+                    } else {
+                        assert(old(self).modified_indices@.contains(idx));
+                        assert(old(self).outstanding_items@.contains_key(idx));
+                    }
+                }
+
+                // Prove that modified indices and the free list are still disjoint
+                assert forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) implies
+                    !self.free_list@.contains(idx)
+                by {
+                    if idx != index {
+                        assert(old(self).modified_indices@.contains(idx));
+                        assert(!old(self).free_list@.contains(idx));
+                    } // else trivial
+                }
+
+                assert forall |idx: u64| 0 <= idx < self@.durable_item_table.len() && !self.free_list@.contains(idx) implies
+                    self@.durable_item_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx)
+                by {
+                    if idx != index {
+                        assert(old(self)@.durable_item_table[idx as int] is Some || old(self).modified_indices@.contains(idx));
+                    } // else trivial
+                }
+
+                assert(self.modified_indices@.len() <= self@.durable_item_table.len()) by {
+                    // if we increased the length of the modified indices list, we have to prove
+                    // that it still hasn't grown beyond the length of the table itself
+                    assert(self.modified_indices@.len() == old(self).modified_indices@.len() + 1);
+                    // we need to temporarily view modified_indices as ints rather than u64s so we can invoke
+                    // the lemma that proves that its length is still less than num_keys
+                    let temp_view = self.modified_indices@.map_values(|e| e as int);
+                    assert forall |idx: int| temp_view.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+                        assert(self.modified_indices@.contains(idx as u64))
+                    }
+                    // this lemma proves that a sequence with values between 0 and num keys and no duplicates
+                    // cannot have a length longer than num_keys
+                    lemma_seq_len_when_no_dup_and_all_values_in_range(temp_view, 0, overall_metadata.num_keys as int);
+                }
+            }
+            
+            
+        }
+
         // Read an item from the item table given an index. Returns `None` if the index
         // does not contain a valid, uncorrupted item. 
         // TODO: should probably return result, not option
@@ -776,7 +928,7 @@ verus! {
                         current_valid_indices.union(tentative_valid_indices)
                     )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
-                // old(self).pending_alloc_inv(current_valid_indices, tentative_valid_indices),
+                old(self).free_list().disjoint(tentative_valid_indices),
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices),
@@ -785,27 +937,14 @@ verus! {
                     Ok(index) => {
                         &&& index < overall_metadata.num_keys
                         &&& old(self).free_list().contains(index)
-                        // &&& self.pending_allocations_view().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
-                        // &&& forall |i: int| 0 <= i < overall_metadata.num_keys && i != index ==>
-                        //     #[trigger] self.outstanding_item_table@[i] == old(self).outstanding_item_table@[i]
-                        // &&& self.outstanding_item_table@[index as int] == Some(*item)
                         &&& self.free_list() == old(self).free_list().remove(index)
-                        // &&& forall|idx: u64| #[trigger] current_valid_indices.contains(idx) ==> 
-                        //     !self.free_list().contains(idx) && !self.pending_allocations_view().contains(idx)
-                        // &&& forall |idx: u64| 0 <= idx < self.num_keys && !(#[trigger] current_valid_indices.contains(idx)) ==> {
-                        //     ||| self.pending_allocations_view().contains(idx)
-                        //     ||| self.free_list().contains(idx)
-                        // }
                         &&& !current_valid_indices.contains(index)
                         &&& !tentative_valid_indices.contains(index)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
-                        // &&& self.outstanding_item_table@ == old(self).outstanding_item_table@
                         &&& self.free_list() == old(self).free_list()
-                        // &&& self.pending_allocations_view() == old(self).pending_allocations_view()
-                        // &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.free_list().len() == 0
                         &&& wrpm_region == old(wrpm_region)
                     },
@@ -821,11 +960,6 @@ verus! {
             let entry_size = self.entry_size;
             assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
             assert(entry_size == u64::spec_size_of() + I::spec_size_of());
-
-            // proof {
-            //     self.lemma_valid_indices_disjoint_with_free_and_pending_alloc(
-            //         current_valid_indices, tentative_valid_indices);
-            // }
             
             // pop a free index from the free list
             let free_index = match self.free_list.pop() {
@@ -833,40 +967,87 @@ verus! {
                 None => {
                     proof {
                         self.free_list@.unique_seq_to_set();
-
-                        // assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
-                        //     self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), idx as int)
-                        // by {
-                        //     lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
-                        //     assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
-                        // }
+                        assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                            self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), idx)
+                        by {
+                            lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
+                            assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx));
+                        }
                     }
                     return Err(KvError::OutOfSpace);
                 }
             };
 
-
             proof {
+                // popping an index from the free list breaks some parts of the invariant, but since we haven't modified
+                // PM or the outstanding item map, this part still holds
+                assert(self.outstanding_item_table_entry_matches_pm_view(subregion.view(wrpm_region), free_index)) by {
+                    assert(!self.modified_indices@.contains(free_index));
+                    assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(old::<&mut _>(wrpm_region)), free_index));
+                }
+
                 assert(old(self).free_list().contains(free_index));
                 assert(!current_valid_indices.contains(free_index));
                 assert(!tentative_valid_indices.contains(free_index));
-            }
+                assert forall |idx: u64| self.free_list@.contains(idx) implies 
+                    idx < overall_metadata.num_keys
+                by {
+                    assert(old(self).free_list@.contains(idx));
+                }
 
-            // self.pending_allocations.push(free_index);
-            // assert(self.pending_allocations@.subrange(0, old(self).pending_allocations@.len() as int) == old(self).pending_allocations@);
-            // assert(self.pending_allocations@[self.pending_allocations@.len() - 1] == free_index);
-            
-            assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
-                   subregion.is_writable_relative_addr(addr) by {
-                lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
-                lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
-            }
+                assert forall|addr: int| free_index * entry_size <= addr < free_index * entry_size + entry_size implies
+                    subregion.is_writable_relative_addr(addr) 
+                by {
+                    lemma_addr_in_entry_divided_by_entry_size(free_index as nat, entry_size as nat, addr);
+                    lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                }
 
-            broadcast use pmcopy_axioms;
-            
-            proof {
+                broadcast use pmcopy_axioms;
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_size as nat);
-                // assert(self.outstanding_item_table@[free_index as int] is None);
+                assert(self.outstanding_items[free_index] is None);
+
+                assert(old(self).free_list@.subrange(0, old(self).free_list@.len() - 1) == self.free_list@);
+                assert(old(self).free_list@[old(self).free_list@.len() - 1] == free_index);
+                assert(self.free_list@.len() == old(self).free_list@.len() - 1);
+                assert(!self.free_list@.contains(free_index));
+
+                // Prove that if the current free list does not contain an index, then it's 
+                // either the one we just allocated or it was already in use.
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < old(self)@.durable_item_table.len() 
+                    &&& !self.free_list@.contains(idx) 
+                } implies {
+                    ||| idx == free_index 
+                    ||| !old(self).free_list@.contains(idx)
+                } by {
+                    if idx != free_index {
+                        // proof by contradiction -- suppose the old free list did contain idx.
+                        // then, idx would have to equal free_index
+                        if old(self).free_list@.contains(idx) {
+                            assert(old(self).free_list@.subrange(0, old(self).free_list@.len() - 1) == self.free_list@);
+                            assert(forall |i: int| 0 <= i < old(self).free_list@.len() - 1 ==> 
+                                old(self).free_list@[i] == self.free_list@[i]);
+                            assert(idx == old(self).free_list@[old(self).free_list@.len() - 1]);
+                            assert(false);
+                        }
+                    }
+                }
+
+                // If an index is valid in the durable state or has an outstanding write,
+                // then it's not free.
+                assert forall |idx: u64| {
+                    &&& 0 <= idx < self@.durable_item_table.len() 
+                    &&& {
+                        ||| self@.durable_item_table[idx as int] is Some
+                        ||| self.outstanding_items[idx] is Some
+                    }
+                } implies !(#[trigger] self.free_list@.contains(idx)) by {
+                    if self@.durable_item_table[idx as int] is Some {
+                        assert(!old(self).free_list@.contains(idx));
+                    } else {
+                        assert(self.outstanding_items[idx] is Some);
+                    }
+                }
             }
 
             let crc_addr = free_index * (entry_size as u64);
@@ -874,22 +1055,28 @@ verus! {
 
             // calculate and write the CRC of the provided item
             let crc: u64 = calculate_crc(item);
-            // assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, free_index as int));
+
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
             // write the item itself
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
 
-            // self.outstanding_item_table = Ghost(self.outstanding_item_table@.update(free_index as int, Some(*item)));
+            // Add this item to the outstanding item map
+            self.outstanding_item_create(free_index, *item, Ghost(overall_metadata), Ghost(current_valid_indices));
 
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() =~= old_pm_view.committed());
-            // assert forall|idx: u64| idx < overall_metadata.num_keys &&
-            //        #[trigger] self.outstanding_item_table@[idx as int] is None implies
-            //     pm_view.no_outstanding_writes_in_range(idx * entry_size, idx * entry_size + entry_size) by {
-            //     lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
-            //     lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-            //     assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
-            // }
+
+            assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.outstanding_items[idx] is None implies {
+                let start = index_to_offset(idx as nat, entry_size as nat) as int;
+                pm_view.no_outstanding_writes_in_range(start, start + entry_size) 
+            } by {
+                let start = index_to_offset(idx as nat, entry_size as nat) as int;
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(subregion.view(old::<&mut _>(wrpm_region)), idx));
+                assert(subregion.view(old::<&mut _>(wrpm_region)).no_outstanding_writes_in_range(start, start + entry_size));
+            }
+
             assert forall|idx: u64| current_valid_indices.contains(idx) implies {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
@@ -923,12 +1110,13 @@ verus! {
                 );
             }
 
-            // assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
-            //     self.outstanding_item_table_entry_matches_pm_view(pm_view, idx as int) by {
-            //     lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
-            //     lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-            //     assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx as int));
-            // }
+            assert forall|idx: u64| 0 <= idx < overall_metadata.num_keys implies
+                self.outstanding_item_table_entry_matches_pm_view(pm_view, idx) 
+            by {
+                lemma_valid_entry_index(idx as nat, self.num_keys as nat, entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
+                assert(old(self).outstanding_item_table_entry_matches_pm_view(old_pm_view, idx));
+            }
 
             assert(self.free_list() =~= old(self).free_list().remove(free_index));
 
