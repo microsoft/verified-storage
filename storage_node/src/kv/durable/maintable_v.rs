@@ -631,6 +631,14 @@ verus! {
                         lemma_seq_len_when_no_dup_and_all_values_in_range(temp_view, 0, overall_metadata.num_keys as int);
                     } 
                 }
+
+                assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                    assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
+                    assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
+                        &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
+                        &&& i == index ==> self.tentative_view().durable_main_table[i] is None
+                    });
+                }
             }
         }
 
@@ -675,6 +683,7 @@ verus! {
             &&& self.main_table_free_list@.no_duplicates()
             &&& self.modified_indices@.no_duplicates()
             &&& no_duplicate_item_indexes(self.tentative_view().durable_main_table)
+            &&& no_duplicate_item_indexes(self@.durable_main_table)
             // &&& self.pending_allocations@.no_duplicates()
             // &&& self.pending_deallocations@.no_duplicates()
             // &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
@@ -2134,27 +2143,8 @@ verus! {
                     &&& e.entry == entry 
                     &&& e.key == key
                 }),
-                // ({
-                //     // we can only delete an existing entry, so either 
-                //     // there already has to be an outstanding entry or there
-                //     // has to be a valid durable entry at this index
-                //     ||| {
-                //             &&& old(self).outstanding_entries@.contains_key(index)
-                //             &&& old(self).outstanding_entries@[index].key == key
-                //             &&& old(self).outstanding_entries@[index].entry == entry
-                //             &&& (old(self).outstanding_entries@[index].status is Updated || 
-                //                     old(self).outstanding_entries@[index].status is Created)
-                //         }
-                //     ||| {
-                //             &&& old(self)@.durable_main_table[index as int] is Some
-                //             &&& !old(self).outstanding_entries@.contains_key(index)
-                //             &&& old(self)@.durable_main_table[index as int].unwrap().key == key
-                //             &&& old(self)@.durable_main_table[index as int].unwrap().entry == entry
-                //         }
-                // }),
                 !old(self).free_list().contains(index),
                 old(self).outstanding_entries.inv(),
-                // old(self).opaquable_inv(overall_metadata),
             ensures 
                 self.inv(pm_subregion, overall_metadata),
                 old(self).free_list() == self.free_list(),
@@ -2206,6 +2196,8 @@ verus! {
                 old(self).outstanding_entries.inv(),
                 old(self).modified_indices@.no_duplicates(),
                 old(self).main_table_free_list@.no_duplicates(),
+                no_duplicate_item_indexes(old(self).tentative_view().durable_main_table),
+                no_duplicate_item_indexes(old(self)@.durable_main_table),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
                 forall |idx: u64| old(self).main_table_free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
                 forall |idx: u64| old(self).modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
@@ -2262,6 +2254,8 @@ verus! {
             while index < self.modified_indices.len() 
                 invariant 
                     self.modified_indices@.no_duplicates(),
+                    no_duplicate_item_indexes(self.tentative_view().durable_main_table),
+                    no_duplicate_item_indexes(self@.durable_main_table),
                     self@ == old(self)@,
                     self.main_table_entry_size == old(self).main_table_entry_size,
                     forall |i: u64| index <= i < self.modified_indices.len() ==> { 
@@ -2424,8 +2418,7 @@ verus! {
                     &&& metadata == entry.entry
                 }),
                 VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
-                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()
- + u64::spec_size_of()
+                version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()
                     <= overall_metadata.main_table_addr,
             ensures 
                 log_entry@.inv(version_metadata, *overall_metadata),
@@ -2932,6 +2925,7 @@ verus! {
                 overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
         }
 
+        #[verifier::rlimit(25)] // TODO @hayley
         proof fn lemma_update_item_log_entry<PM>(
             self,
             subregion: &PersistentMemorySubregion,
