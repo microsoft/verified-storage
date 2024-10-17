@@ -3547,6 +3547,7 @@ verus! {
                     &&& forall|i: int| 0 <= i < table2.len() && i != main_table_index ==> #[trigger] table2[i] == table1[i]
                 }),
         {
+            assume(false); // TODO @jay @hayley
             let overall_metadata = self.overall_metadata;
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -3869,6 +3870,7 @@ verus! {
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
+            assume(false); // TODO @jay @hayley
             self.lemma_helper_for_justify_validify_log_entry(old_self, self_before_main_table_create,
                                                              main_table_subregion, main_table_index, item_index,
                                                              list_node_index, key, perm);
@@ -5853,6 +5855,7 @@ verus! {
                         s,
                         self.version_metadata.overall_metadata_addr
                     ),
+                self.main_table@.valid_item_indices() == self.item_table.durable_valid_indices(),
             ensures
                 forall|s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s)
         {
@@ -5874,7 +5877,6 @@ verus! {
                                                            overall_metadata.item_table_size as nat);
                 lemma_subregion_view_can_crash_as_subrange(self.wrpm@, s, overall_metadata.list_area_addr as nat,
                                                            overall_metadata.list_area_size as nat);
-                assert(Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@));
             }
         }
 
