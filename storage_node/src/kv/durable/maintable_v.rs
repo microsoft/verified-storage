@@ -543,6 +543,10 @@ verus! {
                 old(self)@ == self@,
                 old(self).free_list() == self.free_list(),
                 old(self).main_table_entry_size == self.main_table_entry_size,
+                // ({
+                //     let old_item_index = old(self).get_latest_entry(index).unwrap().entry.item_index;
+                //     self.tentative_view().valid_item_indices() == old(self).tentative_view().valid_item_indices().remove(old_item_index)
+                // })
         {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
             if !self.outstanding_entries.contents.contains_key(&index) {    
@@ -670,6 +674,7 @@ verus! {
         {
             &&& self.main_table_free_list@.no_duplicates()
             &&& self.modified_indices@.no_duplicates()
+            &&& no_duplicate_item_indexes(self.tentative_view().durable_main_table)
             // &&& self.pending_allocations@.no_duplicates()
             // &&& self.pending_deallocations@.no_duplicates()
             // &&& forall |i: int| 0 <= i < self.pending_allocations.len() ==> 
@@ -2165,13 +2170,30 @@ verus! {
                 old(self)@ == self@,
                 old(self).main_table_entry_size == self.main_table_entry_size,
                 Some(self.tentative_view()) == old(self).tentative_view().delete(index as int),
+                ({
+                    let old_item_index = old(self).get_latest_entry(index).unwrap().entry.item_index;
+                    self.tentative_view().valid_item_indices() == old(self).tentative_view().valid_item_indices().remove(old_item_index)
+                })
         {
             self.outstanding_entry_delete(index, entry, key, Ghost(overall_metadata));
 
             proof {
                 assert(old(self).tentative_view().durable_main_table[index as int] is Some);
                 assert(self.tentative_view().durable_main_table[index as int] is None);
-                assert(self.tentative_view().durable_main_table == old(self).tentative_view().durable_main_table.update(index as int, None));
+                assert(self.tentative_view().durable_main_table == 
+                    old(self).tentative_view().durable_main_table.update(index as int, None));
+
+                assert(self.tentative_view().durable_main_table[index as int] is None);
+
+                let old_item_index = old(self).get_latest_entry(index).unwrap().entry.item_index;
+                assert(old(self).tentative_view().valid_item_indices().contains(old_item_index));
+
+                assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
+                    &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
+                    &&& i == index ==> self.tentative_view().durable_main_table[i] is None
+                });
+
+                assert(self.tentative_view().valid_item_indices() =~= old(self).tentative_view().valid_item_indices().remove(old_item_index));
             }
         }
 
