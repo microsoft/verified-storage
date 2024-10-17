@@ -1237,8 +1237,10 @@ verus! {
                         } ==> *(#[trigger] entry_list@[k]).0 != *(#[trigger] entry_list@[l]).0
                         &&& item_index_view.to_set() == main_table@.valid_item_indices()
                         &&& forall|idx: u64| 0 <= idx < main_table.outstanding_entries.len() ==>
-                            main_table.outstanding_entries[idx] is None
-                        &&& main_table.pending_alloc_inv(subregion.view(pm_region).committed(), subregion.view(pm_region).committed(), overall_metadata)
+                                main_table.outstanding_entries[idx] is None
+
+                        &&& main_table@ == main_table.tentative_view()
+                        &&& main_table@.valid_item_indices() == item_index_view.to_set()
                     }
                     Err(KvError::IndexOutOfRange) => {
                         let entry_slot_size = (ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of()) as u64;
@@ -1629,21 +1631,14 @@ verus! {
             let main_table = MainTable {
                 main_table_entry_size,
                 main_table_free_list: metadata_allocator,
-                // pending_allocations: Vec::new(),
-                // pending_deallocations: Vec::new(),
                 modified_indices: Vec::new(),
                 state: Ghost(parse_main_table::<K>(
                     subregion.view(pm_region).committed(),
                     overall_metadata.num_keys, 
                     overall_metadata.main_table_entry_size 
                 ).unwrap()),
-                // outstanding_entry_writes: Ghost(Seq::<Option<MainTableViewEntry<K>>>::new(num_keys as nat,|i: int| None)),
                 outstanding_entries: OutstandingEntries::new(),
             };
-            // assert(main_table.pending_deallocations_view().is_empty()) by {
-            //     assert(main_table.pending_deallocations_view() =~= Set::<u64>::empty());
-            // }
-
             proof {
                 let key_entry_list_view = Set::new(
                     |val: (K, u64, u64)| {
@@ -1655,26 +1650,12 @@ verus! {
                 let entry_list_view = Seq::new(key_index_pairs@.len(), |i: int| (*key_index_pairs[i].0, key_index_pairs[i].1, key_index_pairs[i].2));
                 let item_index_view = Seq::new(key_index_pairs@.len(), |i: int| key_index_pairs[i].2);
 
-                // assert(main_table.free_list() =~= main_table.free_indices());
                 assert(entry_list_view.to_set() == key_entry_list_view);
                 assert(item_index_view.to_set() == main_table@.valid_item_indices());
 
                 metadata_allocator@.unique_seq_to_set();
 
                 let pm_view = subregion.view(pm_region);
-
-                // assert forall |i| 0 <= i < main_table.state@.durable_main_table.len() implies
-                //     main_table.outstanding_entry_write_matches_pm_view(pm_view, i,
-                //                                                        overall_metadata.main_table_entry_size) by {
-                //     let main_table_entry_size = overall_metadata.main_table_entry_size;
-                //     lemma_metadata_fits::<K>(i as int, num_keys as int, main_table_entry_size as int);
-                //     assert(pm_view.no_outstanding_writes_in_range(i * main_table_entry_size,
-                //                                                   i * main_table_entry_size + u64::spec_size_of()));
-                // }
-
-                // assert(pm_region@.no_outstanding_writes());
-                // assert(forall |i: u64| 0 <= i < main_table@.durable_main_table.len() ==>
-                //     !main_table.outstanding_entries@.contains_key(i));
                 
                 assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==>
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(main_table@));
@@ -1683,6 +1664,8 @@ verus! {
                 by {
                     lemma_valid_entry_index(i as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
                 }
+
+                assert(main_table@ == main_table.tentative_view());
             }
 
             Ok((main_table, key_index_pairs))

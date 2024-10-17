@@ -1397,6 +1397,9 @@ verus! {
                             // all free indexes are in the free list
                             &&& forall |i: u64| free_indices.contains(i) ==> #[trigger] item_table.free_list().contains(i)
                             &&& in_use_indices == Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2).to_set()
+
+                            &&& item_table.durable_valid_indices() == in_use_indices
+                            &&& item_table.tentative_valid_indices() == in_use_indices
                         }
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
@@ -1539,6 +1542,9 @@ verus! {
                 assert(in_use_indices == item_table.durable_valid_indices());
                 assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
                     parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, in_use_indices) == Some(item_table@));
+
+                assert(item_table.durable_valid_indices() == in_use_indices);
+                assert(item_table.tentative_valid_indices() == in_use_indices);
             }
 
             Ok(item_table)
