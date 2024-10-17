@@ -4942,7 +4942,7 @@ verus! {
                         &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
                         &&& views_differ_only_in_log_region(old(self).wrpm@, self.wrpm@, 
                                 self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                        &&& self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata) // TODO @hayley
+                        &&& self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)
                     }
                     Err(KvError::OutOfSpace) => {
                         &&& self.valid()
