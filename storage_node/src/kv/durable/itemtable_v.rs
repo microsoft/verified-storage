@@ -1066,6 +1066,7 @@ verus! {
                         &&& self.free_list() == old(self).free_list()
                         &&& self.free_list().len() == 0
                         &&& wrpm_region == old(wrpm_region)
+                        &&& self.tentative_valid_indices() == old(self).tentative_valid_indices()
                     },
                     _ => false,
                 }

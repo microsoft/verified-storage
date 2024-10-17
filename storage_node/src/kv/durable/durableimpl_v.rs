@@ -5124,8 +5124,7 @@ verus! {
             Ok(())
         }
 
-        // #[verifier::spinoff_prover]
-        #[verifier::rlimit(25)] // TODO @hayley refactor and remove this
+        // TODO: overall_update_item2 has a refactored version of this function -- use it here
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -5137,8 +5136,6 @@ verus! {
                 old(self).inv(),
                 old(self)@.contains_key(offset as int),
                 !old(self).transaction_committed(),
-                // !old(self).pending_deallocations().contains(offset),
-                old(self).pending_alloc_inv(),
                 forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
@@ -5163,8 +5160,6 @@ verus! {
                                 &&& v2 == spec_result
                                 &&& v2.len() == v1.len()
                                 &&& v2[offset as int].unwrap().item == item
-                                // &&& self.pending_allocations() == old(self).pending_allocations()
-                                // &&& self.pending_deallocations() == old(self).pending_deallocations()
                             }
                             Err(_) => false
                         }
@@ -5175,7 +5170,6 @@ verus! {
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
-                        // &&& self.pending_deallocations().is_empty()
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self@ == old(self)@
@@ -5183,7 +5177,6 @@ verus! {
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
-                        // &&& self.pending_deallocations().is_empty()
                         &&& !self.constants().impervious_to_corruption
                     }
                     Err(_) => false,
