@@ -2163,7 +2163,6 @@ verus! {
                 pm,
                 item_table_index,
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
             )
         }
 
@@ -3048,8 +3047,7 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.main_table@.valid_item_indices()));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
 
@@ -3160,8 +3158,7 @@ verus! {
 
             // abort the transaction in each component to re-establish their invariants
             self.main_table.abort_transaction(Ghost(main_table_subregion_view), Ghost(self.overall_metadata));
-            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata),
-                                              Ghost(self.main_table@.valid_item_indices()));
+            self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@), Ghost(self.overall_metadata));
 
             proof {
@@ -4019,8 +4016,6 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
-                Ghost(tentative_main_table_view.valid_item_indices()),
             ) {
                 Ok(item_index) => item_index,
                 Err(e) => {
@@ -5122,8 +5117,6 @@ verus! {
                 &item, 
                 Tracked(perm),
                 Ghost(self.overall_metadata),
-                Ghost(self.main_table@.valid_item_indices()),
-                Ghost(tentative_main_table_view.valid_item_indices()),
             ) {
                 Ok(item_index) => item_index,
                 Err(e) => {

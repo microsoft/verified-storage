@@ -372,7 +372,7 @@ verus! {
             // in the durable state
             &&& forall |idx: u64| {
                 &&& #[trigger] self.outstanding_items@.contains_key(idx) 
-                &&& self.outstanding_items@[idx] is Created 
+                &&& (self.outstanding_items@[idx] is Created || self.outstanding_items@[idx] is CreatedThenDeleted)
             } ==> self@.durable_item_table[idx as int] is None
 
             // if an idx has an outstanding delete write, it is currently valid
@@ -416,8 +416,7 @@ verus! {
             // &&& self.pending_allocations_view().disjoint(self.pending_deallocations_view())
             // &&& self.free_list().disjoint(self.pending_deallocations_view())
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
-                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.durable_valid_indices()) ==
-                       Some(self@)
+                   parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@)
             &&& forall|idx: u64| self.durable_valid_indices().contains(idx) ==> {
                 let entry_bytes = extract_bytes(pm_view.committed(), index_to_offset(idx as nat, entry_size as nat), entry_size as nat);
                 &&& idx < overall_metadata.num_keys
@@ -556,12 +555,11 @@ verus! {
             pm: PersistentMemoryRegionView,
             overall_metadata: OverallMetadata,
             index: u64,
-            valid_indices: Set<u64>,
         )
             requires
-                self.valid(pm, overall_metadata, valid_indices),
+                self.inv(pm, overall_metadata),
                 0 <= index < overall_metadata.num_keys,
-                valid_indices.contains(index),
+                self.durable_valid_indices().contains(index),
                 self@.durable_item_table[index as int] is Some,
             ensures
                 ({
@@ -592,27 +590,6 @@ verus! {
                                  I::spec_size_of()));
             assert(validate_item_table_entry::<I, K>(entry_bytes));
         }
-
-        // pub exec fn index_pending_deallocation(&self, item_index: u64) -> (out: bool)
-        //     requires 
-        //         0 <= item_index < self.num_keys
-        //     ensures 
-        //         out == self.pending_deallocations_view().contains(item_index)
-        // {
-        //     // self.pending_deallocations.contains(&item_index)
-        //     // TODO: replace loop with `contains` exec call when supported by Verus
-        //     let mut i = 0;
-        //     while i < self.pending_deallocations.len() 
-        //         invariant 
-        //             forall |j: int| 0 <= j < i ==> self.pending_deallocations[j] != item_index,
-        //     {
-        //         if self.pending_deallocations[i] == item_index {
-        //             return true;
-        //         }
-        //         i += 1;
-        //     }
-        //     false
-        // }
 
         pub open spec fn get_latest_item_at_index(self, index: u64) -> Option<I>
         {
@@ -659,7 +636,7 @@ verus! {
                 } ==> !(#[trigger] old(self).free_list@.contains(idx)),
                 forall |idx: u64| {
                     &&& #[trigger] old(self).outstanding_items@.contains_key(idx) 
-                    &&& old(self).outstanding_items@[idx] is Created 
+                    &&& (old(self).outstanding_items@[idx] is Created || old(self).outstanding_items@[idx] is CreatedThenDeleted)
                 } ==> old(self)@.durable_item_table[idx as int] is None,
                 forall |idx: u64| {
                     &&& #[trigger] old(self).outstanding_items@.contains_key(idx) 
@@ -668,6 +645,7 @@ verus! {
                 forall |idx: u64| #[trigger] old(self).outstanding_items@.contains_key(idx) ==> ({
                     ||| old(self).outstanding_items@[idx] is Created
                     ||| old(self).outstanding_items@[idx] is Deleted
+                    ||| old(self).outstanding_items@[idx] is CreatedThenDeleted
                 }),
 
                 index < overall_metadata.num_keys,
@@ -773,11 +751,16 @@ verus! {
         exec fn outstanding_item_delete(&mut self, index: u64, Ghost(overall_metadata): Ghost<OverallMetadata>)
             requires
                 old(self).opaquable_inv(overall_metadata, old(self).tentative_valid_indices()),
-                // old(self).outstanding_items[index] is None,
-                // old(self)@.durable_item_table[index as int] is Some,
                 index < overall_metadata.num_keys,
                 !old(self).free_list@.contains(index),
                 old(self)@.durable_item_table.len() == overall_metadata.num_keys,
+                ({
+                    ||| old(self).outstanding_items[index] is None 
+                    ||| ({
+                        &&& old(self).outstanding_items[index] matches Some(entry)
+                        &&& entry is Created
+                    })
+                }),
             ensures 
                 self.opaquable_inv(overall_metadata, self.tentative_valid_indices()),
                 self.outstanding_items.inv(),
@@ -872,6 +855,15 @@ verus! {
                     }
                 }
 
+                assert forall |idx: u64| {
+                    &&& #[trigger] self.outstanding_items@.contains_key(idx) 
+                    &&& (self.outstanding_items@[idx] is Created || self.outstanding_items@[idx] is CreatedThenDeleted)
+                } implies self@.durable_item_table[idx as int] is None by {
+                    if self.outstanding_items@[idx] is CreatedThenDeleted  {
+                        // assert(old(self).outstanding_items@[idx] is Created);
+                        assert(old(self)@.durable_item_table[idx as int] is None);
+                    }
+                }
             }
         }
 
@@ -884,15 +876,14 @@ verus! {
             pm_region: &PM,
             item_table_index: u64,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(valid_indices): Ghost<Set<u64>>,
         ) -> (result: Result<Box<I>, KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires
                 subregion.inv(pm_region),
-                self.valid(subregion.view(pm_region), overall_metadata, valid_indices),
+                self.inv(subregion.view(pm_region), overall_metadata),
                 item_table_index < self.num_keys,
-                valid_indices.contains(item_table_index),
+                self.tentative_valid_indices().contains(item_table_index),
                 ({
                     ||| ({
                         &&& self.outstanding_items[item_table_index] matches Some(item)
@@ -919,7 +910,7 @@ verus! {
             // TODO: discuss whether this is actually what we want to do. for internal metadata
             // We want to be sure to always read the most recent version, but I'm not sure about 
             // returning tentative items. 
-            // Jowever, right now, this is the only thing we CAN do because the model currently 
+            // However, right now, this is the only thing we CAN do because the model currently 
             // prevents us from reading outstanding bytes.
 
             if self.outstanding_items.contents.contains_key(&item_table_index) {
@@ -947,8 +938,8 @@ verus! {
                 let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
 
                 proof {
-                    self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index,
-                                                                        valid_indices);
+                    assert(self.durable_valid_indices().contains(item_table_index));
+                    self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index);
                     assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
                         Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
                     assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
@@ -984,13 +975,11 @@ verus! {
             v2: PersistentMemoryRegionView,
             crash_state2: Seq<u8>,
             overall_metadata: OverallMetadata,
-            valid_indices: Set<u64>,
             which_entry: u64,
         )
             requires
-                // self.inv(v1, overall_metadata, valid_indices),
                 self.inv(v1, overall_metadata),
-                !valid_indices.contains(which_entry),
+                !self.durable_valid_indices().contains(which_entry),
                 v1.len() == v2.len(),
                 v2.can_crash_as(crash_state2),
                 which_entry < overall_metadata.num_keys,
@@ -1002,7 +991,7 @@ verus! {
                     &&& !(start_addr <= addr < end_addr)
                 } ==> v2.state[addr] == v1.state[addr],
             ensures
-                parse_item_table::<I, K>(crash_state2, overall_metadata.num_keys as nat, valid_indices) == Some(self@),
+                parse_item_table::<I, K>(crash_state2, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@),
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             let num_keys = overall_metadata.num_keys;
@@ -1012,7 +1001,7 @@ verus! {
             let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
                 v2, v1, crash_state2, can_views_differ_at_addr
             );
-            assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, valid_indices) == Some(self@));
+            assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, self.durable_valid_indices()) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, entry_size as nat);
             let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
             lemma_subrange_of_subrange_forall(crash_state1);
@@ -1020,7 +1009,7 @@ verus! {
                        &&& 0 <= addr < crash_state2.len()
                        &&& crash_state1[addr] != #[trigger] crash_state2[addr]
                    } implies
-                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, valid_indices)
+                   address_belongs_to_invalid_item_table_entry::<I>(addr, num_keys, self.durable_valid_indices())
             by {
                 let entry_size = I::spec_size_of() + u64::spec_size_of();
                 assert(can_views_differ_at_addr(addr));
@@ -1028,7 +1017,7 @@ verus! {
                 lemma_addr_in_entry_divided_by_entry_size(which_entry as nat, entry_size as nat, addr);
             }
             lemma_parse_item_table_doesnt_depend_on_fields_of_invalid_entries::<I, K>(
-                crash_state1, crash_state2, num_keys, valid_indices
+                crash_state1, crash_state2, num_keys, self.durable_valid_indices()
             );
         }
 
@@ -1043,28 +1032,24 @@ verus! {
             item: &I,
             Tracked(perm): Tracked<&Perm>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(current_valid_indices): Ghost<Set<u64>>,
-            Ghost(tentative_valid_indices): Ghost<Set<u64>>,
         ) -> (result: Result<u64, KvError<K>>)
             where
                 PM: PersistentMemoryRegion,
                 Perm: CheckPermission<Seq<u8>>,
             requires
                 subregion.inv(old::<&mut _>(wrpm_region), perm),
-                // old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata, current_valid_indices),
                 old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.item_table_size,
                 forall|addr: int| {
                     &&& 0 <= addr < subregion.view(old::<&mut _>(wrpm_region)).len()
                     &&& address_belongs_to_invalid_item_table_entry::<I>(
                         addr, overall_metadata.num_keys,
-                        current_valid_indices.union(tentative_valid_indices)
+                        old(self).durable_valid_indices().union(old(self).tentative_valid_indices())
                     )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
-                old(self).free_list().disjoint(tentative_valid_indices),
+                old(self).free_list().disjoint(old(self).tentative_valid_indices()),
             ensures
                 subregion.inv(wrpm_region, perm),
-                // self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
                 subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
                 match result {
@@ -1073,8 +1058,8 @@ verus! {
                         &&& old(self).free_list().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& self.free_list() == old(self).free_list().remove(index)
-                        &&& !current_valid_indices.contains(index)
-                        &&& !tentative_valid_indices.contains(index)
+                        &&& !self.durable_valid_indices().contains(index)
+                        &&& self.tentative_valid_indices().contains(index)
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -1087,12 +1072,12 @@ verus! {
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(parse_item_table::<I, K>(old_pm_view.committed(), overall_metadata.num_keys as nat,
-                                            current_valid_indices) == Some(self@)) by {
+                self.durable_valid_indices()) == Some(self@)) 
+            by {
                 lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
             
             let entry_size = self.entry_size;
-            // assert(self.inv(subregion.view(wrpm_region), overall_metadata, current_valid_indices));
             assert(self.inv(subregion.view(wrpm_region), overall_metadata));
             assert(entry_size == u64::spec_size_of() + I::spec_size_of());
             
@@ -1122,8 +1107,8 @@ verus! {
                 }
 
                 assert(old(self).free_list().contains(free_index));
-                assert(!current_valid_indices.contains(free_index));
-                assert(!tentative_valid_indices.contains(free_index));
+                assert(!self.durable_valid_indices().contains(free_index));
+                assert(!self.tentative_valid_indices().contains(free_index));
                 assert forall |idx: u64| self.free_list@.contains(idx) implies 
                     idx < overall_metadata.num_keys
                 by {
@@ -1179,8 +1164,10 @@ verus! {
                 } implies !(#[trigger] self.free_list@.contains(idx)) by {
                     if self@.durable_item_table[idx as int] is Some {
                         assert(!old(self).free_list@.contains(idx));
+                        assert(!self.free_list@.contains(idx));
                     } else {
                         assert(self.outstanding_items[idx] is Some);
+                        assert(self.modified_indices@.contains(idx));
                     }
                 }
             }
@@ -1212,7 +1199,7 @@ verus! {
                 assert(subregion.view(old::<&mut _>(wrpm_region)).no_outstanding_writes_in_range(start, start + entry_size));
             }
 
-            assert forall|idx: u64| current_valid_indices.contains(idx) implies {
+            assert forall|idx: u64| self.durable_valid_indices().contains(idx) implies {
                 let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
@@ -1238,10 +1225,10 @@ verus! {
             }
 
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies {
-                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, current_valid_indices) == Some(self@)
+                parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@)
             } by {
                 old(self).lemma_changing_unused_entry_doesnt_affect_parse_item_table(
-                    old_pm_view, pm_view, s, overall_metadata, current_valid_indices, free_index
+                    old_pm_view, pm_view, s, overall_metadata, free_index
                 );
             }
 
@@ -1549,6 +1536,7 @@ verus! {
                 let pm_view = subregion.view(pm_region);
                 lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
                 assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.committed());
+                assert(in_use_indices == item_table.durable_valid_indices());
                 assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
                     parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, in_use_indices) == Some(item_table@));
             }
@@ -1569,6 +1557,13 @@ verus! {
                 0 <= index < overall_metadata.num_keys,
                 // the provided index is not currently free or pending (de)allocation
                 !old(self).free_list().contains(index),
+                ({
+                    ||| old(self).outstanding_items[index] is None 
+                    ||| ({
+                        &&& old(self).outstanding_items[index] matches Some(entry)
+                        &&& entry is Created
+                    })
+                }),
                 // old(self).outstanding_items[index] is None,
                 // old(self)@.durable_item_table[index as int] is Some,
                 // !old(self).pending_allocations_view().contains(index),
@@ -1617,21 +1612,20 @@ verus! {
             &mut self,
             Ghost(pm): Ghost<PersistentMemoryRegionView>,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(valid_indices): Ghost<Set<u64>>,
         )
             requires 
                 pm.no_outstanding_writes(),
-                old(self).opaquable_inv(overall_metadata, valid_indices),
+                old(self).opaquable_inv(overall_metadata, old(self).tentative_valid_indices()),
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& pm.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
                 forall |s| #[trigger] pm.can_crash_as(s) ==> {
-                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, valid_indices)
+                    &&& parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, old(self).durable_valid_indices())
                             matches Some(table_view)
                     &&& table_view.durable_item_table == old(self)@.durable_item_table
                 },
-                forall|idx: u64| valid_indices.contains(idx) ==> {
+                forall|idx: u64| old(self).durable_valid_indices().contains(idx) ==> {
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     let entry_bytes = extract_bytes(pm.committed(), (idx * entry_size) as nat, entry_size as nat);
                     &&& idx < overall_metadata.num_keys
@@ -1646,7 +1640,7 @@ verus! {
                 self@ == old(self)@,
                 self.outstanding_items@.len() == 0,
         {
-            self.clear_modified_indices_for_abort(Ghost(overall_metadata), Ghost(valid_indices));
+            self.clear_modified_indices_for_abort(Ghost(overall_metadata));
 
             assert forall |idx: u64| 0 <= idx < overall_metadata.num_keys implies
                 self.outstanding_item_table_entry_matches_pm_view(pm, idx)
@@ -1661,13 +1655,12 @@ verus! {
         exec fn clear_modified_indices_for_abort(
             &mut self,
             Ghost(overall_metadata): Ghost<OverallMetadata>,
-            Ghost(valid_indices): Ghost<Set<u64>>
         )
             requires 
-                old(self).opaquable_inv(overall_metadata, valid_indices),
+                old(self).opaquable_inv(overall_metadata, old(self).tentative_valid_indices()),
                 old(self).outstanding_items.inv(),
             ensures 
-                self.opaquable_inv(overall_metadata, valid_indices),
+                self.opaquable_inv(overall_metadata, self.tentative_valid_indices()),
                 self.outstanding_items@.len() == 0,
                 self.modified_indices@.len() == 0,
                 self.num_keys == old(self).num_keys,
@@ -1678,7 +1671,8 @@ verus! {
                     ||| old(self).free_list@.contains(idx)
                     ||| {
                         &&& old(self).modified_indices@.contains(idx)
-                        &&& old(self).outstanding_items@[idx] is Created
+                        &&& (old(self).outstanding_items@[idx] is Created || 
+                                old(self).outstanding_items@[idx] is CreatedThenDeleted)
                     }
                 } <==> #[trigger] self.free_list@.contains(idx),
         {
@@ -1707,7 +1701,8 @@ verus! {
                         let j = #[trigger] old(self).modified_indices[i as int];
                         &&& 0 <= i < index 
                         &&& old(self).outstanding_items@.contains_key(j) 
-                        &&& old(self).outstanding_items@[j] is Created 
+                        &&& (old(self).outstanding_items@[j] is Created || 
+                                old(self).outstanding_items@[j] is CreatedThenDeleted)
                     } ==> self.free_list@.contains(old(self).modified_indices[i as int]),
                     forall |idx: u64| self.modified_indices@.contains(idx) ==> idx < overall_metadata.num_keys,
                     forall |idx: u64| self.free_list@.contains(idx) ==> idx < overall_metadata.num_keys,
@@ -1723,7 +1718,8 @@ verus! {
                             ||| old(self).free_list@.contains(idx)
                             ||| ({
                                     &&& old(self).modified_indices@.contains(idx)
-                                    &&& old(self).outstanding_items@[idx] is Created
+                                    &&& (old(self).outstanding_items@[idx] is Created || 
+                                            old(self).outstanding_items@[idx] is CreatedThenDeleted)
                                 })
                         },
             {
@@ -1735,7 +1731,7 @@ verus! {
 
                 let current_item = self.outstanding_items.contents.get(&current_index).unwrap();
                 match current_item {
-                    OutstandingItem::Created(_) => {
+                    OutstandingItem::Created(_) | OutstandingItem::CreatedThenDeleted => {
                         self.free_list.push(current_index);
                         assert(self.free_list@.subrange(0, free_list_at_top.len() as int) == free_list_at_top);
                         assert(self.free_list@[free_list_at_top.len() as int] == current_index);
@@ -1764,11 +1760,11 @@ verus! {
                     } else {
                         // idx is not free but also not valid -- this is impossible
                         assert(old(self).modified_indices@.contains(idx));
+                        assert(!self.modified_indices@.contains(idx));
                         assert(false);                                              
                     }
                 } // else, trivial
             }
-
         }
 
         // pub exec fn update_ghost_state_to_current_bytes(
