@@ -432,7 +432,10 @@ verus! {
                                                                 self.overall_metadata)
             &&& self.abort_inv()
 
+            &&& self.tentative_view() is Some
             &&& self.tentative_main_table() == self.main_table.tentative_view()
+            &&& self.tentative_item_table() == self.item_table.tentative_view()
+            &&& forall |i: int| self.tentative_view().unwrap().contains_key(i) ==> i < self.overall_metadata.num_keys
 
             &&& self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices()
             &&& self.main_table@.valid_item_indices() == self.item_table.durable_valid_indices()
@@ -649,6 +652,28 @@ verus! {
                     }
                 }
             }
+        }
+
+        proof fn lemma_index_in_tentative_view_is_also_in_main_table_tentative_view(self, metadata_index: u64) 
+            requires 
+                self.valid(),
+                self.tentative_view() is Some,
+                self.tentative_view().unwrap().contains_key(metadata_index as int),
+            ensures 
+                self.tentative_main_table().durable_main_table[metadata_index as int] is Some 
+        {}
+
+        proof fn lemma_tentative_view_matches_durable_when_log_is_empty(self)
+            requires 
+                self.log@.physical_op_list.len() == 0,
+                self.wrpm@.no_outstanding_writes(), // TODO remove this postcondition
+                Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == Some(self@),
+                UntrustedOpLog::<K, L>::recover(self.wrpm@.flush().committed(), self.version_metadata, self.overall_metadata) == Some(self.log@),
+            ensures 
+                Some(self@) == self.tentative_view()
+        {
+            lemma_if_no_outstanding_writes_to_region_then_flush_is_idempotent(self.wrpm@);
+            assert(Some(self@) == self.tentative_view());
         }
 
         // This lemma proves that after `tentatively_append_log_entry` fails and begins to abort the 
@@ -1682,6 +1707,14 @@ verus! {
                     assert(Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) == Some(state));
                 }
             } 
+
+            proof {
+                // The log is now empty, either because it was to begin with or because we cleared it
+                op_log.lemma_reveal_opaque_op_log_inv(wrpm_region, version_metadata, overall_metadata);
+                assert(wrpm_region@.can_crash_as(wrpm_region@.flush().committed()));
+                assert(UntrustedOpLog::<K, L>::recover(wrpm_region@.flush().committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
+                assert(op_log@ == AbstractOpLogState::initialize());
+            }
             
             // We can now start the rest of the components. 
             // We've already played the log, so we won't do any additional writes from this point on.
@@ -1769,6 +1802,13 @@ verus! {
                 let tentative_main_table_bytes = extract_bytes(tentative_state_bytes.unwrap(), 
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 assert(tentative_main_table_bytes == main_table_subregion.view(pm_region).committed());
+
+                let tentative_item_table_bytes = extract_bytes(tentative_state_bytes.unwrap(), 
+                    overall_metadata.item_table_addr as nat, overall_metadata.item_table_size as nat);
+                assert(tentative_item_table_bytes == item_table_subregion.view(pm_region).committed());
+                assert(durable_kv_store.tentative_item_table() == durable_kv_store.item_table.tentative_view());
+
+                durable_kv_store.lemma_tentative_view_matches_durable_when_log_is_empty();
             }
             Ok((durable_kv_store, entry_list))
         }
@@ -2240,11 +2280,11 @@ verus! {
         ) -> (result: Result<Box<I>, KvError<K>>)
             requires
                 self.valid(),
-                self@.contains_key(metadata_index as int),
+                self.tentative_view().unwrap().contains_key(metadata_index as int),
             ensures
                 match result {
                     Ok(item) => {
-                        match self@[metadata_index as int] {
+                        match self.tentative_view().unwrap()[metadata_index as int] {
                             Some(entry) => entry.item() == item,
                             None => false,
                         }
@@ -2253,7 +2293,10 @@ verus! {
                     Err(_) => false,
                 }
         {
-            assert(metadata_index < self.overall_metadata.num_keys);
+            assert(self.main_table.tentative_view().durable_main_table[metadata_index as int] is Some) by {
+                self.lemma_index_in_tentative_view_is_also_in_main_table_tentative_view(metadata_index);
+                assert(self.tentative_main_table().durable_main_table[metadata_index as int] is Some);
+            }
 
             let pm = self.wrpm.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(

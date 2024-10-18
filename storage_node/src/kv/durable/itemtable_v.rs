@@ -308,6 +308,23 @@ verus! {
             })
         }
 
+        pub open spec fn tentative_view(self) -> DurableItemTableView<I>
+        {
+            DurableItemTableView {
+                durable_item_table: self@.durable_item_table.map(|i: int, e| {
+                    if self.outstanding_items@.contains_key(i as u64) {
+                        let outstanding_item = self.outstanding_items@[i as u64];
+                        match outstanding_item {
+                            OutstandingItem::Created(item) => Some(item),
+                            OutstandingItem::Deleted | OutstandingItem::CreatedThenDeleted => None,
+                        }
+                    } else {
+                        e
+                    }
+                })
+            }
+        }
+
         pub open spec fn outstanding_item_table_entry_matches_pm_view(
             self,
             pm: PersistentMemoryRegionView,
