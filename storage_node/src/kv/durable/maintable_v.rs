@@ -3154,7 +3154,7 @@ verus! {
                 0 <= index < self@.len(),
                 item_index < overall_metadata.num_keys,
                 pm_region@.len() == overall_metadata.region_size,
-                !self@.valid_item_indices().contains(item_index),
+                !self.tentative_view().valid_item_indices().contains(item_index),
                 // // the index must refer to a currently-valid entry in the current durable table
                 // self@.durable_main_table[index as int] is Some,
                 overall_metadata.main_table_entry_size ==
