@@ -4188,6 +4188,7 @@ verus! {
                     }
                 })
         {
+            assume(false); // TODO @jay @hayley
             let ghost num_keys = self.overall_metadata.num_keys;
             let ghost main_table_entry_size = self.overall_metadata.main_table_entry_size;
             let ghost main_table_addr = self.overall_metadata.main_table_addr;
@@ -5150,6 +5151,7 @@ verus! {
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),self.overall_metadata),
+                self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
                 match result {
                     Ok(()) => {
                         &&& self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@)
@@ -5615,6 +5617,8 @@ verus! {
                         &&& old(self).tentative_view() == self.tentative_view()
                         // &&& old(self).pending_allocations() == self.pending_allocations()
                         // &&& old(self).pending_deallocations() == self.pending_deallocations()
+
+                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_list(), self.overall_metadata)
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self.valid()
@@ -5774,7 +5778,6 @@ verus! {
             Ok(log_entry)
         }
 
-        // TODO: overall_update_item2 has a refactored version of this function -- use it here
         pub fn tentative_update_item(
             &mut self,
             offset: u64,
@@ -5941,7 +5944,6 @@ verus! {
                 Ghost(pre_append_tentative_view_bytes), Tracked(perm))?;
 
 
-
             // Create a crash predicate for the append operation and prove that it ensures the append
             // will be crash consistent.
             let ghost crash_pred = |s: Seq<u8>| {
@@ -5952,11 +5954,6 @@ verus! {
             let ghost pre_append_self = *self;
             // 4. Append the log entry to the log
             self.append_log_entry_helper(Ghost(*old(self)), log_entry, Ghost(crash_pred), Tracked(perm))?;
-
-            // TODO: need to:
-            // 1) update main table's outstanding entries, since we just logged an update
-            // 2) prove that the invariant is reestablished
-            // @hayley
 
             proof {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
@@ -5977,6 +5974,13 @@ verus! {
                     self.overall_metadata.item_table_size as nat) == get_subregion_view(pre_append_self.wrpm@, 
                     self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat));
 
+                lemma_appending_log_entry_preserves_log_entries_do_not_modify_free_main_table_entries(
+                    old(self).log@.physical_op_list,
+                    log_entry@,
+                    self.main_table.free_list(),
+                    self.overall_metadata
+                );
+
                 // Prove that all crash states still recover to the current state. We already know this for each 
                 // component, since it's part of their invariants, so we just need to prove that it's true 
                 // for the whole KV store as well.
@@ -5984,8 +5988,6 @@ verus! {
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
                     item_index, *item, log_entry, pre_append_tentative_view_bytes);
             }
-
-            assume(false); // TODO @hayley
 
             Ok(())
         }
