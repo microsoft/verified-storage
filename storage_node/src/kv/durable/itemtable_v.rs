@@ -1075,14 +1075,24 @@ verus! {
                         &&& old(self).free_list().contains(index)
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& self.free_list() == old(self).free_list().remove(index)
-                        &&& !self.durable_valid_indices().contains(index)
-                        &&& self.tentative_valid_indices().contains(index)
+                        &&& self.durable_valid_indices() == old(self).durable_valid_indices()
+                        // TODO @hayley
+                        &&& self.tentative_valid_indices() == old(self).tentative_valid_indices().insert(index)
+                        // &&& !self.durable_valid_indices().contains(index)
+                        // &&& self.tentative_valid_indices().contains(index)
+                        &&& forall |i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
+                                #[trigger] self.outstanding_items[i] == old(self).outstanding_items[i]
+                        &&& ({
+                            &&& self.outstanding_items[index] matches Some(outstanding_item)
+                            &&& outstanding_item == OutstandingItem::Created(*item)
+                        })
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
                         &&& self.free_list() == old(self).free_list()
                         &&& self.free_list().len() == 0
                         &&& wrpm_region == old(wrpm_region)
+                        &&& self.tentative_view() == old(self).tentative_view()
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices()
                     },
                     _ => false,
@@ -1642,6 +1652,8 @@ verus! {
                 self.inv(pm, overall_metadata),
                 self@ == old(self)@,
                 self.outstanding_items@.len() == 0,
+                self.tentative_view() == self@,
+                self.tentative_valid_indices() == self.durable_valid_indices(),
         {
             self.clear_modified_indices_for_abort(Ghost(overall_metadata));
 
@@ -1653,6 +1665,10 @@ verus! {
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 assert(pm.no_outstanding_writes_in_range(start, start + entry_size));
             }
+            
+            assert(self.inv(pm, overall_metadata));
+            assert(self.tentative_view() == self@);
+            assert(self.tentative_valid_indices() == self.durable_valid_indices());
         }
 
         exec fn clear_modified_indices_for_abort(
