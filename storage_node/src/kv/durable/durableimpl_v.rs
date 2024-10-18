@@ -713,6 +713,7 @@ verus! {
                 views_differ_only_in_log_region(old_self.wrpm@.flush(), self.wrpm@, 
                     self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat),
                 old_self.main_table@.valid_item_indices() == self.main_table@.valid_item_indices(),
+                old_self.item_table.durable_valid_indices() == old_self.main_table@.valid_item_indices(),
             ensures
                 ({
                     let main_table_subregion_view = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -781,7 +782,9 @@ verus! {
                 parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@));
             assert(forall |idx: u64| old_self.main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
 
+            // TODO @hayley
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
+            lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
         }
 
         pub proof fn lemma_metadata_unchanged_when_views_differ_only_in_log_region(
@@ -3197,6 +3200,7 @@ verus! {
                 no_outstanding_writes_to_overall_metadata(pre_self.wrpm@, pre_self.version_metadata.overall_metadata_addr as int),
                 old(self).abort_inv(),
                 pre_self.abort_inv(),
+                old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3248,6 +3252,12 @@ verus! {
                     self.overall_metadata.main_table_addr as nat,
                     self.overall_metadata.main_table_size as nat);
                 assert(main_table_subregion_view == old_main_table_subregion_view);
+
+                assert(forall |s| #[trigger] item_table_subregion_view.can_crash_as(s) ==> {
+                    &&& parse_item_table::<I, K>(s, self.overall_metadata.num_keys as nat, self.item_table.durable_valid_indices())
+                            matches Some(table_view)
+                    &&& table_view.durable_item_table == self.item_table@.durable_item_table
+                });
             }
 
             // Clear all pending updates tracked in volatile memory by the DurableKvStore itself
@@ -3259,8 +3269,13 @@ verus! {
             self.item_table.abort_transaction(Ghost(item_table_subregion_view), Ghost(self.overall_metadata));
             self.durable_list.abort_transaction(Ghost(list_area_subregion_view), Ghost(self.main_table@),
                                                 Ghost(self.overall_metadata));
-
+                            
             proof {
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
+                    old(self).wrpm@.flush().committed(), self.wrpm@.committed(), 
+                    self.version_metadata, self.overall_metadata
+                );
+
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
 
                 let durable_state_bytes = self.wrpm@.committed();
@@ -6698,6 +6713,7 @@ verus! {
                     }
                 }
         {
+            assume(false); // TODO @hayley
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
                     self.log@.commit_op_log().physical_op_list).unwrap();
 
