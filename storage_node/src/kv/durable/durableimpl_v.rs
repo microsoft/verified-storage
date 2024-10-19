@@ -7,6 +7,7 @@ use builtin_macros::*;
 use vstd::assert_seqs_equal;
 use vstd::bytes::u64_from_le_bytes;
 use vstd::bytes::u64_to_le_bytes;
+use vstd::arithmetic::div_mod::*;
 use vstd::prelude::*;
 
 use crate::kv::durable::commonlayout_v::*;
@@ -3342,6 +3343,7 @@ verus! {
                 old(self).item_table == pre_self.item_table,
                 old(self).log.inv(old(self).wrpm@, old(self).version_metadata, old(self).overall_metadata),
                 old(self)@ == old_self@,
+                old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3355,6 +3357,8 @@ verus! {
                     &&& tentative_view == Some(self@)
                 }),
                 self@ == old_self@,
+                self.main_table@ == old_self.main_table@,
+                self.item_table@ == old_self.item_table@,
                 self.wrpm@.no_outstanding_writes(),
         {
             proof {
@@ -3398,17 +3402,35 @@ verus! {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
                     old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata
                 );
+                
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
                 
-                // These assertions help us prove that the pending allocation inv is restored
                 let durable_state_bytes = self.wrpm@.committed();
+                let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+                let durable_item_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                
+                let old_durable_main_table_subregion = get_subregion_view(old(self).wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                let old_durable_item_table_subregion = get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat);
+                let durable_main_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                    self.overall_metadata.main_table_size as nat);
+                let durable_item_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat);
+                let durable_main_table_view = parse_main_table::<K>(durable_main_table_subregion.committed(), self.overall_metadata.num_keys,
+                    self.overall_metadata.main_table_entry_size);
                 let tentative_state_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
-                    self.log@.commit_op_log().physical_op_list).unwrap();
-                let durable_main_table_region = extract_bytes(durable_state_bytes, 
-                    self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                assert(durable_state_bytes == tentative_state_bytes);
-                assert(durable_main_table_region == main_table_subregion_view.committed());
-                assert(main_table_subregion_view.can_crash_as(durable_main_table_region));
+                    self.log@.commit_op_log().physical_op_list);
+        
+                assert(tentative_state_bytes == Some(self.wrpm@.committed()));
+                assert(old_durable_main_table_subregion.can_crash_as(old_durable_main_table_subregion.flush().committed()));
+                assert(durable_main_table_subregion.committed() == old_durable_main_table_subregion.flush().committed());
+                assert(durable_main_table_region == durable_main_table_subregion.committed());
+
+                assert(durable_item_table_subregion.committed() == old_durable_item_table_subregion.flush().committed());
+                assert(durable_item_table_region == durable_item_table_subregion.committed());
+                
+                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
             }
         }
 
@@ -5123,7 +5145,6 @@ verus! {
             requires 
                 old(self).inv(),
                 pre_self.inv(),
-                // pre_self.pending_alloc_inv(),
                 !old(self).transaction_committed(),
                 !pre_self.transaction_committed(),
                 old(self).wrpm@.len() == pre_self.wrpm@.len(),
@@ -5149,7 +5170,8 @@ verus! {
                         new_log.physical_op_list);
                     &&& new_tentative_bytes matches Some(new_tentative_bytes)
                     &&& Self::physical_recover_after_applying_log(new_tentative_bytes, old(self).overall_metadata) is Some
-                })
+                }),
+                old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
             ensures 
                 self.wrpm.inv(),
                 self.wrpm_view().len() == old(self).wrpm_view().len(),
@@ -5161,8 +5183,8 @@ verus! {
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.version_metadata == deserialize_version_metadata(self.wrpm_view().committed()),
                 self.tentative_view() is Some,
-                self.main_table == old(self).main_table,
-                self.item_table == old(self).item_table,
+                self.main_table@ == old(self).main_table@,
+                self.item_table@ == old(self).item_table@,
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),self.overall_metadata),
@@ -5173,7 +5195,8 @@ verus! {
                         &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
                         &&& views_differ_only_in_log_region(old(self).wrpm@, self.wrpm@, 
                                 self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
-                        &&& self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata)
+                        &&& self.main_table == old(self).main_table
+                        &&& self.item_table == old(self).item_table
                     }
                     Err(KvError::OutOfSpace) => {
                         &&& self.valid()
@@ -5220,8 +5243,6 @@ verus! {
             proof {
                 let new_log = old(self).log@.tentatively_append_log_entry(log_entry@).commit_op_log();
                 assert(new_log == self.log@.commit_op_log());
-                assert(views_differ_only_in_log_region(old(self).wrpm@, self.wrpm@, 
-                    self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
                 
                 lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(self.wrpm@.flush().committed(),
                     self.version_metadata, self.overall_metadata, new_log.physical_op_list);
@@ -5238,6 +5259,38 @@ verus! {
                     lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(old_tentative_bytes,
                         new_tentative_bytes, self.version_metadata, self.overall_metadata);
                 }
+
+                lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(old(self).wrpm@.committed(),
+                    self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
+                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(old(self).wrpm@, self.wrpm@,
+                    self.version_metadata, self.overall_metadata);
+
+                assert forall |s| #[trigger] self.wrpm@.can_crash_as(s) implies 
+                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                by {
+                    self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
+
+                    let witness = s.map(|i, v| {
+                        if self.overall_metadata.log_area_addr <= i < self.overall_metadata.log_area_addr + self.overall_metadata.log_area_size {
+                            old(self).wrpm@.state[i].flush_byte()
+                        } else {
+                            v // outside of the log
+                        }
+                    });
+
+                    let log_start_addr = self.overall_metadata.log_area_addr;
+                    let log_size = self.overall_metadata.log_area_size;
+
+                    assert(states_differ_only_in_log_region(s, witness,
+                        self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
+
+                    lemma_crash_state_differing_only_in_log_region_exists2(old(self).wrpm@, self.wrpm@,
+                        self.version_metadata, self.overall_metadata);
+                }
+
+                assert(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
+                    self.overall_metadata.item_table_size as nat) == get_subregion_view(old(self).wrpm@, self.overall_metadata.item_table_addr as nat,
+                        self.overall_metadata.item_table_size as nat));
             }
             Ok(())
         }
