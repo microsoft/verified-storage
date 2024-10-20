@@ -4583,8 +4583,8 @@ verus! {
                     &&& new_main_table_view.unwrap().valid_item_indices() == 
                             current_durable_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
                 }),
-                // self.item_table.outstanding_item_table@ == old_self.item_table.outstanding_item_table@,
-                // self.item_table.outstanding_item_table@[item_index as int] == Some(item),
+                self.item_table.outstanding_items@ == old_self.item_table.outstanding_items@,
+                self.item_table.outstanding_items[item_index] == Some(OutstandingItem::Created(item)),
                 item_index < self.overall_metadata.num_keys,
             ensures 
                 self.tentative_view() is Some,
@@ -4681,8 +4681,6 @@ verus! {
                 item_table_subregion_view,
                 item_index
             ));
-
-            // TODO @hayley precondition probably needs to say something about status of outstanding updates?
 
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             assert forall |idx: u64| new_mem_main_table.valid_item_indices().contains(idx) implies {
@@ -6329,7 +6327,6 @@ verus! {
                 old(self).valid(),
                 old(self)@.contains_key(index as int),
                 !old(self).transaction_committed(),
-                old(self).pending_alloc_inv(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
@@ -6488,6 +6485,20 @@ verus! {
             assert(self.inv()) by {
                 assert(main_table_subregion.view(pm) == get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
                         self.overall_metadata.main_table_size as nat));
+            }
+
+            assert(self.tentative_view_inv()) by {
+                let new_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
+                        self.log@.physical_op_list).unwrap();
+                let new_tentative_item_table_bytes = extract_bytes(new_tentative_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+                let old_tentative_bytes = apply_physical_log_entries(old(self).wrpm@.flush().committed(),
+                        old(self).log@.physical_op_list).unwrap();
+                let old_tentative_item_table_bytes = extract_bytes(old_tentative_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
+
+                assert(self.item_table.tentative_view() == old(self).item_table.tentative_view().delete(item_index as int));
+                self.lemma_item_table_unchanged_by_log_replay(*old(self), old_tentative_bytes, new_tentative_bytes);
+                assert(new_tentative_item_table_bytes == old_tentative_item_table_bytes);
+                assert(self.tentative_item_table() == old(self).tentative_item_table().delete(item_index as int));
             }
 
             Ok(())

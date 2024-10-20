@@ -61,6 +61,12 @@ verus! {
             self.durable_item_table.len()
         }
 
+        pub open spec fn delete(self, index: int) -> Self {
+            Self {
+                durable_item_table: self.durable_item_table.update(index, None)
+            }
+        }
+
         // // Inserting an entry and committing it are two separate operations. Inserted entries
         // // are invalid until they are explicitly committed. Attempting to insert at an index
         // // that already has a valid entry results in an error.
@@ -1269,6 +1275,7 @@ verus! {
             }
 
             assert(self.free_list() =~= old(self).free_list().remove(free_index));
+            assert(self.tentative_valid_indices() =~= old(self).tentative_valid_indices().insert(free_index));
 
             Ok(free_index)
         }

@@ -2165,6 +2165,9 @@ verus! {
                     &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
                     &&& i == index ==> self.tentative_view().durable_main_table[i] is None
                 });
+                assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() && i != index ==> 
+                    #[trigger] old(self).tentative_view().durable_main_table[i] is Some ==> old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index != old_item_index);
+                assert(!self.tentative_view().valid_item_indices().contains(old_item_index));
 
                 assert(self.tentative_view().valid_item_indices() =~= old(self).tentative_view().valid_item_indices().remove(old_item_index));
             }
@@ -2963,7 +2966,7 @@ verus! {
                 0 <= index < self@.len(),
                 new_metadata_entry.item_index < overall_metadata.num_keys,
                 pm_region@.len() == overall_metadata.region_size,
-                !self@.valid_item_indices().contains(new_metadata_entry.item_index),
+                // !self@.valid_item_indices().contains(new_metadata_entry.item_index),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
