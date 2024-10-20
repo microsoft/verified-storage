@@ -408,6 +408,17 @@ verus! {
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             v1.len() == v2.len(),
             v1.len() == overall_metadata.region_size,
+            v1.len() >= version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of(),
+            version_metadata.overall_metadata_addr >= VersionMetadata::spec_size_of(),
+            forall|s| #[trigger] v1.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
+            forall|s| #[trigger] v1.can_crash_as(s) ==>
+                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
+            forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==> v1.state[addr] == v2.state[addr],
+            forall|addr: int| version_metadata.overall_metadata_addr <= addr
+                        < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
+                v1.state[addr] == v2.state[addr],
+            overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
+            overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
         ensures
             forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
                 exists |s1: Seq<u8>| {
