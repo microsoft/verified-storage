@@ -351,6 +351,20 @@ where
         // extensional equality
         assert(self@.contents =~= self.tentative_view().contents);
     }
+
+    pub exec fn abort_transaction(&mut self)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            self@ == self.tentative_view(),
+            self@ == old(self)@,
+    {
+        self.tentative.clear();
+        proof {
+            self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
+        }
+    }
 }
 
 }

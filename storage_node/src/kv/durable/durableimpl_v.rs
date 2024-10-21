@@ -5974,14 +5974,18 @@ verus! {
                         }
                     }
                     Err(KvError::OutOfSpace) => {
+                        &&& self.valid()
                         &&& self@ == old(self)@
+                        &&& Some(self@) == self.tentative_view()
                         &&& self.tentative_view() ==
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                 self.spec_overall_metadata(),
                                                                 AbstractOpLogState::initialize())
                     }
                     Err(KvError::CRCMismatch) => {
+                        &&& self.valid()
                         &&& self@ == old(self)@
+                        &&& Some(self@) == self.tentative_view()
                         &&& self.tentative_view() ==
                                 Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                 self.spec_overall_metadata(),

@@ -568,16 +568,15 @@ where
         // 2. Tentatively update the item in the durable store
         let result = self.durable_store.tentative_update_item(index, new_item, kvstore_id, Tracked(perm));
         if let Err(e) = result {
+            self.volatile_index.abort_transaction();
             proof {
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
             }
-            // TODO @hayley: need to abort the transaction in the volatile index as well?
-            // although we haven't actually changed it yet
-            assume(false); // TODO @hayley
             return Err(e);
         }
 
+        // TODO @hayley NEXT
         assume(false);
 
         Ok(())
