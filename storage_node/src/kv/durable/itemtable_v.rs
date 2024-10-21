@@ -1082,7 +1082,6 @@ verus! {
                         &&& self@.durable_item_table == old(self)@.durable_item_table
                         &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self.durable_valid_indices() == old(self).durable_valid_indices()
-                        // TODO @hayley
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices().insert(index)
                         // &&& !self.durable_valid_indices().contains(index)
                         // &&& self.tentative_valid_indices().contains(index)

@@ -439,7 +439,10 @@ where
                 Err(_) => false,
             }
     {
-        proof { self.durable_store.lemma_main_table_index_key(); }
+        proof { 
+            self.durable_store.lemma_main_table_index_key_durable(); 
+            self.durable_store.lemma_main_table_index_key_tentative(); 
+        }
 
         // 1. Look up the table entry in the volatile index.
         // If the key is not in the volatile index, return an error.

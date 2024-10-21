@@ -1370,33 +1370,30 @@ verus! {
         // to construct an abstract KV store view from durable state and the contents
         // of that durable state. This is very useful in proofs about the contents 
         // of the durable store vs. the overall kv store.
-        pub proof fn lemma_main_table_index_key(self)
+        // NOTE: this lemma only applies to DURABLE state, not tentative state stored in
+        // volatile memory
+        pub proof fn lemma_main_table_index_key_durable(self)
             requires 
                 self.valid(),
             ensures 
                 ({
-                    let tentative_view = self.tentative_view().unwrap();
-                    let index_to_key =  Map::new(
-                        |i: int| tentative_view.contents.dom().contains(i),
-                        |i: int| tentative_view.contents[i].key
+                    let index_to_key = Map::new(
+                        |i: int| self@.contents.dom().contains(i),
+                        |i: int| self@.contents[i].key
                     );
                     let key_to_index = index_to_key.invert();
                     &&& forall |k| #[trigger] key_to_index.contains_key(k) ==> {
                             let index = key_to_index[k];
-                            &&& tentative_view.contains_key(index)
-                            &&& tentative_view.contents[index].key() == k
+                            &&& self@.contains_key(index)
+                            &&& self@.contents[index].key() == k
                         }
                     &&& index_to_key.is_injective()
                 })
         {
-            let tentative_view = self.tentative_view().unwrap();
             let index_to_key =  Map::new(
-                |i: int| tentative_view.contents.dom().contains(i),
-                |i: int| tentative_view.contents[i].key
+                |i: int| self@.contents.dom().contains(i),
+                |i: int| self@.contents[i].key
             );
-            
-            assume(false); // TODO @hayley this needs updating to use tentative view
-
             // Prove that there are no duplicate keys in the main table; this implies that index_to_key 
             // in injective, which is crucial for the rest of the proof.
             let main_table_subregion = get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat, 
@@ -1428,6 +1425,51 @@ verus! {
                 let i = key_to_index[k];
                 assert(self.main_table@.durable_main_table[i] is Some ==> self@.contains_key(i));
             }
+        }
+
+        // Same as the proof above, but specifically for tentative state
+        pub proof fn lemma_main_table_index_key_tentative(self) 
+            requires
+                self.valid() 
+            ensures 
+                ({
+                    let tentative_view = self.tentative_view().unwrap();
+                    let index_to_key = Map::new(
+                        |i: int| tentative_view.contents.dom().contains(i),
+                        |i: int| tentative_view.contents[i].key
+                    );
+                    let key_to_index = index_to_key.invert();
+                    &&& forall |k| #[trigger] key_to_index.contains_key(k) ==> {
+                            let index = key_to_index[k];
+                            &&& tentative_view.contains_key(index)
+                            &&& tentative_view.contents[index].key() == k
+                        }
+                    &&& index_to_key.is_injective()
+                })
+        {
+            let tentative_view = self.tentative_view().unwrap();
+            let index_to_key = Map::new(
+                |i: int| tentative_view.contents.dom().contains(i),
+                |i: int| tentative_view.contents[i].key
+            );
+
+            // Prove that there are no duplicate keys in the main table; this implies that index_to_key 
+            // in injective, which is crucial for the rest of the proof.
+            assert(no_duplicate_keys(self.main_table.tentative_view().durable_main_table));
+
+            // key_to_index is also injective since the inverse of a map is always injective.
+            let key_to_index = index_to_key.invert();
+            index_to_key.lemma_invert_is_injective();
+            assert(key_to_index.is_injective());
+
+            // Next, prove inverting key_to_index results in the original index_to_key map.
+            // This helps establish that the values of one of the maps is the domain of the other
+            lemma_injective_map_is_invertible(index_to_key);
+
+            // We also invoke a helper lemma to prove that each key-index pair in key_to_index
+            // has a corresponding index-key pair in index_to_keys. This helps prove that 
+            // index values in key_to_index are valid indices in the main table.
+            lemma_injective_map_inverse(key_to_index);
         }
 
         pub fn setup(
