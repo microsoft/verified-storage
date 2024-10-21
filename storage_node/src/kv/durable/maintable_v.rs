@@ -3562,6 +3562,11 @@ verus! {
                 //     self.outstanding_entries[idx] is None,
                 
         {
+            let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
+                overall_metadata.main_table_size as nat);
+            self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
+            assert(self.state@ == old(self).tentative_view());
+
             assert forall |idx: u64| self.outstanding_entries@.contains_key(idx) implies {
                 let entry = self.outstanding_entries[idx].unwrap();
                 match entry.status {
@@ -3573,10 +3578,6 @@ verus! {
                 assert(idx < overall_metadata.num_keys);
             }
 
-            let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
-                overall_metadata.main_table_size as nat);
-            self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
-            assert(self.state@ == old(self).tentative_view());
             
             self.finalize_outstanding_entries(Ghost(subregion_view), Ghost(overall_metadata));
 
