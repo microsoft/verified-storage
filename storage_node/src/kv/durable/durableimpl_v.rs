@@ -6780,7 +6780,6 @@ verus! {
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
-        // #[verifier::spinoff_prover]
         pub fn commit(
             &mut self,
             Tracked(perm): Tracked<&Perm>
@@ -7012,8 +7011,11 @@ verus! {
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
 
-                // TODO @hayley NEXT
-                assert(self.valid());
+                // these all require extensional equality
+                assert(self.tentative_main_table() =~= self.main_table.tentative_view());
+                assert(self.tentative_item_table() =~= self.item_table.tentative_view());
+                assert(self.main_table.tentative_view().valid_item_indices() =~= self.item_table.tentative_valid_indices());
+                assert(self.main_table@.valid_item_indices() =~= self.item_table.durable_valid_indices());
             }
             
             Ok(())
