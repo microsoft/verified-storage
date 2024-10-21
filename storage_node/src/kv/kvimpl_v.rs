@@ -336,7 +336,6 @@ where
                 volatile_index.tentative@.is_empty(),
                 volatile_index@.contents.dom().finite(),
         {
-            let ghost volatile_index_at_top = volatile_index@;
             let ghost tentative_at_top = volatile_index.tentative@;
             if i < entry_list.len() {
                 assert(kvstore@.contains_key(entry_list_view[i as int].1 as int));
@@ -366,6 +365,7 @@ where
                         assert(old_volatile_index@.contains_key(k));
                     }
                 }
+                volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
             }
 
             i += 1;

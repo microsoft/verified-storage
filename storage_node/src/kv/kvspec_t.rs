@@ -94,10 +94,6 @@ verus! {
         }
     }
 
-    // TODO @hayley MONDAY: this should properly handle tentative states?
-    // or change read item to show the last committed item to the reader
-    // and only use tentative state internally
-
     /// An `AbstractKvStoreState` is an abstraction of
     /// an entire `KvStoreStore`.
     /// TODO: Should this be generic over the key/header/page

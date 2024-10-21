@@ -108,6 +108,11 @@ where
         self.untrusted_kv_impl@
     }
 
+    pub closed spec fn tentative_view(&self) -> AbstractKvStoreState<K, I, L>
+    {
+        self.untrusted_kv_impl.tentative_view()
+    }
+
     pub closed spec fn valid(self) -> bool
     {
         self.untrusted_kv_impl.valid()
@@ -187,13 +192,13 @@ where
         ensures 
             match result {
                 Ok(item) => {
-                    match self@[*key] {
+                    match self.tentative_view()[*key] {
                         Some(i) => i.0 == item,
                         None => false,
                     }
                 }
                 Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
-                Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                Err(KvError::KeyNotFound) => !self.tentative_view().contains_key(*key),
                 Err(_) => false,
             }
     {
