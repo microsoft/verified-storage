@@ -148,16 +148,16 @@ where
 
     open spec fn tentative_view(&self) -> VolatileKvIndexView<K>
     {
+        let keys = self.m@.dom().union(self.tentative@.dom());
         VolatileKvIndexView::<K> {
-            contents: self.m@.map_entries(|k, v: VolatileKvIndexEntryImpl| {
-                // if there is a tentative version of this record, use that
-                // otherwise use the durable one
-                if self.tentative@.contains_key(k) {
-                    self.tentative@[k]@
-                } else {
-                    v@
-                }
-            }),
+            contents: Map::new(
+                |k| keys.contains(k),
+                |k| if self.tentative@.contains_key(k) {
+                        self.tentative@[k]@
+                    } else {
+                        self.m@[k]@
+                    }
+            ),
             num_list_entries_per_node: self.num_list_entries_per_node as int
         }
     }
@@ -170,6 +170,9 @@ where
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
             self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
+        // the tentative version of an entry is not the same as the committed version
+        &&& forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
+                self@.contents[k] != self.tentative@[k]@
     }
 
     fn new(
@@ -184,6 +187,10 @@ where
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
+        assert(ret.tentative@ =~= Map::<K, VolatileKvIndexEntryImpl>::empty());
+        assert(ret.tentative_view().empty()) by {
+            assert(ret.tentative_view().contents.dom() == ret.m@.dom().union(ret.tentative@.dom()));
+        }
         Ok(ret)
     }
 
@@ -200,10 +207,20 @@ where
         let key_clone = key.clone();
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
         self.m.insert(key_clone, entry);
-        assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
+
+        proof {
+            assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
+            old(self).lemma_if_tentative_view_matches_view_then_no_tentative_entries();
+            self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
+            assert(self.tentative_view() == self@); 
+            assert(self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr));
+        }
+
         Ok(())
     }
 
+    // This function is intended to be used during a transaction and inserts
+    // the key into the tentative map
     fn insert_key(
         &mut self,
         key: &K,
@@ -216,8 +233,9 @@ where
         let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
         let key_clone = key.clone();
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
-        self.m.insert(key_clone, entry);
-        assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
+        self.tentative.insert(key_clone, entry);
+        assert(self.tentative@ == old(self).tentative@.insert(*key, entry));
+        assert(self.tentative_view().contents == old(self).tentative_view().insert_key(*key, header_addr).contents);
         Ok(())
     }
 
@@ -242,9 +260,14 @@ where
         key: &K
     ) -> (result: Option<u64>)
     {
-        match self.m.get(key) {
+        match self.tentative.get(key) {
             Some(entry) => Some(entry.header_addr),
-            None => None,
+            None => {
+                match self.m.get(key) {
+                    Some(entry) => Some(entry.header_addr),
+                    None => None,
+                }
+            }
         }
     }
 
@@ -310,10 +333,24 @@ where
 
     pub proof fn lemma_if_tentative_view_matches_view_then_no_tentative_entries(self)
         requires 
+            self.valid(),
             self@ == self.tentative_view(),
         ensures 
             self.tentative@.is_empty()
-    {}
+    {
+        assert(forall |k| self@.contents.contains_key(k) ==> !(#[trigger] self.tentative@.contains_key(k))); 
+    }
+
+    pub proof fn lemma_if_no_tentative_entries_then_tentative_view_matches_view(self)
+        requires 
+            self.valid(),
+            self.tentative@.is_empty()
+        ensures 
+            self@ == self.tentative_view()
+    {
+        // extensional equality
+        assert(self@.contents =~= self.tentative_view().contents);
+    }
 }
 
 }

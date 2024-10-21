@@ -266,9 +266,10 @@ where
         requires
             old(self).valid(),
             old(self)@[*key] is None,
+            old(self).tentative_view() == old(self)@,
         ensures
             self.valid(),
-            self.tentative_view() == old(self).tentative_view(),
+            self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr),
             match result {
                 Ok(()) => self@ == old(self)@.insert_key(*key, header_addr),
                 Err(_) => false, // TODO
