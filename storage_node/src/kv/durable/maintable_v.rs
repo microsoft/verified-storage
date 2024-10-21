@@ -3537,13 +3537,13 @@ verus! {
                 // we have already committed the log when we finalize the main table, so deleted entries
                 // are invalid and created/updated entries are valid
                 // TODO @hayley but we haven't updated the state yet...
-                forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) ==> {
-                    let entry = old(self).outstanding_entries[idx].unwrap();
-                    match entry.status {
-                        EntryStatus::Created | EntryStatus::Updated => old(self)@.durable_main_table[idx as int] is Some,
-                        EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => old(self)@.durable_main_table[idx as int] is None
-                    }
-                },
+                // forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) ==> {
+                //     let entry = old(self).outstanding_entries[idx].unwrap();
+                //     match entry.status {
+                //         EntryStatus::Created | EntryStatus::Updated => old(self)@.durable_main_table[idx as int] is Some,
+                //         EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => old(self)@.durable_main_table[idx as int] is None
+                //     }
+                // },
             ensures 
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
@@ -3562,12 +3562,23 @@ verus! {
                 //     self.outstanding_entries[idx] is None,
                 
         {
+            assert forall |idx: u64| self.outstanding_entries@.contains_key(idx) implies {
+                let entry = self.outstanding_entries[idx].unwrap();
+                match entry.status {
+                    EntryStatus::Created | EntryStatus::Updated => self@.durable_main_table[idx as int] is Some,
+                    EntryStatus::Deleted | EntryStatus::CreatedThenDeleted => self@.durable_main_table[idx as int] is None
+                }
+            } by {
+                assert(self.modified_indices@.contains(idx));
+                assert(idx < overall_metadata.num_keys);
+            }
+
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
-            self.finalize_outstanding_entries(Ghost(subregion_view), Ghost(overall_metadata));
-            
             self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
             assert(self.state@ == old(self).tentative_view());
+            
+            self.finalize_outstanding_entries(Ghost(subregion_view), Ghost(overall_metadata));
 
             proof {
                 assert(Some(self@) == parse_main_table::<K>(subregion_view.committed(), 

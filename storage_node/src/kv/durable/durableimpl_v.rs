@@ -783,7 +783,6 @@ verus! {
                 parse_main_table::<K>(s, self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size) == Some(old_self.main_table@));
             assert(forall |idx: u64| old_self.main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
 
-            // TODO @hayley
             assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) is Some);
             lemma_physical_recover_succeeds_implies_component_parse_succeeds::<Perm, PM, K, I, L>(self.wrpm@.committed(), self.version_metadata, self.overall_metadata);
         }
@@ -6829,7 +6828,6 @@ verus! {
                     }
                 }
         {
-            assume(false); // TODO @hayley
             let ghost tentative_view_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
                     self.log@.commit_op_log().physical_op_list).unwrap();
 
@@ -7013,6 +7011,9 @@ verus! {
                 assert(self.inv_mem(self.wrpm@.committed()));
                 lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
                 assert(forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s));
+
+                // TODO @hayley NEXT
+                assert(self.valid());
             }
             
             Ok(())
