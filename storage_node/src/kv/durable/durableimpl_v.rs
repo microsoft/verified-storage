@@ -436,6 +436,7 @@ verus! {
             &&& self.tentative_view() is Some
             &&& self.tentative_main_table_valid()
             &&& self.tentative_item_table_valid()
+
             // &&& self.tentative_main_table() == self.main_table.tentative_view()
             // &&& self.tentative_item_table() == self.item_table.tentative_view()
             // &&& forall |i: int| self.tentative_view().unwrap().contains_key(i) ==> i < self.overall_metadata.num_keys
@@ -473,6 +474,38 @@ verus! {
             // &&& self.pending_alloc_inv()
             // &&& self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices()
         }
+
+        pub proof fn lemma_reveal_opaque_inv(self)
+            requires 
+                self.inv(),
+            ensures 
+                Self::physical_recover(self.wrpm_view().committed(), self.spec_version_metadata(), 
+                    self.spec_overall_metadata()) == Some(self@),
+                self.spec_version_metadata() == deserialize_version_metadata(self.wrpm_view().committed()),
+                self.spec_overall_metadata() == deserialize_overall_metadata(self.wrpm_view().committed(), 
+                    self.spec_version_metadata().overall_metadata_addr),
+                no_outstanding_writes_to_version_metadata(self.wrpm_view()),
+                no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
+                forall|s| #[trigger] self.wrpm_view().can_crash_as(s) ==> self.inv_mem(s),
+                self.tentative_view() is Some,
+                self.wrpm_view().len() == self.spec_overall_metadata().region_size,
+                self.wrpm_view().len() >= VersionMetadata::spec_size_of(),
+        {
+            assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+        }
+
+        pub proof fn lemma_overall_metadata_addr(self) 
+            ensures
+                self.spec_version_metadata().overall_metadata_addr == 
+                    self.spec_overall_metadata_addr()
+        {}
+
+        pub proof fn lemma_valid_implies_inv(self) 
+            requires 
+                self.valid()
+            ensures
+                self.inv()
+        {}
 
         pub closed spec fn pending_alloc_inv(self) -> bool
         {
@@ -2700,8 +2733,10 @@ verus! {
             requires
                 self.inv(),
                 !self.log@.op_list_committed,
-                forall|s| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) ==>
-                    #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                } ==> #[trigger] perm.check_permission(s),
                 self.tentative_view_inv(),
             ensures
                 condition_sufficient_to_create_wrpm_subregion(
@@ -5619,8 +5654,7 @@ verus! {
                 old(self).inv(),
                 pre_self.inv(),
                 pre_self.tentative_view_inv(),
-                pre_self@.contains_key(index as int),
-                // pre_self.pending_alloc_inv(),
+                pre_self.tentative_view().unwrap().contains_key(index as int),
                 !old(self).transaction_committed(),
                 !pre_self.transaction_committed(),
                 old(self).tentative_view() is Some,
@@ -5907,10 +5941,12 @@ verus! {
         ) -> (result: Result<(), KvError<K>>)
             requires 
                 old(self).valid(),
-                old(self)@.contains_key(offset as int),
+                old(self).tentative_view().unwrap().contains_key(offset as int),
                 !old(self).transaction_committed(),
-                forall |s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ==> #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
