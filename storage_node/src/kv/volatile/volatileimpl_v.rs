@@ -130,6 +130,7 @@ where
     K: Hash + Eq + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
+    pub tentative: HashMap<K, VolatileKvIndexEntryImpl>,
     pub num_list_entries_per_node: u64,
 }
 
@@ -145,9 +146,26 @@ where
         }
     }
 
+    open spec fn tentative_view(&self) -> VolatileKvIndexView<K>
+    {
+        VolatileKvIndexView::<K> {
+            contents: self.m@.map_entries(|k, v: VolatileKvIndexEntryImpl| {
+                // if there is a tentative version of this record, use that
+                // otherwise use the durable one
+                if self.tentative@.contains_key(k) {
+                    self.tentative@[k]@
+                } else {
+                    v@
+                }
+            }),
+            num_list_entries_per_node: self.num_list_entries_per_node as int
+        }
+    }
+
     open spec fn valid(&self) -> bool
     {
         &&& 0 < self.num_list_entries_per_node
+        &&& self.tentative@.dom().finite()
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid()
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
             self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
@@ -162,10 +180,28 @@ where
     {
         let ret = Self {
             m: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            tentative: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
         Ok(ret)
+    }
+
+    fn insert_key_during_startup(
+        &mut self,
+        key: &K,
+        header_addr: u64,
+    ) -> (result: Result<(), KvError<K>>)
+    {
+        assert(self@.valid()) by {
+            self.lemma_valid_implies_view_valid();
+        }
+        let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
+        let key_clone = key.clone();
+        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+        self.m.insert(key_clone, entry);
+        assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
+        Ok(())
     }
 
     fn insert_key(
@@ -271,6 +307,13 @@ where
             self.m@[k].lemma_num_locations_is_entry_locations_len();
         }
     }
+
+    pub proof fn lemma_if_tentative_view_matches_view_then_no_tentative_entries(self)
+        requires 
+            self@ == self.tentative_view(),
+        ensures 
+            self.tentative@.is_empty()
+    {}
 }
 
 }

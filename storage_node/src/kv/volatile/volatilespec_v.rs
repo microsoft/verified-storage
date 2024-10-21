@@ -232,6 +232,8 @@ where
 {
     spec fn view(&self) -> VolatileKvIndexView<K>;
 
+    spec fn tentative_view(&self) -> VolatileKvIndexView<K>;
+
     spec fn valid(&self) -> bool;
 
     fn new(
@@ -246,13 +248,17 @@ where
             match result {
                 Ok(volatile_index) => {
                     &&& volatile_index@.empty()
+                    &&& volatile_index.tentative_view().empty()
                     &&& volatile_index.valid()
                 },
                 Err(_) => false,
             }
     ;
 
-    fn insert_key(
+    // This function inserts a key directly into the non-tentative
+    // index and is only used during startup when filling in the 
+    // index with existing records
+    fn insert_key_during_startup(
         &mut self,
         key: &K,
         header_addr: u64,
@@ -262,8 +268,26 @@ where
             old(self)@[*key] is None,
         ensures
             self.valid(),
+            self.tentative_view() == old(self).tentative_view(),
             match result {
                 Ok(()) => self@ == old(self)@.insert_key(*key, header_addr),
+                Err(_) => false, // TODO
+            }
+    ;
+
+
+    fn insert_key(
+        &mut self,
+        key: &K,
+        header_addr: u64,
+    ) -> (result: Result<(), KvError<K>>)
+        requires
+            old(self).valid(),
+            old(self).tentative_view()[*key] is None,
+        ensures
+            self.valid(),
+            match result {
+                Ok(()) => self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr),
                 Err(_) => false, // TODO
             }
     ;
@@ -308,7 +332,7 @@ where
         requires
             self.valid(),
         ensures
-            match (result, self@[*key]) {
+            match (result, self.tentative_view()[*key]) {
                 (Some(addr), Some(entry)) => addr == entry.header_addr,
                 (None, None) => true,
                 (_, _) => false,

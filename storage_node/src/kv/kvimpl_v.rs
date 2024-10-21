@@ -83,6 +83,14 @@ where
         }
     }
 
+    pub closed spec fn tentative_view(&self) -> AbstractKvStoreState<K, I, L>
+    {
+        AbstractKvStoreState {
+            id: self.id,
+            contents: AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(self.durable_store.tentative_view().unwrap()),
+        }
+    }
+
     pub closed spec fn wrpm_view(self) -> PersistentMemoryRegionView
     {
         self.durable_store.wrpm_view()
@@ -91,6 +99,7 @@ where
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store_matches_volatile_index()
+        &&& self.tentative_durable_store_matches_tentative_volatile_index()
         // &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
@@ -108,6 +117,22 @@ where
         &&& forall |i: int| #[trigger] self.durable_store@.contains_key(i) ==> {
             &&& self.volatile_index@.contains_key(self.durable_store@[i].unwrap().key)
             &&& self.volatile_index@[self.durable_store@[i].unwrap().key].unwrap().header_addr == i
+        }
+    }
+
+    pub closed spec fn tentative_durable_store_matches_tentative_volatile_index(self) -> bool 
+    {
+        let durable_tentative_view = self.durable_store.tentative_view().unwrap();
+        // all keys in the volatile index are stored at the indexed offset in the durable store
+        &&& forall |k: K| #[trigger] self.volatile_index.tentative_view().contains_key(k) ==> {
+            let indexed_offset = self.volatile_index.tentative_view()[k].unwrap().header_addr;
+            &&& durable_tentative_view.contains_key(indexed_offset as int)
+            &&& durable_tentative_view[indexed_offset as int].unwrap().key == k
+        }
+        // all offsets in the durable store have a corresponding entry in the volatile index
+        &&& forall |i: int| #[trigger] durable_tentative_view.contains_key(i) ==> {
+            &&& self.volatile_index.tentative_view().contains_key(durable_tentative_view[i].unwrap().key)
+            &&& self.volatile_index.tentative_view()[durable_tentative_view[i].unwrap().key].unwrap().header_addr == i
         }
     }
 
@@ -265,6 +290,15 @@ where
         // less efficient to create a copy of the list without the item indexes.
         let mut volatile_index = VolatileKvIndexImpl::<K>::new(kvstore_id, overall_metadata.num_keys as usize, 
             overall_metadata.num_list_entries_per_node as u64)?;
+        assert(volatile_index@ == volatile_index.tentative_view()) by {
+            assert(volatile_index@.contents == Map::<K, VolatileKvIndexEntry>::empty());
+            assert(volatile_index.tentative_view().contents == Map::<K, VolatileKvIndexEntry>::empty());
+        }
+        proof {
+            volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
+            assert(volatile_index.tentative@.is_empty());
+            assert(volatile_index.tentative@.dom().finite());
+        }
 
         let ghost old_kvstore = kvstore;
         let mut i = 0;
@@ -298,13 +332,18 @@ where
                 kvstore == old_kvstore,
                 0 <= i <= entry_list_view.len(),
                 entry_list_view.len() == entry_list@.len() == entry_list.len(),
+                volatile_index@ == volatile_index.tentative_view(),
+                volatile_index.tentative@.is_empty(),
+                volatile_index@.contents.dom().finite(),
         {
+            let ghost volatile_index_at_top = volatile_index@;
+            let ghost tentative_at_top = volatile_index.tentative@;
             if i < entry_list.len() {
                 assert(kvstore@.contains_key(entry_list_view[i as int].1 as int));
             }
             let ghost old_volatile_index = volatile_index;
             let (key, index) = (*entry_list[i].0, entry_list[i].1);
-            volatile_index.insert_key(&key, index)?;
+            volatile_index.insert_key_during_startup(&key, index)?;
 
             proof {
                 assert forall |k| volatile_index@.contains_key(k) implies {
@@ -390,13 +429,13 @@ where
         ensures 
             match result {
                 Ok(item) => {
-                    match self@[*key] {
+                    match self.tentative_view()[*key] {
                         Some(i) => i.0 == item,
                         None => false,
                     }
                 }
                 Err(KvError::CRCMismatch) => !self.constants().impervious_to_corruption,
-                Err(KvError::KeyNotFound) => !self@.contains_key(*key),
+                Err(KvError::KeyNotFound) => !self.tentative_view().contains_key(*key),
                 Err(_) => false,
             }
     {
@@ -407,14 +446,15 @@ where
         let index = match self.volatile_index.get(key) {
             Some(index) => index,
             None => {
-                assert(!self@.contains_key(*key));
+                assert(!self.tentative_view().contains_key(*key));
                 return Err(KvError::KeyNotFound);
             }
         };
 
         proof {
-            assert(self.volatile_index@.contains_key(*key));
-            assert(self.durable_store@.contains_key(index as int));
+            assert(self.volatile_index.tentative_view().contains_key(*key));
+            assert(self.volatile_index.tentative_view()[*key].unwrap().header_addr == index);
+            assert(self.durable_store.tentative_view().unwrap().contains_key(index as int));
         }
 
         // 2. Read the item from the durable store using the index we just obtained
@@ -426,8 +466,8 @@ where
                     // We have to prove that successful reads from the index and durable store
                     // imply that `key` is in self@
                     let index_to_key = Map::new(
-                        |i: int| self.durable_store@.contents.dom().contains(i),
-                        |i: int| self.durable_store@.contents[i].key
+                        |i: int| self.durable_store.tentative_view().unwrap().contents.dom().contains(i),
+                        |i: int| self.durable_store.tentative_view().unwrap().contents[i].key
                     );
                     let key_to_index = index_to_key.invert();
                     assert(index_to_key.contains_key(index as int));

@@ -1375,23 +1375,27 @@ verus! {
                 self.valid(),
             ensures 
                 ({
+                    let tentative_view = self.tentative_view().unwrap();
                     let index_to_key =  Map::new(
-                        |i: int| self@.contents.dom().contains(i),
-                        |i: int| self@.contents[i].key
+                        |i: int| tentative_view.contents.dom().contains(i),
+                        |i: int| tentative_view.contents[i].key
                     );
                     let key_to_index = index_to_key.invert();
                     &&& forall |k| #[trigger] key_to_index.contains_key(k) ==> {
                             let index = key_to_index[k];
-                            &&& self@.contains_key(index)
-                            &&& self@.contents[index].key() == k
+                            &&& tentative_view.contains_key(index)
+                            &&& tentative_view.contents[index].key() == k
                         }
                     &&& index_to_key.is_injective()
                 })
         {
+            let tentative_view = self.tentative_view().unwrap();
             let index_to_key =  Map::new(
-                |i: int| self@.contents.dom().contains(i),
-                |i: int| self@.contents[i].key
+                |i: int| tentative_view.contents.dom().contains(i),
+                |i: int| tentative_view.contents[i].key
             );
+            
+            assume(false); // TODO @hayley this needs updating to use tentative view
 
             // Prove that there are no duplicate keys in the main table; this implies that index_to_key 
             // in injective, which is crucial for the rest of the proof.
@@ -1654,6 +1658,7 @@ verus! {
                         let entry_list_view = Seq::new(entry_list@.len(), |i: int| (*entry_list[i].0, entry_list[i].1, entry_list[i].2));
 
                         &&& kvstore@ == state
+                        &&& Some(kvstore@) == kvstore.tentative_view()
                         &&& kvstore.valid()
                         &&& kvstore.wrpm_view().no_outstanding_writes()
                         &&& kvstore.constants() == wrpm_region.constants()
