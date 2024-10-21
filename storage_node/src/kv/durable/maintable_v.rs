@@ -3536,6 +3536,7 @@ verus! {
                 old_self.main_table_entry_size == overall_metadata.main_table_entry_size,
                 // we have already committed the log when we finalize the main table, so deleted entries
                 // are invalid and created/updated entries are valid
+                // TODO @hayley but we haven't updated the state yet...
                 forall |idx: u64| old(self).outstanding_entries@.contains_key(idx) ==> {
                     let entry = old(self).outstanding_entries[idx].unwrap();
                     match entry.status {

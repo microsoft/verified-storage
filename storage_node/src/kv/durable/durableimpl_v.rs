@@ -6908,7 +6908,7 @@ verus! {
             self.main_table.finalize_main_table(Ghost(old(self).main_table), Ghost(old(self).wrpm@),
                 Ghost(self.wrpm@), Ghost(self.overall_metadata));
             self.item_table.finalize_item_table(Ghost(old(self).item_table), Ghost(self.wrpm@), 
-                Ghost(self.overall_metadata), Ghost(old(self).main_table@.valid_item_indices()), Ghost(self.main_table@.valid_item_indices()));
+                Ghost(self.overall_metadata));
 
          /* REMOVED UNTIL WE IMPLEMENT LISTS
             // TODO: replace with finalize fn that finishes (de)allocs and updates ghost state
