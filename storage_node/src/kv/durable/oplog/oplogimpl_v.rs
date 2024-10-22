@@ -1343,6 +1343,7 @@ verus! {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                     &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                    &&& log_wrpm@.committed() == old(log_wrpm)@.committed()
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& !self@.op_list_committed

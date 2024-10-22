@@ -1091,12 +1091,14 @@ verus! {
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices().insert(index)
                         // &&& !self.durable_valid_indices().contains(index)
                         // &&& self.tentative_valid_indices().contains(index)
-                        &&& forall |i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
-                                #[trigger] self.outstanding_items[i] == old(self).outstanding_items[i]
-                        &&& ({
-                            &&& self.outstanding_items[index] matches Some(outstanding_item)
-                            &&& outstanding_item == OutstandingItem::Created(*item)
-                        })
+                        // &&& forall |i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
+                        //         #[trigger] self.outstanding_items[i] == old(self).outstanding_items[i]
+                        // &&& ({
+                        //     &&& self.outstanding_items[index] matches Some(outstanding_item)
+                        //     &&& outstanding_item == OutstandingItem::Created(*item)
+                        // })
+                        &&& self.outstanding_items@ == old(self).outstanding_items@.insert(index, OutstandingItem::Created(*item))
+                        &&& wrpm_region@.committed() == old(wrpm_region)@.committed()
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@

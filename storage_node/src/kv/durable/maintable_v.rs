@@ -3235,7 +3235,6 @@ verus! {
                             overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                         let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                             overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                        let old_item_index = current_main_table_view.durable_main_table[index as int].unwrap().item_index();
                         
                         &&& overall_metadata.main_table_addr <= log_entry.absolute_addr
                         &&& log_entry.absolute_addr + log_entry.len <=

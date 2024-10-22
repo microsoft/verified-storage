@@ -1240,7 +1240,6 @@ verus! {
             requires
                 self.valid(),
                 !self.transaction_committed(),
-                forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> crash_pred(s),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
                     Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@),
                 s1.len() == s2.len(),
@@ -1250,9 +1249,12 @@ verus! {
                 UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()),
                 forall |s|{
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
-                } ==> crash_pred(s),
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                    &&& {
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                    }
+                } <==> #[trigger] crash_pred(s),
                 no_outstanding_writes_to_version_metadata(self.wrpm@),
                 no_outstanding_writes_to_overall_metadata(self.wrpm@, self.version_metadata.overall_metadata_addr as int),
                 self.wrpm@.len() >= VersionMetadata::spec_size_of(),
@@ -4654,12 +4656,14 @@ verus! {
                         self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size);
-                    let old_item_index = current_durable_main_table_view.durable_main_table[index as int].unwrap().item_index();
+                    // let old_item_index = current_durable_main_table_view.durable_main_table[index as int].unwrap().item_index();
                     
                     &&& self.overall_metadata.main_table_addr <= log_entry.absolute_addr
                     &&& log_entry.absolute_addr + log_entry.len <=
                         self.overall_metadata.main_table_addr + self.overall_metadata.main_table_size
                     &&& log_entry@.inv(self.version_metadata, self.overall_metadata)
+
+                    &&& old_item_index == current_durable_main_table_view.durable_main_table[index as int].unwrap().item_index()
 
                     // after applying this log entry to the current tentative state,
                     // this entry's metadata index has been updated
@@ -4670,13 +4674,14 @@ verus! {
                 }),
                 self.item_table.outstanding_items@ == old_self.item_table.outstanding_items@,
                 self.item_table.outstanding_items[item_index] == Some(OutstandingItem::Created(item)),
+                
                 item_index < self.overall_metadata.num_keys,
+                old_item_index < self.overall_metadata.num_keys,
             ensures 
                 self.tentative_view() is Some,
                 old_self.tentative_view().unwrap().len() == self.tentative_view().unwrap().len(),
                 self.tentative_view().unwrap() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap(),
                 self.tentative_main_table() == old_self.tentative_main_table().update_item_index(index as int, item_index).unwrap(),
-                // TODO @hayley need to prove this one
                 self.tentative_item_table() == old_self.tentative_item_table().insert(item_index as int, item).delete(old_item_index as int),
         {
             broadcast use pmcopy_axioms;
@@ -4736,7 +4741,6 @@ verus! {
             let new_mem_main_table = parse_main_table::<K>(new_mem_main_table_region,
                 self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();     
             assert(mem_with_new_log_applied_main_table == new_mem_main_table);
-            let old_item_index = old_tentative_main_table.durable_main_table[index as int].unwrap().item_index();
 
             // The other regions recover successfully
             let old_item_table_region = extract_bytes(tentative_view_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
@@ -4796,21 +4800,23 @@ verus! {
                 } // else, trivial
             }
 
-            // TODO WITH LIST IMPLEMENTATION
-            assume(DurableList::<K, L>::parse_all_lists(
-                new_mem_main_table,
-                new_list_area_region,
-                self.overall_metadata.list_node_size,
-                self.overall_metadata.num_list_entries_per_node
-            ) == DurableList::<K, L>::parse_all_lists(
-                old_tentative_main_table,
-                old_list_area_region,
-                self.overall_metadata.list_node_size,
-                self.overall_metadata.num_list_entries_per_node
-            ));
+            // // TODO WITH LIST IMPLEMENTATION
+            // assume(DurableList::<K, L>::parse_all_lists(
+            //     new_mem_main_table,
+            //     new_list_area_region,
+            //     self.overall_metadata.list_node_size,
+            //     self.overall_metadata.num_list_entries_per_node
+            // ) == DurableList::<K, L>::parse_all_lists(
+            //     old_tentative_main_table,
+            //     old_list_area_region,
+            //     self.overall_metadata.list_node_size,
+            //     self.overall_metadata.num_list_entries_per_node
+            // ));
 
             assert(old_self.tentative_view().unwrap().contents.dom() == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents.dom());
             assert(self.tentative_view().unwrap().contents == old_self.tentative_view().unwrap().update_item(index as int, item).unwrap().contents);
+
+            assert(self.tentative_item_table() == old_self.tentative_item_table().insert(item_index as int, item).delete(old_item_index as int));
         }
 
         // proof fn lemma_outstanding_item_table_writes_are_durable_after_flush(
@@ -5277,13 +5283,12 @@ verus! {
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.version_metadata == deserialize_version_metadata(self.wrpm_view().committed()),
                 self.tentative_view() is Some,
-                self.main_table == old(self).main_table,
-                self.item_table == old(self).item_table,
+                self.main_table@ == old(self).main_table@,
+                self.item_table@ == old(self).item_table@,
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> self.inv_mem(s),
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),self.overall_metadata),
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
-                self.wrpm_view().committed() == old(self).wrpm_view().committed(),
                 match result {
                     Ok(()) => {
                         &&& self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@)
@@ -5292,6 +5297,7 @@ verus! {
                                 self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                         &&& self.main_table == old(self).main_table
                         &&& self.item_table == old(self).item_table
+                        &&& self.wrpm_view().committed() == old(self).wrpm_view().committed()
                     }
                     Err(KvError::OutOfSpace) => {
                         &&& self.valid()
@@ -5439,7 +5445,6 @@ verus! {
                 self.durable_list@ == old(self).durable_list@,
                 self.main_table@ == old(self).main_table@,
                 self.tentative_view() is Some,
-                self.wrpm_view().committed() == old(self).wrpm_view().committed(),
                 match result {
                     Ok(index) => {
                         &&& self.main_table == old(self).main_table
@@ -5456,6 +5461,7 @@ verus! {
                                 &&& forall|s| self.wrpm@.can_crash_as(s) ==> condition(s)
                                 &&& condition(self.wrpm@.committed())
                             })
+                        &&& self.wrpm_view().committed() == old(self).wrpm_view().committed()
                         // &&& self.main_table@.valid_durable_item_indices() == old(self).main_table@.valid_durable_item_indices()
                         &&& index < self.overall_metadata.num_keys
                         &&& self.log@ == old(self).log@
@@ -5548,7 +5554,6 @@ verus! {
                     return Err(e);
                 }
             };
-
 
             proof {
                 let current_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
@@ -5643,12 +5648,7 @@ verus! {
                     new_main_table_view.valid_item_indices()
                 );
                 self.lemma_item_table_unchanged_by_log_replay(*old(self), tentative_view_bytes, current_tentative_bytes);
-
-            //     // // finally, we prove that the item we wrote to, though not currently in the valid set, passes validation
-            //     // // after a flush
-            //     // self.item_table.lemma_establish_bytes_valid_and_parseable_for_pending_item_after_flush(
-            //     //     item_table_subregion.view(&self.wrpm), self.overall_metadata, item_index);
-            //     // assert(new_flushed_item_table_region == item_table_subregion.view(&self.wrpm).flush().committed());
+                assert(self.item_table.tentative_view() =~= old(self).item_table.tentative_view().insert(item_index as int, *item));
             }
 
             Ok(item_index)
@@ -5729,13 +5729,12 @@ verus! {
                 self.version_metadata == old(self).version_metadata,
                 self.overall_metadata == old(self).overall_metadata,
                 old(self).wrpm@.len() == self.wrpm@.len(),
-                old(self).main_table == self.main_table,
-                old(self).item_table == self.item_table,
+                old(self).main_table@ == self.main_table@,
+                old(self).item_table@ == self.item_table@,
                 old(self).durable_list@ == self.durable_list@,
                 no_outstanding_writes_to_version_metadata(self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.tentative_view() is Some,
-                self.wrpm_view().committed() == old(self).wrpm_view().committed(),
                 match result {
                     Ok((log_entry, old_item_index)) => {
                         let new_log = self.log@.tentatively_append_log_entry(log_entry@);
@@ -5753,6 +5752,8 @@ verus! {
                         let current_main_table_view = parse_main_table::<K>(current_main_table_region,
                             self.overall_metadata.num_keys, self.overall_metadata.main_table_entry_size).unwrap();
                         // let old_item_index = current_main_table_view.durable_main_table[index as int].unwrap().item_index();
+
+                        &&& self.wrpm_view().committed() == old(self).wrpm_view().committed()
 
                         &&& self.main_table.get_latest_entry(index) is Some
                         &&& old_item_index == self.main_table.get_latest_entry(index).unwrap().item_index()
@@ -5783,6 +5784,8 @@ verus! {
                         // other success case guarantees
                         &&& old(self).log@ == self.log@
                         &&& old(self).wrpm@ == self.wrpm@
+                        &&& old(self).main_table == self.main_table
+                        &&& old(self).item_table == self.item_table
                         // note -- the actual tentative view doesn't change because we haven't appended to the log yet.
                         // when we do, we'll get the new main table view mentioned above
                         &&& old(self).tentative_view() == self.tentative_view()
@@ -5844,6 +5847,8 @@ verus! {
                     return Err(e);
                 }
             };
+
+            assert(old_item_index == self.main_table.get_latest_entry(index).unwrap().item_index());
 
             proof {
                 // These assertions and lemmas help prove that the tentative view after appending the new entry 
@@ -6047,7 +6052,6 @@ verus! {
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
                 self@ == old(self)@,
-                self.wrpm_view().committed() == old(self).wrpm_view().committed(),
                 self.tentative_view_inv(),
                 match result {
                     Ok(()) => {
@@ -6061,6 +6065,7 @@ verus! {
                                 &&& v2[offset as int].unwrap().item == item
                                 &&& self.spec_num_log_entries_in_current_transaction() == 
                                         old(self).spec_num_log_entries_in_current_transaction() + 1
+                                &&& self.wrpm_view().committed() == old(self).wrpm_view().committed()
                             }
                             Err(_) => false
                         }
@@ -6750,17 +6755,23 @@ verus! {
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| crash_pred(s) ==> perm.check_permission(s),
                 forall |s: Seq<u8>| {
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
-                } <==> crash_pred(s),
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                    &&& {
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                    }
+                } <==> #[trigger] crash_pred(s),
                 self.tentative_view() is Some,
                 !self.transaction_committed(),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] self.wrpm@.can_crash_as(s) ==> 
                     Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@),
                 forall |s| {
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
-                    ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
+                    &&& {
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
+                        ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                    }
                 } ==> #[trigger] perm.check_permission(s),
                 self.spec_num_log_entries_in_current_transaction() > 0,
                 !self.transaction_committed(),
@@ -6796,7 +6807,9 @@ verus! {
                     &&& states_differ_only_in_log_region(s1, s2, self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat)
                     &&& UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
                     &&& UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize())
-            } implies #[trigger] crash_pred(s2) by { self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(s1, s2, crash_pred); }
+            } implies #[trigger] crash_pred(s2) by { 
+                self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(s1, s2, crash_pred); 
+            }
             
             assert forall |s2: Seq<u8>| {
                 let flushed_state = self.wrpm@.flush().committed();
@@ -6824,9 +6837,18 @@ verus! {
                         self.overall_metadata.log_area_addr as nat, self.overall_metadata.log_area_size as nat));
                     lemma_non_log_components_match_when_states_differ_only_in_log_region::<K, I, L>(
                         flushed_state_with_log_installed, s2_with_log_installed, self.version_metadata, self.overall_metadata);
+
+                    assert(version_and_overall_metadata_match_deserialized(s2, self.wrpm@.committed())) by {
+                        // broadcast use pmcopy_axioms;
+                        lemma_establish_extract_bytes_equivalence(s2, self.wrpm@.committed());
+                    }
+
                 } else {
                     // The CDB did not make it to storage.
                     assert(UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()));
+                    assert(crash_pred(flushed_state)) by {
+                        lemma_establish_extract_bytes_equivalence(flushed_state, self.wrpm@.committed());
+                    }
                     self.lemma_durable_kv_satisfies_crash_condition_with_init_op_log(flushed_state, s2, crash_pred);
                 }
             }
@@ -6922,12 +6944,14 @@ verus! {
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
+        #[verifier::rlimit(25)] // TODO @hayley
         pub fn commit(
             &mut self,
             Tracked(perm): Tracked<&Perm>
         ) -> (result: Result<(), KvError<K>>)
             requires 
-                old(self).inv(),
+                // old(self).inv(),
+                old(self).valid(), // TODO @hayley i think this can be valid?
                 !old(self).transaction_committed(),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
                 forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> 
@@ -6967,7 +6991,7 @@ verus! {
                         // write the CRC when committing the oplog.
                         // All outstanding writes to the KV store are dropped.
                         let tentative_view = self.tentative_view();
-                        &&& e is OutOfSpace || e is CRCMismatch
+                        &&& e is OutOfSpace || e is CRCMismatch || e is LogErr
                         &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
                             self.spec_overall_metadata(), AbstractOpLogState::initialize())
                     }
@@ -6979,15 +7003,26 @@ verus! {
             // 1. Create the crash predicate for the commit operation.
             // This predicate will allow either the current durable state or the current tentative state
             let ghost crash_pred = |s: Seq<u8>| {
-                ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@)
-                ||| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == self.tentative_view()
+                &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm@.committed())
+                    &&& {
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                        ||| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == old(self).tentative_view()
+                    }
             };
 
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
                 lemma_log_replay_preserves_size(self.wrpm@.flush().committed(), self.log@.commit_op_log().physical_op_list);
                 self.lemma_commit_log_precondition(crash_pred, perm);
+
                 assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
+                assert(forall |s| crash_pred(s) ==> perm.check_permission(s));
+
+                assert forall |s| #[trigger] self.wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                    broadcast use pmcopy_axioms;
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+                    lemma_establish_extract_bytes_equivalence(s, self.wrpm@.committed());
+                }
             }
 
             // 2. Commit the op log
@@ -7010,18 +7045,6 @@ verus! {
                     self.abort_after_failed_op_log_operation(Ghost(*old(self)), Ghost(pre_self), Tracked(perm));
                     return Err(e);
                 }
-            }
-
-            // Prove that the overall and version metadata was not modified by committing the log.
-            assert({
-                &&& deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata
-                &&& deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == self.overall_metadata
-            }) by {
-                lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(
-                    old(self).wrpm@, self.wrpm@, self.version_metadata, self.overall_metadata);
-                assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
-                assert(deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata);
-                assert(deserialize_overall_metadata(self.wrpm@.committed(), self.version_metadata.overall_metadata_addr) == self.overall_metadata);
             }
 
             let ghost abstract_op_log = UntrustedOpLog::<K, L>::recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata).unwrap();
@@ -7054,9 +7077,12 @@ verus! {
 
                 // If we replay the log, we will obtain the current tentative view
                 assert(Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == old(self).tentative_view());
-                // The post-install recovery state is allowed by `perm`
-                assert(forall |s| Self::physical_recover(self.wrpm@.committed(), self.version_metadata, self.overall_metadata) == 
-                    Self::physical_recover(s, self.version_metadata, self.overall_metadata) ==> perm.check_permission(s));
+                
+                // Prove that version and overall metadata have not been changed
+                assert(version_and_overall_metadata_match_deserialized(self.wrpm@.committed(), old(self).wrpm@.committed())) by {
+                    broadcast use pmcopy_axioms;
+                    lemma_establish_extract_bytes_equivalence(self.wrpm@.committed(), old(self).wrpm@.committed());
+                }
             }
 
             let ghost pre_log_install_wrpm = self.wrpm;
