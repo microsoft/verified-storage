@@ -130,7 +130,8 @@ where
     K: Hash + Eq + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
-    pub tentative: HashMap<K, VolatileKvIndexEntryImpl>,
+    pub tentative: HashMap<K, VolatileKvIndexEntryImpl>, // TODO prob need to differentiate deleted vs created?
+    pub tentative_keys: Vec<K>,
     pub num_list_entries_per_node: u64,
 }
 
@@ -173,6 +174,8 @@ where
         // the tentative version of an entry is not the same as the committed version
         &&& forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
                 self@.contents[k] != self.tentative@[k]@
+        &&& self.tentative@.dom() == self.tentative_keys@.to_set()
+        &&& self.tentative_keys@.no_duplicates()
     }
 
     fn new(
@@ -184,10 +187,13 @@ where
         let ret = Self {
             m: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
             tentative: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            tentative_keys: Vec::new(),
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
         assert(ret.tentative@ =~= Map::<K, VolatileKvIndexEntryImpl>::empty());
+        assert(ret.tentative_keys@ == Seq::<K>::empty());
+        assert(ret.tentative@.dom() == ret.tentative_keys@.to_set());
         assert(ret.tentative_view().empty()) by {
             assert(ret.tentative_view().contents.dom() == ret.m@.dom().union(ret.tentative@.dom()));
         }
@@ -232,10 +238,19 @@ where
         }
         let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
         let key_clone = key.clone();
+        let key_clone2 = key.clone();
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+        assume(*key == key_clone2); // and this?
+
         self.tentative.insert(key_clone, entry);
-        assert(self.tentative@ == old(self).tentative@.insert(*key, entry));
+        self.tentative_keys.push(key_clone2);
+   
         assert(self.tentative_view().contents == old(self).tentative_view().insert_key(*key, header_addr).contents);
+        assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
+        assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
+        assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
+        assert(self.tentative@.dom() == self.tentative_keys@.to_set());
+
         Ok(())
     }
 
@@ -361,9 +376,25 @@ where
             self@ == old(self)@,
     {
         self.tentative.clear();
+        self.tentative_keys.clear();
         proof {
+            assert(self.tentative@ =~= Map::<K, VolatileKvIndexEntryImpl>::empty());
+            assert(self.tentative_keys@ == Seq::<K>::empty());
+            assert(self.tentative@.dom() == self.tentative_keys@.to_set());
+
             self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
         }
+    }
+
+    pub exec fn commit_transaction(&mut self)
+        requires 
+            old(self).valid()
+        ensures 
+            self.valid(),
+            self@ == self.tentative_view(),
+            self@ == old(self).tentative_view()
+    {
+        assume(false); // TODO @hayley
     }
 }
 

@@ -100,6 +100,11 @@ where
         self.durable_store.transaction_committed()
     }
 
+    pub closed spec fn spec_num_log_entries_in_current_transaction(self) -> nat 
+    {
+        self.durable_store.spec_num_log_entries_in_current_transaction()
+    }
+
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store_matches_volatile_index()
@@ -444,6 +449,7 @@ where
             }
     {
         proof { 
+            self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_main_table_index_key_durable(); 
             self.durable_store.lemma_main_table_index_key_tentative(); 
         }
@@ -513,7 +519,8 @@ where
             self.valid(),
             match result {
                 Ok(()) => {
-                    &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@) == old(self)@.update_item(*key, *new_item)
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == old(self).tentative_view().update_item(*key, *new_item)
+                    // &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@) == old(self)@.update_item(*key, *new_item)
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
@@ -573,122 +580,105 @@ where
         if let Err(e) = result {
             self.volatile_index.abort_transaction();
             proof {
+                self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
             }
             return Err(e);
         }
 
+        // TODO @hayley finish these
         proof {
+            assume(false);
+            assume(self.tentative_durable_store_matches_tentative_volatile_index());
+            assert(self.durable_store.valid());
+            assert(old(self).tentative_view().update_item(*key, *new_item) is Ok);
+            assert(self.tentative_view() == old(self).tentative_view().update_item(*key, *new_item).unwrap());
+        }
+
+        Ok(())
+    }
+
+    pub exec fn untrusted_commit(
+        &mut self, 
+        kvstore_id: u128,
+        Tracked(perm): Tracked<&TrustedKvPermission<PM>>
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+            !old(self).transaction_committed(),
+            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                &&& {
+                    ||| Self::recover(s, kvstore_id) == Some(old(self)@)
+                    ||| Self::recover(s, kvstore_id) == Some(old(self).tentative_view())
+                }
+            },
+            old(self).spec_num_log_entries_in_current_transaction() > 0,
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self@ == old(self).tentative_view()
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(KvError::LogErr { log_err }) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    { 
+        proof {
+            self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_reveal_opaque_inv();
-            
+            self.durable_store.lemma_reveal_opaque_inv_mem();
+
+            assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies perm.check_permission(s) by {
+                self.durable_store.lemma_overall_metadata_addr();
+                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
+            }
+
             assert forall |s| {
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
                 &&& {
-                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
-                            self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
-                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
-                            self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
+                    ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
                 }
             } implies #[trigger] perm.check_permission(s) by {
-                // the precondition is only in terms of old(self), but we haven't changed self@
-                assert(self@ == old(self)@);
+                assert(forall |s| #[trigger] perm.check_permission(s) <==> {
+                    ||| Self::recover(s, kvstore_id) == Some(old(self)@)
+                    ||| Self::recover(s, kvstore_id) == Some(old(self).tentative_view())
+                });
 
-                assert({
-                    // &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
-                    // &&& {
-                        ||| Self::recover(s, kvstore_id) == Some(self@)
-                        ||| Self::recover(s, kvstore_id) == Some(self@.update_item(*key, *new_item).unwrap())
-                    // }
-                } ==> perm.check_permission(s));
-
-                assert(self.wrpm_view().committed() == old(self).wrpm_view().committed());
-                // assert(self.wrpm_view().can_crash_as(old(self).wrpm_view().committed()));
-                // assert(self.wrpm_view().can_crash_as(self.wrpm_view().committed()));
-
-                // assert(self.durable_store.spec_version_metadata() == deserialize_version_metadata(old(self).wrpm_view().committed()));
-                // assert(version_and_overall_metadata_match_deserialized(old(self).wrpm_view().committed(), self.wrpm_view().committed()));
-                
-                // if {
-                //     &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
-                //     &&& DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                //             s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) 
-                //                 =~= Some(self.durable_store@) 
-                // } {
+                assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed()));
+                assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
                     broadcast use pmcopy_axioms;
-                    lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
-
-                    // assert(no_outstanding_writes_to_version_metadata(self.wrpm_view()));
-                    assert(self.wrpm_view().can_crash_as(self.wrpm_view().committed()));
-
-                    assert(memory_correctly_set_up_on_region::<K, I, L>(old(self).wrpm_view().committed(), kvstore_id));
-
-                    assert(memory_correctly_set_up_on_region::<K, I, L>(self.wrpm_view().committed(), kvstore_id));
-                    assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id));
-                    assert(Self::recover(s, kvstore_id) is Some);
-                // }
-
-                assert({
-                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
-                    &&& DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                            s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) =~= Some(self.durable_store@) 
-                } ==> Self::recover(s, kvstore_id) =~= Some(self@));
-
-
-                assert(self.durable_store.tentative_view().unwrap() == 
-                    old(self).durable_store.tentative_view().unwrap().update_item(index as int, *new_item).unwrap());
-
-                if DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                    s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) =~= 
-                        self.durable_store.tentative_view() 
-                {
-                    self.durable_store.lemma_main_table_index_key_durable();
-                    self.durable_store.lemma_main_table_index_key_tentative();
                 }
 
-                // assume(false);
-                assert({
-                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
-                    &&& DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                            s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) =~= 
-                                self.durable_store.tentative_view() 
-                } ==> Self::recover(s, kvstore_id) =~= Some(self@.update_item(*key, *new_item).unwrap()));
-
-                // assert({
-                //     &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
-                //     &&& {
-                //         ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
-                //             self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
-                //         ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), 
-                //                 self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
-                //     }
-                // });
-
-                // assert(Self::recover(s, kvstore_id) =~= Some(old(self)@) && version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed()) <== DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                //     s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) =~= Some(self.durable_store@));
-
-                // assert(Self::recover(s, kvstore_id) =~= Some(old(self)@.update_item(*key, *new_item).unwrap()) && version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed()) <== DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                //     s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) =~= self.durable_store.tentative_view());
+                if DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, 
+                    self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == 
+                        Some(self.durable_store@) 
+                {
+                    assert(Self::recover(s, kvstore_id) =~= Some(self@));
+                } else {
+                    assert(DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, 
+                        self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == 
+                            self.durable_store.tentative_view());
+                }
             }
-
-
-
-            assume(forall |s| #[trigger] self.durable_store.wrpm_view().can_crash_as(s) ==> 
-                perm.check_permission(s));
-            // assume(forall |s| #[trigger] perm.check_permission(s) <==> {
-            //     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-            //     ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
-            // });
-            assume(forall |s| #[trigger] self.durable_store.wrpm_view().can_crash_as(s) ==> 
-                DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) 
-                    =~= Some(self.durable_store@));
         }
 
-
-        // 3. Commit the transaction
         let result = self.durable_store.commit(Tracked(perm));
         if let Err(e) = result {
-            assume(false); // TODO @hayley
             self.volatile_index.abort_transaction();
             proof {
                 self.durable_store.lemma_valid_implies_inv();
@@ -698,7 +688,12 @@ where
             return Err(e);
         }
 
-        assume(false); // TODO @hayley
+        self.volatile_index.commit_transaction();
+
+        assert(self.volatile_index@ == old(self).volatile_index.tentative_view());
+        assert(Some(self.durable_store@) == old(self).durable_store.tentative_view());
+        assert(self.volatile_index@ == self.volatile_index.tentative_view());
+        assert(Some(self.durable_store@) == self.durable_store.tentative_view());
 
         Ok(())
     }

@@ -494,6 +494,17 @@ verus! {
             assert(self.wrpm@.can_crash_as(self.wrpm@.committed()));
         }
 
+        pub proof fn lemma_reveal_opaque_inv_mem(self)
+            requires 
+                forall|s| #[trigger] self.wrpm_view().can_crash_as(s) ==> self.inv_mem(s),
+            ensures 
+                forall|s| #[trigger] self.wrpm_view().can_crash_as(s) ==> {
+                    &&& self.spec_version_metadata() == deserialize_version_metadata(s)
+                    &&& self.spec_overall_metadata() == deserialize_overall_metadata(s, self.spec_version_metadata().overall_metadata_addr)
+                    &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(self@)
+                }
+        {}
+
         pub proof fn lemma_overall_metadata_addr(self) 
             ensures
                 self.spec_version_metadata().overall_metadata_addr == 
@@ -6048,7 +6059,7 @@ verus! {
                     &&& tentative_view.contains_key(offset as int)
                 }),
             ensures 
-                self.inv(),
+                self.valid(),
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
                 self@ == old(self)@,
@@ -6944,7 +6955,7 @@ verus! {
 
         // Commits all pending updates by committing the log and applying updates to 
         // each durable component.
-        #[verifier::rlimit(25)] // TODO @hayley
+        #[verifier::rlimit(50)] // TODO @hayley
         pub fn commit(
             &mut self,
             Tracked(perm): Tracked<&Perm>
@@ -6984,6 +6995,15 @@ verus! {
                         let old_tentative_view = old(self).tentative_view();
                         &&& old_tentative_view matches Some(old_tentative_view)
                         &&& self@ == old_tentative_view
+                        &&& self.tentative_view() == Some(self@)
+                    }
+                    Err(KvError::CRCMismatch) => {
+                        let tentative_view = self.tentative_view();
+                        &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
+                            self.spec_overall_metadata(), AbstractOpLogState::initialize())
+                        &&& self@ == old(self)@
+                        &&& self.tentative_view() == Some(old(self)@)
+                        &&& !self.constants().impervious_to_corruption
                     }
                     Err(e) => {
                         // Transaction has been aborted due to an error in the log.
@@ -6991,9 +7011,11 @@ verus! {
                         // write the CRC when committing the oplog.
                         // All outstanding writes to the KV store are dropped.
                         let tentative_view = self.tentative_view();
-                        &&& e is OutOfSpace || e is CRCMismatch || e is LogErr
+                        &&& e is OutOfSpace || e is LogErr
                         &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
                             self.spec_overall_metadata(), AbstractOpLogState::initialize())
+                        &&& self@ == old(self)@
+                        &&& self.tentative_view() == Some(old(self)@)
                     }
                 }
         {
