@@ -3136,6 +3136,32 @@ verus! {
             );
         }
 
+        pub exec fn add_tentative_item_update<PM>(
+            &mut self,
+            subregion: &PersistentMemorySubregion,
+            pm_region: &PM,
+            index: u64,
+            item_index: u64,
+            overall_metadata: OverallMetadata,
+        )
+            where 
+                PM: PersistentMemoryRegion
+            requires 
+                old(self).inv(subregion.view(pm_region), overall_metadata),
+                old(self).opaquable_inv(overall_metadata),
+                old(self).tentative_view().durable_main_table[index as int] is Some,
+            ensures 
+                self.inv(subregion.view(pm_region), overall_metadata),
+                self.opaquable_inv(overall_metadata),
+                self@ == old(self)@,
+                self.main_table_free_list@ == old(self).main_table_free_list@,
+                self@.valid_item_indices() == old(self)@.valid_item_indices(),
+                Some(self.tentative_view()) == 
+                    old(self).tentative_view().update_item_index(index as int, item_index),
+        {
+            assume(false); // TODO @hayley
+        }
+
         pub exec fn create_update_item_index_log_entry<PM>(
             &self,
             subregion: &PersistentMemorySubregion,
@@ -3145,7 +3171,7 @@ verus! {
             overall_metadata: &OverallMetadata,
             Ghost(version_metadata): Ghost<VersionMetadata>,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
-        ) -> (result: Result<PhysicalOpLogEntry, KvError<K>>)
+        ) -> (result: Result<(PhysicalOpLogEntry, u64), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -3193,7 +3219,7 @@ verus! {
                     <= overall_metadata.main_table_addr,
             ensures 
                 match result {
-                    Ok(log_entry) => {
+                    Ok((log_entry, old_item_index)) => {
                         let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                             if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                                 log_entry.bytes[pos - log_entry.absolute_addr]
@@ -3224,6 +3250,8 @@ verus! {
                         &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
                         &&& new_main_table_view.unwrap().valid_item_indices() == 
                                 current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+
+                        &&& old_item_index == self.get_latest_entry(index).unwrap().item_index()
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false,
@@ -3241,6 +3269,7 @@ verus! {
                 Ok((key, metadata)) => (key, metadata),
                 Err(e) => return Err(e),
             };
+            let old_item_index = metadata.item_index;
 
             // Next, construct the new metadata entry and obtain the CRC
             let new_metadata_entry = ListEntryMetadata {
@@ -3288,7 +3317,7 @@ verus! {
                     *key, crc, log_entry, *overall_metadata, version_metadata, current_tentative_state);
             }
 
-            Ok(log_entry)
+            Ok((log_entry, old_item_index))
         }
 
         exec fn clear_modified_indices_for_abort(&mut self, Ghost(overall_metadata): Ghost<OverallMetadata>)
