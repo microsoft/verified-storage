@@ -456,20 +456,35 @@ verus! {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
-        pub exec fn outstanding_entry_update(&mut self, index: u64, entry: ListEntryMetadata, key: K)
+        pub exec fn outstanding_entry_update(&mut self, index: u64, entry: ListEntryMetadata, key: K, overall_metadata: OverallMetadata)
             requires 
                 old(self).outstanding_entries.inv(),
+                old(self).opaquable_inv(overall_metadata),
                 ({
                     // update can only apply to an existing entry, so either 
                     // there already has to be an outstanding entry or there
                     // has to be a valid durable entry at this index
-                    ||| old(self).outstanding_entries@.contains_key(index)
-                    ||| old(self)@.durable_main_table[index as int] is Some
+                    ||| {
+                        &&& old(self).outstanding_entries[index] matches Some(entry)
+                        &&& (entry.status is Created || entry.status is Updated)
+                    }
+                    ||| {
+                        &&& old(self).outstanding_entries[index] is None
+                        &&& old(self)@.durable_main_table[index as int] is Some
+                    }
                 }),
                 old(self).outstanding_entries@.contains_key(index) ==> old(self).outstanding_entries@[index].key == key,
-                old(self)@.durable_main_table[index as int] is Some ==> old(self)@.durable_main_table[index as int].unwrap().key == key,
+                old(self)@.durable_main_table[index as int] is Some && !old(self).outstanding_entries@.contains_key(index) ==> 
+                    old(self)@.durable_main_table[index as int].unwrap().key == key,
+                index < overall_metadata.num_keys,
+                !old(self).tentative_view().valid_item_indices().contains(entry.item_index),
             ensures 
+                self.opaquable_inv(overall_metadata),
                 self.outstanding_entries.inv(),
+                self@ == old(self)@,
+                self.main_table_free_list@ == old(self).main_table_free_list@,
+                self@.valid_item_indices() == old(self)@.valid_item_indices(),
+                self.main_table_entry_size == old(self).main_table_entry_size,
                 old(self).outstanding_entries@.contains_key(index) ==> 
                     old(self).outstanding_entries@[index].status == self.outstanding_entries@[index].status,
                 !old(self).outstanding_entries@.contains_key(index) ==> self.outstanding_entries@[index].status is Updated,
@@ -492,13 +507,92 @@ verus! {
                     key,
                 }
             } else {
+                assert(!self.outstanding_entries@.contains_key(index));
+                assert(!self.modified_indices@.contains(index));
+
+                self.modified_indices.push(index);
+
+                assert forall |idx: u64| self.modified_indices@.contains(idx) implies
+                    idx < overall_metadata.num_keys
+                by {
+                    if idx == index { assert(index < overall_metadata.num_keys); } 
+                    else { assert(old(self).modified_indices@.contains(idx)); }
+                }
+                assert(self.modified_indices@.subrange(0, self.modified_indices@.len() - 1) == old(self).modified_indices@);
+                assert(self.modified_indices@[self.modified_indices@.len() - 1] == index);
+
                 OutstandingEntry {
                     status: EntryStatus::Updated,
                     entry,
                     key
                 }
             };
+            assert(new_outstanding_entry.status is Updated || new_outstanding_entry.status is Created);
             self.outstanding_entries.contents.insert(index, new_outstanding_entry);
+            assert(self.outstanding_entries@[index].status is Updated || self.outstanding_entries@[index].status is Created);
+            
+            // TODO: Refactor with outstanding_entry_delete?
+            assert(self.opaquable_inv(overall_metadata)) by {
+                // Prove that outstanding_entries and modified_indices still contain
+                // the same indices
+                assert forall |idx: u64| self.outstanding_entries@.contains_key(idx) implies 
+                    #[trigger] self.modified_indices@.contains(idx)
+                by {
+                    if idx != index {
+                        assert(old(self).outstanding_entries@.contains_key(idx));
+                        assert(old(self).modified_indices@.contains(idx));
+                        assert(self.modified_indices@.contains(idx));
+                    } // else, trivial -- we know modified_indices contains index
+                }
+                assert forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) implies 
+                    self.outstanding_entries@.contains_key(idx)
+                by {
+                    if idx != index {
+                        assert(old(self).modified_indices@.contains(idx));
+                        assert(old(self).outstanding_entries@.contains_key(idx));
+                    } // else, trivial
+                }
+
+
+                // Prove that all non-free indices are either valid on durable storage or have an outstanding update
+                assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) implies
+                    self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx)
+                by {
+                    assert(!self.main_table_free_list@.contains(idx));
+                    assert(!old(self).main_table_free_list@.contains(idx));
+                    if old(self)@.durable_main_table[idx as int] is Some {
+                        assert(self@.durable_main_table[idx as int] is Some);
+                    } else {
+                        assert(old(self).modified_indices@.contains(idx));
+                    }
+                }
+
+                assert(self.modified_indices@.len() <= self@.durable_main_table.len()) by {
+                    if self.modified_indices@.len() != old(self).modified_indices@.len() {
+                        // if we increased the length of the modified indices list, we have to prove
+                        // that it still hasn't grown beyond the length of the table itself
+                        assert(self.modified_indices@.len() == old(self).modified_indices@.len() + 1);
+                        // we need to temporarily view modified_indices as ints rather than u64s so we can invoke
+                        // the lemma that proves that its length is still less than num_keys
+                        let temp_view = self.modified_indices@.map_values(|e| e as int);
+                        assert forall |idx: int| temp_view.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+                            assert(self.modified_indices@.contains(idx as u64))
+                        }
+                        // this lemma proves that a sequence with values between 0 and num keys and no duplicates
+                        // cannot have a length longer than num_keys
+                        lemma_seq_len_when_no_dup_and_all_values_in_range(temp_view, 0, overall_metadata.num_keys as int);
+                    } 
+                }
+                
+                assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                    assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
+                    assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
+                        &&& i != index ==> #[trigger] self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
+                        &&& i == index ==> self.tentative_view().durable_main_table[i].unwrap().item_index() == entry.item_index
+                    });
+                }
+            }
+
         }
 
         // It's kind of janky to pass in the entry and key that we're deleting, but we need 
@@ -3141,7 +3235,8 @@ verus! {
             subregion: &PersistentMemorySubregion,
             pm_region: &PM,
             index: u64,
-            item_index: u64,
+            new_entry: ListEntryMetadata,
+            key: Box<K>,
             overall_metadata: OverallMetadata,
         )
             where 
@@ -3150,6 +3245,18 @@ verus! {
                 old(self).inv(subregion.view(pm_region), overall_metadata),
                 old(self).opaquable_inv(overall_metadata),
                 old(self).tentative_view().durable_main_table[index as int] is Some,
+                old(self).tentative_view().durable_main_table[index as int].unwrap().key == key,
+                0 <= index < overall_metadata.num_keys,
+                old(self)@.durable_main_table.len() == overall_metadata.num_keys,
+                ({
+                    let current_entry = old(self).get_latest_entry(index);
+                    &&& current_entry matches Some(current_entry)
+                    &&& current_entry.entry.head == new_entry.head
+                    &&& current_entry.entry.tail == new_entry.tail
+                    &&& current_entry.entry.length == new_entry.length
+                    &&& current_entry.entry.first_entry_offset == new_entry.first_entry_offset
+                }),
+                !old(self).tentative_view().valid_item_indices().contains(new_entry.item_index),
             ensures 
                 self.inv(subregion.view(pm_region), overall_metadata),
                 self.opaquable_inv(overall_metadata),
@@ -3157,9 +3264,14 @@ verus! {
                 self.main_table_free_list@ == old(self).main_table_free_list@,
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 Some(self.tentative_view()) == 
-                    old(self).tentative_view().update_item_index(index as int, item_index),
+                    old(self).tentative_view().update_item_index(index as int, new_entry.item_index),
         {
-            assume(false); // TODO @hayley
+            self.outstanding_entry_update(index, new_entry, *key, overall_metadata);
+
+            proof {
+                let updated_tentative_view = old(self).tentative_view().update_item_index(index as int, new_entry.item_index).unwrap();
+                assert(self.tentative_view() == updated_tentative_view);
+            }
         }
 
         pub exec fn create_update_item_index_log_entry<PM>(
@@ -3171,7 +3283,7 @@ verus! {
             overall_metadata: &OverallMetadata,
             Ghost(version_metadata): Ghost<VersionMetadata>,
             Ghost(current_tentative_state): Ghost<Seq<u8>>, 
-        ) -> (result: Result<(PhysicalOpLogEntry, u64), KvError<K>>)
+        ) -> (result: Result<(PhysicalOpLogEntry, Box<ListEntryMetadata>, Box<K>), KvError<K>>)
             where 
                 PM: PersistentMemoryRegion,
             requires 
@@ -3219,7 +3331,7 @@ verus! {
                     <= overall_metadata.main_table_addr,
             ensures 
                 match result {
-                    Ok((log_entry, old_item_index)) => {
+                    Ok((log_entry, old_entry, key)) => {
                         let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                             if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
                                 log_entry.bytes[pos - log_entry.absolute_addr]
@@ -3248,9 +3360,10 @@ verus! {
                         &&& new_main_table_view is Some
                         &&& new_main_table_view == current_main_table_view.update_item_index(index as int, item_index)
                         &&& new_main_table_view.unwrap().valid_item_indices() == 
-                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_entry.item_index)
 
-                        &&& old_item_index == self.get_latest_entry(index).unwrap().item_index()
+                        &&& old_entry == self.get_latest_entry(index).unwrap().entry
+                        &&& key == self.get_latest_entry(index).unwrap().key
                     }
                     Err(KvError::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     _ => false,
@@ -3316,7 +3429,7 @@ verus! {
                     *key, crc, log_entry, *overall_metadata, version_metadata, current_tentative_state);
             }
 
-            Ok((log_entry, old_item_index))
+            Ok((log_entry, metadata, key))
         }
 
         exec fn clear_modified_indices_for_abort(&mut self, Ghost(overall_metadata): Ghost<OverallMetadata>)

@@ -5673,7 +5673,7 @@ verus! {
             item_index: u64,
             Ghost(current_tentative_bytes): Ghost<Seq<u8>>,
             Tracked(perm): Tracked<&Perm>,
-        ) -> (result: Result<(PhysicalOpLogEntry, u64), KvError<K>>)
+        ) -> (result: Result<(PhysicalOpLogEntry, Box<ListEntryMetadata>, Box<K>), KvError<K>>)
             requires 
                 old(self).inv(),
                 pre_self.inv(),
@@ -5748,7 +5748,7 @@ verus! {
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.tentative_view() is Some,
                 match result {
-                    Ok((log_entry, old_item_index)) => {
+                    Ok((log_entry, old_entry, key)) => {
                         let new_log = self.log@.tentatively_append_log_entry(log_entry@);
                         // let new_main_table_view = Self::tentative_main_table_given_log(self.wrpm@.flush().committed(),
                         //     new_log.physical_op_list, self.overall_metadata);
@@ -5768,10 +5768,11 @@ verus! {
                         &&& self.wrpm_view().committed() == old(self).wrpm_view().committed()
 
                         &&& self.main_table.get_latest_entry(index) is Some
-                        &&& old_item_index == self.main_table.get_latest_entry(index).unwrap().item_index()
-                        &&& self.main_table.tentative_view().valid_item_indices().contains(old_item_index)
+                        &&& old_entry == self.main_table.get_latest_entry(index).unwrap().entry
+                        &&& key == self.main_table.get_latest_entry(index).unwrap().key
+                        &&& self.main_table.tentative_view().valid_item_indices().contains(old_entry.item_index)
                         // &&& !self.item_table.free_list@.contains(old_item_index)
-                        &&& 0 <= old_item_index < self.overall_metadata.num_keys
+                        // &&& 0 <= old_item_index < self.overall_metadata.num_keys
 
                         // log entry address and length are valid
                         &&& self.overall_metadata.main_table_addr <= log_entry.absolute_addr
@@ -5791,7 +5792,7 @@ verus! {
                         &&& new_main_table_view is Some
                         &&& new_main_table_view.unwrap() == current_main_table_view.update_item_index(index as int, item_index).unwrap()
                         &&& new_main_table_view.unwrap().valid_item_indices() == 
-                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_item_index)
+                                current_main_table_view.valid_item_indices().insert(item_index).remove(old_entry.item_index)
 
                         // other success case guarantees
                         &&& old(self).log@ == self.log@
@@ -5837,7 +5838,7 @@ verus! {
                 assert(main_table_subregion.view(pm).committed() == durable_main_table_bytes);
             }
             
-            let (log_entry, old_item_index) = match self.main_table.create_update_item_index_log_entry(
+            let (log_entry, old_entry, key) = match self.main_table.create_update_item_index_log_entry(
                 &main_table_subregion,
                 pm,
                 index,
@@ -5846,7 +5847,7 @@ verus! {
                 Ghost(self.version_metadata),
                 Ghost(current_tentative_bytes), 
             ) {
-                Ok((log_entry, old_item_index)) => (log_entry, old_item_index),
+                Ok((log_entry, old_entry, key)) => (log_entry, old_entry, key),
                 Err(e) => {
                     proof {
                         let main_table_subregion_view = get_subregion_view(self.wrpm@,
@@ -5860,7 +5861,7 @@ verus! {
                 }
             };
 
-            assert(old_item_index == self.main_table.get_latest_entry(index).unwrap().item_index());
+            assert(old_entry == self.main_table.get_latest_entry(index).unwrap().entry);
 
             proof {
                 // These assertions and lemmas help prove that the tentative view after appending the new entry 
@@ -5963,14 +5964,15 @@ verus! {
                 );
                 assert(new_item_table_view is Some);
             }
-            Ok((log_entry, old_item_index))
+            Ok((log_entry, old_entry, key))
         }
 
         exec fn update_outstanding_item_index_in_main_table(
             &mut self,
+            old_entry: Box<ListEntryMetadata>,
+            key: Box<K>,
             index: u64,
             item_index: u64,
-            old_item_index: u64,
         ) 
             requires 
                 old(self).inv(),
@@ -5979,13 +5981,15 @@ verus! {
                 old(self).tentative_item_table() == old(self).item_table.tentative_view(),
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
                 old(self).item_table.tentative_valid_indices() == 
-                    old(self).main_table.tentative_view().valid_item_indices().remove(old_item_index).insert(item_index),
+                    old(self).main_table.tentative_view().valid_item_indices().remove(old_entry.item_index).insert(item_index),
                 old(self).main_table.tentative_view().update_item_index(index as int, item_index) == 
                     Some(old(self).tentative_main_table()),
                 old(self).main_table.tentative_view().durable_main_table[index as int] is Some,
-                old(self).main_table.tentative_view().durable_main_table[index as int].unwrap().item_index() == old_item_index,
+                old(self).main_table.tentative_view().durable_main_table[index as int].unwrap().entry == old_entry,
                 no_duplicate_item_indexes(old(self).main_table.tentative_view().durable_main_table),
                 no_duplicate_item_indexes(old(self).main_table@.durable_main_table),
+                !old(self).main_table.tentative_view().valid_item_indices().contains(item_index),
+                old(self).main_table.tentative_view().durable_main_table[index as int].unwrap().key == key,
             ensures 
                 self.inv(),
                 self.tentative_view_inv(),
@@ -6005,7 +6009,13 @@ verus! {
                 self.overall_metadata.main_table_addr,
                 Ghost(self.overall_metadata.main_table_size as nat)
             );
-            self.main_table.add_tentative_item_update(&main_table_subregion, pm, index, item_index, self.overall_metadata);
+
+            let new_entry = ListEntryMetadata {
+                item_index,
+                ..*old_entry
+            };
+
+            self.main_table.add_tentative_item_update(&main_table_subregion, pm, index, new_entry, key, self.overall_metadata);
 
             proof {
                 assert(self.main_table.tentative_view().valid_item_indices().contains(item_index)) by {
@@ -6017,7 +6027,7 @@ verus! {
                 // Prove that all other item indexes in the tentative main table have not been changed
                 assert forall |i: u64| {
                     &&& old(self).main_table.tentative_view().valid_item_indices().contains(i) 
-                    &&& i != old_item_index 
+                    &&& i != old_entry.item_index 
                     &&& i != item_index 
                 } implies self.main_table.tentative_view().valid_item_indices().contains(i) by {
                     // there exists an index in the old main table tentative view with this item index
@@ -6032,7 +6042,7 @@ verus! {
                 }
 
                 assert(self.main_table.tentative_view().valid_item_indices() == 
-                    old(self).main_table.tentative_view().valid_item_indices().remove(old_item_index).insert(item_index));
+                    old(self).main_table.tentative_view().valid_item_indices().remove(old_entry.item_index).insert(item_index));
             }
         }
 
@@ -6205,13 +6215,13 @@ verus! {
 
             // 3. Create a log entry that will overwrite the metadata table entry
             // with a new one containing the new item table index
-            let (log_entry, old_item_index) = self.create_update_item_log_entry_helper(Ghost(*old(self)), offset, item_index,
+            let (log_entry, old_entry, key) = self.create_update_item_log_entry_helper(Ghost(*old(self)), offset, item_index,
                 Ghost(pre_append_tentative_view_bytes), Tracked(perm))?;
 
             // 4. Tentatively deallocate the old item index, since it will no longer be valid when
             // this transaction completes
-            self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion.view(&self.wrpm)), old_item_index, Ghost(self.overall_metadata));
-            assert(self.item_table.tentative_view() == old(self).item_table.tentative_view().insert(item_index as int, *item).delete(old_item_index as int));
+            self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion.view(&self.wrpm)), old_entry.item_index, Ghost(self.overall_metadata));
+            assert(self.item_table.tentative_view() == old(self).item_table.tentative_view().insert(item_index as int, *item).delete(old_entry.item_index as int));
 
             // Create a crash predicate for the append operation and prove that it ensures the append
             // will be crash consistent.
@@ -6255,15 +6265,15 @@ verus! {
                 // for the whole KV store as well.
                 self.lemma_if_every_component_recovers_to_its_current_state_then_self_does();
                 self.lemma_tentative_view_after_appending_update_item_log_entry_includes_new_log_entry(pre_append_self, offset, 
-                    old_item_index, item_index, *item, log_entry, pre_append_tentative_view_bytes);
+                    old_entry.item_index, item_index, *item, log_entry, pre_append_tentative_view_bytes);
 
                 assert(self.item_table.tentative_valid_indices() == 
-                    old(self).item_table.tentative_valid_indices().remove(old_item_index).insert(item_index));
+                    old(self).item_table.tentative_valid_indices().remove(old_entry.item_index).insert(item_index));
             }
 
             // 6. Update the main table's outstanding entries to reflect the item index update.
             // The item table has already been updated
-            self.update_outstanding_item_index_in_main_table(offset, item_index, old_item_index);
+            self.update_outstanding_item_index_in_main_table(old_entry, key, offset, item_index);
 
             Ok(())
         }
