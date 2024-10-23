@@ -508,7 +508,6 @@ where
             !old(self).transaction_committed(),
             Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
-                // &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
@@ -520,7 +519,6 @@ where
             match result {
                 Ok(()) => {
                     Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == old(self).tentative_view().update_item(*key, *new_item)
-                    // &&& Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self@) == old(self)@.update_item(*key, *new_item)
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
@@ -573,6 +571,19 @@ where
                     broadcast use pmcopy_axioms;
                 }
             }
+
+            // Prove that the presence of this key in the volatile index implies 
+            // that it is in the current tentative view
+            let durable_store_state = self.durable_store.tentative_view().unwrap();
+            let index_to_key = Map::new(
+                |i| durable_store_state.contents.dom().contains(i),
+                |i| durable_store_state.contents[i].key
+            );
+            let indexed_offset = self.volatile_index.tentative_view()[*key].unwrap().header_addr;
+            assert(index_to_key.contains_value(*key)) by {
+                assert(index_to_key.dom().contains(indexed_offset as int));
+            }
+            assert(self.tentative_view().contains_key(*key));
         }
 
         // 2. Tentatively update the item in the durable store
@@ -587,13 +598,35 @@ where
             return Err(e);
         }
 
-        // TODO @hayley finish these
         proof {
-            assume(false);
-            assume(self.tentative_durable_store_matches_tentative_volatile_index());
-            assert(self.durable_store.valid());
-            assert(old(self).tentative_view().update_item(*key, *new_item) is Ok);
-            assert(self.tentative_view() == old(self).tentative_view().update_item(*key, *new_item).unwrap());
+            let durable_tentative_view = self.durable_store.tentative_view().unwrap();
+            let old_durable_tentative_view = old(self).durable_store.tentative_view().unwrap();
+
+            // The durable store's domain hasn't changed, so it still matches the volatile index
+            assert forall |i: int| #[trigger] durable_tentative_view.contains_key(i) implies {
+                &&& self.volatile_index.tentative_view().contains_key(durable_tentative_view[i].unwrap().key)
+                &&& self.volatile_index.tentative_view()[durable_tentative_view[i].unwrap().key].unwrap().header_addr == i
+            } by {
+                assert(old(self).durable_store.tentative_view().unwrap().contains_key(i));
+            }
+
+            // the tentative view reflects the new update
+            assert(self.tentative_view() == old(self).tentative_view().update_item(*key, *new_item).unwrap()) by {
+                // the tentative views are obtained via index->key mappings in the durable tentative view,
+                // so we have to prove that these mappings have not changed. We already know that the item
+                // associated with the current key has been updated.
+                let index_to_key = Map::new(
+                    |i| durable_tentative_view.contents.dom().contains(i),
+                    |i| durable_tentative_view.contents[i].key
+                );
+                let old_index_to_key = Map::new(
+                    |i| old_durable_tentative_view.contents.dom().contains(i),
+                    |i| old_durable_tentative_view.contents[i].key
+                );
+                assert(index_to_key == old_index_to_key);
+                assert(self.tentative_view().contents == old(self).tentative_view().update_item(*key, *new_item).unwrap().contents);
+               
+            }
         }
 
         Ok(())
