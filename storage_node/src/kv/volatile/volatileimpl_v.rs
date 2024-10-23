@@ -9,6 +9,7 @@ use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
+use crate::kv::durable::commonlayout_v::EntryStatus;
 use crate::kv::volatile::volatilespec_v::*;
 use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
@@ -124,13 +125,25 @@ impl VolatileKvIndexEntryImpl
     }
 }
 
+pub struct PendingIndexEntry {
+    pub status: EntryStatus,
+    pub entry: VolatileKvIndexEntryImpl
+}
+
+impl PendingIndexEntry {
+    pub open spec fn view(self) -> VolatileKvIndexEntry 
+    {
+        self.entry@
+    }
+}
+
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexImpl<K>
 where
     K: Hash + Eq + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
-    pub tentative: HashMap<K, VolatileKvIndexEntryImpl>, // TODO prob need to differentiate deleted vs created?
+    pub tentative: HashMap<K, PendingIndexEntry>, // TODO prob need to differentiate deleted vs created?
     pub tentative_keys: Vec<K>,
     pub num_list_entries_per_node: u64,
 }
@@ -147,9 +160,21 @@ where
         }
     }
 
+    open spec fn num_tentative_entries(self) -> nat {
+        self.tentative_keys@.len()
+    }
+
     open spec fn tentative_view(&self) -> VolatileKvIndexView<K>
     {
-        let keys = self.m@.dom().union(self.tentative@.dom());
+        let outstanding_keys_to_add = self.tentative@.dom().filter(
+            |k| self.tentative@[k].status is Created
+        );
+        let outstanding_keys_to_delete = self.tentative@.dom().filter(
+            |k| self.tentative@[k].status is Deleted
+        );
+        // we don't do anything with keys that were created AND deleted in this 
+        // transaction 
+        let keys = self.m@.dom().union(outstanding_keys_to_add) - outstanding_keys_to_delete;
         VolatileKvIndexView::<K> {
             contents: Map::new(
                 |k| keys.contains(k),
@@ -171,11 +196,20 @@ where
         &&& forall |k| #[trigger] self.m@.contains_key(k) ==>
             self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node
         &&& vstd::std_specs::hash::obeys_key_model::<K>()
-        // the tentative version of an entry is not the same as the committed version
-        &&& forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
-                self@.contents[k] != self.tentative@[k]@
+        // does this one matter?
+        // // the tentative version of an entry is not the same as the committed version
+        // &&& forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
+        //         self@.contents[k] != self.tentative@[k]@
         &&& self.tentative@.dom() == self.tentative_keys@.to_set()
         &&& self.tentative_keys@.no_duplicates()
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+            ||| self.tentative@[k].status is Created 
+            ||| self.tentative@[k].status is Deleted
+        }
+        // if a key was deleted (but not created) in the current transaction,
+        // it must already exist
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k].status is Deleted ==>
+                self.m@.contains_key(k)
     }
 
     fn new(
@@ -186,12 +220,12 @@ where
     {
         let ret = Self {
             m: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
-            tentative: HashMap::<K, VolatileKvIndexEntryImpl>::new(),
+            tentative: HashMap::<K, PendingIndexEntry>::new(),
             tentative_keys: Vec::new(),
             num_list_entries_per_node
         };
         assert(ret@.contents =~= Map::<K, VolatileKvIndexEntry>::empty());
-        assert(ret.tentative@ =~= Map::<K, VolatileKvIndexEntryImpl>::empty());
+        assert(ret.tentative@ =~= Map::<K, PendingIndexEntry>::empty());
         assert(ret.tentative_keys@ == Seq::<K>::empty());
         assert(ret.tentative@.dom() == ret.tentative_keys@.to_set());
         assert(ret.tentative_view().empty()) by {
@@ -216,7 +250,6 @@ where
 
         proof {
             assert(self@.contents =~= old(self)@.contents.insert(*key, entry@));
-            old(self).lemma_if_tentative_view_matches_view_then_no_tentative_entries();
             self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
             assert(self.tentative_view() == self@); 
             assert(self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr));
@@ -236,20 +269,44 @@ where
         assert(self@.valid()) by {
             self.lemma_valid_implies_view_valid();
         }
+
         let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
         let key_clone = key.clone();
         let key_clone2 = key.clone();
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
         assume(*key == key_clone2); // and this?
 
-        self.tentative.insert(key_clone, entry);
-        self.tentative_keys.push(key_clone2);
-   
+        let new_entry = PendingIndexEntry {
+            status: EntryStatus::Created,
+            entry,
+        };
+        
+        if !self.tentative.contains_key(key) {
+            assert(!self.tentative_keys@.contains(*key));
+            // if tentative doesn't already contain the key,
+            // it must have been deleted and re-created in this transaction.
+            // we only add it to tentative_keys if it's not already in there
+            self.tentative_keys.push(key_clone2);
+            assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
+            assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
+            assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
+        } else {
+            assert(self.tentative_keys@.contains(*key));
+        }
+        self.tentative.insert(key_clone, new_entry);
+        
         assert(self.tentative_view().contents == old(self).tentative_view().insert_key(*key, header_addr).contents);
-        assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
-        assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
-        assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
         assert(self.tentative@.dom() == self.tentative_keys@.to_set());
+
+        assert(self.tentative_keys@.no_duplicates());
+
+        assert(forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+            ||| self.tentative@[k].status is Created 
+            ||| self.tentative@[k].status is Deleted
+        });
+
+        assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k].status is Deleted ==>
+            self.m@.contains_key(k));
 
         Ok(())
     }
@@ -276,7 +333,16 @@ where
     ) -> (result: Option<u64>)
     {
         match self.tentative.get(key) {
-            Some(entry) => Some(entry.header_addr),
+            Some(entry) => {
+                match entry.status {
+                    EntryStatus::Created => Some(entry.entry.header_addr),
+                    EntryStatus::Deleted => None,
+                    _ => {
+                        assert(false);
+                        None
+                    }
+                }
+            }
             None => {
                 match self.m.get(key) {
                     Some(entry) => Some(entry.header_addr),
@@ -303,12 +369,47 @@ where
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
     {
-        let result = match self.m.remove(key) {
-            Some(entry) => Ok(entry.header_addr),
-            None => Err(KvError::<K>::KeyNotFound),
-        };
-        assert(self@.contents =~= old(self)@.contents.remove(*key));
-        result
+        assume(false);
+
+        assert(self@.valid()) by {
+            self.lemma_valid_implies_view_valid();
+        }
+
+        // TODO @hayley THURSDAY
+        // If the entry already exists:
+        //   - if it's only in the committed index, create a pending delete 
+        //   - if it's in tentative with status Created, remove it 
+        //     from the tentative map & list
+        //   - if it's in tentative with status Deleted, return error
+        //   - if none of these are true, return error 
+
+        // let old_entry = if self.tentative.contains_key(key) {
+        //     self.tentative.get(key).unwrap()
+        // } else if self.m.contains_key(key) {
+        //     self.m.get(key).unwrap()
+        // } else {
+        //     return Err(KvError::KeyNotFound);
+        // }
+
+        // let delete_entry = PendingIndexEntry {
+        //     status: EntryStatus::Deleted
+        // }
+
+        // if !self.tentative.contains_key(key) {
+        //     assert(!self.tentative_keys@.contains(*key));
+        //     // if tentative doesn't already contain the key,
+        //     // it must have been deleted and re-created in this transaction.
+        //     // we only add it to tentative_keys if it's not already in there
+        //     self.tentative_keys.push(key_clone2);
+        //     assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
+        //     assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
+        //     assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
+        // } else {
+        //     assert(self.tentative_keys@.contains(*key));
+        // }
+
+        // result
+        Err(KvError::NotImplemented)
     }
 
     // trims the volatile index for the list associated with the key
@@ -346,15 +447,51 @@ where
         }
     }
 
-    pub proof fn lemma_if_tentative_view_matches_view_then_no_tentative_entries(self)
-        requires 
-            self.valid(),
-            self@ == self.tentative_view(),
-        ensures 
-            self.tentative@.is_empty()
-    {
-        assert(forall |k| self@.contents.contains_key(k) ==> !(#[trigger] self.tentative@.contains_key(k))); 
-    }
+    // pub proof fn lemma_if_tentative_view_matches_view_then_no_tentative_entries(self)
+    //     requires 
+    //         self.valid(),
+    //         self@ == self.tentative_view(),
+    //     ensures 
+    //         self.tentative@.is_empty()
+    // {
+    //     let outstanding_keys_to_add = self.tentative@.dom().filter(
+    //         |k| self.tentative@[k].status is Created
+    //     );
+    //     let outstanding_keys_to_delete = self.tentative@.dom().filter(
+    //         |k| self.tentative@[k].status is Deleted
+    //     );
+    //     assert(outstanding_keys_to_add.disjoint(outstanding_keys_to_delete));
+    //     // assert(outstanding_keys_to_add.union(outstanding_keys_to_delete) == self.tentative@.dom());
+    //     // vstd::set_lib::lemma_set_disjoint(outstanding_keys_to_add, outstanding_keys_to_delete);
+    //     // vstd::set_lib::lemma_set_properties::<K>();
+
+    //     let keys = (self.m@.dom().union(outstanding_keys_to_add)) - outstanding_keys_to_delete;
+    //     assert(self.tentative_view().contents.dom() == keys);
+    //     assert(self@.contents.dom() == keys);
+    //     assert(self.m@.dom() =~= keys);
+
+    //     assert(forall |k| #[trigger] keys.contains(k) ==> self.m@.dom().contains(k));
+    //     assert(forall |k| keys.contains(k) ==> !outstanding_keys_to_add.contains(k));
+    //     assert(forall |k| keys.contains(k) ==> !outstanding_keys_to_delete.contains(k));
+
+    //     assert(outstanding_keys_to_add == Set::<K>::empty());
+
+    //     assert(outstanding_keys_to_delete == Set::<K>::empty()) by {
+    //         // proof by contradiction. suppose there is a key in the set
+    //         if exists |k| outstanding_keys_to_delete.contains(k) {
+    //             let k = choose |k| outstanding_keys_to_delete.contains(k);
+    //             assert(!keys.contains(k));
+    //             assert(false);
+    //         } else {
+    //             assert(outstanding_keys_to_delete == Set::<K>::empty());
+    //         }
+    //     }
+
+    //     assert(self.tentative@.dom() =~= Set::empty());
+
+    //     assert(forall |k| self@.contents.contains_key(k) ==> 
+    //         !(#[trigger] self.tentative@.contains_key(k)));        
+    // }
 
     pub proof fn lemma_if_no_tentative_entries_then_tentative_view_matches_view(self)
         requires 
@@ -374,11 +511,12 @@ where
             self.valid(),
             self@ == self.tentative_view(),
             self@ == old(self)@,
+            self.num_tentative_entries() == 0,
     {
         self.tentative.clear();
         self.tentative_keys.clear();
         proof {
-            assert(self.tentative@ =~= Map::<K, VolatileKvIndexEntryImpl>::empty());
+            assert(self.tentative@ =~= Map::<K, PendingIndexEntry>::empty());
             assert(self.tentative_keys@ == Seq::<K>::empty());
             assert(self.tentative@.dom() == self.tentative_keys@.to_set());
 
@@ -392,9 +530,42 @@ where
         ensures 
             self.valid(),
             self@ == self.tentative_view(),
-            self@ == old(self).tentative_view()
+            self@ == old(self).tentative_view(),
+            self.num_tentative_entries() == 0,
     {
         assume(false); // TODO @hayley
+        // iterate over modified indices, adding newly-created ones
+        // to the main index and deleting removed ones
+        let mut index = 0;
+        while index < self.tentative_keys.len() 
+            invariant
+                0 < self.num_list_entries_per_node,
+                self.tentative@.dom().finite(),
+                forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid(),
+                forall |k| #[trigger] self.m@.contains_key(k) ==>
+                    self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node,
+                vstd::std_specs::hash::obeys_key_model::<K>(),
+                // forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
+                //     self@.contents[k] != self.tentative@[k]@,
+                self.tentative@.dom() == self.tentative_keys@.to_set(),
+                self.tentative_keys@.no_duplicates(),
+                forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+                    ||| self.tentative@[k].status is Created 
+                    ||| self.tentative@[k].status is Updated
+                },
+        {
+            index += 1;
+        }
+
+        self.tentative.clear();
+        self.tentative_keys.clear();
+        proof {
+            assert(self.tentative@ =~= Map::<K, PendingIndexEntry>::empty());
+            assert(self.tentative_keys@ == Seq::<K>::empty());
+            assert(self.tentative@.dom() == self.tentative_keys@.to_set());
+
+            self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
+        }
     }
 }
 

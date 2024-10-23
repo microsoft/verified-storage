@@ -236,6 +236,8 @@ where
 
     spec fn valid(&self) -> bool;
 
+    spec fn num_tentative_entries(self) -> nat;
+
     fn new(
         kvstore_id: u128,
         max_keys: usize,
@@ -250,6 +252,7 @@ where
                     &&& volatile_index@.empty()
                     &&& volatile_index.tentative_view().empty()
                     &&& volatile_index.valid()
+                    &&& volatile_index.num_tentative_entries() == 0
                 },
                 Err(_) => false,
             }
@@ -267,9 +270,11 @@ where
             old(self).valid(),
             old(self)@[*key] is None,
             old(self).tentative_view() == old(self)@,
+            old(self).num_tentative_entries() == 0,
         ensures
             self.valid(),
             self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr),
+            self.num_tentative_entries() == 0,
             match result {
                 Ok(()) => self@ == old(self)@.insert_key(*key, header_addr),
                 Err(_) => false, // TODO
@@ -288,7 +293,10 @@ where
         ensures
             self.valid(),
             match result {
-                Ok(()) => self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr),
+                Ok(()) => {
+                    &&& self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr)
+                    &&& self.num_tentative_entries() > 0
+                }
                 Err(_) => false, // TODO
             }
     ;
@@ -373,6 +381,7 @@ where
                     &&& old(self)@.contains_key(*key)
                     &&& self@ == old(self)@.remove(*key)
                     &&& header_addr == old(self)@[*key].unwrap().header_addr
+                    &&& self.num_tentative_entries() > 0
                 },
                 Err(KvError::KeyNotFound) => !old(self)@.contains_key(*key),
                 _ => false,

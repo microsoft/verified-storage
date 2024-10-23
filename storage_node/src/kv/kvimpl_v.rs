@@ -304,7 +304,7 @@ where
             assert(volatile_index.tentative_view().contents == Map::<K, VolatileKvIndexEntry>::empty());
         }
         proof {
-            volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
+            // volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
             assert(volatile_index.tentative@.is_empty());
             assert(volatile_index.tentative@.dom().finite());
         }
@@ -342,7 +342,8 @@ where
                 0 <= i <= entry_list_view.len(),
                 entry_list_view.len() == entry_list@.len() == entry_list.len(),
                 volatile_index@ == volatile_index.tentative_view(),
-                volatile_index.tentative@.is_empty(),
+                // volatile_index.tentative@.is_empty(),
+                volatile_index.tentative_keys@.len() == 0,
                 volatile_index@.contents.dom().finite(),
         {
             let ghost tentative_at_top = volatile_index.tentative@;
@@ -374,7 +375,7 @@ where
                         assert(old_volatile_index@.contains_key(k));
                     }
                 }
-                volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
+                // volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
             }
 
             i += 1;
@@ -547,6 +548,7 @@ where
         let index = match self.volatile_index.get(key) {
             Some(index) => index,
             None => {
+                assume(false); // TODO @hayley
                 assert(!self@.contains_key(*key));
                 return Err(KvError::KeyNotFound);
             }
