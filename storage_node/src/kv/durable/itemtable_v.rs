@@ -1077,6 +1077,9 @@ verus! {
                     )
                 } ==> #[trigger] subregion.is_writable_relative_addr(addr),
                 old(self).free_list().disjoint(old(self).tentative_valid_indices()),
+                // we have not yet made any modifications to the subregion
+                subregion.initial_subregion_view() == subregion.view(old::<&mut _>(wrpm_region)),
+                subregion.initial_region_view() == old::<&mut _>(wrpm_region)@,
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
@@ -1220,8 +1223,20 @@ verus! {
             let crc: u64 = calculate_crc(item);
 
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
+            assert(wrpm_region@.committed() == old(wrpm_region)@.committed()) by {
+                lemma_writing_does_not_change_committed_view(subregion.view(old::<&mut _>(wrpm_region)), crc_addr as int, crc.spec_to_bytes());
+                subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(wrpm_region);
+            }
+            
+            let ghost cur_wrpm = *wrpm_region;
+            assert(subregion.view(&cur_wrpm).committed() == subregion.initial_subregion_view().committed());
+
             // write the item itself
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
+            assert(wrpm_region@.committed() == cur_wrpm@.committed()) by {
+                lemma_writing_does_not_change_committed_view(subregion.view(&cur_wrpm), item_addr as int, item.spec_to_bytes());
+                subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(wrpm_region);
+            }
 
             // Add this item to the outstanding item map
             self.outstanding_item_create(free_index, *item, Ghost(overall_metadata));

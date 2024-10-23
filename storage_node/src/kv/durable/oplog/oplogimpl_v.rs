@@ -1534,6 +1534,8 @@ verus! {
             assert(old_log_ops is Some);
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
+
+            assert(log_wrpm@.committed() == old(log_wrpm)@.committed());
         }
         
         Ok(())

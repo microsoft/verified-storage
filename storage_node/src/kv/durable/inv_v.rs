@@ -523,4 +523,28 @@ verus! {
             }
         }
     }
+
+    pub proof fn lemma_writing_does_not_change_committed_view(
+        pm: PersistentMemoryRegionView,
+        addr: int,
+        bytes: Seq<u8>,
+    )
+        requires 
+            0 <= addr <= addr + bytes.len() <= pm.len(),
+            // pm.no_outstanding_writes_in_range(addr, addr + bytes.len())
+        ensures 
+            ({
+                let new_pm = pm.write(addr, bytes);
+                pm.committed() == new_pm.committed()
+            })
+    {
+        let new_pm = pm.write(addr, bytes);
+        assert(forall |i: int| 0 <= i < pm.len() ==>
+            new_pm.state[i].state_at_last_flush == #[trigger] pm.state[i].state_at_last_flush);
+        assert(forall |i: int| 0 <= i < new_pm.len() ==>
+            #[trigger] new_pm.state[i].state_at_last_flush == new_pm.committed()[i]);
+        assert(forall |i: int| 0 <= i < pm.len() ==>
+            #[trigger] pm.state[i].state_at_last_flush == pm.committed()[i]);
+        assert(pm.committed() == new_pm.committed());
+    }
 }

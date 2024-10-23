@@ -5439,6 +5439,7 @@ verus! {
                     old(self).condition_preserved_by_subregion_masks(),
                 ),
                 old(self).tentative_view() is Some,
+                item_table_subregion.view(&old(self).wrpm) == item_table_subregion.initial_subregion_view(),
             ensures 
                 self.inv(),
                 self.wrpm.inv(),

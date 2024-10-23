@@ -602,6 +602,7 @@ impl UntrustedLogImpl {
     }
 
     // This lemma proves that updating the inactive metadata and crc is crash safe.
+    #[verifier::rlimit(15)] // TODO @hayley
     proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_perm<Perm>(
         self,
         old_pm: PersistentMemoryRegionView,
@@ -983,6 +984,7 @@ impl UntrustedLogImpl {
                     )
                     &&& metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, self.info)
                     &&& metadata_types_set(wrpm_region@.committed(), log_start_addr as nat)
+                    &&& wrpm_region@.committed() == old(wrpm_region)@.committed()
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& wrpm_region@ == old(wrpm_region)@
@@ -1048,6 +1050,7 @@ impl UntrustedLogImpl {
                 lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
                 self.lemma_tentatively_append_is_crash_safe(*wrpm_region, log_start_addr as nat, log_size as nat, 
                     write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
+                lemma_writing_does_not_change_committed_view(wrpm_region@, log_area_start_addr + write_addr, bytes_to_append@);
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
         }
@@ -1083,6 +1086,7 @@ impl UntrustedLogImpl {
                     lemma_tentatively_append(wrpm_region@, bytes_to_append@, log_start_addr as nat, log_size as nat, self.info, self.state@);
                     self.lemma_tentatively_append_is_crash_safe(*wrpm_region, log_start_addr as nat, log_size as nat, 
                         write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
+                    lemma_writing_does_not_change_committed_view(wrpm_region@, log_area_start_addr + write_addr, bytes_to_append@);
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
             }
@@ -1129,6 +1133,10 @@ impl UntrustedLogImpl {
                             extract_bytes(bytes_to_append@, max_len_without_wrapping as nat, (bytes_to_append@.len() - max_len_without_wrapping) as nat), 
                             log_start_addr as nat, log_size as nat);
                     }
+
+                    lemma_writing_does_not_change_committed_view(wrpm_region@, log_area_start_addr + write_addr, bytes_to_append@.subrange(0, max_len_without_wrapping as int));
+                    let updated_wrpm = wrpm_region@.write(log_area_start_addr + write_addr, bytes_to_append@.subrange(0, max_len_without_wrapping as int));
+                    lemma_writing_does_not_change_committed_view(updated_wrpm, log_area_start_addr as int, bytes_to_append@.subrange(max_len_without_wrapping as int, bytes_to_append.len() as int));
                 }
                 wrpm_region.write(log_area_start_addr + write_addr, slice_subrange(bytes_to_append, 0, max_len_without_wrapping as usize), Tracked(perm));
                 wrpm_region.write(log_area_start_addr, slice_subrange(bytes_to_append, max_len_without_wrapping as usize, bytes_to_append.len()), Tracked(perm));
@@ -1203,6 +1211,7 @@ impl UntrustedLogImpl {
                     let state = old(self)@;
                     &&& offset == state.head + state.log.len() + state.pending.len()
                     &&& self@ == old(self)@.tentatively_append(bytes_to_append@)
+                    &&& wrpm_region@.committed() == old(wrpm_region)@.committed()
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& self@ == old(self)@
