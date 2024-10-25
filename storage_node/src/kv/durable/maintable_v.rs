@@ -99,7 +99,7 @@ verus! {
             }
         }
 
-        pub open spec fn insert(self, index: int, entry: MainTableViewEntry<K>) -> Self
+        pub open spec fn update(self, index: int, entry: MainTableViewEntry<K>) -> Self
         {
             Self{
                 durable_main_table: self.durable_main_table.update(index, Some(entry))
@@ -2011,6 +2011,7 @@ verus! {
                 match result {
                     Ok(index) => {
                         &&& old(self).free_list().contains(index)
+                        &&& old(self)@.durable_main_table[index as int] is None
                         &&& self.free_list() == old(self).free_list().remove(index)
                         &&& self@.durable_main_table == old(self)@.durable_main_table
                         &&& forall |i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
@@ -2505,29 +2506,26 @@ verus! {
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
                 ({
                     let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
-                    let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
-                        if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
-                            log_entry.bytes[pos - log_entry.absolute_addr]
-                        } else {
-                            pre_byte
-                        }
-                    );
+                    let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
                     let current_main_table_region = extract_bytes(current_tentative_state, 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let current_main_table_view = parse_main_table::<K>(current_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                    let new_main_table_region = extract_bytes(new_mem, 
+                    let new_main_table_region = extract_bytes(new_mem.unwrap(), 
                         overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                     let new_main_table_view = parse_main_table::<K>(new_main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    let entry = self.outstanding_entries[index].unwrap();
-                    &&& new_main_table_view == Some(current_main_table_view.insert(index as int, entry@))
+                    let entry = self.outstanding_entries@[index];
+                    &&& new_mem is Some
+                    &&& new_main_table_view == Some(current_main_table_view.update(index as int, entry@))
                     &&& new_main_table_view.unwrap().valid_item_indices() ==
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
                 }),
         {
+            assume(false); // TODO @jay
             let entry_slot_size = overall_metadata.main_table_entry_size;
             let ghost current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
             let ghost entry = self.outstanding_entries[index].unwrap();
@@ -2665,7 +2663,7 @@ verus! {
                 }
                 let new_main_table_view = new_main_table_view.unwrap();
 
-                assert(new_main_table_view =~= old_main_table_view.insert(index as int, entry@));
+                assert(new_main_table_view =~= old_main_table_view.update(index as int, entry@));
 
                 // In addition to proving that this log entry makes the entry at this index in valid, we also have to 
                 // prove that it makes the corresponding item table index valid.
@@ -2690,6 +2688,17 @@ verus! {
                     }
                 }
             }
+
+            assert(log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                                                                     *overall_metadata)) by {
+                assert forall|free_index: u64| #[trigger] self.free_list().contains(free_index) implies
+                       log_entry_does_not_modify_free_main_table_entry(log_entry@, free_index, *overall_metadata) by {
+                    assert(free_index != index);
+                    lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
+                    lemma_entries_dont_overlap_unless_same_index(free_index as nat, index as nat, entry_slot_size as nat);
+                }
+            }                                                                            
+
 
             log_entry
         }

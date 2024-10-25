@@ -66,10 +66,14 @@ verus! {
                 durable_item_table: self.durable_item_table.update(index, None)
             }
         }
-
-        pub open spec fn insert(self, index: int, item: I) -> Self {
-            Self {
-                durable_item_table: self.durable_item_table.update(index, Some(item))
+        
+        pub open spec fn update(self, index: int, item: I) -> Self
+        {
+            if index < 0 || index >= self.len() {
+                self
+            }
+            else {
+                Self{ durable_item_table: self.durable_item_table.update(index, Some(item)) }
             }
         }
 

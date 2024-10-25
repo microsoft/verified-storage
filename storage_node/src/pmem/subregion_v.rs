@@ -1522,4 +1522,13 @@ pub proof fn lemma_subregion_view_can_crash_as_subrange(
     }
 }
 
+pub proof fn lemma_subregion_commutes_with_flush(v: PersistentMemoryRegionView, start: nat, len: nat)
+    requires
+        v.len() >= start + len,
+    ensures
+        get_subregion_view(v, start, len).flush().committed() == extract_bytes(v.flush().committed(), start, len)
+{
+    assert(get_subregion_view(v, start, len).flush().committed() =~= extract_bytes(v.flush().committed(), start, len));
+}
+
 }
