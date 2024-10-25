@@ -73,6 +73,14 @@ verus! {
         exists|j: int| 0 <= j < key_index_info.len() && (#[trigger] key_index_info[j]).2 == idx
     }
 
+    // An `OutstandingItem` represents an update to the item table that has not 
+    // yet been committed. Unlike the in the main table, we never need to refer
+    // to the contents of deleted items, so we only have to keep track of 
+    // the item itself for newly-created items.
+    // TODO: the current PM model does not allow reading uncommitted bytes,
+    // but if that changes in the future we don't have to store the item
+    // in the created case either, since items are always tentatively
+    // written to their final locations (unlike main table entries);
     #[verifier::reject_recursive_types(I)]
     pub enum OutstandingItem<I> {
         Created(I),
@@ -80,6 +88,11 @@ verus! {
         Deleted,
     }
 
+    // `OutstandingItems` maintains a *runtime* hashmap of main table
+    // indexes to the most recent update to that index. This is used
+    // to handle operations on entries that have already been updated in 
+    // the current transaction and to help reason about pending 
+    // changes.
     #[verifier::reject_recursive_types(I)]
     pub struct OutstandingItems<I> {
         pub contents: HashMap<u64, OutstandingItem<I>>,
@@ -139,8 +152,11 @@ verus! {
         pub entry_size: u64,
         pub num_keys: u64,
         pub free_list: Vec<u64>,
+        // `modified_indices` is equivalent to the domain of `outstanding_items`
+        // (this is part of the item table invariant). We maintain it as a separate 
+        // vector to make it easier to iterate over the modified entries 
         pub modified_indices: Vec<u64>,
-        pub outstanding_items: OutstandingItems<I>, // TODO: when we can read outstanding bytes, this doesn't need to store I
+        pub outstanding_items: OutstandingItems<I>,
         pub state: Ghost<DurableItemTableView<I>>,
         pub _phantom: Ghost<Option<K>>,
     }
@@ -191,6 +207,10 @@ verus! {
             })
         }
 
+        // The tentative view of an item table is its durable view with any outstanding entries
+        // applied. We maintain as an invariant in kvimpl_v.rs that this is equivalent 
+        // to the tentative view obtained by installing the current log and parsing the item table
+        // based on the valid item indices from the tentative main table.
         pub open spec fn tentative_view(self) -> DurableItemTableView<I>
         {
             DurableItemTableView {
@@ -376,6 +396,8 @@ verus! {
             }
         }
 
+        // This function updates `outstanding_items and `modified_indices` to 
+        // reflect a newly-created item
         exec fn outstanding_item_create(&mut self, index: u64, item: I, Ghost(overall_metadata): Ghost<OverallMetadata>) 
             requires 
                 // since we've removed this index from the free list, opaquable_inv 
@@ -519,6 +541,8 @@ verus! {
             }
         }
 
+        // This function updates `outstanding_items` and `modified_indices` to 
+        // reflect a deleted item
         exec fn outstanding_item_delete(&mut self, index: u64, Ghost(overall_metadata): Ghost<OverallMetadata>)
             requires
                 old(self).opaquable_inv(overall_metadata, old(self).tentative_valid_indices()),

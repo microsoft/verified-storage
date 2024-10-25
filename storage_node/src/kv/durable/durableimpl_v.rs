@@ -427,6 +427,11 @@ verus! {
             &&& self.tentative_item_table_valid()
         }
 
+        // This invariant relates the main table and item table's own tentative views
+        // to those obtained from tentative_main_table() and tentative_item_table(). 
+        // It also ensures that the sets of valid item indices for the durable and 
+        // and tentative states match. This invariant is part of valid() but not inv()
+        // because it may be broken during a tentative operation.
         pub closed spec fn tentative_view_inv(self) -> bool 
         {
             &&& self.tentative_main_table() == self.main_table.tentative_view()
@@ -494,30 +499,30 @@ verus! {
                 self.tentative_view_inv(),
         {}
 
-        pub closed spec fn pending_alloc_inv(self) -> bool
-        {
-            let durable_state_bytes = self.wrpm@.committed();
-            let tentative_state_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
-                self.log@.commit_op_log().physical_op_list);
-            if let Some(tentative_state_bytes) = tentative_state_bytes {
-                let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-                let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
-                    self.overall_metadata.main_table_entry_size);
-                let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
-                    self.overall_metadata.main_table_entry_size);
-                &&& durable_main_table_view matches Some(durable_main_table_view)
-                &&& tentative_main_table_view matches Some(tentative_main_table_view)
-                &&& self.main_table.pending_alloc_inv(
-                        durable_main_table_region,
-                        tentative_main_table_region,
-                        self.overall_metadata
-                    )
-                &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
-            } else {
-                false
-            } 
-        }
+        // pub closed spec fn pending_alloc_inv(self) -> bool
+        // {
+        //     let durable_state_bytes = self.wrpm@.committed();
+        //     let tentative_state_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
+        //         self.log@.commit_op_log().physical_op_list);
+        //     if let Some(tentative_state_bytes) = tentative_state_bytes {
+        //         let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+        //         let tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
+        //         let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
+        //             self.overall_metadata.main_table_entry_size);
+        //         let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
+        //             self.overall_metadata.main_table_entry_size);
+        //         &&& durable_main_table_view matches Some(durable_main_table_view)
+        //         &&& tentative_main_table_view matches Some(tentative_main_table_view)
+        //         &&& self.main_table.pending_alloc_inv(
+        //                 durable_main_table_region,
+        //                 tentative_main_table_region,
+        //                 self.overall_metadata
+        //             )
+        //         &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
+        //     } else {
+        //         false
+        //     } 
+        // }
 
         pub closed spec fn transaction_committed(self) -> bool
         {
@@ -3016,9 +3021,9 @@ verus! {
             assert(old_self.item_table.free_list().contains(item_index));
             assert(!old_tentative_main_table_parsed.valid_item_indices().contains(item_index));
             assert(!old_self.main_table@.valid_item_indices().contains(item_index));
-            assert(old_self.main_table.pending_alloc_inv(old_durable_main_table_bytes,
-                                                         old_tentative_main_table_bytes,
-                                                         overall_metadata));
+            // assert(old_self.main_table.pending_alloc_inv(old_durable_main_table_bytes,
+            //                                              old_tentative_main_table_bytes,
+            //                                              overall_metadata));
             assert forall|idx: u64| idx < old_tentative_main_table_parsed.len() implies
                    (#[trigger] old_tentative_main_table_parsed.durable_main_table[idx as int] matches Some(e) ==>
                     e.entry.item_index != item_index) by {
@@ -3513,7 +3518,7 @@ verus! {
         )
             requires
                 old_self.inv(),
-                old_self.pending_alloc_inv(),
+                // old_self.pending_alloc_inv(),
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
@@ -3997,7 +4002,7 @@ verus! {
         )
             requires
                 old_self.inv(),
-                old_self.pending_alloc_inv(),
+                // old_self.pending_alloc_inv(),
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
@@ -4377,7 +4382,7 @@ verus! {
         )
         requires
             old_self.inv(),
-            old_self.pending_alloc_inv(),
+            // old_self.pending_alloc_inv(),
             old_self.tentative_item_table_valid(),
             pre_append_self.inv(),
             ({
@@ -4710,7 +4715,7 @@ verus! {
         ) -> (result: Result<(u64, u64), KvError<K>>)
             requires
                 old(self).inv(),
-                old(self).pending_alloc_inv(),
+                // old(self).pending_alloc_inv(),
                 !old(self).transaction_committed(),
                 old(self).tentative_view() is Some,
                 forall|e| #[trigger] old(self).tentative_view().unwrap().contents.contains_value(e) ==> e.key != key,
@@ -6385,7 +6390,7 @@ verus! {
                 old_self@.contains_key(index as int),
                 !old_self.transaction_committed(),
                 !self.transaction_committed(),
-                old_self.pending_alloc_inv(),
+                // old_self.pending_alloc_inv(),
                 forall |s| #[trigger] old_self.wrpm@.can_crash_as(s) ==> 
                     Self::physical_recover(s, old_self.version_metadata, self.overall_metadata) == Some(old_self@),
                 self.version_metadata == old_self.version_metadata,

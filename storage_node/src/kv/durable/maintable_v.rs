@@ -147,6 +147,10 @@ verus! {
         }
     }
 
+    // An `OutstandingEntry` represents an update to the main table 
+    // that has not yet been committed. We keep track of the last-written
+    // contents of each entry along with an `EntryStatus` enum indicating the 
+    // type of the last operation on that entry.
     #[verifier::reject_recursive_types(K)]
     pub struct OutstandingEntry<K> 
     {
@@ -166,6 +170,11 @@ verus! {
         }
     }
 
+    // `OutstandingEntries` maintains a *runtime* hashmap of main table
+    // indexes to the most recent update to that index. This is used
+    // to handle operations on entries that have already been updated in 
+    // the current transaction and to help reason about pending 
+    // changes.
     #[verifier::reject_recursive_types(K)]
     pub struct OutstandingEntries<K> 
     {
@@ -227,8 +236,11 @@ verus! {
             self.contents.get(&i)
         }
 
-        // returns the status to be used when recording an update to 
-        // the entry at index
+        // Returns the status to be used when recording an update to 
+        // the entry at `index`. If we create and then update an entry in 
+        // the same transaction, we want to keep the `Created` status
+        // so the allocator is updated properly; otherwise, it becomes
+        // `Updated`.
         pub open spec fn get_update_status(self, index: u64) -> EntryStatus 
         {
             if self@.contains_key(index) {
@@ -238,6 +250,11 @@ verus! {
             }
         }
 
+        // Returns the status to be used when recording deletion of an
+        // entry at `index`. Deleting a preexisting entry is slightly different
+        // from creating and deleting the same entry within a transaction
+        // because the free list has to be handled differently, so we
+        // differentiate between them with the entry status.
         pub open spec fn get_delete_status(self, index: u64) -> EntryStatus 
         {
             if self@.contains_key(index) && self@[index].status is Created {
@@ -252,9 +269,12 @@ verus! {
     pub struct MainTable<K> {
         pub main_table_entry_size: u32,
         pub main_table_free_list: Vec<u64>,
-        pub modified_indices: Vec<u64>,
         pub state: Ghost<MainTableView<K>>,
         pub outstanding_entries: OutstandingEntries<K>,
+        // `modified_indices` is equivalent to the domain of `outstanding_entries`
+        // (this is part of the main table invariant). We maintain it as a separate 
+        // vector to make it easier to iterate over the modified entries 
+        pub modified_indices: Vec<u64>,
     }
 
     pub open spec fn subregion_grants_access_to_main_table_entry<K>(
@@ -278,6 +298,9 @@ verus! {
             self.state@
         }
 
+        // The tentative view of a main table is its durable view with any outstanding entries
+        // applied. We maintain as an invariant in kvimpl_v.rs that this is equivalent 
+        // to the tentative view obtained by installing the current log and parsing the main table.
         pub open spec fn tentative_view(self) -> MainTableView<K>
         {
             Self::tentative_view_from_outstanding_entries(self@, self.outstanding_entries@)
@@ -347,6 +370,8 @@ verus! {
             })
         }
 
+        // This function updates `outstanding_entries` and `modified_indices` to 
+        // reflect the creation of a new entry
         pub exec fn outstanding_entry_create(&mut self, index: u64, entry: ListEntryMetadata, key: K)
             requires
                 old(self).outstanding_entries.inv(),
@@ -371,6 +396,8 @@ verus! {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
         }
 
+        // This function updates `outstanding_entries` and `modified_indices` to 
+        // reflect an update to an existing entry (e.g., an update to its item index)
         pub exec fn outstanding_entry_update(&mut self, index: u64, entry: ListEntryMetadata, key: K, overall_metadata: OverallMetadata)
             requires 
                 old(self).outstanding_entries.inv(),
@@ -510,6 +537,8 @@ verus! {
 
         }
 
+        // This function updates `outstanding_entries` and `modified_indices` to 
+        // reflect a deletion operation
         // It's kind of janky to pass in the entry and key that we're deleting, but we need 
         // to keep track of them for deallocations later, so presumably the caller has 
         // already read them anyway.
@@ -735,21 +764,6 @@ verus! {
             &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> #[trigger] self.modified_indices@.contains(idx)
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
-        }
-
-        pub open spec fn pending_alloc_inv(
-            self,
-            current_durable_state: Seq<u8>,
-            tentative_state: Seq<u8>,
-            overall_metadata: OverallMetadata
-        ) -> bool 
-        {
-            let current_view = parse_main_table::<K>(current_durable_state, overall_metadata.num_keys,
-                                                     overall_metadata.main_table_entry_size);
-            let tentative_view = parse_main_table::<K>(tentative_state, overall_metadata.num_keys,
-                                                       overall_metadata.main_table_entry_size);
-            &&& current_view matches Some(current_view)
-            &&& tentative_view matches Some(tentative_view)
         }
 
         pub open spec fn valid(self, pm: PersistentMemoryRegionView, overall_metadata: OverallMetadata) -> bool
@@ -2677,76 +2691,6 @@ verus! {
                     assert(new_entries[j].unwrap().item_index() == old_entries[j].unwrap().item_index());
                 }
             }
-        }
-
-        // This lemma establishes some useful facts for create_update_item_index_log_entry.
-        // There are some unnecessary preconditions and lines in the body, but removing them 
-        // seems to increase the caller's verif time to the point where it times out. 
-        // TODO: figure out why this is and fix it.
-        proof fn lemma_index_is_not_pending_alloc_or_dealloc<PM>(
-            self,
-            subregion: PersistentMemorySubregion,
-            pm_region: &PM,
-            index: u64,
-            overall_metadata: OverallMetadata,
-            current_tentative_state: Seq<u8>,
-        )
-            where 
-                PM: PersistentMemoryRegion,
-            requires 
-                subregion.inv(pm_region),
-                self.inv(subregion.view(pm_region), overall_metadata),
-                subregion.len() == overall_metadata.main_table_size,
-                subregion.start() == overall_metadata.main_table_addr,
-                overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
-                0 <= index < self@.len(),
-                pm_region@.len() == overall_metadata.region_size,
-                // the index must refer to a currently-valid entry in the current durable table
-                self@.durable_main_table[index as int] is Some,
-                overall_metadata.main_table_entry_size ==
-                    ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-                overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
-                    <= overall_metadata.region_size <= u64::MAX,
-                ({
-                    let main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let main_table_view = parse_main_table::<K>(main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    &&& self.pending_alloc_inv(subregion.view(pm_region).committed(), main_table_region, overall_metadata)
-                    &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.inv(overall_metadata)
-
-                    // the index should not be deallocated in the tentative view
-                    &&& main_table_view.durable_main_table[index as int] is Some
-                }),
-                current_tentative_state.len() == overall_metadata.region_size,
-            ensures 
-                ({
-                    let subregion_view = subregion.view(pm_region);
-                    let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-                    let tentative_main_table_region = extract_bytes(current_tentative_state, 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-                    let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
-                        overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
-                    &&& subregion_view.committed() == extract_bytes(pm_region@.committed(), 
-                        overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat)
-                    &&& current_main_table_view == Some(self@)
-                })
-        {
-            let subregion_view = subregion.view(pm_region);
-            let current_main_table_view = parse_main_table::<K>(subregion_view.committed(),
-                overall_metadata.num_keys, overall_metadata.main_table_entry_size);
-            assert(subregion_view.committed() == extract_bytes(pm_region@.committed(), 
-                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat));
-            assert(subregion_view.can_crash_as(subregion_view.committed()));
-            assert(current_main_table_view == Some(self@));
-            
-            // these are obviously unnecessary but removing them impacts the *caller*'s verif performance.
-            let tentative_main_table_region = extract_bytes(current_tentative_state, 
-                overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
-            let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region,
-                overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
         }
 
         #[verifier::rlimit(25)] // TODO @hayley
