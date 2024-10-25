@@ -9,7 +9,6 @@ use vstd::std_specs::clone::*;
 use vstd::prelude::*;
 
 use crate::kv::kvimpl_t::*;
-use crate::kv::durable::commonlayout_v::EntryStatus;
 use crate::kv::volatile::volatilespec_v::*;
 use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
@@ -19,6 +18,7 @@ verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;
 
+#[derive(Clone)]
 pub struct VolatileKvIndexEntryImpl
 {
     pub header_addr: u64,
@@ -125,22 +125,27 @@ impl VolatileKvIndexEntryImpl
     }
 }
 
-pub struct PendingIndexEntry {
-    pub status: EntryStatus,
-    pub entry: VolatileKvIndexEntryImpl
+pub enum PendingIndexEntry {
+    Created(VolatileKvIndexEntryImpl),
+    Deleted,
 }
 
-impl PendingIndexEntry {
-    pub open spec fn view(self) -> VolatileKvIndexEntry 
-    {
-        self.entry@
-    }
-}
+// pub struct PendingIndexEntry {
+//     pub status: EntryStatus,
+//     pub entry: VolatileKvIndexEntryImpl
+// }
+
+// impl PendingIndexEntry {
+//     pub open spec fn view(self) -> VolatileKvIndexEntry 
+//     {
+//         self.entry@
+//     }
+// }
 
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + Clone + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
     pub tentative: HashMap<K, PendingIndexEntry>, // TODO prob need to differentiate deleted vs created?
@@ -150,7 +155,7 @@ where
 
 impl<K> VolatileKvIndex<K> for VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + Clone + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     open spec fn view(&self) -> VolatileKvIndexView<K>
     {
@@ -167,10 +172,10 @@ where
     open spec fn tentative_view(&self) -> VolatileKvIndexView<K>
     {
         let outstanding_keys_to_add = self.tentative@.dom().filter(
-            |k| self.tentative@[k].status is Created
+            |k| self.tentative@[k] is Created
         );
         let outstanding_keys_to_delete = self.tentative@.dom().filter(
-            |k| self.tentative@[k].status is Deleted
+            |k| self.tentative@[k] is Deleted
         );
         // we don't do anything with keys that were created AND deleted in this 
         // transaction 
@@ -179,7 +184,12 @@ where
             contents: Map::new(
                 |k| keys.contains(k),
                 |k| if self.tentative@.contains_key(k) {
-                        self.tentative@[k]@
+                        if let PendingIndexEntry::Created(entry) = self.tentative@[k] {
+                            entry@
+                        } else {
+                            // this can't happen, but we have to return something
+                            arbitrary()
+                        }
                     } else {
                         self.m@[k]@
                     }
@@ -203,12 +213,12 @@ where
         &&& self.tentative@.dom() == self.tentative_keys@.to_set()
         &&& self.tentative_keys@.no_duplicates()
         &&& forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
-            ||| self.tentative@[k].status is Created 
-            ||| self.tentative@[k].status is Deleted
+            ||| self.tentative@[k] is Created 
+            ||| self.tentative@[k] is Deleted
         }
         // if a key was deleted (but not created) in the current transaction,
         // it must already exist
-        &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k].status is Deleted ==>
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Deleted ==>
                 self.m@.contains_key(k)
     }
 
@@ -276,10 +286,7 @@ where
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
         assume(*key == key_clone2); // and this?
 
-        let new_entry = PendingIndexEntry {
-            status: EntryStatus::Created,
-            entry,
-        };
+        let new_entry = PendingIndexEntry::Created(entry);
         
         if !self.tentative.contains_key(key) {
             assert(!self.tentative_keys@.contains(*key));
@@ -301,11 +308,11 @@ where
         assert(self.tentative_keys@.no_duplicates());
 
         assert(forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
-            ||| self.tentative@[k].status is Created 
-            ||| self.tentative@[k].status is Deleted
+            ||| self.tentative@[k] is Created 
+            ||| self.tentative@[k] is Deleted
         });
 
-        assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k].status is Deleted ==>
+        assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Deleted ==>
             self.m@.contains_key(k));
 
         Ok(())
@@ -334,13 +341,9 @@ where
     {
         match self.tentative.get(key) {
             Some(entry) => {
-                match entry.status {
-                    EntryStatus::Created => Some(entry.entry.header_addr),
-                    EntryStatus::Deleted => None,
-                    _ => {
-                        assert(false);
-                        None
-                    }
+                match entry {
+                    PendingIndexEntry::Created(entry) => Some(entry.header_addr),
+                    PendingIndexEntry::Deleted => None,
                 }
             }
             None => {
@@ -369,47 +372,101 @@ where
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
     {
-        assume(false);
-
+        assume(false); // TODO @hayley
+        
         assert(self@.valid()) by {
             self.lemma_valid_implies_view_valid();
         }
 
-        // TODO @hayley THURSDAY
-        // If the entry already exists:
-        //   - if it's only in the committed index, create a pending delete 
-        //   - if it's in tentative with status Created, remove it 
-        //     from the tentative map & list
-        //   - if it's in tentative with status Deleted, return error
-        //   - if none of these are true, return error 
+        broadcast use vstd::std_specs::hash::group_hash_axioms;
 
-        // let old_entry = if self.tentative.contains_key(key) {
-        //     self.tentative.get(key).unwrap()
-        // } else if self.m.contains_key(key) {
-        //     self.m.get(key).unwrap()
-        // } else {
-        //     return Err(KvError::KeyNotFound);
-        // }
+        if self.tentative.contains_key(key) {
+            let entry = self.tentative.get(key).unwrap();
+            match entry {
+                PendingIndexEntry::Created(entry) => {
+                    let header_addr = entry.header_addr;
+                    // The key has been tentatively created. It doesn't 
+                    // exist durably yet, so we'll just remove it from
+                    // the tentative list
+                    
+                    // also find the index of the key we want to remove.
+                    // it's easier to remove the key outside of the loop.
+                    let mut i = 0;
+                    while i < self.tentative_keys.len()
+                        invariant
+                            old(self).tentative_keys@ == self.tentative_keys@,
+                            forall |j: int| 0 <= j < i ==> self.tentative_keys@[j] != *key,
+                        ensures 
+                            ({
+                                ||| i >= self.tentative_keys@.len()
+                                ||| self.tentative_keys@[i as int] == key
+                            })
+                    {
+                        let current_key = &self.tentative_keys[i];
+                        if current_key.key_eq(key) {
+                            assert(self.tentative_keys@[i as int] == key);
+                            break;
+                        }
+                        i += 1;
+                    }
+                    proof {
+                        if i >= self.tentative_keys@.len() {
+                            assert(false);
+                        }
+                        assert(i < self.tentative_keys@.len());
+                    }
+                    self.tentative.remove(key);
+                    self.tentative_keys.remove(i);
 
-        // let delete_entry = PendingIndexEntry {
-        //     status: EntryStatus::Deleted
-        // }
+                    proof {
+                        assert(self.tentative_keys@ == old(self).tentative_keys@.remove(i as int));
 
-        // if !self.tentative.contains_key(key) {
-        //     assert(!self.tentative_keys@.contains(*key));
-        //     // if tentative doesn't already contain the key,
-        //     // it must have been deleted and re-created in this transaction.
-        //     // we only add it to tentative_keys if it's not already in there
-        //     self.tentative_keys.push(key_clone2);
-        //     assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
-        //     assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
-        //     assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
-        // } else {
-        //     assert(self.tentative_keys@.contains(*key));
-        // }
+                        assert(old(self).tentative_keys@[i as int] == key);
 
-        // result
-        Err(KvError::NotImplemented)
+                        assert(forall |k| self.tentative_keys@.contains(k) ==> old(self).tentative_keys@.contains(k));
+                        assert(self.tentative_keys@.len() == old(self).tentative_keys@.len() - 1);
+                        assert(!self.tentative_keys@.contains(*key));
+
+                        // might need to be more specific about the exact contents and indices here?
+                        assert(forall |k| old(self).tentative_keys@.contains(k) && k != key ==> 
+                            self.tentative_keys@.contains(k));
+
+                        assert(self.tentative@.dom() == old(self).tentative@.dom().remove(*key));
+                        assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
+                        // assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
+                        // assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
+
+                        assert(self.tentative_view() == old(self).tentative_view().remove(*key)); 
+                        assert(self.valid());
+                    }
+
+                    
+                    Ok(header_addr)
+                }
+                // If the key has a tentative entry but it's not created,
+                // it can't be deleted.
+                _ => return Err(KvError::KeyNotFound)
+            }
+        } else if self.m.contains_key(key) {
+            // The key is durable but has not been modified yet in 
+            // this transaction. Record that it has been deleted
+            // with a new tentative map entry
+            let entry = self.m.get(key).unwrap();
+            let new_pending_entry = PendingIndexEntry::Deleted;
+            let key_clone = key.clone();
+            let key_clone2 = key.clone();
+            assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+            assume(*key == key_clone2);
+            self.tentative.insert(key_clone, new_pending_entry);
+            self.tentative_keys.push(key_clone2);
+
+            assume(false); // TODO @hayley
+            assume(self.tentative_view() == old(self).tentative_view().remove(*key));
+            assert(self.valid());
+            Ok(entry.header_addr)
+        } else {
+            Err(KvError::KeyNotFound)
+        }
     }
 
     // trims the volatile index for the list associated with the key
@@ -434,7 +491,7 @@ where
 
 impl<K> VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + Clone + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     proof fn lemma_valid_implies_view_valid(&self)
         requires
@@ -550,8 +607,8 @@ where
                 self.tentative@.dom() == self.tentative_keys@.to_set(),
                 self.tentative_keys@.no_duplicates(),
                 forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
-                    ||| self.tentative@[k].status is Created 
-                    ||| self.tentative@[k].status is Updated
+                    ||| self.tentative@[k] is Created 
+                    ||| self.tentative@[k] is Deleted
                 },
         {
             index += 1;

@@ -80,6 +80,20 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
     core::marker::PhantomData::default()
 }
 
+// This trait helps us check equality of keys
+// Keys need to provide an impl with an external
+// body implemntation of key_eq if the key type
+// is a non-SMT equality type.
+// TODO: We may also need to provide a specification 
+// of `clone` based on the assumption that 
+// the cloned key is equal to the original key
+pub trait KeyEq : Eq {
+    fn key_eq(&self, other: &Self) -> (b: bool) 
+        ensures 
+            b == (self == other)
+    ;
+}
+
 // TODO: should the constructor take one PM region and break it up into the required sub-regions,
 // or should the caller provide it split up in the way that they want?
 #[verifier::reject_recursive_types(K)]
@@ -87,7 +101,7 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 pub struct KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
@@ -99,7 +113,7 @@ where
 impl<PM, K, I, L> KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {

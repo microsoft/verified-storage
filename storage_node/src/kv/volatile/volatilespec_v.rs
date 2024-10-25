@@ -378,12 +378,16 @@ where
             self.valid(),
             match result {
                 Ok(header_addr) => {
-                    &&& old(self)@.contains_key(*key)
-                    &&& self@ == old(self)@.remove(*key)
-                    &&& header_addr == old(self)@[*key].unwrap().header_addr
-                    &&& self.num_tentative_entries() > 0
+                    &&& old(self).tentative_view().contains_key(*key)
+                    &&& self.tentative_view() == old(self).tentative_view().remove(*key)
+                    &&& header_addr == old(self).tentative_view()[*key].unwrap().header_addr
+                    // TODO @hayley is this postcondition necessary?
+                    // &&& self.num_tentative_entries() > 0 // this isn't true -- we might remove one
                 },
-                Err(KvError::KeyNotFound) => !old(self)@.contains_key(*key),
+                Err(KvError::KeyNotFound) => {
+                    &&& self == old(self)
+                    &&& !old(self).tentative_view().contains_key(*key)
+                }
                 _ => false,
             }
     ;

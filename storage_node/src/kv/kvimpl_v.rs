@@ -43,7 +43,7 @@ verus! {
 pub struct UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + std::fmt::Debug,
     I: PmCopy + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
     // V: VolatileKvIndex<K>,
@@ -56,7 +56,7 @@ where
 impl<PM, K, I, L> UntrustedKvStoreImpl<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
     // V: VolatileKvIndex<K>,
