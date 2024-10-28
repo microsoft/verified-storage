@@ -2466,7 +2466,6 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(20)] // TODO @jay
         proof fn lemma_writable_mask_for_main_table_suitable_for_creating_subregion(self, perm: &Perm)
             requires
                 self.inv(),
