@@ -4027,6 +4027,11 @@ verus! {
                 ),
                 self_before_main_table_create.inv(),
                 self_before_main_table_create.wrpm.constants() == old_self.wrpm.constants(),
+                log_entries_do_not_modify_free_main_table_entries(
+                    self_before_main_table_create.log@.commit_op_log().physical_op_list,
+                    self_before_main_table_create.main_table.free_indices(),
+                    self_before_main_table_create.overall_metadata
+                ),
                 get_subregion_view(self_before_main_table_create.wrpm@, self.overall_metadata.main_table_addr as nat,
                                    self.overall_metadata.main_table_size as nat) ==
                     get_subregion_view(old_self.wrpm@, self.overall_metadata.main_table_addr as nat,
@@ -4150,7 +4155,6 @@ verus! {
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
                 }),
         {
-            assume(false); // TODO @jay
             self.lemma_helper_for_justify_validify_log_entry(old_self, self_before_main_table_create,
                                                              main_table_subregion, main_table_index, item_index,
                                                              list_node_index, key, perm);
@@ -4210,7 +4214,15 @@ verus! {
 
             assert(old_tentative_main_table_parsed is Some);
             let old_tentative_main_table_parsed = old_tentative_main_table_parsed.unwrap();
-            assert(old_current_main_table_parsed is Some);
+            assert(old_current_main_table_parsed == Some(old_self.main_table@)) by {
+                let s = extract_bytes(old_self.wrpm@.committed(), main_table_addr as nat, main_table_size as nat);
+                assert(get_subregion_view(old_self.wrpm@, main_table_addr as nat,
+                                          main_table_size as nat).can_crash_as(s)) by {
+                    lemma_persistent_memory_view_can_crash_as_committed(old_self.wrpm@);
+                    lemma_subregion_view_can_crash_as_subrange(old_self.wrpm@, old_self.wrpm@.committed(),
+                                                               main_table_addr as nat, main_table_size as nat);
+                }
+            }
             let old_current_main_table_parsed = old_current_main_table_parsed.unwrap();
 
             self.lemma_condition_preserved_by_subregion_masks_preserved_after_main_table_subregion_updates(
@@ -4242,17 +4254,6 @@ verus! {
                     assert(index_to_offset(which_entry as nat, main_table_entry_size as nat) <= relative_addr <
                            index_to_offset(which_entry as nat, main_table_entry_size as nat) + main_table_entry_size);
                     assert(which_entry != main_table_index);
-                    // assert(self_before_main_table_create.main_table.outstanding_entry_write_matches_pm_view(
-                    //     get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
-                    //                        main_table_size as nat),
-                    //     which_entry,
-                    //     main_table_entry_size
-                    // ));
-                    // assert(self.main_table.outstanding_entry_write_matches_pm_view(
-                    //     get_subregion_view(self.wrpm@, main_table_addr as nat, main_table_size as nat),
-                    //     which_entry,
-                    //     main_table_entry_size
-                    // ));
                     assert(self.main_table.outstanding_entries[which_entry] ==
                            self_before_main_table_create.main_table.outstanding_entries[which_entry]);
                     broadcast use pmcopy_axioms;
@@ -4265,7 +4266,7 @@ verus! {
                     assert(self_before_main_table_create.wrpm@.state[addr] == self.wrpm@.state[addr]);
                 }
             }
-
+         
             lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
                 self_before_main_table_create.wrpm@.flush().committed(),
                 self.wrpm@.flush().committed(),
