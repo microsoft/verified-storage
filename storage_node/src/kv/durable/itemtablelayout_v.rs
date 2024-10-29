@@ -157,7 +157,7 @@ verus! {
         mem1: Seq<u8>,
         mem2: Seq<u8>,
         num_keys: u64,
-        valid_indices: Set<u64>
+        valid_indices: Set<u64>,
     )
         where 
             I: PmCopy,

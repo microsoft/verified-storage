@@ -279,8 +279,7 @@ pub proof fn lemma_if_memories_differ_in_index_table_their_differences_commute_w
         mem1.len() == mem2.len(),
         mem1.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
         mem1.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
-        forall|addr: int| {
-            &&& #[trigger] trigger_addr(addr)
+        forall|addr: int| #![trigger mem1[addr]] #![trigger mem2[addr]] {
             &&& 0 <= addr < mem1.len()
             &&& !(overall_metadata.item_table_addr <= addr
                 < overall_metadata.item_table_addr + overall_metadata.item_table_size)
@@ -291,10 +290,9 @@ pub proof fn lemma_if_memories_differ_in_index_table_their_differences_commute_w
             let mem1_post = apply_physical_log_entries(mem1, op_log).unwrap();
             let mem2_post = apply_physical_log_entries(mem2, op_log).unwrap();
             &&& mem1_post.len() == mem2_post.len() == mem1.len()
-            &&& forall|addr: int| {
-                    &&& #[trigger] trigger_addr(addr)
-                    &&& 0 <= addr < mem1.len()
-                } ==> mem2_post[addr] ==
+            &&& forall|addr: int| #![trigger mem2_post[addr]]
+                0 <= addr < mem1.len()
+                ==> mem2_post[addr] ==
                          if overall_metadata.item_table_addr <= addr
                              < overall_metadata.item_table_addr + overall_metadata.item_table_size {
                              mem2[addr]
@@ -311,6 +309,34 @@ pub proof fn lemma_if_memories_differ_in_index_table_their_differences_commute_w
     lemma_if_memories_differ_in_index_table_their_differences_commute_with_log_replay(
         mem1, mem2, op_log.drop_last(), overall_metadata
     );
+}                
+
+pub proof fn lemma_index_table_unaffected_by_log_replay(
+    mem: Seq<u8>,
+    op_log: Seq<AbstractPhysicalOpLogEntry>,
+    overall_metadata: OverallMetadata,
+)
+    requires
+        log_entries_do_not_modify_item_table(op_log, overall_metadata),
+        apply_physical_log_entries(mem, op_log) is Some,
+        mem.len() >= overall_metadata.item_table_addr + overall_metadata.item_table_size,
+    ensures
+        ({
+            let mem_post = apply_physical_log_entries(mem, op_log).unwrap();
+            &&& mem_post.len() == mem.len()
+            &&& forall|addr: int| #![trigger mem_post[addr]]
+                overall_metadata.item_table_addr <= addr
+                  < overall_metadata.item_table_addr + overall_metadata.item_table_size ==>
+                mem_post[addr] == mem[addr]
+        }),
+    decreases
+        op_log.len()
+{
+    if op_log.len() == 0 {
+        return;
+    }
+
+    lemma_index_table_unaffected_by_log_replay(mem, op_log.drop_last(), overall_metadata);
 }                
 
 pub proof fn lemma_log_replay_preserves_size(
