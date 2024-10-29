@@ -378,6 +378,10 @@ verus! {
                 !old(self).outstanding_entries@.contains_key(index)
             ensures 
                 self.outstanding_entries.inv(),
+                self@ == old(self)@,
+                self.free_list() == old(self).free_list(),
+                forall|idx| self.free_indices().contains(idx) ==> old(self).free_indices().contains(idx),
+                forall|idx| old(self).free_indices().contains(idx) && idx != index ==> self.free_indices().contains(idx),
                 ({
                     let new_entry = OutstandingEntry {
                         status: EntryStatus::Created,
@@ -1874,7 +1878,6 @@ verus! {
                     _ => false,
                 }
         {
-            assume(false); // TODO @jay
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(self.inv(old_pm_view, overall_metadata));
 
@@ -1890,8 +1893,11 @@ verus! {
                 },
             };
             // self.pending_allocations.push(free_index);
+            assert(self.free_list() == old(self).free_list().remove(free_index)
+                   && self.main_table_free_list@.no_duplicates()) by {
+                lemma_drop_last_from_seq_with_no_duplicates_removes_last_from_set(old(self).main_table_free_list@);
+            }
             self.modified_indices.push(free_index);    
-        
 
             assert(old(self).free_list().contains(free_index)) by {
                 assert(old(self).main_table_free_list@.last() == free_index);
@@ -1903,7 +1909,7 @@ verus! {
                 old(self).main_table_free_list@.unique_seq_to_set();
             }
 
-            proof {
+            proof {
                 assert forall |idx| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
                     assert(old(self).main_table_free_list@.contains(idx));
                 }
@@ -1933,6 +1939,7 @@ verus! {
                 lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
                 assert(old(self).outstanding_entries[free_index] is None);
             }
+
             let slot_addr = free_index * main_table_entry_size as u64;
             // CDB is at slot addr -- we aren't setting that one yet
             let crc_addr = slot_addr + traits_t::size_of::<u64>() as u64;
@@ -1941,26 +1948,63 @@ verus! {
 
             assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
-            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
+            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
-            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
-
+            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
+
             let ghost main_table_entry = MainTableViewEntry{entry, key: *key };
             self.outstanding_entry_create(free_index, entry, *key);
-
+
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() == old_pm_view.committed());
-
+
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
                 parse_main_table::<K>(s, overall_metadata.num_keys,
-                                          overall_metadata.main_table_entry_size) == Some(self@) by {
+                                      overall_metadata.main_table_entry_size) == Some(self@) by {
                 old(self).lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
                     old_pm_view, pm_view, s, overall_metadata, free_index
                 );
+                assert(self@ == old(self)@);
             }
-
+
             assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
-            assert(self.free_list() =~= old(self).free_list().remove(free_index));
+            assert(self.free_list() == old(self).free_list().remove(free_index));
+
+            // TODO @jay
+            assume(self.main_table_free_list@.no_duplicates());
+            assume(self.modified_indices@.no_duplicates());
+            assume(no_duplicate_item_indexes(self.tentative_view().durable_main_table));
+            assume(forall|idx| self.main_table_free_list.view().contains(idx) ==> 0 <= idx < overall_metadata.num_keys);
+            assume(forall|idx| self.modified_indices@.contains(idx) ==> 0 <= idx < overall_metadata.num_keys);
+            assume(forall|idx| self.outstanding_entries@.contains_key(idx) <==> 
+                   #[trigger] self.modified_indices@.contains(idx));
+            assume(self.outstanding_entries@.len() == self.modified_indices@.len());
+            assume(forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) ==>
+                   !self.main_table_free_list@.contains(idx));
+            assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
+                    self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx));
+            assume(forall |idx: u64| {
+                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
+                    &&& !((self.outstanding_entries@[idx].status is Created || 
+                                self.outstanding_entries@[idx].status is CreatedThenDeleted)) 
+                } ==> self@.durable_main_table[idx as int] is Some);
+            assume(forall |idx: u64| {
+                    &&& 0 <= idx < self@.durable_main_table.len() 
+                    &&& {
+                        ||| self@.durable_main_table[idx as int] is Some
+                        ||| self.outstanding_entries[idx] is Some
+                    }
+                } ==> !(#[trigger] self.main_table_free_list@.contains(idx)));
+            assume(forall |idx: u64| {
+                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
+                    &&& (self.outstanding_entries@[idx].status is Created || 
+                                self.outstanding_entries@[idx].status is CreatedThenDeleted)
+                } ==> self@.durable_main_table[idx as int] is None);
+            assume(self.modified_indices@.len() <= self@.durable_main_table.len());
+            assert(old(self).main_table_entry_size == overall_metadata.main_table_entry_size);
+            assume(self.main_table_entry_size == overall_metadata.main_table_entry_size);
+            assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
+                    self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx, overall_metadata.main_table_entry_size));
 
             Ok(free_index)
         }

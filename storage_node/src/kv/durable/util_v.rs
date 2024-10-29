@@ -96,4 +96,29 @@ verus! {
             }
         }
     }
+
+    pub proof fn lemma_drop_last_from_seq_with_no_duplicates_removes_last_from_set<T>(s: Seq<T>)
+        requires
+            s.len() > 0,
+            s.no_duplicates(),
+        ensures
+            s.drop_last().to_set() == s.to_set().remove(s.last()),
+            s.drop_last().no_duplicates(),
+    {
+        let v1 = s.drop_last().to_set();
+        let v2 = s.to_set().remove(s.last());
+        assert(forall|x: T| v1.contains(x) ==> v2.contains(x));
+        assert forall|x: T| v2.contains(x) implies v1.contains(x) by {
+            assert(s.to_set().contains(x));
+            assert(s.contains(x));
+            
+            assert(x != s.last());
+            let j = choose|j: int| 0 <= j < s.len() && s[j] == x;
+            assert(j != s.len() - 1);
+            
+            assert(s.drop_last()[j] == x);
+            assert(s.drop_last().contains(x));
+        }
+        assert(v1 =~= v2);
+    }
 }
