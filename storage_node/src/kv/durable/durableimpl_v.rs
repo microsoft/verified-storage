@@ -416,7 +416,7 @@ verus! {
             &&& PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list
             &&& log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata)
             &&& log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
-                                                                self.main_table.free_list(),
+                                                                self.main_table.free_indices(),
                                                                 self.overall_metadata)
             &&& self.abort_inv()
             &&& self.tentative_view() is Some
@@ -2969,7 +2969,7 @@ verus! {
                 deserialize_version_metadata(self.wrpm@.committed()) == self.version_metadata,
                 log_entries_do_not_modify_item_table(self.log@.physical_op_list, self.overall_metadata),
                 log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
-                                                                  self.main_table.free_list(),
+                                                                  self.main_table.free_indices(),
                                                                   self.overall_metadata),
             ensures
                 self.inv(),
@@ -4457,7 +4457,7 @@ verus! {
             self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
             log_entry@.inv(self.version_metadata, self.overall_metadata),
             self.log@ == pre_append_self.log@.tentatively_append_log_entry(log_entry@),
-            log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_list(),
+            log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_indices(),
                                                               self.overall_metadata),
             self.wrpm.inv(),
             pre_append_self.wrpm@.len() == self.wrpm@.len() == self.overall_metadata.region_size,
@@ -5400,6 +5400,7 @@ verus! {
                 Some(current_tentative_bytes) == apply_physical_log_entries(self.wrpm@.flush().committed(),
                     self.log@.physical_op_list),
                 current_tentative_bytes.len() == self.overall_metadata.region_size,
+                !self.main_table.free_indices().contains(index),
             ensures 
                 ({
                     let new_log = self.log@.tentatively_append_log_entry(log_entry@);
@@ -5418,7 +5419,9 @@ verus! {
 
                     &&& new_main_table_view == self.main_table.tentative_view().delete(index as int)
                     &&& Self::physical_recover_after_applying_log(new_tentative_bytes.unwrap(), self.overall_metadata) is Some
-                    &&& log_entries_do_not_modify_free_main_table_entries(new_log.physical_op_list, self.main_table.free_list(), self.overall_metadata)
+                    &&& log_entries_do_not_modify_free_main_table_entries(new_log.physical_op_list,
+                                                                        self.main_table.free_indices(),
+                                                                        self.overall_metadata)
                 })
                 
         {
@@ -5464,10 +5467,18 @@ verus! {
             
                 assert(Self::physical_recover_after_applying_log(old_tentative_bytes, self.overall_metadata) is Some);
 
-                let new_item_table_region = extract_bytes(new_tentative_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                let new_list_area_region = extract_bytes(new_tentative_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
-                let old_item_table_region = extract_bytes(old_tentative_bytes, self.overall_metadata.item_table_addr as nat, self.overall_metadata.item_table_size as nat);
-                let old_list_area_region = extract_bytes(old_tentative_bytes, self.overall_metadata.list_area_addr as nat, self.overall_metadata.list_area_size as nat);
+                let new_item_table_region = extract_bytes(new_tentative_bytes,
+                                                          self.overall_metadata.item_table_addr as nat,
+                                                          self.overall_metadata.item_table_size as nat);
+                let new_list_area_region = extract_bytes(new_tentative_bytes,
+                                                         self.overall_metadata.list_area_addr as nat,
+                                                         self.overall_metadata.list_area_size as nat);
+                let old_item_table_region = extract_bytes(old_tentative_bytes,
+                                                          self.overall_metadata.item_table_addr as nat,
+                                                          self.overall_metadata.item_table_size as nat);
+                let old_list_area_region = extract_bytes(old_tentative_bytes,
+                                                         self.overall_metadata.list_area_addr as nat,
+                                                         self.overall_metadata.list_area_size as nat);
             
                 assert(new_item_table_region == old_item_table_region);
                 assert(new_list_area_region == old_list_area_region);
@@ -5962,7 +5973,8 @@ verus! {
                         // note -- the actual tentative view doesn't change because we haven't appended to the log yet.
                         // when we do, we'll get the new main table view mentioned above
                         &&& old(self).tentative_view() == self.tentative_view()
-                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_list(), self.overall_metadata)   
+                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.main_table.free_indices(),
+                                                                            self.overall_metadata)   
                     }
                     Err(KvError::CRCMismatch) => {
                         &&& self.valid()
@@ -6407,7 +6419,7 @@ verus! {
                 lemma_appending_log_entry_preserves_log_entries_do_not_modify_free_main_table_entries(
                     old(self).log@.physical_op_list,
                     log_entry@,
-                    self.main_table.free_list(),
+                    self.main_table.free_indices(),
                     self.overall_metadata
                 );
 
@@ -6793,8 +6805,9 @@ verus! {
             self.item_table.tentatively_deallocate_item(Ghost(item_table_subregion_view), item_index, Ghost(self.overall_metadata));
 
             assert(self.inv()) by {
-                assert(main_table_subregion.view(pm) == get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                        self.overall_metadata.main_table_size as nat));
+                assert(main_table_subregion.view(pm) ==
+                       get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                          self.overall_metadata.main_table_size as nat));
             }
 
             assert(self.tentative_view_inv()) by {

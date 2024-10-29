@@ -580,6 +580,7 @@ verus! {
                 }),
                 old(self)@ == self@,
                 old(self).free_list() == self.free_list(),
+                self.free_indices() == old(self).free_indices(),
                 old(self).main_table_entry_size == self.main_table_entry_size,
         {
             broadcast use vstd::std_specs::hash::group_hash_axioms;
@@ -674,6 +675,14 @@ verus! {
                     });
                 }
             }
+
+            assert forall|idx: u64| self.free_indices().contains(idx) <==> old(self).free_indices().contains(idx) by {
+                if 0 <= idx < self@.durable_main_table.len() && idx != index {
+                    assert(self.outstanding_entries[idx] == old(self).outstanding_entries[idx]);
+                    assert(self@.durable_main_table[idx as int] == old(self)@.durable_main_table[idx as int]);
+                }
+            }
+            assert(self.free_indices() =~= old(self).free_indices());
         }
 
         pub open spec fn no_outstanding_writes_to_entry(
@@ -1856,6 +1865,7 @@ verus! {
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
                         &&& self.free_list() == old(self).free_list()
+                        &&& self.free_indices() == old(self).free_indices()
                         // &&& self.pending_allocations_view() == old(self).pending_allocations_view()
                         // &&& self.pending_deallocations_view() == old(self).pending_deallocations_view()
                         &&& self.free_list().len() == 0
@@ -1976,6 +1986,7 @@ verus! {
             ensures 
                 self.inv(pm_subregion, overall_metadata),
                 old(self).free_list() == self.free_list(),
+                self.free_indices() == old(self).free_indices(),
                 ({
                     let status = old(self).outstanding_entries.get_delete_status(index);
                     let new_entry = OutstandingEntry {
@@ -2256,7 +2267,7 @@ verus! {
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
-                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_indices(), *overall_metadata),
                 ({
                     let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
                     let new_mem = apply_physical_log_entry(current_tentative_state, log_entry@);
@@ -2439,9 +2450,9 @@ verus! {
                 }
             }
 
-            assert(log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+            assert(log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_indices(),
                                                                      *overall_metadata)) by {
-                assert forall|free_index: u64| #[trigger] self.free_list().contains(free_index) implies
+                assert forall|free_index: u64| #[trigger] self.free_indices().contains(free_index) implies
                        log_entry_does_not_modify_free_main_table_entry(log_entry@, free_index, *overall_metadata) by {
                     assert(free_index != index);
                     lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
@@ -2504,7 +2515,7 @@ verus! {
                 overall_metadata.main_table_addr <= log_entry.absolute_addr,
                 log_entry.absolute_addr + log_entry.len <=
                     overall_metadata.main_table_addr + overall_metadata.main_table_size,
-                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(), *overall_metadata),
+                log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_indices(), *overall_metadata),
                 ({
                     let new_mem = current_tentative_state.map(|pos: int, pre_byte: u8|
                         if log_entry.absolute_addr <= pos < log_entry.absolute_addr + log_entry.len {
@@ -2629,7 +2640,7 @@ verus! {
                 assert(new_main_table_view =~= old_main_table_view.delete(index as int).unwrap());
 
                 lemma_log_entry_does_not_modify_free_main_table_entries(
-                    log_entry@, index, self.free_list(), *overall_metadata,
+                    log_entry@, index, self.free_indices(), *overall_metadata,
                 );
             }
             log_entry
@@ -2804,7 +2815,7 @@ verus! {
                     &&& log_entry.absolute_addr + log_entry.len <=
                             overall_metadata.main_table_addr + overall_metadata.main_table_size
                     &&& log_entry@.inv(version_metadata, overall_metadata)
-                    &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                    &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_indices(),
                                                                         overall_metadata)
 
                     // after applying this log entry to the current tentative state,
@@ -2913,7 +2924,7 @@ verus! {
             }
 
             lemma_log_entry_does_not_modify_free_main_table_entries(
-                log_entry@, index, self.free_list(), overall_metadata,
+                log_entry@, index, self.free_indices(), overall_metadata,
             );
         }
 
@@ -2949,6 +2960,8 @@ verus! {
                 self.opaquable_inv(overall_metadata),
                 self@ == old(self)@,
                 self.main_table_free_list@ == old(self).main_table_free_list@,
+                forall|idx| self.free_indices().contains(idx) ==> old(self).free_indices().contains(idx),
+                forall|idx| old(self).free_indices().contains(idx) && idx != index ==> self.free_indices().contains(idx),
                 self@.valid_item_indices() == old(self)@.valid_item_indices(),
                 Some(self.tentative_view()) == 
                     old(self).tentative_view().update_item_index(index as int, new_entry.item_index),
@@ -3037,7 +3050,7 @@ verus! {
                         &&& log_entry.absolute_addr + log_entry.len <=
                                 overall_metadata.main_table_addr + overall_metadata.main_table_size
                         &&& log_entry@.inv(version_metadata, *overall_metadata)
-                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_list(),
+                        &&& log_entry_does_not_modify_free_main_table_entries(log_entry@, self.free_indices(),
                                                                             *overall_metadata)
 
                         // after applying this log entry to the current tentative state,
