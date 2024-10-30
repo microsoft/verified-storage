@@ -2030,9 +2030,17 @@ verus! {
             assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
             assert(self.free_list() == old(self).free_list().remove(free_index));
 
-            // TODO @jay
-            assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
-                    self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx, overall_metadata.main_table_entry_size));
+            assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
+                     !(#[trigger] self.outstanding_entries@.contains_key(idx)) implies
+                    self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx,
+                                                        overall_metadata.main_table_entry_size) by {
+                assert(!old(self).outstanding_entries@.contains_key(idx));
+                assert(idx != free_index);
+                assert(old(self).no_outstanding_writes_to_entry(subregion.view(old::<&mut _>(wrpm_region)), idx,
+                                                              overall_metadata.main_table_entry_size));
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);
+            }
 
             Ok(free_index)
         }
