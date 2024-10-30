@@ -1845,6 +1845,7 @@ verus! {
                 old(self).inv(subregion.view(old::<&mut _>(wrpm_region)), overall_metadata),
                 subregion.len() >= overall_metadata.main_table_size,
                 old(self).subregion_grants_access_to_free_slots(*subregion),
+                !old(self).tentative_view().valid_item_indices().contains(item_table_index),
                 // old(self).allocator_inv(),
             ensures
                 subregion.inv(wrpm_region, perm),
@@ -1977,18 +1978,41 @@ verus! {
 
             let ghost main_table_entry = MainTableViewEntry{entry, key: *key };
             self.outstanding_entry_create(free_index, entry, *key);
+
+            assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                let old_entries = old(self).tentative_view().durable_main_table;
+                let entries = self.tentative_view().durable_main_table;
+                let new_entry = OutstandingEntry { status: EntryStatus::Created, entry, key };
+                assert forall |i: int, j: int| {
+                           &&& 0 <= i < entries.len()
+                           &&& 0 <= j < entries.len()
+                           &&& i != j
+                           &&& entries[i] is Some
+                           &&& entries[j] is Some
+                       } implies
+                       #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index() by {
+                    assert(i != free_index ==> entries[i] == old_entries[i]);
+                    assert(j != free_index ==> entries[j] == old_entries[j]);
+                    assert(i != free_index ==> old_entries[i].unwrap().item_index() != entry.item_index);
+                    assert(j != free_index ==> old_entries[j].unwrap().item_index() != entry.item_index);
+                }
+            }
 
-            assert forall|idx| self.outstanding_entries@.contains_key(idx) <==>
-                       #[trigger] self.modified_indices@.contains(idx) by {
-                if idx == free_index {
-                    assert(self.outstanding_entries@.contains_key(idx));
-                    assert(self.modified_indices@.contains(idx));
-                }
-                else {
-                    assert(self.outstanding_entries@.contains_key(idx) <==>
-                           old(self).outstanding_entries@.contains_key(idx));
-                    assert(self.modified_indices@.contains(idx) <==> old(self).modified_indices@.contains(idx));
-                }
+            assert(self.modified_indices@.len() <= self@.durable_main_table.len()) by {
+                if self.modified_indices@.len() != old(self).modified_indices@.len() {
+                    // if we increased the length of the modified indices list, we have to prove
+                    // that it still hasn't grown beyond the length of the table itself
+                    assert(self.modified_indices@.len() == old(self).modified_indices@.len() + 1);
+                    // we need to temporarily view modified_indices as ints rather than u64s so we can invoke
+                    // the lemma that proves that its length is still less than num_keys
+                    let temp_view = self.modified_indices@.map_values(|e| e as int);
+                    assert forall |idx: int| temp_view.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+                        assert(self.modified_indices@.contains(idx as u64))
+                    }
+                    // this lemma proves that a sequence with values between 0 and num keys and no duplicates
+                    // cannot have a length longer than num_keys
+                    lemma_seq_len_when_no_dup_and_all_values_in_range(temp_view, 0, overall_metadata.num_keys as int);
+                } 
             }
 
             let ghost pm_view = subregion.view(wrpm_region);
@@ -2007,8 +2031,6 @@ verus! {
             assert(self.free_list() == old(self).free_list().remove(free_index));
 
             // TODO @jay
-            assume(no_duplicate_item_indexes(self.tentative_view().durable_main_table));
-            assume(self.modified_indices@.len() <= self@.durable_main_table.len());
             assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx, overall_metadata.main_table_entry_size));
 
