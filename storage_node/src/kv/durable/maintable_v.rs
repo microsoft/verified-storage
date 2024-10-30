@@ -382,6 +382,7 @@ verus! {
                 self.free_list() == old(self).free_list(),
                 forall|idx| self.free_indices().contains(idx) ==> old(self).free_indices().contains(idx),
                 forall|idx| old(self).free_indices().contains(idx) && idx != index ==> self.free_indices().contains(idx),
+                self == (Self{ outstanding_entries: self.outstanding_entries, ..*old(self) }),
                 ({
                     let new_entry = OutstandingEntry {
                         status: EntryStatus::Created,
@@ -1893,11 +1894,33 @@ verus! {
                 },
             };
             // self.pending_allocations.push(free_index);
-            assert(self.free_list() == old(self).free_list().remove(free_index)
-                   && self.main_table_free_list@.no_duplicates()) by {
-                lemma_drop_last_from_seq_with_no_duplicates_removes_last_from_set(old(self).main_table_free_list@);
+            proof {
+                lemma_drop_last_from_no_duplicates_effect(old(self).main_table_free_list@);
             }
-            self.modified_indices.push(free_index);    
+            assert(self.free_list() == old(self).free_list().remove(free_index));
+            assert({
+                &&& 0 <= free_index < overall_metadata.num_keys
+                &&& !old(self).modified_indices@.contains(free_index)
+                &&& old(self)@.durable_main_table[free_index as int] is None
+                &&& old(self).outstanding_entries[free_index] is None
+            }) by {
+                assert(old(self).main_table_free_list@.contains(free_index));
+            }
+         
+            self.modified_indices.push(free_index);
+            assert(self.modified_indices@.no_duplicates()) by {
+                lemma_pushing_new_element_retains_no_duplicates(old(self).modified_indices@, free_index);
+            }
+            assert forall|idx| self.modified_indices@.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+                if idx != free_index {
+                    let j = choose|j: int| 0 <= j < self.modified_indices@.len() && self.modified_indices@[j] == idx;
+                    assert(old(self).modified_indices@[j] == idx);
+                    assert(old(self).modified_indices@.contains(idx));
+                }
+            }
+            proof {
+                lemma_push_effect_on_contains(old(self).modified_indices@, free_index);
+            }
 
             assert(old(self).free_list().contains(free_index)) by {
                 assert(old(self).main_table_free_list@.last() == free_index);
@@ -1955,6 +1978,19 @@ verus! {
             let ghost main_table_entry = MainTableViewEntry{entry, key: *key };
             self.outstanding_entry_create(free_index, entry, *key);
 
+            assert forall|idx| self.outstanding_entries@.contains_key(idx) <==>
+                       #[trigger] self.modified_indices@.contains(idx) by {
+                if idx == free_index {
+                    assert(self.outstanding_entries@.contains_key(idx));
+                    assert(self.modified_indices@.contains(idx));
+                }
+                else {
+                    assert(self.outstanding_entries@.contains_key(idx) <==>
+                           old(self).outstanding_entries@.contains_key(idx));
+                    assert(self.modified_indices@.contains(idx) <==> old(self).modified_indices@.contains(idx));
+                }
+            }
+
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() == old_pm_view.committed());
 
@@ -1971,38 +2007,8 @@ verus! {
             assert(self.free_list() == old(self).free_list().remove(free_index));
 
             // TODO @jay
-            assume(self.main_table_free_list@.no_duplicates());
-            assume(self.modified_indices@.no_duplicates());
             assume(no_duplicate_item_indexes(self.tentative_view().durable_main_table));
-            assume(forall|idx| self.main_table_free_list.view().contains(idx) ==> 0 <= idx < overall_metadata.num_keys);
-            assume(forall|idx| self.modified_indices@.contains(idx) ==> 0 <= idx < overall_metadata.num_keys);
-            assume(forall|idx| self.outstanding_entries@.contains_key(idx) <==> 
-                   #[trigger] self.modified_indices@.contains(idx));
-            assume(self.outstanding_entries@.len() == self.modified_indices@.len());
-            assume(forall |idx: u64| #[trigger] self.modified_indices@.contains(idx) ==>
-                   !self.main_table_free_list@.contains(idx));
-            assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !self.main_table_free_list@.contains(idx) ==>
-                    self@.durable_main_table[idx as int] is Some || #[trigger] self.modified_indices@.contains(idx));
-            assume(forall |idx: u64| {
-                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
-                    &&& !((self.outstanding_entries@[idx].status is Created || 
-                                self.outstanding_entries@[idx].status is CreatedThenDeleted)) 
-                } ==> self@.durable_main_table[idx as int] is Some);
-            assume(forall |idx: u64| {
-                    &&& 0 <= idx < self@.durable_main_table.len() 
-                    &&& {
-                        ||| self@.durable_main_table[idx as int] is Some
-                        ||| self.outstanding_entries[idx] is Some
-                    }
-                } ==> !(#[trigger] self.main_table_free_list@.contains(idx)));
-            assume(forall |idx: u64| {
-                    &&& #[trigger] self.outstanding_entries@.contains_key(idx) 
-                    &&& (self.outstanding_entries@[idx].status is Created || 
-                                self.outstanding_entries@[idx].status is CreatedThenDeleted)
-                } ==> self@.durable_main_table[idx as int] is None);
             assume(self.modified_indices@.len() <= self@.durable_main_table.len());
-            assert(old(self).main_table_entry_size == overall_metadata.main_table_entry_size);
-            assume(self.main_table_entry_size == overall_metadata.main_table_entry_size);
             assume(forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(subregion.view(wrpm_region), idx, overall_metadata.main_table_entry_size));
 
