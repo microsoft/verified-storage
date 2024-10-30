@@ -527,7 +527,7 @@ where
                 }, 
                 Err(KvError::KeyNotFound) => {
                     &&& self@ == old(self)@
-                    &&& !self@.contains_key(*key)
+                    &&& !self.tentative_view().contains_key(*key)
                 },
                 Err(KvError::OutOfSpace) => {
                     &&& self@ == old(self)@
@@ -548,8 +548,7 @@ where
         let index = match self.volatile_index.get(key) {
             Some(index) => index,
             None => {
-                assume(false); // TODO @hayley
-                assert(!self@.contains_key(*key));
+                assert(!self.tentative_view().contains_key(*key));
                 return Err(KvError::KeyNotFound);
             }
         };

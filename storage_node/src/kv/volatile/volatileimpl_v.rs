@@ -220,6 +220,9 @@ where
         // it must already exist
         &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Deleted ==>
                 self.m@.contains_key(k)
+        // if a key was created in this transaction, it must not already exist
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Created ==>
+                !self.m@.contains_key(k)
     }
 
     fn new(
@@ -372,7 +375,6 @@ where
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
     {
-        assume(false); // TODO @hayley
         
         assert(self@.valid()) by {
             self.lemma_valid_implies_view_valid();
@@ -419,24 +421,24 @@ where
                     self.tentative_keys.remove(i);
 
                     proof {
-                        assert(self.tentative_keys@ == old(self).tentative_keys@.remove(i as int));
-
-                        assert(old(self).tentative_keys@[i as int] == key);
-
-                        assert(forall |k| self.tentative_keys@.contains(k) ==> old(self).tentative_keys@.contains(k));
-                        assert(self.tentative_keys@.len() == old(self).tentative_keys@.len() - 1);
                         assert(!self.tentative_keys@.contains(*key));
 
-                        // might need to be more specific about the exact contents and indices here?
-                        assert(forall |k| old(self).tentative_keys@.contains(k) && k != key ==> 
-                            self.tentative_keys@.contains(k));
+                        assert forall |k| old(self).tentative_keys@.contains(k) && k != key implies 
+                            self.tentative_keys@.contains(k)
+                        by {
+                            let witness = choose |i: int| 0 <= i < old(self).tentative_keys@.len() && old(self).tentative_keys@[i] == k;
+                            assert(witness != i);
+                            if witness < i {
+                                assert(self.tentative_keys@[witness] == old(self).tentative_keys@[witness]);
+                            } else {
+                                assert(witness > i);
+                                assert(self.tentative_keys@[witness - 1] == old(self).tentative_keys@[witness]);
+                            }
+                        }
 
                         assert(self.tentative@.dom() == old(self).tentative@.dom().remove(*key));
                         assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
-                        // assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
-                        // assert(self.tentative_keys@.subrange(0, old(self).tentative_keys@.len() as int) == old(self).tentative_keys@);
-
-                        assert(self.tentative_view() == old(self).tentative_view().remove(*key)); 
+                        assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
                         assert(self.valid());
                     }
 
@@ -460,8 +462,12 @@ where
             self.tentative.insert(key_clone, new_pending_entry);
             self.tentative_keys.push(key_clone2);
 
-            assume(false); // TODO @hayley
-            assume(self.tentative_view() == old(self).tentative_view().remove(*key));
+            assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);
+            assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == key);
+
+            assert(self.tentative@.dom() == old(self).tentative@.dom().insert(*key));
+            assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
+            assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
             assert(self.valid());
             Ok(entry.header_addr)
         } else {
