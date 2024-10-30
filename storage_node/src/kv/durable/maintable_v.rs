@@ -2366,7 +2366,6 @@ verus! {
                         current_main_table_view.valid_item_indices().insert(entry.entry.item_index)
                 }),
         {
-            assume(false); // TODO @jay
             let entry_slot_size = overall_metadata.main_table_entry_size;
             let ghost current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
             let ghost entry = self.outstanding_entries[index].unwrap();
