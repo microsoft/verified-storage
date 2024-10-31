@@ -14,6 +14,8 @@ use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 
+// TODO @hayley: deal with Clone
+
 verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;
@@ -127,6 +129,7 @@ impl VolatileKvIndexEntryImpl
 
 pub enum PendingIndexEntry {
     Created(VolatileKvIndexEntryImpl),
+    ReplaceExisting(VolatileKvIndexEntryImpl),
     Deleted,
 }
 
@@ -172,23 +175,19 @@ where
     open spec fn tentative_view(&self) -> VolatileKvIndexView<K>
     {
         let outstanding_keys_to_add = self.tentative@.dom().filter(
-            |k| self.tentative@[k] is Created
+            |k| self.tentative@[k] is Created 
         );
         let outstanding_keys_to_delete = self.tentative@.dom().filter(
             |k| self.tentative@[k] is Deleted
         );
-        // we don't do anything with keys that were created AND deleted in this 
-        // transaction 
         let keys = self.m@.dom().union(outstanding_keys_to_add) - outstanding_keys_to_delete;
         VolatileKvIndexView::<K> {
             contents: Map::new(
                 |k| keys.contains(k),
                 |k| if self.tentative@.contains_key(k) {
-                        if let PendingIndexEntry::Created(entry) = self.tentative@[k] {
-                            entry@
-                        } else {
-                            // this can't happen, but we have to return something
-                            arbitrary()
+                        match self.tentative@[k] {
+                            PendingIndexEntry::Created(entry) | PendingIndexEntry::ReplaceExisting(entry) => entry@,
+                            _ => arbitrary() // this can't happen, but we have to return something
                         }
                     } else {
                         self.m@[k]@
@@ -215,6 +214,7 @@ where
         &&& forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
             ||| self.tentative@[k] is Created 
             ||| self.tentative@[k] is Deleted
+            ||| self.tentative@[k] is ReplaceExisting
         }
         // if a key was deleted (but not created) in the current transaction,
         // it must already exist
@@ -223,6 +223,24 @@ where
         // if a key was created in this transaction, it must not already exist
         &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Created ==>
                 !self.m@.contains_key(k)
+        // if we've done operations that replace an existing index entry for a key with 
+        // a new one, that key must already exist in the index
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is ReplaceExisting ==>
+                self.m@.contains_key(k)
+        // all entries pending create are valid
+        &&& forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+            &&& self.tentative@[k] is Created ==> {
+                &&& self.tentative@[k] matches PendingIndexEntry::Created(entry)
+                &&& entry.valid()
+                &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+            }
+            &&& self.tentative@[k] is ReplaceExisting ==> {
+                &&& self.tentative@[k] matches PendingIndexEntry::ReplaceExisting(entry)
+                &&& entry.valid()
+                &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+            }
+        }
+            
     }
 
     fn new(
@@ -289,13 +307,20 @@ where
         assume(*key == key_clone); // TODO: How do we get Verus to believe this?
         assume(*key == key_clone2); // and this?
 
-        let new_entry = PendingIndexEntry::Created(entry);
+        // the type of the pending entry depends on whether the key already exists
+        // in the main index or not.
+        // if it doesn't exist in the main index, we're creating a new entry.
+        // if it does, we've presumably deleted and re-created the key in this
+        // transaction, so we use the ReplaceExisting variant
+        let new_entry = if self.m.get(key).is_none() {
+            PendingIndexEntry::Created(entry)
+        } else {
+            PendingIndexEntry::ReplaceExisting(entry)
+        };
         
         if !self.tentative.contains_key(key) {
             assert(!self.tentative_keys@.contains(*key));
-            // if tentative doesn't already contain the key,
-            // it must have been deleted and re-created in this transaction.
-            // we only add it to tentative_keys if it's not already in there
+            // we only add the key to tentative_keys if it's not already in there
             self.tentative_keys.push(key_clone2);
             assert(self.tentative_keys@ == old(self).tentative_keys@.push(*key));
             assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == *key);
@@ -303,9 +328,12 @@ where
         } else {
             assert(self.tentative_keys@.contains(*key));
         }
+
         self.tentative.insert(key_clone, new_entry);
         
-        assert(self.tentative_view().contents == old(self).tentative_view().insert_key(*key, header_addr).contents);
+        assert(self.tentative_view().contents =~= 
+            old(self).tentative_view().insert_key(*key, header_addr).contents);
+
         assert(self.tentative@.dom() == self.tentative_keys@.to_set());
 
         assert(self.tentative_keys@.no_duplicates());
@@ -313,10 +341,29 @@ where
         assert(forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
             ||| self.tentative@[k] is Created 
             ||| self.tentative@[k] is Deleted
+            ||| self.tentative@[k] is ReplaceExisting
         });
 
         assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Deleted ==>
             self.m@.contains_key(k));
+        
+        // assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Created ==>
+        //     !self.m@.contains_key(k));
+
+        assert(forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+            &&& self.tentative@[k] is Created ==> {
+                &&& self.tentative@[k] matches PendingIndexEntry::Created(entry)
+                &&& entry.valid()
+                &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+            }
+            &&& self.tentative@[k] is ReplaceExisting ==> {
+                &&& self.tentative@[k] matches PendingIndexEntry::ReplaceExisting(entry)
+                &&& entry.valid()
+                &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+            }
+        });
+
+        assert(self.valid());
 
         Ok(())
     }
@@ -345,7 +392,8 @@ where
         match self.tentative.get(key) {
             Some(entry) => {
                 match entry {
-                    PendingIndexEntry::Created(entry) => Some(entry.header_addr),
+                    PendingIndexEntry::Created(entry) | PendingIndexEntry::ReplaceExisting(entry) => 
+                        Some(entry.header_addr),
                     PendingIndexEntry::Deleted => None,
                 }
             }
@@ -442,7 +490,11 @@ where
                         assert(self.valid());
                     }
 
-                    
+                    Ok(header_addr)
+                }
+                PendingIndexEntry::ReplaceExisting(entry) => {
+                    // the key already exists; we need to delete it as normal.
+                    let header_addr = self.delete_existing_key(key);
                     Ok(header_addr)
                 }
                 // If the key has a tentative entry but it's not created,
@@ -453,23 +505,24 @@ where
             // The key is durable but has not been modified yet in 
             // this transaction. Record that it has been deleted
             // with a new tentative map entry
-            let entry = self.m.get(key).unwrap();
-            let new_pending_entry = PendingIndexEntry::Deleted;
-            let key_clone = key.clone();
-            let key_clone2 = key.clone();
-            assume(*key == key_clone); // TODO: How do we get Verus to believe this?
-            assume(*key == key_clone2);
-            self.tentative.insert(key_clone, new_pending_entry);
-            self.tentative_keys.push(key_clone2);
+            // let entry = self.m.get(key).unwrap();
+            // let new_pending_entry = PendingIndexEntry::Deleted;
+            // let key_clone = key.clone();
+            // let key_clone2 = key.clone();
+            // assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+            // assume(*key == key_clone2);
+            // self.tentative.insert(key_clone, new_pending_entry);
+            // self.tentative_keys.push(key_clone2);
 
-            assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);
-            assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == key);
+            // assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);
+            // assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == key);
 
-            assert(self.tentative@.dom() == old(self).tentative@.dom().insert(*key));
-            assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
-            assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
-            assert(self.valid());
-            Ok(entry.header_addr)
+            // assert(self.tentative@.dom() == old(self).tentative@.dom().insert(*key));
+            // assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
+            // assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
+            // assert(self.valid());
+            let header_addr = self.delete_existing_key(key);
+            Ok(header_addr)
         } else {
             Err(KvError::KeyNotFound)
         }
@@ -596,39 +649,129 @@ where
             self@ == old(self).tentative_view(),
             self.num_tentative_entries() == 0,
     {
-        assume(false); // TODO @hayley
-        // iterate over modified indices, adding newly-created ones
-        // to the main index and deleting removed ones
-        let mut index = 0;
-        while index < self.tentative_keys.len() 
-            invariant
+        if self.tentative_keys.len() == 0 {
+            proof {
+                self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
+            }
+            return;
+        }
+
+        while self.tentative_keys.len() > 0 
+            invariant 
                 0 < self.num_list_entries_per_node,
                 self.tentative@.dom().finite(),
                 forall |k| #[trigger] self.m@.contains_key(k) ==> self.m@[k].valid(),
+                forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
+                    &&& self.tentative@[k] is Created ==> {
+                            &&& self.tentative@[k] matches PendingIndexEntry::Created(entry)
+                            &&& entry.valid()
+                            &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+                        }
+                    &&& self.tentative@[k] is ReplaceExisting ==> {
+                            &&& self.tentative@[k] matches PendingIndexEntry::ReplaceExisting(entry)
+                            &&& entry.valid()
+                            &&& entry.num_list_entries_per_node == self.num_list_entries_per_node
+                        }
+                    },
                 forall |k| #[trigger] self.m@.contains_key(k) ==>
                     self.m@[k].num_list_entries_per_node@ == self.num_list_entries_per_node,
                 vstd::std_specs::hash::obeys_key_model::<K>(),
-                // forall |k| #[trigger] self@.contents.contains_key(k) && self.tentative@.contains_key(k) ==>
-                //     self@.contents[k] != self.tentative@[k]@,
                 self.tentative@.dom() == self.tentative_keys@.to_set(),
                 self.tentative_keys@.no_duplicates(),
                 forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
                     ||| self.tentative@[k] is Created 
                     ||| self.tentative@[k] is Deleted
+                    ||| self.tentative@[k] is ReplaceExisting
                 },
+                self@.num_list_entries_per_node == old(self).tentative_view().num_list_entries_per_node,
+                // the tentative view remains the same as we update the true index
+                self.tentative_view() == old(self).tentative_view(),
+
+                self.valid(),
         {
-            index += 1;
+            let ghost pre_key_list = self.tentative_keys@;
+            let ghost pre_key_map = self.tentative@;
+            let ghost pre_tentative_view = self.tentative_view();
+            let ghost pre_self = *self;
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
+
+            let current_tentative_key = self.tentative_keys.pop();
+            let key = current_tentative_key.unwrap();
+            
+            let key_clone = key.clone();
+            assume(key == key_clone); // TODO: How do we get Verus to believe this?
+            
+            match self.tentative.remove(&key).unwrap() {
+                PendingIndexEntry::Created(entry) | PendingIndexEntry::ReplaceExisting(entry) => {
+                    self.m.insert(key_clone, entry);
+                }
+                PendingIndexEntry::Deleted => {
+                    self.m.remove(&key);
+                    assert(!self.m@.contains_key(key));
+                }
+            }
+
+            assert(forall |i: int| 0 <= i < self.tentative_keys@.len() ==> 
+                self.tentative_keys@[i] == #[trigger] pre_key_list[i]);
+            assert(self.tentative_keys@.to_set() == pre_key_list.to_set().remove(key));
+            assert(self.tentative@ == pre_key_map.remove(key));
+
+            assert(self.tentative_view().contents =~= pre_tentative_view.contents);
+            assert(self.tentative_view() == old(self).tentative_view());
         }
 
-        self.tentative.clear();
-        self.tentative_keys.clear();
         proof {
-            assert(self.tentative@ =~= Map::<K, PendingIndexEntry>::empty());
-            assert(self.tentative_keys@ == Seq::<K>::empty());
-            assert(self.tentative@.dom() == self.tentative_keys@.to_set());
-
             self.lemma_if_no_tentative_entries_then_tentative_view_matches_view();
         }
+    }
+
+    exec fn delete_existing_key(&mut self, key: &K) -> (out: u64)
+        requires 
+            old(self).valid(),
+            old(self).m@.contains_key(*key),
+            !old(self).tentative@.contains_key(*key) || old(self).tentative@[*key] is ReplaceExisting,
+            old(self).tentative_view().contents.contains_key(*key),
+        ensures
+            self.valid(),
+            out == old(self).tentative_view().contents[*key].header_addr,
+            self.tentative_view() == old(self).tentative_view().remove(*key),
+            old(self).m@ == self.m@,
+
+    {
+        broadcast use vstd::std_specs::hash::group_hash_axioms;
+
+        let header_addr = if let Some(entry) = self.tentative.get(key) {
+            match entry {
+                PendingIndexEntry::ReplaceExisting(entry) => entry.header_addr,
+                _ => {
+                    // we have to return something here to satisfy the compiler, 
+                    // but the precondition ensures this will never happen, so it 
+                    // doesn't matter what it is
+                    assert(false);
+                    0
+                },
+            }
+        } else {
+            self.m.get(key).unwrap().header_addr
+        };
+        let new_pending_entry = PendingIndexEntry::Deleted;
+        let key_clone = key.clone();
+        let key_clone2 = key.clone();
+        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+        assume(*key == key_clone2);
+        if self.tentative.get(key).is_none() {
+            self.tentative_keys.push(key_clone2);
+            assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);
+            assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == key);
+        }
+        self.tentative.insert(key_clone, new_pending_entry);
+
+        assert(self.tentative@.dom() == old(self).tentative@.dom().insert(*key));
+        assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
+        assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
+        assert(self.valid());
+
+        header_addr
     }
 }
 
