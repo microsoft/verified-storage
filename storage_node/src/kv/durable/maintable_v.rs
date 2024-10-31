@@ -701,6 +701,21 @@ verus! {
             pm.no_outstanding_writes_in_range(start, start + main_table_entry_size)
         }
 
+        pub open spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: u64,
+                                                                 main_table_entry_size: u32) -> bool
+        {
+            let start = index_to_offset(i as nat, main_table_entry_size as nat) as int;
+            let e = self.outstanding_entries@[i];
+            let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
+            let key_bytes = K::spec_to_bytes(e.key);
+            let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
+            &&& pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of())
+            &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), crc_bytes)
+            &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
+            &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
+                                      key_bytes)
+        }
+
         pub open spec fn opaquable_inv(self, overall_metadata: OverallMetadata) -> bool
         {
             &&& self.main_table_free_list@.no_duplicates()
@@ -776,7 +791,8 @@ verus! {
                    (#[trigger] self@.durable_main_table[i] matches Some(entry) ==>
                     entry.entry.item_index < overall_metadata.num_keys)
             &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> #[trigger] self.modified_indices@.contains(idx)
-            &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() && !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
+            &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
+                 !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
         }
 
@@ -1867,6 +1883,15 @@ verus! {
                         &&& e.entry.length == 0
                         &&& e.entry.first_entry_offset == 0
                         &&& e.entry.item_index == item_table_index
+                        &&& self.outstanding_entry_write_matches_pm_view(subregion.view(wrpm_region), index,
+                                                                       overall_metadata.main_table_entry_size)
+                        &&& forall|addr: int| {
+                            let entry_size = overall_metadata.main_table_entry_size as nat;
+                            let start = index_to_offset(index as nat, entry_size);
+                            let old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
+                            0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
+                                #[trigger] subregion.view(wrpm_region).state[addr] == old_pm_view.state[addr]
+                        }
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -2026,9 +2051,25 @@ verus! {
                 );
                 assert(self@ == old(self)@);
             }
-
+
             assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
             assert(self.free_list() == old(self).free_list().remove(free_index));
+
+            assert(subregion.view(old::<&mut _>(wrpm_region)) == old_pm_view);
+            assert forall|addr: int| {
+                       let entry_size = overall_metadata.main_table_entry_size as nat;
+                       let start = index_to_offset(free_index as nat, entry_size);
+                       0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size)
+                   } implies #[trigger] subregion.view(wrpm_region).state[addr] == old_pm_view.state[addr] by {
+                lemma_auto_addr_in_entry_divided_by_entry_size(free_index as nat,
+                                                               overall_metadata.num_keys as nat,
+                                                               main_table_entry_size as nat);
+                assert(trigger_addr(addr));
+                let idx = addr / overall_metadata.main_table_entry_size as int;
+                assert(idx != free_index);
+                lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
+                lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);
+            }
 
             assert forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
                      !(#[trigger] self.outstanding_entries@.contains_key(idx)) implies
@@ -2101,8 +2142,8 @@ verus! {
                     &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
                     &&& i == index ==> self.tentative_view().durable_main_table[i] is None
                 });
-                assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() && i != index ==> 
-                    #[trigger] old(self).tentative_view().durable_main_table[i] is Some ==> old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index != old_item_index);
+//                assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() && i != index ==> 
+//                    #[trigger] old(self).tentative_view().durable_main_table[i] is Some ==> old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index != old_item_index);
                 assert(!self.tentative_view().valid_item_indices().contains(old_item_index));
 
                 assert(self.tentative_view().valid_item_indices() =~= old(self).tentative_view().valid_item_indices().remove(old_item_index));
@@ -3442,61 +3483,5 @@ verus! {
                 }
             }
         }
-
-        pub proof fn lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
-            self,
-            main_table_region: PersistentMemoryRegionView,
-            old_self: Self,
-            old_main_table_region: PersistentMemoryRegionView,
-            overall_metadata: OverallMetadata,
-            index: u64,
-        )
-            requires
-                self.inv(main_table_region, overall_metadata),
-                old_self.inv(old_main_table_region, overall_metadata),
-                index < overall_metadata.num_keys,
-                main_table_region.len() == old_main_table_region.len() == overall_metadata.main_table_size,
-                overall_metadata.main_table_size >=
-                    index_to_offset(overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat),
-                main_table_region.committed() == old_main_table_region.committed(),
-                forall|i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
-                    self.outstanding_entries[i] == old_self.outstanding_entries[i],
-            ensures
-                ({
-                    let entry_size = overall_metadata.main_table_entry_size;
-                    let start = index_to_offset(index as nat, entry_size as nat);
-                    forall|addr: int| {
-                        &&& #[trigger] trigger_addr(addr)
-                        &&& 0 <= addr < main_table_region.len()
-                        &&& !(start <= addr < start + entry_size)
-                    } ==> main_table_region.flush().committed()[addr] == old_main_table_region.flush().committed()[addr]
-                })
-        {
-            assume(false); // TODO @jay
-            let entry_size = overall_metadata.main_table_entry_size;
-            let start = index_to_offset(index as nat, entry_size as nat);
-            assert forall|addr: u64| {
-                       &&& #[trigger] trigger_addr(addr as int)
-                       &&& 0 <= addr < main_table_region.len()
-                       &&& !(start <= addr < start + entry_size)
-                   } implies main_table_region.flush().committed()[addr as int] ==
-                             old_main_table_region.flush().committed()[addr as int] by {
-
-                assert(old_main_table_region.state[addr as int].state_at_last_flush ==
-                       old_main_table_region.committed()[addr as int]);
-
-                assert(main_table_region.state[addr as int].state_at_last_flush == main_table_region.committed()[addr as int]);
-
-                if addr < index_to_offset(overall_metadata.num_keys as nat,
-                                          overall_metadata.main_table_entry_size as nat) {
-                    lemma_auto_addr_in_entry_divided_by_entry_size(index as nat, overall_metadata.num_keys as nat,
-                                                                   entry_size as nat);
-                    let i = addr / entry_size as u64;
-                    // assert(old_self.outstanding_entry_write_matches_pm_view(old_main_table_region, i, entry_size));
-                    // assert(self.outstanding_entry_write_matches_pm_view(main_table_region, i, entry_size));
-                    broadcast use pmcopy_axioms;
-                }
-            }
-        }
-    }
+    }
 }

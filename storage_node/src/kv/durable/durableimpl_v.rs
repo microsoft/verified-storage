@@ -3616,6 +3616,24 @@ verus! {
                 self_before_main_table_create.main_table.free_list().contains(main_table_index),
                 self.main_table.free_list() ==
                     self_before_main_table_create.main_table.free_list().remove(main_table_index),
+                self.main_table.outstanding_entry_write_matches_pm_view(
+                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat),
+                    main_table_index,
+                    self.overall_metadata.main_table_entry_size
+                ),
+                forall|addr: int| {
+                    let entry_size = self.overall_metadata.main_table_entry_size as nat;
+                    let start = index_to_offset(main_table_index as nat, entry_size);
+                    let old_pm_view = get_subregion_view(self_before_main_table_create.wrpm@,
+                                                         self.overall_metadata.main_table_addr as nat,
+                                                         self.overall_metadata.main_table_size as nat);
+                    0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
+                        #[trigger] get_subregion_view(self.wrpm@,
+                                                      self.overall_metadata.main_table_addr as nat,
+                                                      self.overall_metadata.main_table_size as nat).state[addr] ==
+                        old_pm_view.state[addr]
+                },
                 self_before_main_table_create.tentative_main_table_valid(),
                 item_index < self.overall_metadata.num_keys,
                 ({
@@ -3917,14 +3935,6 @@ verus! {
                 );
             }
 
-            self.main_table.lemma_if_only_difference_is_entry_then_flushed_state_only_differs_there(
-                current_durable_main_table_view,
-                old_self.main_table,
-                old_current_main_table_view,
-                self.overall_metadata,
-                main_table_index
-            );
-
             assert forall|addr: int| {
                 let start = self.overall_metadata.main_table_addr +
                             index_to_offset(main_table_index as nat, main_table_entry_size as nat);
@@ -3946,6 +3956,10 @@ verus! {
                                                                self.overall_metadata.num_keys as nat,
                                                                main_table_entry_size as nat);
                 assert(trigger_addr(relative_addr));
+                let i = relative_addr / main_table_entry_size as int;
+                assert(i != main_table_index);
+                assert(self.wrpm@.state[addr] == self_before_main_table_create.wrpm@.state[addr]); // TODO @jay
+                assert(self_before_main_table_create.wrpm@.state[addr] == old_self.wrpm@.state[addr]);
             }
                        
             lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
@@ -4122,6 +4136,24 @@ verus! {
                 self.main_table.free_list() ==
                     self_before_main_table_create.main_table.free_list().remove(main_table_index),
                 self_before_main_table_create.tentative_main_table_valid(),
+                self.main_table.outstanding_entry_write_matches_pm_view(
+                    get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+                                       self.overall_metadata.main_table_size as nat),
+                    main_table_index,
+                    self.overall_metadata.main_table_entry_size
+                ),
+                forall|addr: int| {
+                    let entry_size = self.overall_metadata.main_table_entry_size as nat;
+                    let start = index_to_offset(main_table_index as nat, entry_size);
+                    let old_pm_view = get_subregion_view(self_before_main_table_create.wrpm@,
+                                                         self.overall_metadata.main_table_addr as nat,
+                                                         self.overall_metadata.main_table_size as nat);
+                    0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
+                        #[trigger] get_subregion_view(self.wrpm@,
+                                                      self.overall_metadata.main_table_addr as nat,
+                                                      self.overall_metadata.main_table_size as nat).state[addr] ==
+                        old_pm_view.state[addr]
+                },
                 self_before_main_table_create.tentative_main_table().durable_main_table[main_table_index as int] is None,
                 item_index < self.overall_metadata.num_keys,
                 ({
@@ -4964,7 +4996,6 @@ verus! {
                 // assert(self.pending_allocations() == old(self).pending_allocations().insert(main_table_index));
                 let t = self_before_main_table_create.tentative_main_table().durable_main_table;
                 assert(forall|i: int| 0 <= i < t.len() && #[trigger] t[i] is Some ==> t[i].unwrap().key != key);
-                assume(false); // TODO @jay
                 self.lemma_justify_validify_log_entry(*old(self), self_before_main_table_create,
                                                       main_table_subregion, main_table_index,
                                                       item_index, head_index, *key, *item, perm);
