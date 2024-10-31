@@ -4487,7 +4487,7 @@ verus! {
             log_entry: PhysicalOpLogEntry,
         )
         requires
-            old_self.inv(),
+            old_self.valid(),
             // old_self.pending_alloc_inv(),
             old_self.tentative_item_table_valid(),
             pre_append_self.inv(),
@@ -4524,6 +4524,10 @@ verus! {
             log_entries_do_not_modify_item_table(pre_append_self.log@.physical_op_list,
                                                  pre_append_self.overall_metadata),
             !pre_append_self.log@.op_list_committed,
+            pre_append_self.main_table.tentative_view() ==
+                old_self.main_table.tentative_view().update(
+                    main_table_index as int,
+                    MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
             !self.log@.op_list_committed,
             self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
             self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
@@ -4585,6 +4589,14 @@ verus! {
             old_self.tentative_view().unwrap().create(main_table_index as int, key, item) is Ok,
             self.tentative_view() ==
                 Some(old_self.tentative_view().unwrap().create(main_table_index as int, key, item).unwrap()),
+            self.tentative_main_table() ==
+                old_self.tentative_main_table().update(
+                    main_table_index as int,
+                    MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }
+                ),
+            self.tentative_main_table() == self.main_table.tentative_view(),
+            self.tentative_item_table() == self.item_table.tentative_view(),
+            self.main_table.tentative_view().valid_item_indices() == self.item_table.tentative_valid_indices(),
         {
             let overall_metadata = self.overall_metadata;
             let main_table_addr = overall_metadata.main_table_addr;
@@ -4803,6 +4815,10 @@ verus! {
                                           self.overall_metadata.item_table_size as nat));
             }
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) =~= self.log@.physical_op_list);
+
+            assume(self.tentative_item_table() == self.item_table.tentative_view()); // TODO @jay
+            assume(self.main_table.tentative_view().valid_item_indices() ==
+                   self.item_table.tentative_valid_indices()); // TODO @jay
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -5013,8 +5029,6 @@ verus! {
                                                       item_index, head_index, *key, *item, perm);
             }
 
-            assume(false); // TODO @jay
-
             assert(self_before_main_table_create.tentative_main_table() == old(self).tentative_main_table());
             assert(self.tentative_main_table() == self_before_main_table_create.tentative_main_table());
 
@@ -5107,6 +5121,7 @@ verus! {
                 self.lemma_finalize_tentative_create(*old(self), pre_append_self, *key, *item, main_table_index,
                                                      item_index, log_entry);
             }
+
             Ok((main_table_index, head_index))
         }
 

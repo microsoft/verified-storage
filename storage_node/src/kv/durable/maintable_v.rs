@@ -1877,6 +1877,7 @@ verus! {
                         &&& forall |i: u64| 0 <= i < overall_metadata.num_keys && i != index ==>
                             #[trigger] self.outstanding_entries[i] == old(self).outstanding_entries[i]
                         &&& self.outstanding_entries[index] matches Some(e)
+                        &&& e.status is Created
                         &&& e.key == *key
                         &&& e.entry.head == list_node_index
                         &&& e.entry.tail == list_node_index
@@ -1885,6 +1886,8 @@ verus! {
                         &&& e.entry.item_index == item_table_index
                         &&& self.outstanding_entry_write_matches_pm_view(subregion.view(wrpm_region), index,
                                                                        overall_metadata.main_table_entry_size)
+                        &&& self.tentative_view() ==
+                              old(self).tentative_view().update(index as int, self.outstanding_entries[index].unwrap()@)
                         &&& forall|addr: int| {
                             let entry_size = overall_metadata.main_table_entry_size as nat;
                             let start = index_to_offset(index as nat, entry_size);
@@ -2083,6 +2086,9 @@ verus! {
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, main_table_entry_size as nat);
             }
 
+            assert(self.tentative_view() =~=
+                   old(self).tentative_view().update(free_index as int,
+                                                   self.outstanding_entries[free_index].unwrap()@));
             Ok(free_index)
         }
 
