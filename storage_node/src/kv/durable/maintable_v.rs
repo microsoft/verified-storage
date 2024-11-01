@@ -1888,6 +1888,8 @@ verus! {
                                                                        overall_metadata.main_table_entry_size)
                         &&& self.tentative_view() ==
                               old(self).tentative_view().update(index as int, self.outstanding_entries[index].unwrap()@)
+                        &&& self.tentative_view().valid_item_indices() ==
+                              old(self).tentative_view().valid_item_indices().insert(item_table_index)
                         &&& forall|addr: int| {
                             let entry_size = overall_metadata.main_table_entry_size as nat;
                             let start = index_to_offset(index as nat, entry_size);
@@ -2089,6 +2091,46 @@ verus! {
             assert(self.tentative_view() =~=
                    old(self).tentative_view().update(free_index as int,
                                                    self.outstanding_entries[free_index].unwrap()@));
+
+            assert(self.tentative_view().valid_item_indices() =~=
+                   old(self).tentative_view().valid_item_indices().insert(item_table_index)) by {
+                let s1 = self.tentative_view().valid_item_indices();
+                let s2 = old(self).tentative_view().valid_item_indices().insert(item_table_index);
+                assert forall|i: u64| s1.contains(i) <==> s2.contains(i) by {
+                    if s1.contains(i) {
+                        if i != item_table_index {
+                            let j = choose|j: int| {
+                                &&& 0 <= j < self.tentative_view().durable_main_table.len() 
+                                &&& #[trigger] self.tentative_view().durable_main_table[j] matches Some(entry)
+                                &&& entry.item_index() == i
+                            };
+                            assert(old(self).tentative_view().durable_main_table[j] matches Some(entry)
+                                   && entry.item_index() == i);
+                            assert(s2.contains(i));
+                        }
+                        else {
+                            assert(s2.contains(i));
+                        }
+                    }
+                    if s2.contains(i) {
+                        if i != item_table_index {
+                            let j = choose|j: int| {
+                                &&& 0 <= j < old(self).tentative_view().durable_main_table.len() 
+                                &&& #[trigger] old(self).tentative_view().durable_main_table[j] matches Some(entry)
+                                &&& entry.item_index() == i
+                            };
+                            assert(self.tentative_view().durable_main_table[j] matches Some(entry)
+                                   && entry.item_index() == i);
+                            assert(s1.contains(i));
+                        }
+                        else {
+                            assert(self.tentative_view().durable_main_table[free_index as int] matches Some(entry)
+                                   && entry.item_index() == i);
+                            assert(s1.contains(i));
+                        }
+                    }
+                }
+            }
             Ok(free_index)
         }
 

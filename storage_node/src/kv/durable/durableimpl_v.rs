@@ -3523,7 +3523,7 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(50)]
+        #[verifier::rlimit(30)]
         proof fn lemma_helper_for_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -4530,6 +4530,10 @@ verus! {
                     MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
             pre_append_self.item_table.tentative_view() ==
                 old_self.item_table.tentative_view().update(item_index as int, item),
+            pre_append_self.main_table.tentative_view().valid_item_indices() ==
+                old_self.main_table.tentative_view().valid_item_indices().insert(item_index),
+            pre_append_self.item_table.tentative_valid_indices() ==
+                old_self.item_table.tentative_valid_indices().insert(item_index),
             !self.log@.op_list_committed,
             self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
             self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
@@ -4817,10 +4821,6 @@ verus! {
                                           self.overall_metadata.item_table_size as nat));
             }
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) =~= self.log@.physical_op_list);
-
-            assert(self.tentative_item_table() == self.item_table.tentative_view());
-            assume(self.main_table.tentative_view().valid_item_indices() ==
-                   self.item_table.tentative_valid_indices()); // TODO @jay
         }
 
         // Creates a new durable record in the KV store. Note that since the durable KV store 
@@ -4830,7 +4830,7 @@ verus! {
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
         #[verifier::rlimit(10)]
-        pub fn tentative_create_now(
+        pub fn tentative_create(
             &mut self,
             key: &K,
             item: &I,
