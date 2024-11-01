@@ -24,7 +24,7 @@
 use builtin_macros::*;
 use builtin::*;
 use vstd::prelude::*;
-use deps_hack::PmSafe;
+use deps_hack::PmCopy;
 
 use super::pmcopy_t::SpecPmSized;
 

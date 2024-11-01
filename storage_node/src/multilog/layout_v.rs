@@ -61,7 +61,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -115,17 +115,15 @@ verus! {
     // These structs represent the different levels of metadata.
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
         pub program_guid: u128,
     }
-    
-    impl PmCopy for GlobalMetadata {}
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct RegionMetadata {
         pub num_logs: u32,
         pub which_log: u32,
@@ -134,18 +132,15 @@ verus! {
         pub log_area_len: u64,
         pub multilog_id: u128,
     }
-    
-    impl PmCopy for RegionMetadata {}
+
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,
         pub head: u128,
     }
-    
-    impl PmCopy for LogMetadata {}
 
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.

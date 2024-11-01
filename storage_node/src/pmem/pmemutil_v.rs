@@ -16,8 +16,12 @@ use vstd::bytes::*;
 use vstd::prelude::*;
 
 verus! {
-
     broadcast use pmcopy_axioms;
+
+    // pub proof fn test()
+    //     requires 
+    //         forall |x, y| call_ensures(u64::eq, (x, y), false) ==> x != y
+    // {}
 
     // This lemma establishes that if there are no outstanding writes
     // to a particular location in memory, then there's only one

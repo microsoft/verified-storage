@@ -21,6 +21,7 @@
 use crate::kv::durable::commonlayout_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::util_v::*;
 use builtin::*;
 use builtin_macros::*;
@@ -33,13 +34,13 @@ use super::itemtable_v::DurableItemTableView;
 use crate::kv::durable::inv_v::*;
 use crate::kv::durable::util_v::*;
 use crate::pmem::traits_t::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 verus! {
     // Constants
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Debug)]
+    #[derive(PmCopy, Copy, Debug)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -49,8 +50,27 @@ verus! {
         pub program_guid: u128,
     }
 
-    // TODO: should this be trusted?
-    impl PmCopy for ItemTableMetadata {}
+    impl Clone for ItemTableMetadata {
+        fn clone(&self) -> Self {
+            *self
+        }
+    }
+
+    // impl core::clone::Clone for ItemTableMetadata {
+    //     fn clone(&self) -> Self {
+    //         *self
+    //     }
+    // }
+
+
+
+    // impl CloneProof for ItemTableMetadata {
+    //     proof fn lemma_clone() {
+    //         reveal(spec_padding_needed);
+    //         assert(ItemTableMetadata::spec_size_of() == 48) by (compute_only);
+    //         assume(false);
+    //     }
+    // }
 
     // pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
     pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 0;

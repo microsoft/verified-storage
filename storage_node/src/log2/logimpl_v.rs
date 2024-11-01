@@ -7,7 +7,7 @@ use vstd::arithmetic::{mul::*, div_mod::*};
 use crate::kv::durable::inv_v::*;
 use crate::kv::kvimpl_t::KvError;
 use crate::kv::layout_v::*;
-use crate::pmem::{pmemspec_t::*, pmcopy_t::*, pmemutil_v::*, wrpm_t::*, subregion_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
+use crate::pmem::{pmemspec_t::*, pmcopy_t::*, pmemutil_v::*, wrpm_t::*, subregion_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized}};
 use crate::log2::{append_v::*, layout_v::*, start_v::*, inv_v::*};
 use crate::pmem::wrpm_t::WriteRestrictedPersistentMemoryRegion;
 use crate::util_v::*;

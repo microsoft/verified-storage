@@ -22,7 +22,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 use builtin::*;
 use builtin_macros::*;
 use core::fmt::Debug;
@@ -50,17 +50,15 @@ verus! {
     // These structs represent the different levels of metadata.
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct VersionMetadata {
         pub version_number: u64,
         pub overall_metadata_addr: u64,
         pub program_guid: u128,
     }
 
-    impl PmCopy for VersionMetadata {}
-
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct OverallMetadata {
         pub key_size: u32, // K::size_of()
         pub list_element_size: u32, // L::size_of()
@@ -82,8 +80,6 @@ verus! {
         pub log_area_size: u64,
         pub kvstore_id: u128,
     }
-
-    impl PmCopy for OverallMetadata {}
 
     /// Specification functions for extracting metadata from a
     /// persistent-memory region.

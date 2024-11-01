@@ -6,14 +6,59 @@ use proc_macro::TokenStream;
 use syn::{self, spanned::Spanned};
 use quote::{quote, quote_spanned};
 
+pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+
+    let attrs = &ast.attrs;
+    // Check that the structure is repr(C)
+    if let Err(e) = check_repr_c(name, attrs) {
+        return e;
+    }
+
+    let data = &ast.data;
+    let (mut types, names) = match get_types(name, data) {
+        Ok(types) => types,
+        Err(e) => return e,
+    };
+    // Note: the vector of types may have duplicates -- this is not necessary
+    // for all of the generated code, but some does depend on it, so we 
+    // can't deduplicate here
+
+    let pmsafe = check_pmsafe(ast, &types);
+    match pmsafe {
+        Ok(pmsafe) => {
+            let pmsized = generate_pmsized(ast, &types);
+            match pmsized {
+                Ok(pmsized) => {
+                    let cloneproof = generate_clone_proof(ast, &types, &names);
+                    match cloneproof {
+                        Ok(cloneproof) => {
+                            let gen = quote!{
+                                #cloneproof
+
+                                #pmsafe
+
+                                #pmsized
+
+                                impl PmCopy for #name {}
+                            };
+                            gen.into()
+                        }
+                        Err(e) => e
+                    }
+                    
+                }
+                Err(e) => e,
+            }
+        }
+        Err(e) => e,
+    }
+}
+
 // This function is used by the PmSafe derive macro to check whether 
-// a deriving type is, in fact, PmSafe. This requires two main checks:
-// 1. The type must be repr(C). This is not really a strict requirement for 
-//    writing to PM -- as long as we know the size of a type, it may have any
-//    in-memory layout when writing to PM -- but it makes it easier to determine
-//    the size, and other safety-related traits require this as well.
-// 2. All fields of the deriving type must be PmSafe. PmSafe primitive types are
-//    defined in storage_node/src/pmem/traits_t.rs. 
+// a deriving type is, in fact, PmSafe. 
+// All fields of the deriving type must be PmSafe. PmSafe primitive types are
+// defined in storage_node/src/pmem/traits_t.rs. 
 // 
 // The repr(C) requirement is checked by checking the attributes of the deriving type.
 // The PmSafe fields requirement is performed by adding trivial trait bounds to
@@ -34,31 +79,15 @@ use quote::{quote, quote_spanned};
 // These trait bounds are easily checkable by the compiler. Compilation will
 // fail if we attempt to derive PmSafe on a struct with a field of type, e.g., 
 // *const u8, as the bound `const *u8: PmSafe` is not met.
-pub fn check_pmsafe(ast: &syn::DeriveInput) -> TokenStream {
+pub fn check_pmsafe<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
     let name = &ast.ident;
-
-    let attrs = &ast.attrs;
-    // Check that the structure is repr(C)
-    if let Err(e) = check_repr_c(name, attrs) {
-        return e;
-    }
-
-    let data = &ast.data;
-    // Obtain a list of the types of the fields in the structure.
-    let (mut types, _) = match get_types(name, data) {
-        Ok((types, names)) => (types, names),
-        Err(e) => return e,
-    };
-    // not strictly necessary, but makes the expanded macro look nicer
-    types.dedup();
-
     let gen = quote! {
         unsafe impl PmSafe for #name 
             where 
             #( #types: PmSafe, )*
         {}
     };
-    gen.into()
+    Ok(gen)
 }
 
 // This function checks whether the struct has the repr(C) attribute so that we can
@@ -138,21 +167,8 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<(Vec<&
 // derive macro. It also generates implementations for SpecPmSized, ConstPmSized,
 // UnsafeSpecPmSized, and two compile-time assertions to check that we calculate
 // the size of each type correctly.
-pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
+pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
     let name = &ast.ident;
-   
-    // PmSized structures must be repr(C), or the size/align calculation will not be correct.
-    // repr(Rust) structures do not have a standardized, deterministic memory layout.
-    let attrs = &ast.attrs;
-    if let Err(e) = check_repr_c(name, attrs) {
-        return e;
-    }
-
-    let data = &ast.data;
-    let (types, _names) = match get_types(name, data) {
-        Ok(types) => types,
-        Err(e) => return e,
-    };
 
     // The size of a repr(C) struct is determined by the following algorithm, from the Rust reference:
     // https://doc.rust-lang.org/reference/type-layout.html#reprc-structs
@@ -263,7 +279,56 @@ pub fn generate_pmsized(ast: &syn::DeriveInput) -> TokenStream {
 
 
     };
-    gen.into()
+    Ok(gen)
+}
+
+pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
+{
+    let name = &ast.ident;
+    let lemma_name = syn::Ident::new(&format!("lemma_clone_{}", name.to_string().to_lowercase()), name.span());
+    
+    // TODO @hayley FRIDAY figure out why this isn't building...
+    // it's a problem with ensures but not quite sure what
+    let gen = quote!{
+        ::builtin_macros::verus!{
+            // impl Clone for #name {
+            //     fn clone(&self) -> #name {
+            //         #name { 
+            //             #( #names: self.#names.clone(), )*
+            //         }
+            //     }
+            // }
+
+            impl CloneProof for #name {
+                proof fn lemma_clone() 
+                    // where 
+                    //     #( #types: Clone, )*
+                        // #name: Clone,
+                    // requires    
+                    //     #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
+                    // ensures 
+                    //     forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
+                {
+                    assume(false); 
+                }
+            }
+
+
+            // pub proof fn #lemma_name() 
+            //     where 
+            //         #( #types: Clone, )*
+            //         // #name: Clone,
+            //     requires    
+            //         #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
+            //     ensures 
+            //         forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
+            // {
+            //     assume(false); 
+            // }
+        }
+    };
+
+    Ok(gen)
 }
 
 // For most types, alignment is the same as size on x86, EXCEPT for 
@@ -275,14 +340,14 @@ const I16_SIZE: usize = 2;
 const I32_SIZE: usize = 4;
 const I64_SIZE: usize = 8;
 const I128_SIZE: usize = 16;
-const I128_ALIGNMENT: usize = 8;
+const I128_ALIGNMENT: usize = 16;
 const ISIZE_SIZE: usize = 8;
 const U8_SIZE: usize = 1;
 const U16_SIZE: usize = 2;
 const U32_SIZE: usize = 4;
 const U64_SIZE: usize = 8;
 const U128_SIZE: usize = 16;
-const U128_ALIGNMENT: usize = 8;
+const U128_ALIGNMENT: usize = 16;
 const USIZE_SIZE: usize = 8;
 
 // This function is called by the pmsized_primitive! proc macro and generates an 

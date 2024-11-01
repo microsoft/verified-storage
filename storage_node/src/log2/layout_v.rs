@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use crate::log2::{inv_v::*, logimpl_v::*};
 use crate::pmem::{pmcopy_t::*, pmemspec_t::*, pmemutil_v::*, traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized, PmSafe}};
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 verus! {
 
@@ -12,13 +12,11 @@ verus! {
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Clone, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub head: u128,
     }
-
-    impl PmCopy for LogMetadata {}
 
     pub open spec fn spec_log_header_area_size() -> nat {
         // CDB + two LogMetadata + two CRC

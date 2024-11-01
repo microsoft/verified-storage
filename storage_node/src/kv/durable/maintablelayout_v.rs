@@ -15,7 +15,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 verus! {
     // Metadata region
@@ -40,7 +40,7 @@ verus! {
     pub const RELATIVE_POS_OF_ENTRY_KEY: u64 = 56; // relative to the start of the slot (not the start of the metadata struct)    
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone, Debug)]
+    #[derive(PmCopy, Copy, Clone, Debug)]
     pub struct ListEntryMetadata
     {
         pub head: u64,
@@ -49,8 +49,6 @@ verus! {
         pub first_entry_offset: u64, // offset of the first live entry in the head node
         pub item_index: u64,
     }
-
-    impl PmCopy for ListEntryMetadata {}
 
     impl ListEntryMetadata {
         pub open spec fn spec_new(head: u64, tail: u64, length: u64, first_entry_offset: u64, item_index: u64,) -> Self {

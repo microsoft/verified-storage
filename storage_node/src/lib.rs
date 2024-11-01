@@ -45,7 +45,7 @@ use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 mod tests {
 
@@ -317,25 +317,22 @@ verus! {
 // }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 struct TestKey {
     val: u64,
 }
-impl PmCopy for TestKey {}
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Clone, Debug, PartialEq, Eq)]
 struct TestItem {
     val: u64,
 }
-impl PmCopy for TestItem {}
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+#[derive(PmCopy, Copy, Clone, Debug)]
 struct TestListElement {
     val: u64,
 }
-impl PmCopy for TestListElement {}
 
 #[verifier::external_body]
 fn remove_file(name: &str) {

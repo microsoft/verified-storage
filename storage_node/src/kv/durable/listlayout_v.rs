@@ -20,7 +20,7 @@ use vstd::prelude::*;
 use crate::kv::durable::maintablelayout_v::*;
 use crate::pmem::traits_t::*;
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 
 verus! {
@@ -45,7 +45,7 @@ verus! {
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
     #[repr(C)]
-    #[derive(PmSized, PmSafe, Copy, Clone)]
+    #[derive(PmCopy, Copy, Clone)]
     pub struct ListRegionHeader {
         pub num_nodes: u64,
         pub length: u64,
@@ -54,7 +54,6 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl PmCopy for ListRegionHeader {}
 
     // Per-node relative offsets for unrolled linked list nodes
     // Most list metadata is stored in the ListEntryMetadata structure,

@@ -21,7 +21,7 @@ use crate::pmem::pmcopy_t::*;
 use crate::pmem::traits_t::*;
 use crate::kv::durable::oplog::oplogimpl_v::*;
 use crate::util_v::*;
-use deps_hack::{PmSafe, PmSized};
+use deps_hack::{PmCopy};
 
 
 verus! {

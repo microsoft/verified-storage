@@ -30,7 +30,7 @@ use vstd::bytes;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use vstd::layout::*;
-use crate::pmem::traits_t::{PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
+use crate::pmem::traits_t::{PmSized, PmSafe, ConstPmSized, UnsafeSpecPmSized};
 
 use deps_hack::{crc64fast::Digest, pmsized_primitive};
 use core::slice;
@@ -300,8 +300,7 @@ verus! {
             // copy bytes from the given slice to the mutable slice of `MaybeUninit<u8>`.
             // This returns a slice of initialized bytes, but it does NOT change the fact that 
             // the original S is still MaybeUninit
-            // TODO: in newer versions of Rust, write_slice is renamed to copy_from_slice
-            MaybeUninit::write_slice(self_bytes, bytes);
+            MaybeUninit::copy_from_slice(self_bytes, bytes);
         }
 
 
@@ -536,5 +535,12 @@ verus! {
     //     assume(false);
     //     // reveal(spec_padding_needed);
     // }
+
+    pub trait CloneProof : Sized + Clone {
+        proof fn lemma_clone()
+            ensures 
+                forall |a: Self, b: Self| call_ensures(Clone::clone, (&a,), b) ==> a == b,
+        ;
+    }
 
 }
