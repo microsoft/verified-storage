@@ -825,25 +825,25 @@ verus! {
             ensures
                 ({
                     let cdb_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat),
                         u64::spec_size_of() as nat,
                     );
                     let cdb = u64::spec_from_bytes(cdb_bytes);
                     let crc_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of(),
                         u64::spec_size_of() as nat,
                     );
                     let crc = u64::spec_from_bytes(crc_bytes);
                     let entry_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of() * 2,
                         ListEntryMetadata::spec_size_of() as nat,
                     );
                     let entry = ListEntryMetadata::spec_from_bytes(entry_bytes);
                     let key_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of() * 2 +
                             ListEntryMetadata::spec_size_of(),
                         K::spec_size_of() as nat,
@@ -860,24 +860,24 @@ verus! {
                     &&& key == meta.key
                 }),
         {
-            assert(pm.can_crash_as(pm.committed()));
+            assert(pm.can_crash_as(pm.durable_state));
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
-            let entry_bytes = extract_bytes(pm.committed(), (index * main_table_entry_size) as nat, main_table_entry_size as nat);
+            let entry_bytes = extract_bytes(pm.durable_state, (index * main_table_entry_size) as nat, main_table_entry_size as nat);
             assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
-                   extract_bytes(pm.committed(), index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat),
+                   extract_bytes(pm.durable_state, index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat),
                                  u64::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of(), u64::spec_size_of()) =~=
-                   extract_bytes(pm.committed(),
+                   extract_bytes(pm.durable_state,
                         index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of(),
                                  u64::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2, ListEntryMetadata::spec_size_of()) =~=
-                   extract_bytes(pm.committed(),
+                   extract_bytes(pm.durable_state,
                                 index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat) + u64::spec_size_of() * 2,
                                  ListEntryMetadata::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
                                  K::spec_size_of()) =~=
-                   extract_bytes(pm.committed(),
+                   extract_bytes(pm.durable_state,
                                 index_to_offset(index as nat, overall_metadata.main_table_entry_size as nat)+ u64::spec_size_of() * 2
                                  + ListEntryMetadata::spec_size_of(),
                                  K::spec_size_of()));
@@ -973,7 +973,7 @@ verus! {
                 subregion.inv(&*old(pm_region)),
                 forall |addr: int| subregion.start() <= addr < subregion.end() ==>
                      #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
-                subregion.view(&*(old(pm_region))).no_outstanding_writes(),
+                subregion.view(&*(old(pm_region))).flush_predicted(),
                 num_keys * main_table_entry_size <= subregion.view(&*(old(pm_region))).len() <= u64::MAX,
                 main_table_entry_size == ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() +
                                       K::spec_size_of(),
@@ -983,8 +983,8 @@ verus! {
                 pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
-                        let replayed_bytes = Self::spec_replay_log_main_table(subregion.view(pm_region).flush().committed(), Seq::<LogicalOpLogEntry<L>>::empty());
-                        &&& parse_main_table::<K>(subregion.view(pm_region).flush().committed(), num_keys, main_table_entry_size) matches Some(recovered_view)
+                        let replayed_bytes = Self::spec_replay_log_main_table(subregion.view(pm_region).read_state, Seq::<LogicalOpLogEntry<L>>::empty());
+                        &&& parse_main_table::<K>(subregion.view(pm_region).read_state, num_keys, main_table_entry_size) matches Some(recovered_view)
                         &&& recovered_view == MainTableView::<K>::init(num_keys)
                     }
                     Err(_) => true // TODO
@@ -1010,10 +1010,10 @@ verus! {
                     forall |addr: int| subregion.start() <= addr < subregion.end() ==>
                      #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
-                        subregion.view(pm_region).flush().committed(), k, main_table_entry_size
+                        subregion.view(pm_region).read_state, k, main_table_entry_size
                     ) == CDB_FALSE,
                     ({
-                        let mem = subregion.view(pm_region).flush().committed();
+                        let mem = subregion.view(pm_region).read_state;
                         forall |k: nat| k < index ==> u64::bytes_parseable(#[trigger] extract_bytes(
                             mem,
                             index_to_offset(k, main_table_entry_size as nat),
@@ -1029,17 +1029,17 @@ verus! {
                     broadcast use pmcopy_axioms;
                 }
                 assert forall |k: nat| k < index + 1 implies #[trigger] Self::extract_cdb_for_entry(
-                        subregion.view(pm_region).flush().committed(), k, main_table_entry_size
+                        subregion.view(pm_region).read_state, k, main_table_entry_size
                     ) == CDB_FALSE 
                 by {
-                    let mem = subregion.view(pm_region).flush().committed();
+                    let mem = subregion.view(pm_region).read_state;
                     if k < index {
-                        assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, main_table_entry_size) == CDB_FALSE);
+                        assert(Self::extract_cdb_for_entry(v1.read_state, k, main_table_entry_size) == CDB_FALSE);
                         assert(index_to_offset(k, main_table_entry_size as nat) + u64::spec_size_of() <= entry_offset) by {
                             lemma_metadata_fits::<K>(k as int, index as int, main_table_entry_size as int);
                         }
                         assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) =~= 
-                               extract_bytes(v1.flush().committed(), index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()));
+                               extract_bytes(v1.read_state, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()));
                     }
                     else {
                         assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) ==
@@ -1052,16 +1052,16 @@ verus! {
                 // triggers on k in both arithmetic and non arithmetic contexts, so the two conjuncts have to be asserted
                 // separately.
                 assert forall |k: nat| k < index + 1 implies 
-                    #[trigger] u64::bytes_parseable(extract_bytes(subregion.view(pm_region).flush().committed(), k * main_table_entry_size as nat, u64::spec_size_of())) 
+                    #[trigger] u64::bytes_parseable(extract_bytes(subregion.view(pm_region).read_state, k * main_table_entry_size as nat, u64::spec_size_of())) 
                 by {
-                    let mem = subregion.view(pm_region).flush().committed();
+                    let mem = subregion.view(pm_region).read_state;
                     if k < index {
-                        assert(Self::extract_cdb_for_entry(v1.flush().committed(), k, main_table_entry_size) == CDB_FALSE);
+                        assert(Self::extract_cdb_for_entry(v1.read_state, k, main_table_entry_size) == CDB_FALSE);
                         assert(index_to_offset(k, main_table_entry_size as nat) + u64::spec_size_of() <= entry_offset) by {
                             lemma_metadata_fits::<K>(k as int, index as int, main_table_entry_size as int);
                         }
                         assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) =~= 
-                            extract_bytes(v1.flush().committed(), k * main_table_entry_size as nat, u64::spec_size_of()));
+                            extract_bytes(v1.read_state, k * main_table_entry_size as nat, u64::spec_size_of()));
                     }
                     else {
                         assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) ==
@@ -1073,7 +1073,7 @@ verus! {
                 entry_offset += main_table_entry_size as u64;
             }
 
-            let ghost mem = subregion.view(pm_region).flush().committed();
+            let ghost mem = subregion.view(pm_region).read_state;
             let ghost op_log = Seq::<LogicalOpLogEntry<L>>::empty();
             let ghost replayed_mem = Self::spec_replay_log_main_table(mem, op_log);
             let ghost recovered_view = parse_main_table::<K>(mem, num_keys, main_table_entry_size);
@@ -1142,23 +1142,23 @@ verus! {
                 L: PmCopy + std::fmt::Debug,
             requires
                 subregion.inv(pm_region),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.flush_predicted(),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
                 parse_main_table::<K>(
-                    subregion.view(pm_region).committed(),
+                    subregion.view(pm_region).durable_state,
                     overall_metadata.num_keys, 
                     overall_metadata.main_table_entry_size 
                 ) is Some,
                 ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() <= u64::MAX,
                 subregion.len() == overall_metadata.main_table_size,
-                subregion.view(pm_region).no_outstanding_writes(),
+                subregion.view(pm_region).flush_predicted(),
                 K::spec_size_of() > 0,
                 vstd::std_specs::hash::obeys_key_model::<K>(),
             ensures 
                 match result {
                     Ok((main_table, entry_list)) => {
                         let table = parse_main_table::<K>(
-                            subregion.view(pm_region).committed(),
+                            subregion.view(pm_region).durable_state,
                             overall_metadata.num_keys, 
                             overall_metadata.main_table_entry_size
                         ).unwrap();
@@ -1173,7 +1173,7 @@ verus! {
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
-                        &&& main_table.no_outstanding_writes()
+                        &&& main_table.flush_predicted()
                         &&& table == main_table@
                         // the entry list corresponds to the table
                         &&& entry_list_view.to_set() == key_entry_list_view
@@ -1213,7 +1213,7 @@ verus! {
             let mut metadata_allocator: Vec<u64> = Vec::with_capacity(num_keys as usize);
             let mut key_index_pairs: Vec<(Box<K>, u64, u64)> = Vec::new();
             let max_index = overall_metadata.main_table_size / (main_table_entry_size as u64);
-            let ghost mem = subregion.view(pm_region).committed();
+            let ghost mem = subregion.view(pm_region).durable_state;
             let mut index = 0;
             let ghost table = parse_main_table::<K>(
                 mem,
@@ -1231,7 +1231,7 @@ verus! {
                 }
 
                 // Proves that there is currently only one crash state, and it recovers to the current ghost table state.
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(subregion.view(pm_region));
+//                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(subregion.view(pm_region));
                 assert(forall |s| subregion.view(pm_region).can_crash_as(s) ==> s == mem);
                 assert(parse_main_table::<K>(
                     mem,
@@ -1252,10 +1252,10 @@ verus! {
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() * 2 + K::spec_size_of() == main_table_entry_size,
                     num_keys == overall_metadata.num_keys,
                     subregion.len() == overall_metadata.main_table_size,
-                    subregion.view(pm_region).no_outstanding_writes(),
-                    mem == subregion.view(pm_region).committed(),
+                    subregion.view(pm_region).flush_predicted(),
+                    mem == subregion.view(pm_region).durable_state,
                     old_pm_constants == pm_region.constants(),
-                    subregion.view(pm_region).can_crash_as(subregion.view(pm_region).committed()),
+                    subregion.view(pm_region).can_crash_as(subregion.view(pm_region).durable_state),
                     forall |s| #[trigger] subregion.view(pm_region).can_crash_as(s) ==>  
                         parse_main_table::<K>(
                             s,
@@ -1339,13 +1339,13 @@ verus! {
                 let relative_cdb_addr = entry_offset;
                 proof {
                     lemma_if_table_parseable_then_all_entries_parseable::<K>(
-                        subregion.view(pm_region).committed(),
+                        subregion.view(pm_region).durable_state,
                         overall_metadata.num_keys, 
                         overall_metadata.main_table_entry_size
                     );
                     // trigger for CDB bytes parseable
                     assert(u64::bytes_parseable(extract_bytes(
-                        subregion.view(pm_region).committed(),
+                        subregion.view(pm_region).durable_state,
                         index_to_offset(index as nat, main_table_entry_size as nat),
                         u64::spec_size_of()
                     )));
@@ -1359,7 +1359,7 @@ verus! {
                 let ghost true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 // Proving that true_cdb_bytes matches various ways of obtaining the CDB subrange from mem is useful later to prove whether 
                 // an entry is valid or invalid based on the value of its CDB
-                assert(true_cdb_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_cdb_addr as nat, u64::spec_size_of()));
+                assert(true_cdb_bytes == extract_bytes(subregion.view(pm_region).durable_state, relative_cdb_addr as nat, u64::spec_size_of()));
                 assert(true_cdb_bytes == extract_bytes(
                     extract_bytes(mem, (index * overall_metadata.main_table_entry_size) as nat, overall_metadata.main_table_entry_size as nat),
                     0,
@@ -1392,9 +1392,9 @@ verus! {
                         let ghost relative_entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| relative_entry_addr + i);
                         let ghost relative_key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| relative_key_addr + i);
 
-                        let ghost true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_crc_addrs[i]]);
-                        let ghost true_entry_bytes = Seq::new(relative_entry_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_entry_addrs[i]]);
-                        let ghost true_key_bytes = Seq::new(relative_key_addrs.len(), |i: int| subregion.view(pm_region).committed()[relative_key_addrs[i]]);
+                        let ghost true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_crc_addrs[i]]);
+                        let ghost true_entry_bytes = Seq::new(relative_entry_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_entry_addrs[i]]);
+                        let ghost true_key_bytes = Seq::new(relative_key_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_key_addrs[i]]);
 
                         let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
                         let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
@@ -1403,14 +1403,14 @@ verus! {
                         proof {
                             assert(index * main_table_entry_size + u64::spec_size_of() * 2 < subregion.len());
 
-                            assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_crc_addr as nat, u64::spec_size_of()));
-                            assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
+                            assert(true_crc_bytes == extract_bytes(subregion.view(pm_region).durable_state, relative_crc_addr as nat, u64::spec_size_of()));
+                            assert(true_entry_bytes == extract_bytes(subregion.view(pm_region).durable_state, relative_entry_addr as nat, ListEntryMetadata::spec_size_of()));
                             assert(true_entry_bytes == extract_bytes(
                                 extract_bytes(mem, (index * main_table_entry_size) as nat, main_table_entry_size as nat),
                                 u64::spec_size_of() * 2,
                                 ListEntryMetadata::spec_size_of()
                             ));
-                            assert(true_key_bytes == extract_bytes(subregion.view(pm_region).committed(), relative_key_addr as nat, K::spec_size_of()));
+                            assert(true_key_bytes == extract_bytes(subregion.view(pm_region).durable_state, relative_key_addr as nat, K::spec_size_of()));
                             assert(true_key_bytes == extract_bytes(
                                 extract_bytes(mem, (index * main_table_entry_size) as nat, main_table_entry_size as nat),
                                 u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
@@ -1418,7 +1418,7 @@ verus! {
                             ));
 
                             lemma_if_table_parseable_then_all_entries_parseable::<K>(
-                                subregion.view(pm_region).committed(),
+                                subregion.view(pm_region).durable_state,
                                 overall_metadata.num_keys, 
                                 overall_metadata.main_table_entry_size
                             );
@@ -1469,7 +1469,7 @@ verus! {
                         proof {
                             // Prove that adding this entry will maintain the invariant that there are no duplicate keys
                             let entries = parse_main_entries::<K>(
-                                subregion.view(pm_region).committed(),
+                                subregion.view(pm_region).durable_state,
                                 overall_metadata.num_keys as nat, 
                                 overall_metadata.main_table_entry_size as nat 
                             );
@@ -1586,7 +1586,7 @@ verus! {
                 main_table_free_list: metadata_allocator,
                 modified_indices: Vec::new(),
                 state: Ghost(parse_main_table::<K>(
-                    subregion.view(pm_region).committed(),
+                    subregion.view(pm_region).durable_state,
                     overall_metadata.num_keys, 
                     overall_metadata.main_table_entry_size 
                 ).unwrap()),
@@ -1705,7 +1705,7 @@ verus! {
                 let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
     
                 // 1. Read the CDB, metadata entry, key, and CRC at the index
-                let ghost mem = pm_view.committed();
+                let ghost mem = pm_view.durable_state;
     
                 let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
                 let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
@@ -1726,8 +1726,8 @@ verus! {
                 // 2. Check the CDB to determine whether the entry is valid
                 proof {
                     self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
-                    assert(extract_bytes(pm_view.committed(), cdb_addr as nat, u64::spec_size_of()) =~=
-                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[cdb_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, cdb_addr as nat, u64::spec_size_of()) =~=
+                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[cdb_addrs[i]]));
                 }
                 let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                     Ok(cdb) => cdb,
@@ -1736,7 +1736,7 @@ verus! {
                         return Err(KvError::EntryIsNotValid);
                     }
                 };
-                let cdb_result = check_cdb(cdb, Ghost(pm_region@.committed()),
+                let cdb_result = check_cdb(cdb, Ghost(pm_region@.durable_state),
                                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
                 match cdb_result {
                     Some(true) => {}, // continue 
@@ -1746,12 +1746,12 @@ verus! {
     
                 proof {
                     // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                    assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
-                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
-                    assert(extract_bytes(pm_view.committed(), entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
-                           Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.committed()[entry_addrs[i]]));
-                    assert(extract_bytes(pm_view.committed(), key_addr as nat, K::spec_size_of()) =~=
-                           Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.committed()[key_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, crc_addr as nat, u64::spec_size_of()) =~=
+                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[crc_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
+                           Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.durable_state[entry_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, key_addr as nat, K::spec_size_of()) =~=
+                           Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.durable_state[key_addrs[i]]));
                 }
                 let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                     Ok(crc) => crc,
@@ -1768,7 +1768,7 @@ verus! {
     
                 // 3. Check for corruption
                 if !check_crc_for_two_reads(
-                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.durable_state),
                     Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
                     Ghost(crc_addrs)) 
                 {
@@ -1812,9 +1812,12 @@ verus! {
             let crc_addr = start_addr + u64::spec_size_of();
             let can_views_differ_at_addr = |addr: int| crc_addr <= addr < end_addr;
             assert(which_entry < num_keys);
+         /*
             let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
                 v2, v1, crash_state2, can_views_differ_at_addr
             );
+         */
+            let crash_state1 = crash_state2;
             assert(parse_main_table::<K>(crash_state1, num_keys, main_table_entry_size) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
             let entry_bytes = extract_bytes(crash_state1,
@@ -1867,7 +1870,7 @@ verus! {
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
                 // self.allocator_inv(),
-                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                subregion.view(wrpm_region).durable_state == subregion.view(old::<&mut _>(wrpm_region)).durable_state,
                 match result {
                     Ok(index) => {
                         &&& old(self).free_list().contains(index)
@@ -2046,7 +2049,7 @@ verus! {
             }
 
             let ghost pm_view = subregion.view(wrpm_region);
-            assert(pm_view.committed() == old_pm_view.committed());
+            assert(pm_view.durable_state == old_pm_view.durable_state);
 
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
                 parse_main_table::<K>(s, overall_metadata.num_keys,
@@ -2057,7 +2060,7 @@ verus! {
                 assert(self@ == old(self)@);
             }
 
-            assert(subregion.view(wrpm_region).committed() =~= subregion.view(old::<&mut _>(wrpm_region)).committed());
+            assert(subregion.view(wrpm_region).durable_state =~= subregion.view(old::<&mut _>(wrpm_region)).durable_state);
             assert(self.free_list() == old(self).free_list().remove(free_index));
 
             assert(subregion.view(old::<&mut _>(wrpm_region)) == old_pm_view);
@@ -2381,7 +2384,7 @@ verus! {
                 // the index must refer to a currently-invalid entry in the current durable table
                 self@.durable_main_table[index as int] is None,
                 self.outstanding_entries[index] is Some,
-                parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
+                parse_main_table::<K>(subregion_view.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
@@ -2493,7 +2496,7 @@ verus! {
                     overall_metadata.main_table_addr as nat, overall_metadata.main_table_size as nat);
                 lemma_establish_extract_bytes_equivalence(old_main_table_region, new_main_table_region);
 
-                let committed_main_table_view = parse_main_table::<K>(subregion_view.committed(),
+                let committed_main_table_view = parse_main_table::<K>(subregion_view.durable_state,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
                 let old_main_table_view = parse_main_table::<K>(old_main_table_region,
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap();
@@ -2646,7 +2649,7 @@ verus! {
                 overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                 0 <= index < self@.len(),
                 // the index must refer to a currently-valid entry in the current durable table
-                parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys,
+                parse_main_table::<K>(subregion_view.durable_state, overall_metadata.num_keys,
                                           overall_metadata.main_table_entry_size) == Some(self@),
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
@@ -3430,7 +3433,7 @@ verus! {
                         Some(entry) => entry.entry.item_index < overall_metadata.num_keys,
                         _ => true
                     },
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 forall |idx: u64| old(self).free_list().contains(idx) ==> old(self).free_indices().contains(idx),
             ensures
                 self.valid(pm, overall_metadata),
@@ -3470,17 +3473,17 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 old(self).opaquable_inv(overall_metadata),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
                     let old_subregion_view = get_subregion_view(old_pm, overall_metadata.main_table_addr as nat,
                         overall_metadata.main_table_size as nat);
-                    &&& parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) ==
+                    &&& parse_main_table::<K>(subregion_view.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) ==
                             Some(old(self).tentative_view())
                     &&& old_self.inv(old_subregion_view, overall_metadata)
-                    &&& parse_main_table::<K>(old_subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
+                    &&& parse_main_table::<K>(old_subregion_view.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) is Some
                 }),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
                 pm.len() >= overall_metadata.main_table_addr + overall_metadata.main_table_size,
@@ -3501,7 +3504,7 @@ verus! {
         {
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.main_table_addr as nat,
                 overall_metadata.main_table_size as nat);
-            self.state = Ghost(parse_main_table::<K>(subregion_view.committed(), overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
+            self.state = Ghost(parse_main_table::<K>(subregion_view.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size).unwrap());
             assert(self.state@ == old(self).tentative_view());
 
             assert forall |idx: u64| self.outstanding_entries@.contains_key(idx) implies {
@@ -3519,9 +3522,9 @@ verus! {
             self.finalize_outstanding_entries(Ghost(subregion_view), Ghost(overall_metadata));
 
             proof {
-                assert(Some(self@) == parse_main_table::<K>(subregion_view.committed(), 
+                assert(Some(self@) == parse_main_table::<K>(subregion_view.durable_state, 
                     overall_metadata.num_keys, overall_metadata.main_table_entry_size));
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
+//                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
             
                 assert forall |idx: u64| {
                     &&& 0 <= idx < self@.durable_main_table.len() 

@@ -224,7 +224,7 @@ verus! {
                     overall_metadata.log_area_size as nat),
                 no_outstanding_writes_to_metadata(pm_region@, overall_metadata.log_area_addr as nat),
         {
-            lemma_persistent_memory_view_can_crash_as_committed(pm_region@);
+//            lemma_persistent_memory_view_can_crash_as_committed(pm_region@);
         }
 
         pub closed spec fn view(self) -> AbstractOpLogState
@@ -326,9 +326,9 @@ verus! {
             overall_metadata: OverallMetadata,
         )
             requires 
-                UntrustedOpLog::<K, L>::recover(pm_region.committed(), version_metadata, overall_metadata) is Some,
+                UntrustedOpLog::<K, L>::recover(pm_region.durable_state, version_metadata, overall_metadata) is Some,
                 ({
-                    let base_log = UntrustedLogImpl::recover(pm_region.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    let base_log = UntrustedLogImpl::recover(pm_region.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                     &&& base_log matches Some(base_log)
                     &&& base_log.log.len() > 0
                     &&& log_contents == extract_bytes(base_log.log, 0, (base_log.log.len() - u64::spec_size_of()) as nat)
@@ -701,27 +701,27 @@ verus! {
                 wrpm2.inv(),
                 self.inv(wrpm1@, version_metadata, overall_metadata),
                 self.base_log_view() == self.base_log_view().drop_pending_appends(),
-                wrpm1@.no_outstanding_writes(),
-                wrpm2@.no_outstanding_writes(),
-                extract_bytes(wrpm1@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
-                    extract_bytes(wrpm2@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+                wrpm1@.flush_predicted(),
+                wrpm2@.flush_predicted(),
+                extract_bytes(wrpm1@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(wrpm2@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
             ensures 
                 self.inv(wrpm2@, version_metadata, overall_metadata),
         {
-            let mem1 = wrpm1@.committed();
-            let mem2 = wrpm2@.committed();
+            let mem1 = wrpm1@.durable_state;
+            let mem2 = wrpm2@.durable_state;
             lemma_same_log_bytes_recover_to_same_state(mem1, mem2, overall_metadata.log_area_addr as nat,
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             self.log.lemma_same_bytes_preserve_log_invariant(wrpm1, wrpm2, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat,
                 overall_metadata.region_size as nat);
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm1@);
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
-            assert(forall |s| wrpm1@.can_crash_as(s) ==> s == wrpm1@.committed());
-            assert(forall |s| wrpm2@.can_crash_as(s) ==> s == wrpm2@.committed());
-            assert(wrpm1@.can_crash_as(wrpm1@.committed()));
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm1@);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
+            assert(forall |s| wrpm1@.can_crash_as(s) ==> s == wrpm1@.durable_state);
+            assert(forall |s| wrpm2@.can_crash_as(s) ==> s == wrpm2@.durable_state);
+            assert(wrpm1@.can_crash_as(wrpm1@.durable_state));
         }
 
         pub proof fn lemma_same_op_log_view_preserves_invariant<Perm, PM>(
@@ -757,7 +757,10 @@ verus! {
                     Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 by {
                     let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size;
+                    /*
                     let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(wrpm2@, wrpm1@, s2, views_must_match_at_addr);
+                    */
+                    let s1 = s2;
                     assert forall |addr: int| overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size 
                         implies s1[addr] == s2[addr] 
                     by { assert(views_must_match_at_addr(addr)); }
@@ -774,7 +777,10 @@ verus! {
                 by {
                     // TODO: refactor this proof -- it's exactly the same as above
                     let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size;
+                    /*
                     let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(wrpm2@, wrpm1@, s2, views_must_match_at_addr);
+                    */
+                    let s1 = s2;
                     assert forall |addr: int| overall_metadata.log_area_addr <= addr < overall_metadata.log_area_addr + overall_metadata.log_area_size 
                         implies s1[addr] == s2[addr] 
                     by { assert(views_must_match_at_addr(addr)); }
@@ -801,18 +807,18 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 pm_region.inv(),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.flush_predicted(),
                 overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
                 overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-                Self::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some,
+                Self::recover(pm_region@.durable_state, version_metadata, overall_metadata) is Some,
                 pm_region@.len() == overall_metadata.region_size,
                 ({
-                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                     &&& base_log_state matches Some(base_log_state)
                     &&& log_bytes@ == extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat)
                 }),
                 ({
-                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                     let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
                     let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
@@ -820,7 +826,7 @@ verus! {
                     &&& 0 < abstract_log.len() <= u64::MAX
                 }),
                 ({
-                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                     let parsed_ops = Self::parse_log_ops(log_bytes@, overall_metadata.log_area_addr as nat, 
                             overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
                     &&& recovered_log matches Some(recovered_log)
@@ -833,13 +839,13 @@ verus! {
                 match result {
                     Ok(phys_log) => {
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& phys_log.len() == 0
                             &&& abstract_op_log.physical_op_list.len() == 0
                         }
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log.physical_op_list == phys_log_view
@@ -860,7 +866,7 @@ verus! {
         let region_size = overall_metadata.region_size;
         let overall_metadata_addr = version_metadata.overall_metadata_addr;
 
-        let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat).unwrap();
+        let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat).unwrap();
         let ghost phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
         let ghost abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, log_start_addr as nat, 
                 log_size as nat, region_size as nat, version_metadata.overall_metadata_addr as nat).unwrap();
@@ -887,14 +893,14 @@ verus! {
                     &&& AbstractPhysicalOpLogEntry::log_inv(phys_log_view, version_metadata, overall_metadata)
                 }),
                 ({
-                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                    let recovered_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                     let parsed_ops = Self::parse_log_ops(log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat);
                     &&& recovered_log matches Some(recovered_log)
                     &&& parsed_ops matches Some(parsed_ops)
                     &&& recovered_log.physical_op_list == parsed_ops
                 }),
                 ({
-                    let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    let base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
                     &&& base_log_state matches Some(base_log_state)
                     &&& log_bytes@ == extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat)
                 }),
@@ -910,8 +916,8 @@ verus! {
 
             proof {
                 assert(Self::parse_log_ops_helper(0, offset as nat, log_bytes@, log_start_addr as nat, log_size as nat, region_size as nat, overall_metadata_addr as nat) is Some);
-                assert(UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some);
-                let recovered_base_log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                assert(UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata) is Some);
+                let recovered_base_log = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
 
                 let log_contents = Self::get_log_contents(recovered_base_log).unwrap();
                 assert(log_contents == extract_bytes(recovered_base_log.log, 0, (recovered_base_log.log.len() - u64::spec_size_of()) as nat));
@@ -1007,13 +1013,13 @@ verus! {
             PM: PersistentMemoryRegion,
         requires
             pm_region.inv(),
-            pm_region@.no_outstanding_writes(),
+            pm_region@.flush_predicted(),
             overall_metadata.log_area_addr + overall_metadata.log_area_size <= pm_region@.len() <= u64::MAX,
             overall_metadata.log_area_size >= spec_log_area_pos() + MIN_LOG_AREA_SIZE,
-            Self::recover(pm_region@.committed(), version_metadata, overall_metadata) is Some,
+            Self::recover(pm_region@.durable_state, version_metadata, overall_metadata) is Some,
             pm_region@.len() == overall_metadata.region_size,
             ({
-                let base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                let base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                 let phys_op_log_buffer = extract_bytes(base_log_state.log, 0, (base_log_state.log.len() - u64::spec_size_of()) as nat);
                 let abstract_op_log = Self::parse_log_ops(phys_op_log_buffer, overall_metadata.log_area_addr as nat, 
                         overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat);
@@ -1034,7 +1040,7 @@ verus! {
                     &&& op_log_impl.base_log_view() == op_log_impl.base_log_view().drop_pending_appends()
                     &&& {
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log == op_log_impl@
                             &&& phys_log.len() == 0
@@ -1042,7 +1048,7 @@ verus! {
                             &&& !abstract_op_log.op_list_committed
                         }
                         ||| {
-                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata);
+                            let abstract_op_log = UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata);
                             let phys_log_view = Seq::new(phys_log@.len(), |i: int| phys_log[i]@);
                             &&& abstract_op_log matches Some(abstract_op_log)
                             &&& abstract_op_log == op_log_impl@
@@ -1059,10 +1065,10 @@ verus! {
                     &&& err matches PmemError::AccessOutOfRange
                 }
                 Err(KvError::InternalError) => {
-                    let log = UntrustedLogImpl::recover(pm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+                    let log = UntrustedLogImpl::recover(pm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
                     let tail = log.head + log.log.len();
                     ||| tail - log.head < u64::spec_size_of() as u128
-                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.committed(), version_metadata, overall_metadata) is None
+                    ||| UntrustedOpLog::<K, L>::recover(pm_region@.durable_state, version_metadata, overall_metadata) is None
                 }
                 Err(_) => false
             }
@@ -1071,7 +1077,7 @@ verus! {
         let log_size = overall_metadata.log_area_size;
 
         // Start the base log
-        let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.committed(), log_start_addr as nat, log_size as nat).unwrap();
+        let ghost base_log_state = UntrustedLogImpl::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat).unwrap();
         let log = match UntrustedLogImpl::start(pm_region, log_start_addr, log_size, Ghost(base_log_state)) {
             Ok(log) => log,
             Err(LogErr::CRCMismatch) => return Err(KvError::CRCMismatch),
@@ -1079,12 +1085,12 @@ verus! {
                 return Err(KvError::LogErr { log_err: e });
             }
         };
-        let ghost op_log_state = Self::recover(pm_region@.committed(), version_metadata, overall_metadata);
+        let ghost op_log_state = Self::recover(pm_region@.durable_state, version_metadata, overall_metadata);
 
         proof {
             // Prove that all current possible crash states recover to `op_log_state`
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
-            assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.committed());
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+            assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.durable_state);
             assert(forall |s| #[trigger] pm_region@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(op_log_state.unwrap()));
         }
@@ -1133,7 +1139,7 @@ verus! {
             }
         };
 
-        if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.committed()),
+        if !check_crc(log_bytes.as_slice(), crc_bytes.as_slice(), Ghost(pm_region@.durable_state),
             Ghost(pm_region.constants().impervious_to_corruption), log_addrs, crc_addrs) 
         {
             return Err(KvError::CRCMismatch);
@@ -1254,7 +1260,7 @@ verus! {
             overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
             overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
             no_outstanding_writes_to_metadata(old(log_wrpm)@, overall_metadata.log_area_addr as nat),
-            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             overall_metadata.region_size == old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
@@ -1266,16 +1272,16 @@ verus! {
             self.base_log_view().log == old(self).base_log_view().log,
             self.base_log_view().head == old(self).base_log_view().head,
             self.base_log_view().capacity == old(self).base_log_view().capacity,
-            log_wrpm@.no_outstanding_writes(),
+            log_wrpm@.flush_predicted(),
             log_wrpm.inv(),
-            Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             self.inv(log_wrpm@, version_metadata, overall_metadata), 
             self@.physical_op_list.len() == 0,
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             !self@.op_list_committed,
     {
-        assert(log_wrpm@.can_crash_as(log_wrpm@.flush().committed()));
+        assert(log_wrpm@.can_crash_as(log_wrpm@.read_state));
         self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
         self.current_transaction_crc = CrcDigest::new();
         self.state = Ghost(AbstractOpLogState {
@@ -1313,7 +1319,7 @@ verus! {
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat, version_metadata.overall_metadata_addr as nat) is Some,
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
@@ -1336,14 +1342,14 @@ verus! {
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
-            Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             self.inv(log_wrpm@, version_metadata, overall_metadata), // can we maintain this here?
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                     &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                    &&& log_wrpm@.committed() == old(log_wrpm)@.committed()
+                    &&& log_wrpm@.durable_state == old(log_wrpm)@.durable_state
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& !self@.op_list_committed
@@ -1351,7 +1357,7 @@ verus! {
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
-                    &&& log_wrpm@.no_outstanding_writes()
+                    &&& log_wrpm@.flush_predicted()
                     &&& self@.physical_op_list.len() == 0
                     &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
@@ -1535,7 +1541,7 @@ verus! {
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
 
-            assert(log_wrpm@.committed() == old(log_wrpm)@.committed());
+            assert(log_wrpm@.durable_state == old(log_wrpm)@.durable_state);
         }
         
         Ok(())
@@ -1565,7 +1571,7 @@ verus! {
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
-                let flushed_state = old(log_wrpm)@.flush().committed();
+                let flushed_state = old(log_wrpm)@.read_state;
                 &&& flushed_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(flushed_state, s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
@@ -1589,23 +1595,23 @@ verus! {
             log_wrpm.inv(),
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
-            log_wrpm@.no_outstanding_writes(),
+            log_wrpm@.flush_predicted(),
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             self.base_log_view().pending.len() == 0,
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.commit_op_log()
-                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(self@)
+                    &&& Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(self@)
                 }
                 Err(KvError::LogErr{log_err}) => {
                     &&& !self@.op_list_committed
                     &&& self.base_log_view().log == old(self).base_log_view().log
                     &&& self.base_log_view().head == old(self).base_log_view().head
                     &&& self.base_log_view().capacity == old(self).base_log_view().capacity
-                    &&& log_wrpm@.no_outstanding_writes()
+                    &&& log_wrpm@.flush_predicted()
                     &&& self@.physical_op_list.len() == 0
-                    &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
+                    &&& Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == 
                             Some(AbstractOpLogState::initialize())
                     // &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                     //         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
@@ -1652,7 +1658,7 @@ verus! {
                     physical_op_list: Seq::empty(),
                     op_list_committed: false
                 });
-                assert(log_wrpm@.no_outstanding_writes());
+                assert(log_wrpm@.flush_predicted());
                 assert(forall |s| #[trigger] log_wrpm@.can_crash_as(s) ==> 
                     Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
                 return Err(KvError::LogErr { log_err: e });
@@ -1674,7 +1680,7 @@ verus! {
 
         proof {
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr, log_size);
-            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+            assert(log_wrpm@.can_crash_as(log_wrpm@.durable_state));
         }
         
         match self.log.commit(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size, Ghost(crash_pred), Tracked(perm)) {
@@ -1715,13 +1721,13 @@ verus! {
             old(self)@.op_list_committed,
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             old(self).base_log_view().pending.len() == 0,
-            old(log_wrpm)@.no_outstanding_writes(),
-            Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(old(self)@),
+            old(log_wrpm)@.flush_predicted(),
+            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
-                let current_state = old(log_wrpm)@.flush().committed();
+                let current_state = old(log_wrpm)@.read_state;
                 &&& current_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(s2, current_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 &&& {
@@ -1742,8 +1748,8 @@ verus! {
             log_wrpm@.len() == old(log_wrpm)@.len(),
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm.inv(),
-            log_wrpm@.no_outstanding_writes(),
-            Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            log_wrpm@.flush_predicted(),
+            Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             match result {
@@ -1766,7 +1772,7 @@ verus! {
         };
 
         proof {
-            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+            assert(log_wrpm@.can_crash_as(log_wrpm@.durable_state));
             self.log.lemma_all_crash_states_recover_to_drop_pending_appends(*log_wrpm, log_start_addr as nat, log_size as nat);
         }
 
@@ -1785,8 +1791,8 @@ verus! {
         // Prove that the only possible crash state is an empty op log
         assert(self.log@.drop_pending_appends().log.len() == 0);
         assert(UntrustedLogImpl::can_only_crash_as_state(log_wrpm@, log_start_addr as nat, log_size as nat, self.log@.drop_pending_appends()));
-        assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
-        assert(Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
+        assert(log_wrpm@.can_crash_as(log_wrpm@.durable_state));
+        assert(Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().flatten() =~= self.log@.pending);

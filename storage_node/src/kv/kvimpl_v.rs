@@ -158,8 +158,8 @@ where
             pm_region.inv(),
             match result {
                 Ok(()) => {
-                    &&& pm_region@.no_outstanding_writes()
-                    &&& Self::recover(pm_region@.committed(), kvstore_id) matches Some(recovered_view)
+                    &&& pm_region@.flush_predicted()
+                    &&& Self::recover(pm_region@.durable_state, kvstore_id) matches Some(recovered_view)
                     &&& recovered_view == AbstractKvStoreState::<K, I, L>::init(kvstore_id)
                 }
                 Err(_) => true
@@ -177,7 +177,7 @@ where
         
         // 4. Prove that the resulting recovery view is an empty store
         proof {
-            Self::lemma_recovery_view_is_init_if_durable_recovery_view_is_init(pm_region@.committed(), version_metadata, overall_metadata);
+            Self::lemma_recovery_view_is_init_if_durable_recovery_view_is_init(pm_region@.durable_state, version_metadata, overall_metadata);
         }
         
         Ok(())
@@ -227,8 +227,8 @@ where
     ) -> (result: Result<Self, KvError<K>>)
         requires 
             wrpm_region.inv(),
-            wrpm_region@.no_outstanding_writes(),
-            Self::recover(wrpm_region@.committed(), kvstore_id) == Some(state),
+            wrpm_region@.flush_predicted(),
+            Self::recover(wrpm_region@.durable_state, kvstore_id) == Some(state),
             forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(state),
             K::spec_size_of() > 0,
             I::spec_size_of() + u64::spec_size_of() <= u64::MAX,
@@ -237,8 +237,8 @@ where
             match result {
                 Ok(kv) => {
                     &&& kv.valid()
-                    &&& kv.wrpm_view().no_outstanding_writes()
-                    &&& Some(kv@) == Self::recover(kv.wrpm_view().committed(), kvstore_id)
+                    &&& kv.wrpm_view().flush_predicted()
+                    &&& Some(kv@) == Self::recover(kv.wrpm_view().durable_state, kvstore_id)
                 }
                 Err(KvError::CRCMismatch) => !wrpm_region.constants().impervious_to_corruption,
                 // TODO: proper handling of other error types
@@ -256,20 +256,20 @@ where
 
         // 2. Call the durable KV store's start method
         let ghost durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-            wrpm_region@.committed(), version_metadata, overall_metadata).unwrap();
+            wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap();
         assert(state.contents == AbstractKvStoreState::<K, I, L>::construct_view_from_durable_state(durable_kvstore_state));
 
         proof {
             assert(DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                wrpm_region@.committed(), version_metadata, overall_metadata) is Some);
-            assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.committed(), version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
+                wrpm_region@.durable_state, version_metadata, overall_metadata) is Some);
+            assert(overall_metadata_valid::<K, I, L>(deserialize_overall_metadata(wrpm_region@.durable_state, version_metadata.overall_metadata_addr), version_metadata.overall_metadata_addr, kvstore_id));
             assert forall |s| {
-                &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.committed())
+                &&& version_and_overall_metadata_match_deserialized(s, wrpm_region@.durable_state)
                 &&& Some(durable_kvstore_state) == #[trigger] DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
             } implies Self::recover(s, kvstore_id) == Some(state) by {
                 broadcast use pmcopy_axioms;
             }
-            let base_log_state = UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
+            let base_log_state = UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat).unwrap();
             assert(base_log_state.log.len() == 0 || base_log_state.log.len() > u64::spec_size_of());
 
             if base_log_state.log.len() > u64::spec_size_of() {
@@ -507,7 +507,7 @@ where
         requires 
             old(self).valid(),
             !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            Self::recover(old(self).wrpm_view().durable_state, kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
@@ -562,10 +562,10 @@ where
             let version_metadata = self.durable_store.spec_version_metadata();
             let overall_metadata = self.durable_store.spec_overall_metadata();
             let durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
-                    self.wrpm_view().committed(), version_metadata, overall_metadata);
+                    self.wrpm_view().durable_state, version_metadata, overall_metadata);
 
             assert forall |s| {
-                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().durable_state)
                 &&& durable_kvstore_state == DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
             } implies #[trigger] Self::recover(s, kvstore_id) == Some(self@) by {                
                 assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
@@ -641,7 +641,7 @@ where
         requires 
             old(self).valid(),
             !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            Self::recover(old(self).wrpm_view().durable_state, kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
@@ -677,12 +677,12 @@ where
 
             assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies perm.check_permission(s) by {
                 self.durable_store.lemma_overall_metadata_addr();
-                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
+                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().durable_state);
+//                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
             }
 
             assert forall |s| {
-                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().durable_state)
                 &&& {
                     ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == Some(self.durable_store@)
                     ||| DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, self.durable_store.spec_version_metadata(), self.durable_store.spec_overall_metadata()) == self.durable_store.tentative_view()
@@ -693,7 +693,7 @@ where
                     ||| Self::recover(s, kvstore_id) == Some(old(self).tentative_view())
                 });
 
-                assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed()));
+                assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().durable_state));
                 assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
                     broadcast use pmcopy_axioms;
                 }

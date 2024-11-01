@@ -249,7 +249,7 @@ verus! {
             UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
         by {
             lemma_establish_extract_bytes_equivalence(old_pm.committed(), new_pm.committed());
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm);
             
             assert(extract_bytes(s, log_start_addr as nat, spec_log_area_pos()) == 
                 extract_bytes(new_pm.committed(), log_start_addr as nat, spec_log_area_pos()));

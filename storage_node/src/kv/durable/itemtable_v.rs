@@ -319,7 +319,7 @@ verus! {
             &&& forall |s| #[trigger] pm_view.can_crash_as(s) ==>
                    parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@)
             &&& forall|idx: u64| self.durable_valid_indices().contains(idx) ==> {
-                let entry_bytes = extract_bytes(pm_view.committed(), index_to_offset(idx as nat, entry_size as nat), entry_size as nat);
+                let entry_bytes = extract_bytes(pm_view.durable_state, index_to_offset(idx as nat, entry_size as nat), entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
@@ -356,12 +356,12 @@ verus! {
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     let crc_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         (index * entry_size as u64) as nat,
                         u64::spec_size_of() as nat,
                     );
                     let item_bytes = extract_bytes(
-                        pm.committed(),
+                        pm.durable_state,
                         (index * entry_size as u64) as nat + u64::spec_size_of(),
                         I::spec_size_of() as nat,
                     );
@@ -372,11 +372,11 @@ verus! {
         {
             let entry_size = I::spec_size_of() + u64::spec_size_of();
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, entry_size as nat);
-            let entry_bytes = extract_bytes(pm.committed(), (index * entry_size) as nat, entry_size as nat);
+            let entry_bytes = extract_bytes(pm.durable_state, (index * entry_size) as nat, entry_size as nat);
             assert(extract_bytes(entry_bytes, 0, u64::spec_size_of()) =~=
-                   extract_bytes(pm.committed(), (index * entry_size as u64) as nat, u64::spec_size_of()));
+                   extract_bytes(pm.durable_state, (index * entry_size as u64) as nat, u64::spec_size_of()));
             assert(extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()) =~=
-                   extract_bytes(pm.committed(),
+                   extract_bytes(pm.durable_state,
                                  (index * entry_size as u64) as nat + u64::spec_size_of(),
                                  I::spec_size_of()));
             assert(validate_item_table_entry::<I, K>(entry_bytes));
@@ -719,7 +719,7 @@ verus! {
                 let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
                 // Read the item and CRC at this slot
-                let ghost mem = pm_view.committed();
+                let ghost mem = pm_view.durable_state;
                 let ghost entry_bytes = extract_bytes(mem, (item_table_index * entry_size) as nat, entry_size as nat);
                 let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
                 let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
@@ -733,10 +733,10 @@ verus! {
                 proof {
                     assert(self.durable_valid_indices().contains(item_table_index));
                     self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index);
-                    assert(extract_bytes(pm_view.committed(), crc_addr as nat, u64::spec_size_of()) =~=
-                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.committed()[crc_addrs[i]]));
-                    assert(extract_bytes(pm_view.committed(), item_addr as nat, I::spec_size_of()) =~=
-                        Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.committed()[item_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, crc_addr as nat, u64::spec_size_of()) =~=
+                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[crc_addrs[i]]));
+                    assert(extract_bytes(pm_view.durable_state, item_addr as nat, I::spec_size_of()) =~=
+                        Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.durable_state[item_addrs[i]]));
                     assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
                     assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
                     assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
@@ -752,7 +752,7 @@ verus! {
                     Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
                 };
                 
-                if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.committed()),
+                if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.durable_state),
                             Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) {
                     return Err(KvError::CRCMismatch);
                 }
@@ -791,13 +791,16 @@ verus! {
             let start_addr = which_entry * entry_size;
             let end_addr = start_addr + entry_size;
             let can_views_differ_at_addr = |addr: int| start_addr <= addr < end_addr;
+            /*
             let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
                 v2, v1, crash_state2, can_views_differ_at_addr
             );
+            */
+            let crash_state1 = crash_state2;
             assert(parse_item_table::<I, K>(crash_state1, num_keys as nat, self.durable_valid_indices()) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, entry_size as nat);
             let entry_bytes = extract_bytes(crash_state1, (which_entry * entry_size) as nat, entry_size as nat);
-            lemma_subrange_of_subrange_forall(crash_state1);
+//            lemma_subrange_of_subrange_forall(crash_state1);
             assert forall|addr: int| {
                        &&& 0 <= addr < crash_state2.len()
                        &&& crash_state1[addr] != #[trigger] crash_state2[addr]
@@ -847,7 +850,7 @@ verus! {
             ensures
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
-                subregion.view(wrpm_region).committed() == subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                subregion.view(wrpm_region).durable_state == subregion.view(old::<&mut _>(wrpm_region)).durable_state,
                 match result {
                     Ok(index) => {
                         &&& index < overall_metadata.num_keys
@@ -858,7 +861,7 @@ verus! {
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices().insert(index)
                         &&& self.outstanding_items@ == old(self).outstanding_items@.insert(index, OutstandingItem::Created(*item))
                         &&& self.tentative_view() == old(self).tentative_view().update(index as int, *item)
-                        &&& wrpm_region@.committed() == old(wrpm_region)@.committed()
+                        &&& wrpm_region@.durable_state == old(wrpm_region)@.durable_state
                     },
                     Err(KvError::OutOfSpace) => {
                         &&& self@ == old(self)@
@@ -872,10 +875,10 @@ verus! {
                 }
         {
             let ghost old_pm_view = subregion.view(wrpm_region);
-            assert(parse_item_table::<I, K>(old_pm_view.committed(), overall_metadata.num_keys as nat,
+            assert(parse_item_table::<I, K>(old_pm_view.durable_state, overall_metadata.num_keys as nat,
                 self.durable_valid_indices()) == Some(self@)) 
             by {
-                lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
+//                lemma_persistent_memory_view_can_crash_as_committed(old_pm_view);
             }
             
             let entry_size = self.entry_size;
@@ -980,17 +983,17 @@ verus! {
             let crc: u64 = calculate_crc(item);
 
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
-            assert(wrpm_region@.committed() == old(wrpm_region)@.committed()) by {
+            assert(wrpm_region@.durable_state == old(wrpm_region)@.durable_state) by {
                 lemma_writing_does_not_change_committed_view(subregion.view(old::<&mut _>(wrpm_region)), crc_addr as int, crc.spec_to_bytes());
                 subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(wrpm_region);
             }
             
             let ghost cur_wrpm = *wrpm_region;
-            assert(subregion.view(&cur_wrpm).committed() == subregion.initial_subregion_view().committed());
+            assert(subregion.view(&cur_wrpm).durable_state == subregion.initial_subregion_view().durable_state);
 
             // write the item itself
             subregion.serialize_and_write_relative::<I, Perm, PM>(wrpm_region, item_addr, item, Tracked(perm));
-            assert(wrpm_region@.committed() == cur_wrpm@.committed()) by {
+            assert(wrpm_region@.durable_state == cur_wrpm@.durable_state) by {
                 lemma_writing_does_not_change_committed_view(subregion.view(&cur_wrpm), item_addr as int, item.spec_to_bytes());
                 subregion.lemma_if_committed_subview_unchanged_then_committed_view_unchanged(wrpm_region);
             }
@@ -999,7 +1002,7 @@ verus! {
             self.outstanding_item_create(free_index, *item, Ghost(overall_metadata));
 
             let ghost pm_view = subregion.view(wrpm_region);
-            assert(pm_view.committed() =~= old_pm_view.committed());
+            assert(pm_view.durable_state =~= old_pm_view.durable_state);
 
             assert forall|idx: u64| idx < overall_metadata.num_keys && #[trigger] self.outstanding_items[idx] is None implies {
                 let start = index_to_offset(idx as nat, entry_size as nat) as int;
@@ -1013,16 +1016,16 @@ verus! {
             }
 
             assert forall|idx: u64| self.durable_valid_indices().contains(idx) implies {
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                let entry_bytes = extract_bytes(pm_view.durable_state, (idx * entry_size) as nat, entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
                 &&& self@.durable_item_table[idx as int] == parse_item_entry::<I, K>(entry_bytes)
             } by {
-                let entry_bytes = extract_bytes(pm_view.committed(), (idx * entry_size) as nat, entry_size as nat);
+                let entry_bytes = extract_bytes(pm_view.durable_state, (idx * entry_size) as nat, entry_size as nat);
                 lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                 lemma_entries_dont_overlap_unless_same_index(idx as nat, free_index as nat, entry_size as nat);
-                assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).committed(),
+                assert(entry_bytes =~= extract_bytes(subregion.view(old::<&mut _>(wrpm_region)).durable_state,
                                                      (idx * entry_size) as nat, entry_size as nat));
             }
 
@@ -1072,18 +1075,18 @@ verus! {
             requires 
                 valid_indices == Set::<u64>::empty(),
                 ({ 
-                    let mem = subregion.view(pm_region).committed();
+                    let mem = subregion.view(pm_region).durable_state;
                     let item_entry_size = I::spec_size_of() + u64::spec_size_of();
                     num_keys * item_entry_size <= mem.len()
                 }),
             ensures
                 ({
-                    let mem = subregion.view(pm_region).committed();
+                    let mem = subregion.view(pm_region).durable_state;
                     &&& parse_item_table::<I, K>(mem, num_keys as nat, valid_indices) matches Some(item_table_view)
                     &&& item_table_view == DurableItemTableView::<I>::init(num_keys as int)
                 })
         {
-            let mem = subregion.view(pm_region).committed();
+            let mem = subregion.view(pm_region).durable_state;
             let item_entry_size = I::spec_size_of() + u64::spec_size_of();
             let item_table_view = parse_item_table::<I, K>(mem, num_keys as nat, valid_indices);
             assert(item_table_view is Some);
@@ -1105,13 +1108,13 @@ verus! {
                 L: PmCopy + std::fmt::Debug,
             requires
                 subregion.inv(pm_region),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.flush_predicted(),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
                 subregion.len() == overall_metadata.item_table_size,
-                subregion.view(pm_region).no_outstanding_writes(),
+                subregion.view(pm_region).flush_predicted(),
                 ({
                     let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
-                    let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
+                    let table = parse_item_table::<I, K>(subregion.view(pm_region).durable_state, overall_metadata.num_keys as nat, valid_indices_view.to_set());
                     table is Some
                 }),
                 overall_metadata.item_size == I::spec_size_of(),
@@ -1123,7 +1126,7 @@ verus! {
                     Ok(item_table) => {
                         let valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
                         let valid_indices = valid_indices_view.to_set();
-                        let table = parse_item_table::<I, K>(subregion.view(pm_region).committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
+                        let table = parse_item_table::<I, K>(subregion.view(pm_region).durable_state, overall_metadata.num_keys as nat, valid_indices_view.to_set()).unwrap();
                         &&& item_table.valid(subregion.view(pm_region), overall_metadata, valid_indices)
                         // table view is correct
                         &&& table == item_table@
@@ -1157,7 +1160,7 @@ verus! {
             let ghost pm_view = subregion.view(pm_region);
 
             let ghost valid_indices_view = Seq::new(key_index_info@.len(), |i: int| key_index_info[i].2);
-            let ghost table = parse_item_table::<I, K>(pm_view.committed(), overall_metadata.num_keys as nat, valid_indices_view.to_set());
+            let ghost table = parse_item_table::<I, K>(pm_view.durable_state, overall_metadata.num_keys as nat, valid_indices_view.to_set());
 
             // TODO: we could make this a bit more efficient by making the boolean vector a bitmap
             let mut free_vec: Vec<bool> = Vec::with_capacity(num_keys as usize);
@@ -1265,7 +1268,7 @@ verus! {
                     assert(idx * entry_size + entry_size <= overall_metadata.num_keys * entry_size) by {
                         lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, entry_size as nat);
                     }
-                    assert(validate_item_table_entry::<I, K>(extract_bytes(pm_view.committed(),
+                    assert(validate_item_table_entry::<I, K>(extract_bytes(pm_view.durable_state,
                         index_to_offset(idx as nat, entry_size as nat), entry_size as nat)));
                 }
 
@@ -1279,8 +1282,8 @@ verus! {
             proof {
                 // Prove that the item table region only has one crash state, which recovers to the initial table's state
                 let pm_view = subregion.view(pm_region);
-                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
-                assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.committed());
+//                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_view);
+                assert(forall |s| pm_view.can_crash_as(s) ==> s == pm_view.durable_state);
                 assert(in_use_indices == item_table.durable_valid_indices());
                 assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==> 
                     parse_item_table::<I, K>(s, overall_metadata.num_keys as nat, in_use_indices) == Some(item_table@));
@@ -1342,7 +1345,7 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires 
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 old(self).opaquable_inv(overall_metadata, old(self).tentative_valid_indices()),
                 ({
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
@@ -1355,7 +1358,7 @@ verus! {
                 },
                 forall|idx: u64| old(self).durable_valid_indices().contains(idx) ==> {
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
-                    let entry_bytes = extract_bytes(pm.committed(), (idx * entry_size) as nat, entry_size as nat);
+                    let entry_bytes = extract_bytes(pm.durable_state, (idx * entry_size) as nat, entry_size as nat);
                     &&& idx < overall_metadata.num_keys
                     &&& validate_item_table_entry::<I, K>(entry_bytes)
                     &&& old(self)@.durable_item_table[idx as int] is Some
@@ -1655,13 +1658,13 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 old(self).opaquable_inv(overall_metadata, old(self).durable_valid_indices()),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                         overall_metadata.item_table_size as nat);
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
-                    &&& parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, old(self).tentative_valid_indices()) == 
+                    &&& parse_item_table::<I, K>(subregion_view.durable_state, overall_metadata.num_keys as nat, old(self).tentative_valid_indices()) == 
                             Some(old(self).tentative_view())
                     &&& subregion_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
                 }),
@@ -1676,7 +1679,7 @@ verus! {
                         overall_metadata.item_table_size as nat);
                     let entry_size = I::spec_size_of() + u64::spec_size_of();
                     &&& self.inv(subregion_view, overall_metadata)
-                    &&& Some(self@) == parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, old(self).tentative_valid_indices())
+                    &&& Some(self@) == parse_item_table::<I, K>(subregion_view.durable_state, overall_metadata.num_keys as nat, old(self).tentative_valid_indices())
                 }),
                 self@.len() == old(self)@.len(),
                 self.num_keys == old(self).num_keys,
@@ -1695,7 +1698,7 @@ verus! {
 
             let ghost subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                 overall_metadata.item_table_size as nat);
-            self.state = Ghost(parse_item_table::<I, K>(subregion_view.committed(), 
+            self.state = Ghost(parse_item_table::<I, K>(subregion_view.durable_state, 
                 overall_metadata.num_keys as nat, self.tentative_valid_indices()).unwrap());
 
             assert(self.durable_valid_indices() == self.tentative_valid_indices());
@@ -1704,8 +1707,8 @@ verus! {
             self.finalize_outstanding_items(Ghost(subregion_view), Ghost(overall_metadata));
             
             proof {
-                assert(parse_item_table::<I, K>(subregion_view.committed(), overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@));
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
+                assert(parse_item_table::<I, K>(subregion_view.durable_state, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@));
+//                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(subregion_view);
                 
                 let subregion_view = get_subregion_view(pm, overall_metadata.item_table_addr as nat,
                     overall_metadata.item_table_size as nat);

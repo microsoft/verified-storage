@@ -324,20 +324,20 @@ pub fn setup<PM, K, I, L> (
         L: PmCopy + std::fmt::Debug + Copy,
     requires
         old(pm).inv(),
-        old(pm)@.no_outstanding_writes(),
+        old(pm)@.flush_predicted(),
     ensures
         pm.inv(),
         pm.constants() == old(pm).constants(),
         pm@.len() == old(pm)@.len(),
         match result {
             Ok((version_metadata, overall_metadata)) => {
-                &&& memory_correctly_set_up_on_region::<K, I, L>(pm@.committed(), kvstore_id)
-                &&& pm@.no_outstanding_writes()
+                &&& memory_correctly_set_up_on_region::<K, I, L>(pm@.durable_state, kvstore_id)
+                &&& pm@.flush_predicted()
 
-                &&& deserialize_version_metadata(pm@.committed()) == version_metadata
-                &&& deserialize_version_crc(pm@.committed()) == version_metadata.spec_crc()
-                &&& deserialize_overall_metadata(pm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata
-                &&& deserialize_overall_crc(pm@.committed(), version_metadata.overall_metadata_addr) == overall_metadata.spec_crc()
+                &&& deserialize_version_metadata(pm@.durable_state) == version_metadata
+                &&& deserialize_version_crc(pm@.durable_state) == version_metadata.spec_crc()
+                &&& deserialize_overall_metadata(pm@.durable_state, version_metadata.overall_metadata_addr) == overall_metadata
+                &&& deserialize_overall_crc(pm@.durable_state, version_metadata.overall_metadata_addr) == overall_metadata.spec_crc()
                 &&& overall_metadata.region_size == pm@.len()
             },
             Err(_) => true,
@@ -378,7 +378,7 @@ pub fn setup<PM, K, I, L> (
     proof {
         broadcast use pmcopy_axioms;
 
-        let mem = pm@.committed();
+        let mem = pm@.durable_state;
         assert(version_metadata.spec_to_bytes() == extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of()));
         assert(version_crc.spec_to_bytes() == extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_CRC as nat, u64::spec_size_of()));
         assert(overall_metadata.spec_to_bytes() == extract_bytes(mem, version_metadata.overall_metadata_addr as nat, OverallMetadata::spec_size_of()));
@@ -396,18 +396,18 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         L: PmCopy,
     requires 
         pm.inv(),
-        pm@.no_outstanding_writes(),
+        pm@.flush_predicted(),
         0 <= ABSOLUTE_POS_OF_VERSION_METADATA < ABSOLUTE_POS_OF_VERSION_METADATA + VersionMetadata::spec_size_of() <= pm@.len(),
-        memory_correctly_set_up_on_region::<K, I, L>(pm@.committed(), kvstore_id),
+        memory_correctly_set_up_on_region::<K, I, L>(pm@.durable_state, kvstore_id),
     ensures 
         match result {
             Ok(version_metadata) => 
-                version_metadata == deserialize_version_metadata(pm@.committed()),
+                version_metadata == deserialize_version_metadata(pm@.durable_state),
             Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption,
             Err(_) => false,
         }
 {
-    let ghost mem = pm@.committed();
+    let ghost mem = pm@.durable_state;
     let ghost metadata_addrs = Seq::new(VersionMetadata::spec_size_of(), |i: int| ABSOLUTE_POS_OF_VERSION_METADATA + i);
     let ghost true_version_metadata_bytes = extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of());
     let ghost crc_addrs = Seq::new(u64::spec_size_of(), |i: int| ABSOLUTE_POS_OF_VERSION_CRC + i);
@@ -450,19 +450,19 @@ pub exec fn read_overall_metadata<PM, K, I, L>(pm: &PM, version_metadata: &Versi
         L: PmCopy,
     requires 
         pm.inv(),
-        pm@.no_outstanding_writes(),
-        version_metadata == deserialize_version_metadata(pm@.committed()),
+        pm@.flush_predicted(),
+        version_metadata == deserialize_version_metadata(pm@.durable_state),
         0 <= version_metadata.overall_metadata_addr < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() < 
             version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of() <= pm@.len() <= u64::MAX,
-        memory_correctly_set_up_on_region::<K, I, L>(pm@.committed(), kvstore_id),
+        memory_correctly_set_up_on_region::<K, I, L>(pm@.durable_state, kvstore_id),
     ensures 
         match result {
-            Ok(overall_metadata) => overall_metadata == deserialize_overall_metadata(pm@.committed(), version_metadata.overall_metadata_addr),
+            Ok(overall_metadata) => overall_metadata == deserialize_overall_metadata(pm@.durable_state, version_metadata.overall_metadata_addr),
             Err(KvError::CRCMismatch) => !pm.constants().impervious_to_corruption,
             Err(_) => false,
         }
 {
-    let ghost mem = pm@.committed();
+    let ghost mem = pm@.durable_state;
     let metadata_addr = version_metadata.overall_metadata_addr;
     let crc_addr = metadata_addr + size_of::<OverallMetadata>() as u64;
 

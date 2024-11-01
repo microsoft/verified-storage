@@ -34,7 +34,7 @@ verus! {
             Perm: CheckPermission<Seq<u8>>,
     {
         &&& 0 <= addr < addr + bytes.len() <= wrpm_region@.len()
-        &&& UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
+        &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
         &&& forall |i: int| addr <= i < addr + bytes.len() ==> #[trigger] addr_modified_by_recovery(phys_log, i)
         &&& addr + bytes.len() <= overall_metadata.log_area_addr || overall_metadata.log_area_addr + overall_metadata.log_area_size <= addr
         &&& recovery_write_region_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log)
@@ -53,13 +53,13 @@ verus! {
             L: PmCopy + std::fmt::Debug + Copy,
             Perm: CheckPermission<Seq<u8>>,
     {
-        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), version_metadata, overall_metadata);
+        let abstract_op_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.durable_state, version_metadata, overall_metadata);
         &&& wrpm_region.inv()
-        &&& wrpm_region@.no_outstanding_writes()
+        &&& wrpm_region@.flush_predicted()
         &&& wrpm_region@.len() == overall_metadata.region_size
         &&& phys_log.len() > 0
-        &&& UntrustedLogImpl::recover(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
-        &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata) is Some
+        &&& UntrustedLogImpl::recover(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) is Some
+        &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata) is Some
         &&& 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size
         &&& 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size
         &&& abstract_op_log matches Some(abstract_op_log)
@@ -87,27 +87,26 @@ verus! {
             ({
                 // for all states s that this write may crash into, recovering s is equivalent
                 // to recovering from the original state
-                forall |s| wrpm_region@.write(addr, bytes).can_crash_as(s) ==> {
+                forall |s| can_result_from_partial_write(s, wrpm_region@.durable_state, addr, bytes) ==> {
                     &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
-                    &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap()
+                    &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap()
                 }
             }),
             ({
-                let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region.committed(), version_metadata, overall_metadata) is Some
-                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap() == 
-                        DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region.committed(), version_metadata, overall_metadata).unwrap()
+                let new_wrpm_region = update_bytes(wrpm_region@.read_state, addr, bytes);
+                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region, version_metadata, overall_metadata) is Some
+                &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap() == 
+                        DurableKvStore::<Perm, PM, K, I, L>::physical_recover(new_wrpm_region, version_metadata, overall_metadata).unwrap()
             }),
             ({
-                let new_wrpm_region = wrpm_region@.write(addr, bytes).flush();
-                let abstract_op_log = UntrustedOpLog::<K, L>::recover(new_wrpm_region.committed(), version_metadata, overall_metadata);
+                let new_wrpm_region = update_bytes(wrpm_region@.read_state, addr, bytes);
+                let abstract_op_log = UntrustedOpLog::<K, L>::recover(new_wrpm_region, version_metadata, overall_metadata);
                 &&& abstract_op_log matches Some(abstract_op_log)
                 &&& abstract_op_log.physical_op_list == phys_log
                 &&& AbstractPhysicalOpLogEntry::log_inv(phys_log, version_metadata, overall_metadata)
             }),
     {
-        let new_wrpm_region = wrpm_region@.write(addr, bytes);
-        let new_wrpm_region_flushed = new_wrpm_region.flush();
+        let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
 
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
@@ -115,7 +114,7 @@ verus! {
 
         // The current pm state has the same log as the original pm state
         lemma_log_bytes_unchanged_during_recovery_write::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log, addr, bytes);
-        lemma_same_log_bytes_recover_to_same_state(wrpm_region@.committed(), new_wrpm_region_flushed.committed(), 
+        lemma_same_log_bytes_recover_to_same_state(wrpm_region@.durable_state, new_wrpm_region_flushed,
             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
 
         // all crash states from this write recover to the same durable kvstore state
@@ -123,7 +122,7 @@ verus! {
 
         // We've just proven that all possible crash states recover to the desired state, and new_wrpm_region_flushed is a possible crash state,
         // so it also recovers to the desired state.
-        assert(new_wrpm_region.can_crash_as(new_wrpm_region_flushed.committed()));
+//        assert(new_wrpm_region.can_crash_as(new_wrpm_region_flushed.durable_state));
     }
 
     proof fn lemma_log_bytes_unchanged_during_recovery_write<Perm, PM, K, I, L>(
@@ -144,26 +143,24 @@ verus! {
             recovery_write_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log, addr, bytes)
         ensures
             ({
-                let new_wrpm_region = wrpm_region@.write(addr, bytes);
-                let new_wrpm_region_flushed = new_wrpm_region.flush();
-                extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
-                    extract_bytes(new_wrpm_region_flushed.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
+                let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
+                extract_bytes(wrpm_region@.durable_state, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
+                    extract_bytes(new_wrpm_region_flushed, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
             })
     {
-        let new_wrpm_region = wrpm_region@.write(addr, bytes);
-        let new_wrpm_region_flushed = new_wrpm_region.flush();
+        let new_wrpm_region_flushed = update_bytes(wrpm_region@.read_state, addr, bytes);
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
         let region_size = overall_metadata.region_size as nat;
 
         // bytes that were not updated by the write remain the same
-        assert(new_wrpm_region.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + log_size) as int));
+//        assert(new_wrpm_region.no_outstanding_writes_in_range(log_start_addr as int, (log_start_addr + log_size) as int));
         assert(forall |i: int| log_start_addr <= i < log_start_addr + log_size ==> 
-            wrpm_region@.committed()[i] == #[trigger] new_wrpm_region_flushed.committed()[i]);
+            wrpm_region@.durable_state[i] == #[trigger] new_wrpm_region_flushed[i]);
     
         // Since the bytes cannot modify the log, the log's recovery state is unchanged by the write.
-        assert(extract_bytes(wrpm_region@.committed(), log_start_addr, log_size) =~= 
-            extract_bytes(new_wrpm_region_flushed.committed(), log_start_addr, log_size));
+        assert(extract_bytes(wrpm_region@.durable_state, log_start_addr, log_size) =~= 
+            extract_bytes(new_wrpm_region_flushed, log_start_addr, log_size));
     }
 
     proof fn lemma_crash_states_recover_to_same_state<Perm, PM, K, I, L>(
@@ -187,7 +184,7 @@ verus! {
                 let new_wrpm_region = wrpm_region@.write(addr, bytes);
                 forall |s| new_wrpm_region.can_crash_as(s) ==> {
                     &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
-                    &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap()
+                    &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap()
                 }
             })
     {
@@ -200,21 +197,21 @@ verus! {
 
         assert forall |s| new_wrpm_region.can_crash_as(s) implies {
             &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
-            &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap()
+            &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap()
         } by {
-            lemma_establish_extract_bytes_equivalence(wrpm_region@.committed(), s);
+            lemma_establish_extract_bytes_equivalence(wrpm_region@.durable_state, s);
             
             // 1. Prove that physical recovery on s succeeds
             // 2. Prove that it is equivalent to recovery on the original state
 
             // addrs in log region are unchanged by the write 
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_wrpm_region);
-            assert(forall |i: int| log_start_addr <= i < log_start_addr + log_size ==> wrpm_region@.committed()[i] == #[trigger] s[i]);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_wrpm_region);
+            assert(forall |i: int| log_start_addr <= i < log_start_addr + log_size ==> wrpm_region@.durable_state[i] == #[trigger] s[i]);
             // which means that the original log and s's log recover to the same state
-            assert(extract_bytes(wrpm_region@.committed(), log_start_addr, log_size) == extract_bytes(s, log_start_addr, log_size));
-            let original_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.committed(), version_metadata, overall_metadata);
+            assert(extract_bytes(wrpm_region@.durable_state, log_start_addr, log_size) == extract_bytes(s, log_start_addr, log_size));
+            let original_log = UntrustedOpLog::<K, L>::recover(wrpm_region@.durable_state, version_metadata, overall_metadata);
             let crashed_log = UntrustedOpLog::<K, L>::recover(s, version_metadata, overall_metadata);
-            lemma_same_log_bytes_recover_to_same_state(wrpm_region@.committed(), s, overall_metadata.log_area_addr as nat,
+            lemma_same_log_bytes_recover_to_same_state(wrpm_region@.durable_state, s, overall_metadata.log_area_addr as nat,
                 overall_metadata.log_area_size as nat, overall_metadata.region_size as nat);
             assert(crashed_log is Some);
             assert(crashed_log == original_log);
@@ -225,13 +222,13 @@ verus! {
             lemma_apply_phys_log_entries_succeeds_if_log_ops_are_well_formed(s, version_metadata, overall_metadata, phys_log);
             
             assert(apply_physical_log_entries(s, phys_log) is Some);
-            assert(apply_physical_log_entries(wrpm_region@.committed(), phys_log) is Some);
+            assert(apply_physical_log_entries(wrpm_region@.durable_state, phys_log) is Some);
 
             // Applying the log to both s and the original state result in the same sequence of bytes
             assert(apply_physical_log_entries(s, phys_log) == 
-                apply_physical_log_entries(wrpm_region@.committed(), phys_log)) 
+                apply_physical_log_entries(wrpm_region@.durable_state, phys_log)) 
             by {
-                let mem = wrpm_region@.committed();
+                let mem = wrpm_region@.durable_state;
                 let crash_replay = apply_physical_log_entries(s, phys_log);
                 let reg_replay = apply_physical_log_entries(mem, phys_log);
                 assert(crash_replay is Some);
@@ -252,10 +249,10 @@ verus! {
 
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) is Some);
             // s can only differ from the original state in locations that are overwritten by recovery
-            assert(forall |i: int| 0 <= i < s.len() && #[trigger] s[i] != #[trigger] wrpm_region@.committed()[i] ==> #[trigger] addr_modified_by_recovery(phys_log, i));
+            assert(forall |i: int| 0 <= i < s.len() && #[trigger] s[i] != #[trigger] wrpm_region@.durable_state[i] ==> #[trigger] addr_modified_by_recovery(phys_log, i));
 
             assert(DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata).unwrap() == 
-                DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata).unwrap());
+                DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap());
         }
     }
 
@@ -535,16 +532,16 @@ verus! {
         ensures 
             ({
                 let new_pm = pm.write(addr, bytes);
-                pm.committed() == new_pm.committed()
+                pm.durable_state == new_pm.durable_state
             })
     {
         let new_pm = pm.write(addr, bytes);
         assert(forall |i: int| 0 <= i < pm.len() ==>
             new_pm.state[i].state_at_last_flush == #[trigger] pm.state[i].state_at_last_flush);
         assert(forall |i: int| 0 <= i < new_pm.len() ==>
-            #[trigger] new_pm.state[i].state_at_last_flush == new_pm.committed()[i]);
+            #[trigger] new_pm.state[i].state_at_last_flush == new_pm.durable_state[i]);
         assert(forall |i: int| 0 <= i < pm.len() ==>
-            #[trigger] pm.state[i].state_at_last_flush == pm.committed()[i]);
-        assert(pm.committed() == new_pm.committed());
+            #[trigger] pm.state[i].state_at_last_flush == pm.durable_state[i]);
+        assert(pm.durable_state == new_pm.durable_state);
     }
 }

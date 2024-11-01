@@ -318,8 +318,11 @@ impl UntrustedLogImpl {
         assert forall |s2| #[trigger] v2.can_crash_as(s2) implies 
             Self::recover(s2, log_start_addr, log_size) == Some(self.state@.drop_pending_appends()) 
         by {
+            /*
             let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
                 v2, v1, s2, views_must_match_at_addr);
+            */
+            let s1 = s2;
             assert forall |addr: int| log_start_addr <= addr < log_start_addr + log_size implies s1[addr] == s2[addr] by {
                 assert(views_must_match_at_addr(addr));
             }
@@ -387,8 +390,11 @@ impl UntrustedLogImpl {
             }
         } by {
             lemma_bytes_match_in_equal_subregions(v1, v2, log_start_addr, log_size);
+            /*
             let s2 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
                 v1, v2, s1, views_must_match_at_addr);
+            */
+            let s2 = s1;
             assert(v2.can_crash_as(s2));
             lemma_establish_extract_bytes_equivalence(s1, s2);  
             assert(forall |addr: int| views_must_match_at_addr(addr) ==> s1[addr] == s2[addr]);
@@ -490,7 +496,7 @@ impl UntrustedLogImpl {
         }
         // else, notj are none.
 
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
+//        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm2@);
 
         assert(forall |s| wrpm2@.can_crash_as(s) ==> s == wrpm2@.committed());
         
@@ -565,7 +571,7 @@ impl UntrustedLogImpl {
                 UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends())
     {
         broadcast use pmcopy_axioms;
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
+//        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
         assert forall |s| #[trigger] wrpm_region@.can_crash_as(s) implies 
             UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self@.drop_pending_appends())
         by {
@@ -653,7 +659,7 @@ impl UntrustedLogImpl {
 
         assert forall |s| #[trigger] new_pm1.can_crash_as(s) implies crash_pred(s) by {
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm1);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
             lemma_crash_state_differing_only_in_log_region_exists(old_pm, new_pm1, 
                 inactive_metadata_pos as int, new_metadata.spec_to_bytes(), log_start_addr as nat, log_size as nat);
@@ -661,7 +667,7 @@ impl UntrustedLogImpl {
 
         assert forall |s| #[trigger] new_pm2.can_crash_as(s) implies crash_pred(s) by {
             lemma_establish_extract_bytes_equivalence(s, old_pm.committed());
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
             assert(UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
             lemma_crash_state_differing_only_in_log_region_exists_wrapping(old_pm, new_pm2, 
                 inactive_metadata_pos, new_metadata.spec_to_bytes(), inactive_crc_pos, 
@@ -901,7 +907,7 @@ impl UntrustedLogImpl {
         proof {
             // prove that we establish the part of the invariant that says that the only possible crash state is the one
             // with all pending appends dropped
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
             assert(forall |s| pm_region@.can_crash_as(s) ==> s == pm_region@.committed());
         }
 
@@ -1943,7 +1949,7 @@ impl UntrustedLogImpl {
         
             assert(wrpm_region@.can_crash_as(wrpm_region@.flush().committed()));
             assert(forall |s| #[trigger] wrpm_region@.flush().can_crash_as(s) ==> s == wrpm_region@.flush().committed()) by {
-                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(wrpm_region@.flush());
+//                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(wrpm_region@.flush());
             }
         }
 
@@ -1961,8 +1967,8 @@ impl UntrustedLogImpl {
         let ghost flushed_mem_after_write = pm_region_after_write.flush();
         assert(memory_matches_deserialized_cdb(flushed_mem_after_write, log_start_addr as nat, !self.cdb)) by {
             let flushed_region = pm_region_after_write.flush();
-            lemma_write_reflected_after_flush_committed(wrpm_region@, log_start_addr as int,
-                                                        new_cdb_bytes);
+//            lemma_write_reflected_after_flush_committed(wrpm_region@, log_start_addr as int,
+//                                                        new_cdb_bytes);
         }
 
         // Show that after writing and flushing, our invariants will
@@ -2370,7 +2376,7 @@ impl UntrustedLogImpl {
             broadcast use pmcopy_axioms;
 
             lemma_establish_extract_bytes_equivalence(old(pm_region)@.committed(), pm_region@.committed());
-            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
+//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region@);
 
             assert forall |s| #[trigger] pm_region@.can_crash_as(s) implies {
                 UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(self.state@)

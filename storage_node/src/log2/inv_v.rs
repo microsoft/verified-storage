@@ -461,7 +461,7 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
         recover_state(crash_state, log_start_addr, log_size) == recover_state(v1.committed(), log_start_addr, log_size),
 {
     reveal(spec_padding_needed);
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
+//    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
     // lemma_establish_subrange_equivalence(crash_state, v1.committed());
     lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
     assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
@@ -515,7 +515,7 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
     broadcast use pmcopy_axioms;
     lemma_establish_extract_bytes_equivalence(v1.committed(), v2.committed());
     assert(views_differ_only_where_subregion_allows(v1, v2, log_start_addr as nat, log_size as nat, is_writable_absolute_addr));
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
+//    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
     lemma_establish_extract_bytes_equivalence(crash_state, v1.committed());
     assert(recover_state(crash_state, log_start_addr, log_size) =~= recover_state(v1.committed(), log_start_addr, log_size));
 }
@@ -683,7 +683,7 @@ pub proof fn lemma_metadata_set_after_crash(
     let pm_bytes = pm_region_view.committed();
     assert(cdb == spec_check_log_cdb(pm_bytes, log_start_addr).unwrap());
 
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+//    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
 
     assert forall |s| {
         &&& pm_region_view.can_crash_as(s) 
@@ -795,7 +795,7 @@ proof fn lemma_invariants_imply_crash_recover(
     // `mem` must also match `cdb`.
 
     assert (recover_cdb(mem, log_start_addr) == Some(cdb)) by {
-        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+//        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
         lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
     }
 
@@ -849,7 +849,7 @@ proof fn lemma_invariants_imply_crash_recover_for_one_log(
 {
     broadcast use pmcopy_axioms;
 
-    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
+//    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
     lemma_establish_extract_bytes_equivalence(mem, pm_region_view.committed());
 
     let active_metadata_pos = spec_get_active_log_metadata_pos(cdb) + log_start_addr;

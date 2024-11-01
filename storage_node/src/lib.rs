@@ -12,9 +12,9 @@
 
 use builtin::*;
 use builtin_macros::*;
-use kv::durable::list_v::*;
-use kv::durable::itemtable_v::*;
-use kv::durable::maintable_v::*;
+//use kv::durable::list_v::*;
+//use kv::durable::itemtable_v::*;
+//use kv::durable::maintable_v::*;
 use pmem::wrpm_t::*;
 use vstd::pervasive::runtime_assert;
 use vstd::prelude::*;
@@ -230,7 +230,7 @@ verus! {
 // fn test_log_on_memory_mapped_file() -> Option<()>
 // {
 //     let region_size = 1024;
-
+// 
 //     // Create the memory out of a single file.
 //     let file_name = "test_log";
 //     #[cfg(target_os = "windows")]
@@ -245,27 +245,27 @@ verus! {
 //         region_size,
 //         PersistentMemoryCheck::DontCheckForPersistentMemory,
 //     ).ok()?;
-
+// 
 //     // Set up the memory region to contain a log. The capacity will be less than
 //     // the file size because a few bytes are needed for metadata.
 //     let (capacity, log_id) = LogImpl::setup(&mut pm_region).ok()?;
 //     runtime_assert(capacity <= 1024);
-
+// 
 //     // Start accessing the log.
 //     let mut log = LogImpl::start(pm_region, log_id).ok()?;
-
+// 
 //     // Tentatively append [30, 42, 100] to the log.
 //     let mut v: Vec<u8> = Vec::<u8>::new();
 //     v.push(30); v.push(42); v.push(100);
 //     let pos = log.tentatively_append(v.as_slice()).ok()?;
 //     runtime_assert(pos == 0);
-
+// 
 //     // Note that a tentative append doesn't actually advance the tail. That
 //     // doesn't happen until the next commit.
 //     let (head, tail, _capacity) = log.get_head_tail_and_capacity().ok()?;
 //     runtime_assert(head == 0);
 //     runtime_assert(tail == 0);
-
+// 
 //     // Now commit the tentative appends. This causes the log to have tail 3.
 //     if log.commit().is_err() {
 //         runtime_assert(false); // can't fail
@@ -277,7 +277,7 @@ verus! {
 //         },
 //         _ => runtime_assert(false) // can't fail
 //     }
-
+// 
 //     // We read the 2 bytes starting at position 1 of the log. We should
 //     // read bytes [42, 100]. This is only guaranteed if the memory
 //     // wasn't corrupted.
@@ -285,7 +285,7 @@ verus! {
 //         runtime_assert(bytes.len() == 2);
 //         assert(log.constants().impervious_to_corruption ==> bytes[0] == 42);
 //     }
-
+// 
 //     // We now advance the head of the log to position 2. This causes the
 //     // head to become 2 and the tail stays at 3.
 //     match log.advance_head(2) {
@@ -299,13 +299,13 @@ verus! {
 //         },
 //         _ => runtime_assert(false) // can't fail
 //     }
-
+// 
 //     // If we read from position 2 of the log, we get the same thing we
 //     // would have gotten before the advance-head operation.
 //     if let Ok(bytes) = log.read(2, 1) {
 //         assert(log.constants().impervious_to_corruption ==> bytes[0] == 100);
 //     }
-
+// 
 //     // But if we try to read from position 0, we get an
 //     // error because we're not allowed to read from before the head.
 //     match log.read(0, 1) {
@@ -555,6 +555,6 @@ fn main()
     // test_multilog_in_volatile_memory();
     // test_multilog_on_memory_mapped_file();
     // test_log_on_memory_mapped_file();
-//    test_durable_on_memory_mapped_file();
+    // test_durable_on_memory_mapped_file();
 }
 }

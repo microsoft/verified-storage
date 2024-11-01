@@ -10,6 +10,7 @@ use crate::log::logimpl_v::LogInfo;
 use crate::log::logspec_t::AbstractLogState;
 use crate::pmem::pmemspec_t::PersistentMemoryRegionView;
 use crate::pmem::subregion_v::*;
+use crate::pmem::pmemutil_v::*;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
@@ -47,6 +48,7 @@ verus! {
     )
         requires
             pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.valid(),
             info_consistent_with_log_area(pm_region_view, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -70,17 +72,24 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append);
-                &&& pm_region_view.no_outstanding_writes_in_range(write_addr, write_addr + num_bytes)
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + num_bytes ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
-                &&& info_consistent_with_log_area(pm_region_view2, new_info, new_state)
+                &&& forall|pm_region_view2: PersistentMemoryRegionView|
+                    #[trigger] pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append)
+                    ==> info_consistent_with_log_area(pm_region_view2, new_info, new_state)
             }),
     {
+        let log_area_len = prev_info.log_area_len;
+        let num_bytes = bytes_to_append.len();
+        let new_info = prev_info.tentatively_append(num_bytes as u64);
         let new_state = prev_state.tentatively_append(bytes_to_append);
+        let write_addr =
+            relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
+                                                prev_info.head_log_area_offset as int,
+                                                log_area_len as int);
 
         // We need extensional equality to reason that the old and new
         // abstract states are the same after dropping pending appends.
@@ -96,6 +105,13 @@ verus! {
         // outstanding writes to certain of them).
 
         lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(pm_region_view, prev_info);
+
+        assert forall|pm_region_view2: PersistentMemoryRegionView|
+                  #[trigger] pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append)
+                  implies info_consistent_with_log_area(pm_region_view2, new_info, new_state) by {
+            lemma_auto_can_result_from_write_effect_on_durable_state();
+            lemma_addresses_in_log_area_subregion_correspond_to_relative_log_positions(pm_region_view2, new_info);
+        }
     }
 
     // This lemma establishes useful facts about performing two
@@ -130,6 +146,7 @@ verus! {
     )
         requires
             pm_region_view.len() == prev_info.log_area_len,
+            pm_region_view.valid(),
             info_consistent_with_log_area(pm_region_view, prev_info, prev_state),
             ({
                 let log_area_len = prev_info.log_area_len;
@@ -156,27 +173,23 @@ verus! {
                     relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
-                let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append_part1);
-                let pm_region_view3 = pm_region_view2.write(0int, bytes_to_append_part2);
-                // The first write doesn't conflict with any outstanding writes
-                &&& pm_region_view.no_outstanding_writes_in_range(write_addr,
-                                                                 write_addr + bytes_to_append_part1.len())
                 // The first write is only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + bytes_to_append_part1.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
-                // The second write also doesn't conflict with any outstanding writes
-                &&& pm_region_view2.no_outstanding_writes_in_range(0int, bytes_to_append_part2.len() as int)
                 // The second write is also only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| 0 <= log_area_offset < bytes_to_append_part2.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
-                // After the writes, the log area will be consistent with an updated info and state.
-                &&& info_consistent_with_log_area(pm_region_view3, new_info, new_state)
+                // After both writes writes, the log area will be consistent with an updated info and state.
+                &&& forall|pm_region_view2: PersistentMemoryRegionView, pm_region_view3: PersistentMemoryRegionView| {
+                      &&& pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append_part1)
+                      &&& pm_region_view3.can_result_from_write(pm_region_view2, 0int, bytes_to_append_part2)
+                   } ==> info_consistent_with_log_area(pm_region_view3, new_info, new_state)
             }),
     {
         let log_area_len = prev_info.log_area_len;
@@ -196,12 +209,16 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let pm_region_view2 = pm_region_view.write(write_addr, bytes_to_append_part1);
-
-        // Invoke `lemma_tentatively_append` on each write.
-
-        lemma_tentatively_append(pm_region_view, bytes_to_append_part1, prev_info, prev_state);
-        lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, intermediate_info, intermediate_state);
+        let new_info = prev_info.tentatively_append(bytes_to_append.len() as u64);
+        assert forall|pm_region_view2: PersistentMemoryRegionView, pm_region_view3: PersistentMemoryRegionView| {
+                  &&& pm_region_view2.can_result_from_write(pm_region_view, write_addr, bytes_to_append_part1)
+                  &&& pm_region_view3.can_result_from_write(pm_region_view2, 0int, bytes_to_append_part2)
+               } implies info_consistent_with_log_area(pm_region_view3, new_info, new_state) by {
+            lemma_auto_can_result_from_write_effect_on_durable_state();
+            // Invoke `lemma_tentatively_append` on each write.
+            lemma_tentatively_append(pm_region_view, bytes_to_append_part1, prev_info, prev_state);
+            lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, intermediate_info, intermediate_state);
+        }
     }
 
 }

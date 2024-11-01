@@ -56,7 +56,7 @@ use crate::log::inv_v::*;
 use crate::pmem::pmemspec_t::*;
 use crate::pmem::pmemutil_v::*;
 use crate::pmem::pmcopy_t::*;
-use crate::pmem::traits_t::{size_of, PmSized, ConstPmSized, UnsafeSpecPmSized};
+use crate::pmem::traits_t::{size_of, PmSafe, PmSized, ConstPmSized, UnsafeSpecPmSized};
 use crate::util_v::*;
 use deps_hack::{PmCopy};
 use builtin::*;
@@ -111,7 +111,7 @@ verus! {
     // These structs represent the different levels of metadata.
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
@@ -119,7 +119,7 @@ verus! {
     }
     
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct RegionMetadata {
         pub region_size: u64,
         pub log_area_len: u64,
@@ -127,7 +127,7 @@ verus! {
     }
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,
@@ -195,28 +195,6 @@ verus! {
     pub open spec fn extract_log_cdb(mem: Seq<u8>) -> Seq<u8>
     {
         extract_bytes(mem, ABSOLUTE_POS_OF_LOG_CDB as nat, u64::spec_size_of() as nat)
-    }
-
-    // This function extracts the log metadata's corruption-detecting boolean
-    // (i.e., CDB) from the contents `mem` of a persistent memory
-    // region. It returns an Option<bool> with the following meanings:
-    //
-    // None -- Corruption was detected when reading the CDB
-    // Some(true) -- No corruption was detected and the CDB is true
-    // Some(false) -- No corruption was detected and the CDB is false
-    //
-    pub open spec fn extract_and_parse_log_cdb(mem: Seq<u8>) -> Option<bool>
-    {
-        let log_cdb = extract_log_cdb(mem);
-        if spec_u64_from_le_bytes(log_cdb) == CDB_FALSE {
-            Some(false)
-        }
-        else if spec_u64_from_le_bytes(log_cdb) == CDB_TRUE {
-            Some(true)
-        }
-        else {
-            None
-        }
     }
 
     pub open spec fn deserialize_log_cdb(mem: Seq<u8>) -> u64
@@ -668,28 +646,6 @@ verus! {
 
     /// Useful utility proofs about layout that other files use.
 
-    // This lemma establishes that if a persistent memory region view
-    // `pm_region_view` has no outstanding writes, and if its committed byte
-    // sequence recovers to abstract state `state`, then any state
-    // `pm_region_view` can crash into also recovers that same abstract state.
-    pub proof fn lemma_if_no_outstanding_writes_then_can_only_crash_as_state(
-        pm_region_view: PersistentMemoryRegionView,
-        log_id: u128,
-        state: AbstractLogState,
-    )
-        requires
-            pm_region_view.no_outstanding_writes(),
-            recover_state(pm_region_view.committed(), log_id) == Some(state),
-        ensures
-            forall |s| #[trigger] pm_region_view.can_crash_as(s) ==> recover_state(s, log_id) == Some(state)
-    {
-        // This follows trivially from the observation that the only
-        // byte sequence `pm_region_view` can crash into is its committed byte
-        // sequence. (It has no outstanding writes, so there's nothing
-        // else it could crash into.)
-        lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(pm_region_view);
-    }
-
     // This lemma establishes that if a persistent memory region's
     // contents `mem` can successfully be recovered from, then it has
     // size large enough to hold at least `MIN_LOG_AREA_SIZE` bytes in
@@ -791,7 +747,5 @@ verus! {
             assert(mem1.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()) == 
                 mem2.subrange(ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE as int, ABSOLUTE_POS_OF_LOG_METADATA_FOR_CDB_FALSE + LogMetadata::spec_size_of() + u64::spec_size_of()));
         }
-        assert(active_metadata_bytes_are_equal(mem1, mem2));
-        lemma_active_metadata_bytes_equal_implies_metadata_types_set(mem1, mem2, cdb);
     }
 }

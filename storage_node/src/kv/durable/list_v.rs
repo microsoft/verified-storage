@@ -477,11 +477,11 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 forall |addr: int| #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
-                subregion.view(pm_region).no_outstanding_writes(),
+                subregion.view(pm_region).flush_predicted(),
                 // op_log == AbstractOpLogState::initialize(),
             ensures 
                 true
-                // Self::recover(subregion.view(pm_region).flush().committed(), node_size, list_entries_per_node,
+                // Self::recover(subregion.view(pm_region).read_state, node_size, list_entries_per_node,
                 //     op_log, main_table_view).unwrap() == DurableListView::<K, L>::init(),
         {
             // TODO
@@ -513,7 +513,7 @@ verus! {
                 0 < node_size <= u32::MAX
             ensures
                 pm_region.inv(),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.flush_predicted(),
                 // TODO
         {
             // TODO: we should generate an ID to write to both regions that will
@@ -561,12 +561,12 @@ verus! {
                 I: PmCopy + Sized + std::fmt::Debug,
             requires
                 subregion.inv(pm_region),
-                pm_region@.no_outstanding_writes(),
+                pm_region@.flush_predicted(),
                 overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
         /* REMOVED UNTIL WE IMPLEMENT LISTS
                 Self::parse_all_lists(
                     main_table@, 
-                    subregion.view(pm_region).committed(), 
+                    subregion.view(pm_region).durable_state, 
                     overall_metadata.list_node_size, 
                     overall_metadata.num_list_entries_per_node
                 ) is Some,
@@ -577,7 +577,7 @@ verus! {
                     Ok(list) => {
                         let list_view = Self::parse_all_lists(
                             main_table@, 
-                            subregion.view(pm_region).committed(), 
+                            subregion.view(pm_region).durable_state, 
                             overall_metadata.list_node_size, 
                             overall_metadata.num_list_entries_per_node
                         ).unwrap();
@@ -610,7 +610,7 @@ verus! {
             Ghost(overall_metadata): Ghost<OverallMetadata>,
         )
             requires
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 // old(self).inv(pm, main_table_view, overall_metadata)
             ensures 
                 self.inv(pm, main_table_view, overall_metadata),
@@ -626,17 +626,17 @@ verus! {
             Ghost(main_table_view): Ghost<MainTableView<K>>,
         )
             requires
-                pm.no_outstanding_writes(),
+                pm.flush_predicted(),
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.list_area_addr as nat,
                         overall_metadata.list_area_size as nat);
-                    Self::parse_all_lists(main_table_view, subregion_view.committed(), overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
+                    Self::parse_all_lists(main_table_view, subregion_view.durable_state, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) is Some
                 })
             ensures 
                 ({
                     let subregion_view = get_subregion_view(pm, overall_metadata.list_area_addr as nat,
                         overall_metadata.list_area_size as nat);
-                    Some(self@) == Self::parse_all_lists(main_table_view, subregion_view.committed(), 
+                    Some(self@) == Self::parse_all_lists(main_table_view, subregion_view.durable_state, 
                         overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node)
                 }),
                 // TODO: other fields
@@ -697,7 +697,7 @@ verus! {
         //         return Err(KvError::RegionTooSmall{required, actual});
         //     }
 
-        //     let ghost mem = pm_region@.committed();
+        //     let ghost mem = pm_region@.durable_state;
 
         //     // // recover the list region from the log entries
         //     // Self::replay_log_list(wrpm_region, list_id, log_entries, node_size, Tracked(perm), Ghost(state))?;
@@ -714,7 +714,7 @@ verus! {
         //     // construct allocator for the list node region
         //     // we need to use two vectors for this -- one as a stack for traversal of the lists,
         //     // and one to record which nodes are in use
-        //     let ghost mem1 = pm_region@.committed();
+        //     let ghost mem1 = pm_region@.durable_state;
         //     while list_node_region_stack.len() != 0 {
         //         assume(false);
         //         let current_index = list_node_region_stack.pop().unwrap();
@@ -1134,7 +1134,7 @@ verus! {
             let elem_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
             // 3. Read the CRC and list element
-            let ghost mem = pm_region@.committed();
+            let ghost mem = pm_region@.durable_state;
             
             let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
             let ghost true_elem_bytes = extract_bytes(mem, elem_addr as nat, L::spec_size_of());
@@ -1193,7 +1193,7 @@ verus! {
                 PM: PersistentMemoryRegion,
             requires
                 old(pm_region).inv(),
-                old(pm_region)@.no_outstanding_writes(),
+                old(pm_region)@.flush_predicted(),
                 L::spec_size_of() + u64::spec_size_of() < u32::MAX, // size_of is u64, but we store it in a u32 here
                 // the second region is large enough for at least one node
                 old(pm_region)@.len() >= ABSOLUTE_POS_OF_LIST_REGION_NODE_START + node_size,
@@ -1241,7 +1241,7 @@ verus! {
         {
             assume(false);
 
-            let ghost mem = pm_region@.committed();
+            let ghost mem = pm_region@.durable_state;
 
             let ghost true_region_header = ListRegionHeader::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of()));
             let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of()));
@@ -1296,7 +1296,7 @@ verus! {
             let next_ptr_addr = ABSOLUTE_POS_OF_LIST_REGION_NODE_START + self.node_size as u64 * node_index;
             let crc_addr = next_ptr_addr + traits_t::size_of::<u64>() as u64;
 
-            let ghost mem = pm_region@.committed();
+            let ghost mem = pm_region@.durable_state;
 
             let ghost true_next_ptr_bytes = extract_bytes(mem, next_ptr_addr as nat, u64::spec_size_of());
             let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());

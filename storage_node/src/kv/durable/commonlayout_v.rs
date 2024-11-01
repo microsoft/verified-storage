@@ -32,7 +32,7 @@ verus! {
     pub open spec fn outstanding_bytes_match(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>) -> bool
     {
         forall|addr: int| start <= addr < start + bytes.len() ==>
-            #[trigger] pm.state[addr].outstanding_write == Some(bytes[addr - start])
+            #[trigger] pm.read_state[addr] == bytes[addr - start]
     }
 
     pub proof fn lemma_outstanding_bytes_match_after_flush(pm: PersistentMemoryRegionView, start: int, bytes: Seq<u8>)
@@ -40,9 +40,9 @@ verus! {
             0 <= start <= start + bytes.len() <= pm.len(),
             outstanding_bytes_match(pm, start, bytes),
         ensures 
-            extract_bytes(pm.flush().committed(), start as nat, bytes.len()) == bytes
+            extract_bytes(pm.read_state, start as nat, bytes.len()) == bytes
     {
-        assert(extract_bytes(pm.flush().committed(), start as nat, bytes.len()) =~= bytes);
+        assert(extract_bytes(pm.read_state, start as nat, bytes.len()) =~= bytes);
     }
 
     // This lemma proves that an index that is less than num_keys (i.e., within bounds of the table) 
