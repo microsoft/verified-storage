@@ -275,14 +275,14 @@ const I16_SIZE: usize = 2;
 const I32_SIZE: usize = 4;
 const I64_SIZE: usize = 8;
 const I128_SIZE: usize = 16;
-const I128_ALIGNMENT: usize = 8;
+const I128_ALIGNMENT: usize = 16;
 const ISIZE_SIZE: usize = 8;
 const U8_SIZE: usize = 1;
 const U16_SIZE: usize = 2;
 const U32_SIZE: usize = 4;
 const U64_SIZE: usize = 8;
 const U128_SIZE: usize = 16;
-const U128_ALIGNMENT: usize = 8;
+const U128_ALIGNMENT: usize = 16;
 const USIZE_SIZE: usize = 8;
 
 // This function is called by the pmsized_primitive! proc macro and generates an 
