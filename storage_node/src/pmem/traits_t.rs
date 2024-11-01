@@ -134,7 +134,7 @@ pub unsafe trait ConstPmSized {
 pub unsafe trait UnsafeSpecPmSized {}
 
 // Arrays are PmSized and PmSafe, but since the implementation is generic
-// we provide a manual implementation here rather than using the pmsized_primitive!
+// we provide a manual implementation here rather than using the pmcopy_primitive!
 // macro. These traits are unsafe and must be implemented outside of verus!.
 unsafe impl<T: PmSafe + PmSized, const N: usize> PmSized for [T; N] {
     fn size_of() -> usize 

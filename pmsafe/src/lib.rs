@@ -34,7 +34,7 @@ pub fn pmcopy(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn pmsized_primitive(input: TokenStream) -> TokenStream {
+pub fn pmcopy_primitive(input: TokenStream) -> TokenStream {
     let ty: syn::Type = syn::parse(input).unwrap();
-    generate_pmsized_primitive(&ty)
+    generate_pmcopy_primitive(&ty)
 }

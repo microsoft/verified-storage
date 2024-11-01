@@ -32,7 +32,7 @@ use vstd::prelude::*;
 use vstd::layout::*;
 use crate::pmem::traits_t::{PmSized, PmSafe, ConstPmSized, UnsafeSpecPmSized};
 
-use deps_hack::{crc64fast::Digest, pmsized_primitive};
+use deps_hack::{crc64fast::Digest, pmcopy_primitive};
 use core::slice;
 use std::convert::TryInto;
 use std::ptr;
@@ -429,26 +429,26 @@ verus! {
     // struct's fields. The size and alignment of safe primitives
     // are hardcoded in pmsafe/pmsafe_macros.rs and implementations
     // for primitive types based on these values are generated
-    // by the pmsized_primitive! macro. The macro also generates
+    // by the pmcopy_primitive! macro. The macro also generates
     // compile-time assertions to check that the hardcoded sizes
     // and alignments are correct.
-    pmsized_primitive!(u8);
-    pmsized_primitive!(u16);
-    pmsized_primitive!(u32);
-    pmsized_primitive!(u64);
-    pmsized_primitive!(u128);
-    pmsized_primitive!(usize);
-    pmsized_primitive!(i8);
-    pmsized_primitive!(i16);
-    pmsized_primitive!(i32);
-    pmsized_primitive!(i64);
-    pmsized_primitive!(i128);
-    pmsized_primitive!(isize);
-    pmsized_primitive!(bool);
-    pmsized_primitive!(char);
+    pmcopy_primitive!(u8);
+    pmcopy_primitive!(u16);
+    pmcopy_primitive!(u32);
+    pmcopy_primitive!(u64);
+    pmcopy_primitive!(u128);
+    pmcopy_primitive!(usize);
+    pmcopy_primitive!(i8);
+    pmcopy_primitive!(i16);
+    pmcopy_primitive!(i32);
+    pmcopy_primitive!(i64);
+    pmcopy_primitive!(i128);
+    pmcopy_primitive!(isize);
+    pmcopy_primitive!(bool);
+    pmcopy_primitive!(char);
     // floats are not currently supported by the verifier
-    // pmsized_primitive!(f32);
-    // pmsized_primitive!(f64);
+    // pmcopy_primitive!(f32);
+    // pmcopy_primitive!(f64);
 
     // Arrays are PmSized and PmSafe, but since the implementation is generic
     // we provide a manual implementation here rather than using the macro.

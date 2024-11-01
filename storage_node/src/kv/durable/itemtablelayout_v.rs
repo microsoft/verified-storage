@@ -40,7 +40,7 @@ verus! {
     // Constants
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Debug)]
+    #[derive(PmCopy, Copy, Clone, Debug)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -50,27 +50,17 @@ verus! {
         pub program_guid: u128,
     }
 
-    impl Clone for ItemTableMetadata {
-        fn clone(&self) -> Self {
-            *self
+    impl CloneProof for ItemTableMetadata {
+        proof fn lemma_clone() {
+            u64::lemma_clone();
+            u128::lemma_clone();
+            // assert(forall |a: Self, b: Self| call_ensures(Clone::clone, (&a,), b) ==> a == b);
+            assert(forall |a: ItemTableMetadata, b: ItemTableMetadata| 
+                call_ensures(std::clone::Clone::clone, (&a,), b));
+                // a =~= b);
+                // !call_ensures(Clone::clone, (&a,), b) || a =~= b);
         }
     }
-
-    // impl core::clone::Clone for ItemTableMetadata {
-    //     fn clone(&self) -> Self {
-    //         *self
-    //     }
-    // }
-
-
-
-    // impl CloneProof for ItemTableMetadata {
-    //     proof fn lemma_clone() {
-    //         reveal(spec_padding_needed);
-    //         assert(ItemTableMetadata::spec_size_of() == 48) by (compute_only);
-    //         assume(false);
-    //     }
-    // }
 
     // pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;
     pub const RELATIVE_POS_OF_ITEM_CRC: u64 = 0;

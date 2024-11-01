@@ -291,39 +291,26 @@ pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Typ
     // it's a problem with ensures but not quite sure what
     let gen = quote!{
         ::builtin_macros::verus!{
-            // impl Clone for #name {
-            //     fn clone(&self) -> #name {
-            //         #name { 
-            //             #( #names: self.#names.clone(), )*
-            //         }
+
+            // impl CloneProof for #name {
+            //     proof fn lemma_clone() 
+            //         // where 
+            //         //     #( #types: Clone, )*
+            //             // #name: Clone,
+            //         // requires    
+            //         //     #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
+            //         // ensures 
+            //         //     forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
+            //     {
+            //         // #( lemma_clone::<#types>(); )*
+            //         #( #types::lemma_clone(); )*
+
+            //         assert(forall |a: #name, b: #name| ::builtin::imply(
+            //             call_ensures(Clone::clone, (&a,), b), ::builtin::spec_eq(a, b)
+            //         ));
+
+            //         // assume(false); 
             //     }
-            // }
-
-            impl CloneProof for #name {
-                proof fn lemma_clone() 
-                    // where 
-                    //     #( #types: Clone, )*
-                        // #name: Clone,
-                    // requires    
-                    //     #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
-                    // ensures 
-                    //     forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
-                {
-                    assume(false); 
-                }
-            }
-
-
-            // pub proof fn #lemma_name() 
-            //     where 
-            //         #( #types: Clone, )*
-            //         // #name: Clone,
-            //     requires    
-            //         #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
-            //     ensures 
-            //         forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
-            // {
-            //     assume(false); 
             // }
         }
     };
@@ -350,7 +337,7 @@ const U128_SIZE: usize = 16;
 const U128_ALIGNMENT: usize = 16;
 const USIZE_SIZE: usize = 8;
 
-// This function is called by the pmsized_primitive! proc macro and generates an 
+// This function is called by the pmcopy_primitive! proc macro and generates an 
 // implementation of PmSized, ConstPmSized, SpecPmSized, and UnsafeSpecPmSized
 // primitive types. The verifier needs to be aware of their size and alignment at 
 // verification time, so we provide this in the constants above and generate 
@@ -358,7 +345,7 @@ const USIZE_SIZE: usize = 8;
 // to be audited, since the compile-time assertion will ensure they are correct,
 // but we do need to manually ensure that the match statement in this function
 // maps each type to the correct constant.
-pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
+pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
     let (size, align, ty_name) = match ty {
         syn::Type::Path(type_path) => {
             match type_path.path.get_ident() {
@@ -382,7 +369,7 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
                         _ => {
                             return quote_spanned! {
                                 ty.span() =>
-                                compile_error!("pmsized_primitive can only be used on primitive types");
+                                compile_error!("pmcopy_primitive can only be used on primitive types");
                             }.into()
                         }
                         
@@ -391,13 +378,13 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
                 }
                 None => return quote_spanned! {
                     ty.span() =>
-                    compile_error!("pmsized_primitive can only be used on primitive types");
+                    compile_error!("pmcopy_primitive can only be used on primitive types");
                 }.into()
             }
         }
         _ => return quote_spanned! {
             ty.span() =>
-            compile_error!("pmsized_primitive can only be used on primitive types");
+            compile_error!("pmcopy_primitive can only be used on primitive types");
         }.into()
     };
 
@@ -410,6 +397,10 @@ pub fn generate_pmsized_primitive(ty: &syn::Type) -> TokenStream {
             impl SpecPmSized for #ty {
                 open spec fn spec_size_of() -> ::builtin::nat { #size as ::builtin::nat }
                 open spec fn spec_align_of() -> ::builtin::nat { #align as ::builtin::nat }
+            }
+
+            impl CloneProof for #ty {
+                proof fn lemma_clone() {}
             }
         );
 
