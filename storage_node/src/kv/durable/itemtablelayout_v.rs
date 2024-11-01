@@ -38,9 +38,8 @@ use deps_hack::{PmCopy};
 
 verus! {
     // Constants
-
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Debug)]
+    #[derive(PmCopy, Copy, Debug)]
     pub struct ItemTableMetadata
     {
         pub version_number: u64,
@@ -48,18 +47,6 @@ verus! {
         pub num_keys: u64,
         pub _padding: u64,
         pub program_guid: u128,
-    }
-
-    impl CloneProof for ItemTableMetadata {
-        proof fn lemma_clone() {
-            u64::lemma_clone();
-            u128::lemma_clone();
-            // assert(forall |a: Self, b: Self| call_ensures(Clone::clone, (&a,), b) ==> a == b);
-            assert(forall |a: ItemTableMetadata, b: ItemTableMetadata| 
-                call_ensures(std::clone::Clone::clone, (&a,), b));
-                // a =~= b);
-                // !call_ensures(Clone::clone, (&a,), b) || a =~= b);
-        }
     }
 
     // pub const RELATIVE_POS_OF_VALID_CDB: u64 = 0;

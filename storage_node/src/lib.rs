@@ -317,19 +317,19 @@ verus! {
 // }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug, Hash, PartialEq, Eq)]
 struct TestKey {
     val: u64,
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug, PartialEq, Eq)]
 struct TestItem {
     val: u64,
 }
 
 #[repr(C)]
-#[derive(PmCopy, Copy, Clone, Debug)]
+#[derive(PmCopy, Copy, Debug)]
 struct TestListElement {
     val: u64,
 }

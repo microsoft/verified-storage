@@ -272,6 +272,9 @@ pub fn initialize_overall_metadata<K, I, L> (
     if log_area_size > u64::MAX - log_area_addr {
         return Err(KvError::TooManyKeys);
     }
+    assert(LogMetadata::spec_size_of() * 2 <= u64::MAX) by (compute_only);
+    assert(u64::spec_size_of() + LogMetadata::spec_size_of() * 2 <= u64::MAX) by (compute_only);
+    assert(u64::spec_size_of() + LogMetadata::spec_size_of() * 2 + u64::spec_size_of() * 2 <= u64::MAX) by (compute_only);
     if log_area_size < log_header_area_size() + MIN_LOG_AREA_SIZE {
         return Err(KvError::LogAreaTooSmall { required: (log_header_area_size() + MIN_LOG_AREA_SIZE) as usize, actual: log_area_size as usize });
     }

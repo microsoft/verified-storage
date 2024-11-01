@@ -148,7 +148,7 @@ pub enum PendingIndexEntry {
 #[verifier::reject_recursive_types(K)]
 pub struct VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     pub m: HashMap<K, VolatileKvIndexEntryImpl>,
     pub tentative: HashMap<K, PendingIndexEntry>, // TODO prob need to differentiate deleted vs created?
@@ -158,7 +158,7 @@ where
 
 impl<K> VolatileKvIndex<K> for VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     open spec fn view(&self) -> VolatileKvIndexView<K>
     {
@@ -275,8 +275,7 @@ where
             self.lemma_valid_implies_view_valid();
         }
         let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
-        let key_clone = key.clone();
-        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
+        let key_clone = key.clone_provable();
         self.m.insert(key_clone, entry);
 
         proof {
@@ -302,10 +301,8 @@ where
         }
 
         let entry = VolatileKvIndexEntryImpl::new(header_addr, Ghost(self.num_list_entries_per_node as nat));
-        let key_clone = key.clone();
-        let key_clone2 = key.clone();
-        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
-        assume(*key == key_clone2); // and this?
+        let key_clone = key.clone_provable();
+        let key_clone2 = key.clone_provable();
 
         // the type of the pending entry depends on whether the key already exists
         // in the main index or not.
@@ -347,9 +344,6 @@ where
         assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Deleted ==>
             self.m@.contains_key(k));
         
-        // assert(forall |k| #[trigger] self.tentative@.contains_key(k) && self.tentative@[k] is Created ==>
-        //     !self.m@.contains_key(k));
-
         assert(forall |k| #[trigger] self.tentative@.contains_key(k) ==> {
             &&& self.tentative@[k] is Created ==> {
                 &&& self.tentative@[k] matches PendingIndexEntry::Created(entry)
@@ -502,25 +496,6 @@ where
                 _ => return Err(KvError::KeyNotFound)
             }
         } else if self.m.contains_key(key) {
-            // The key is durable but has not been modified yet in 
-            // this transaction. Record that it has been deleted
-            // with a new tentative map entry
-            // let entry = self.m.get(key).unwrap();
-            // let new_pending_entry = PendingIndexEntry::Deleted;
-            // let key_clone = key.clone();
-            // let key_clone2 = key.clone();
-            // assume(*key == key_clone); // TODO: How do we get Verus to believe this?
-            // assume(*key == key_clone2);
-            // self.tentative.insert(key_clone, new_pending_entry);
-            // self.tentative_keys.push(key_clone2);
-
-            // assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);
-            // assert(self.tentative_keys@[self.tentative_keys@.len() - 1] == key);
-
-            // assert(self.tentative@.dom() == old(self).tentative@.dom().insert(*key));
-            // assert(self.tentative@.dom() =~= self.tentative_keys@.to_set());
-            // assert(self.tentative_view().contents == old(self).tentative_view().remove(*key).contents);
-            // assert(self.valid());
             let header_addr = self.delete_existing_key(key);
             Ok(header_addr)
         } else {
@@ -550,7 +525,7 @@ where
 
 impl<K> VolatileKvIndexImpl<K>
 where
-    K: Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
+    K: PmCopy + Hash + Eq + KeyEq + Clone + Sized + std::fmt::Debug,
 {
     proof fn lemma_valid_implies_view_valid(&self)
         requires
@@ -562,52 +537,6 @@ where
             self.m@[k].lemma_num_locations_is_entry_locations_len();
         }
     }
-
-    // pub proof fn lemma_if_tentative_view_matches_view_then_no_tentative_entries(self)
-    //     requires 
-    //         self.valid(),
-    //         self@ == self.tentative_view(),
-    //     ensures 
-    //         self.tentative@.is_empty()
-    // {
-    //     let outstanding_keys_to_add = self.tentative@.dom().filter(
-    //         |k| self.tentative@[k].status is Created
-    //     );
-    //     let outstanding_keys_to_delete = self.tentative@.dom().filter(
-    //         |k| self.tentative@[k].status is Deleted
-    //     );
-    //     assert(outstanding_keys_to_add.disjoint(outstanding_keys_to_delete));
-    //     // assert(outstanding_keys_to_add.union(outstanding_keys_to_delete) == self.tentative@.dom());
-    //     // vstd::set_lib::lemma_set_disjoint(outstanding_keys_to_add, outstanding_keys_to_delete);
-    //     // vstd::set_lib::lemma_set_properties::<K>();
-
-    //     let keys = (self.m@.dom().union(outstanding_keys_to_add)) - outstanding_keys_to_delete;
-    //     assert(self.tentative_view().contents.dom() == keys);
-    //     assert(self@.contents.dom() == keys);
-    //     assert(self.m@.dom() =~= keys);
-
-    //     assert(forall |k| #[trigger] keys.contains(k) ==> self.m@.dom().contains(k));
-    //     assert(forall |k| keys.contains(k) ==> !outstanding_keys_to_add.contains(k));
-    //     assert(forall |k| keys.contains(k) ==> !outstanding_keys_to_delete.contains(k));
-
-    //     assert(outstanding_keys_to_add == Set::<K>::empty());
-
-    //     assert(outstanding_keys_to_delete == Set::<K>::empty()) by {
-    //         // proof by contradiction. suppose there is a key in the set
-    //         if exists |k| outstanding_keys_to_delete.contains(k) {
-    //             let k = choose |k| outstanding_keys_to_delete.contains(k);
-    //             assert(!keys.contains(k));
-    //             assert(false);
-    //         } else {
-    //             assert(outstanding_keys_to_delete == Set::<K>::empty());
-    //         }
-    //     }
-
-    //     assert(self.tentative@.dom() =~= Set::empty());
-
-    //     assert(forall |k| self@.contents.contains_key(k) ==> 
-    //         !(#[trigger] self.tentative@.contains_key(k)));        
-    // }
 
     pub proof fn lemma_if_no_tentative_entries_then_tentative_view_matches_view(self)
         requires 
@@ -698,8 +627,7 @@ where
             let current_tentative_key = self.tentative_keys.pop();
             let key = current_tentative_key.unwrap();
             
-            let key_clone = key.clone();
-            assume(key == key_clone); // TODO: How do we get Verus to believe this?
+            let key_clone = key.clone_provable();
             
             match self.tentative.remove(&key).unwrap() {
                 PendingIndexEntry::Created(entry) | PendingIndexEntry::ReplaceExisting(entry) => {
@@ -755,10 +683,8 @@ where
             self.m.get(key).unwrap().header_addr
         };
         let new_pending_entry = PendingIndexEntry::Deleted;
-        let key_clone = key.clone();
-        let key_clone2 = key.clone();
-        assume(*key == key_clone); // TODO: How do we get Verus to believe this?
-        assume(*key == key_clone2);
+        let key_clone = key.clone_provable();
+        let key_clone2 = key.clone_provable();
         if self.tentative.get(key).is_none() {
             self.tentative_keys.push(key_clone2);
             assert(self.tentative_keys@.subrange(0, self.tentative_keys@.len() - 1) == old(self).tentative_keys@);

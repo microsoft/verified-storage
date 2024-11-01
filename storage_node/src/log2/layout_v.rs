@@ -12,7 +12,7 @@ verus! {
     pub const MIN_LOG_AREA_SIZE: u64 = 1;
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub head: u128,

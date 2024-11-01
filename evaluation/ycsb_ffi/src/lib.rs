@@ -255,7 +255,7 @@ fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemo
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(PmSafe, PmSized, Copy, Debug, Hash, PartialEq, Eq)]
 struct YcsbKey {
     key: [i8; MAX_KEY_LEN],
 }
@@ -273,7 +273,7 @@ impl YcsbKey {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(PmSafe, PmSized, Copy, Debug, PartialEq, Eq)]
 struct YcsbItem {
     item: [i8; MAX_ITEM_LEN]
 }
@@ -291,7 +291,7 @@ impl YcsbItem {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Clone, Debug)]
+#[derive(PmSafe, PmSized, Copy, Debug)]
 struct TestListElement {
     val: u64,
 }

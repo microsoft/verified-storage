@@ -67,7 +67,7 @@ verus! {
     // the macros that derive `PmSized` and `PmSafe` require that the deriving
     // type be repr(C), as this is the best way to ensure a predictable in-memory
     // layout and size.
-    pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy {}
+    pub trait PmCopy : PmSized + SpecPmSized + Sized + PmSafe + Copy + CloneProof {}
 
     // PmCopyHelper is a subtrait of PmCopy that exists to provide a blanket
     // implementation of these methods for all PmCopy objects. 
@@ -98,7 +98,7 @@ verus! {
         exec fn as_signed_byte_slice(&self) -> (out: &[i8])
             ensures 
                 forall |i: int| #![auto] 0 <= i < out@.len() ==> out[i] as u8 == self.spec_to_bytes()[i]
-;                // out@ == self.spec_to_bytes();
+        ;                // out@ == self.spec_to_bytes();
         // // This function consumse self and returns it as a vector of bytes.
         // // This is mainly useful in the YCSB FFI layer to interop with Java.
         // // 
@@ -499,9 +499,7 @@ verus! {
             out < align,
             out as nat == spec_padding_needed(offset as nat, align as nat)
     {
-        // proof { lemma_align_mod(offset as nat, align as nat); }
         reveal(spec_padding_needed);
-        // assume(false);
         let misalignment = offset % align;
         if misalignment > 0 {
             align - misalignment
@@ -510,36 +508,10 @@ verus! {
         }
     }
 
-    // proof fn lemma_align_mod(offset: nat, align: nat) 
-    //     by (nonlinear_arith)
-    //     requires 
-    //         align > 0,
-    //         ({
-    //             ||| align == 1 
-    //             ||| align == 2
-    //             ||| align == 4
-    //             ||| align == 8
-    //             ||| align == 16
-    //         })
-    //     ensures 
-    //         ({
-    //             let misalignment = offset % align;
-    //             let result = if misalignment > 0 {
-    //                 align - misalignment
-    //             } else {
-    //                 0
-    //             };
-    //             result == spec_padding_needed(offset, align)
-    //         })
-    // {
-    //     assume(false);
-    //     // reveal(spec_padding_needed);
-    // }
-
     pub trait CloneProof : Sized + Clone {
-        proof fn lemma_clone()
-            ensures 
-                forall |a: Self, b: Self| call_ensures(Clone::clone, (&a,), b) ==> a == b,
+        exec fn clone_provable(&self) -> (res: Self)
+            ensures
+                *self == res
         ;
     }
 

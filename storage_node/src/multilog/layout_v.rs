@@ -115,7 +115,7 @@ verus! {
     // These structs represent the different levels of metadata.
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct GlobalMetadata {
         pub version_number: u64,
         pub length_of_region_metadata: u64,
@@ -123,7 +123,7 @@ verus! {
     }
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct RegionMetadata {
         pub num_logs: u32,
         pub which_log: u32,
@@ -135,7 +135,7 @@ verus! {
 
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone, Default)]
+    #[derive(PmCopy, Copy, Default)]
     pub struct LogMetadata {
         pub log_length: u64,
         pub _padding: u64,

@@ -45,7 +45,7 @@ verus! {
     pub const DURABLE_LIST_REGION_PROGRAM_GUID: u128 = 0x02d7708c1acffbf895faa6728ba5e037u128;
 
     #[repr(C)]
-    #[derive(PmCopy, Copy, Clone)]
+    #[derive(PmCopy, Copy)]
     pub struct ListRegionHeader {
         pub num_nodes: u64,
         pub length: u64,

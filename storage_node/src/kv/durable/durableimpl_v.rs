@@ -88,7 +88,7 @@ verus! {
 
     pub struct DurableKvStoreViewEntry<K, I, L>
     where
-        K: Hash + Eq,
+        K: PmCopy + Hash + Eq,
     {
         pub key: K,
         pub item: I,
@@ -99,7 +99,7 @@ verus! {
     // TODO: remove since the fields are public
     impl<K, I, L> DurableKvStoreViewEntry<K, I, L>
     where
-        K: Hash + Eq,
+        K: PmCopy + Hash + Eq,
     {
         pub open spec fn key(self) -> K
         {
@@ -120,14 +120,14 @@ verus! {
     #[verifier::ext_equal]
     pub struct DurableKvStoreView<K, I, L>
     where
-        K: Hash + Eq + std::fmt::Debug,
+        K: PmCopy + Hash + Eq + std::fmt::Debug,
     {
         pub contents: Map<int, DurableKvStoreViewEntry<K, I, L>>,
     }
 
     impl<K, I, L> DurableKvStoreView<K, I, L>
     where
-        K: Hash + Eq + std::fmt::Debug,
+        K: PmCopy + Hash + Eq + std::fmt::Debug,
     {
         pub open spec fn spec_index(self, idx: int) -> Option<DurableKvStoreViewEntry<K, I, L>>
         {
@@ -225,7 +225,7 @@ verus! {
     where
         Perm: CheckPermission<Seq<u8>>,
         PM: PersistentMemoryRegion,
-        K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+        K: PmCopy + Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
         I: PmCopy + Sized + std::fmt::Debug,
         L: PmCopy + std::fmt::Debug,
     {
@@ -243,7 +243,7 @@ verus! {
         where
             PM: PersistentMemoryRegion,
             Perm: CheckPermission<Seq<u8>>,
-            K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+            K: PmCopy + Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
             I: PmCopy + Sized + std::fmt::Debug,
             L: PmCopy + std::fmt::Debug + Copy,
     {

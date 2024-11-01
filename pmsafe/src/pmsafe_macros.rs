@@ -1,11 +1,16 @@
-//! This file contains the implementation of derive macros
-//! for PmSafe and PmSized. These implementations are TRUSTED
-//! and must be manually audited.
+//! This file contains the implementation several macros
+//! to implement PmCopy-related traits.
+//! These implementations are TRUSTED and must be manually audited.
 
 use proc_macro::TokenStream;
 use syn::{self, spanned::Spanned};
 use quote::{quote, quote_spanned};
 
+// This is the main function called by the PmCopy derive macro.
+// It calls functions to check that structures are PmSafe,
+// implementations for PmSized-related traits, and methods
+// to help reason about cloning PmCopy objects.
+// Methods must be repr(C) to derive PmCopy.
 pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
 
@@ -16,7 +21,7 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     }
 
     let data = &ast.data;
-    let (mut types, names) = match get_types(name, data) {
+    let (types, names) = match get_types(name, data) {
         Ok(types) => types,
         Err(e) => return e,
     };
@@ -30,7 +35,7 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
             let pmsized = generate_pmsized(ast, &types);
             match pmsized {
                 Ok(pmsized) => {
-                    let cloneproof = generate_clone_proof(ast, &types, &names);
+                    let cloneproof = generate_clone_proof(ast, &names);
                     match cloneproof {
                         Ok(cloneproof) => {
                             let gen = quote!{
@@ -55,12 +60,11 @@ pub fn generate_pmcopy(ast: &syn::DeriveInput) -> TokenStream {
     }
 }
 
-// This function is used by the PmSafe derive macro to check whether 
-// a deriving type is, in fact, PmSafe. 
+// This function checks whether a given structure is PmSafe and, if it is, generates
+// an implementation of PmSafe.
 // All fields of the deriving type must be PmSafe. PmSafe primitive types are
 // defined in storage_node/src/pmem/traits_t.rs. 
 // 
-// The repr(C) requirement is checked by checking the attributes of the deriving type.
 // The PmSafe fields requirement is performed by adding trivial trait bounds to
 // the unsafe implementation of PmSafe generated for the deriving type.
 // For example, the generated implementation of PmSafe for the following type:
@@ -163,8 +167,8 @@ pub fn get_types<'a>(name: &'a syn::Ident, data: &'a syn::Data) -> Result<(Vec<&
     }
 }
 
-// This function generates an implementation of the PmSized trait for the PmSized
-// derive macro. It also generates implementations for SpecPmSized, ConstPmSized,
+// This function generates an implementation of PmSized. 
+// It also generates implementations for SpecPmSized, ConstPmSized,
 // UnsafeSpecPmSized, and two compile-time assertions to check that we calculate
 // the size of each type correctly.
 pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) -> Result<proc_macro2::TokenStream, TokenStream> {
@@ -270,56 +274,71 @@ pub fn generate_pmsized<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>) 
                 largest_alignment
             };
             
-    }
+        }
 
-    const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
-    const #align_check: usize = (core::mem::align_of::<#name>() == <#name>::ALIGN) as usize - 1;
+        const #size_check: usize = (core::mem::size_of::<#name>() == <#name>::SIZE) as usize - 1;
+        const #align_check: usize = (core::mem::align_of::<#name>() == <#name>::ALIGN) as usize - 1;
 
-    unsafe impl UnsafeSpecPmSized for #name {}
-
-
+        unsafe impl UnsafeSpecPmSized for #name {}
     };
+
     Ok(gen)
 }
 
-pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, types: &Vec<&'a syn::Type>, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
+// This function generates the following for a type deriving PmCopy:
+// 1. An implementation of the `Clone` trait 
+// 2. A specification of `Clone::clone` that matches the generated impl
+// 3. An implementation of the `CloneProof` trait that makes it easier
+//    to reason about cloning generic PmCopy objects.
+pub fn generate_clone_proof<'a>(ast: &syn::DeriveInput, names: &Vec<syn::Ident>) -> Result<proc_macro2::TokenStream, TokenStream>
 {
     let name = &ast.ident;
-    let lemma_name = syn::Ident::new(&format!("lemma_clone_{}", name.to_string().to_lowercase()), name.span());
+    let spec_name = syn::Ident::new(&format!("ex_{}_clone", name.to_string().to_lowercase()), name.span());
     
-    // TODO @hayley FRIDAY figure out why this isn't building...
-    // it's a problem with ensures but not quite sure what
     let gen = quote!{
+        // to ensure that the deriver does not provide a conflicting implementation 
+        // of Clone, we implement it here.
+        // Since the only way to generate these functions also implements PmSafe,
+        // all fields must also implement PmSafe and thus also have a generated
+        // Clone impl, so the clone calls on fields will also give the 
+        // expected output.
+        // TODO: just *self would be the same, right? is there any real difference?
+        impl Clone for #name {
+            fn clone(&self) -> Self 
+            {
+                Self {
+                    #( #names: self.#names.clone(), )*
+                }
+            }
+        }
+
         ::builtin_macros::verus!{
+            #[verifier::external_fn_specification]
+            pub fn #spec_name(b: &#name) -> (res: #name)
+                ensures
+                    *b == res
+            {
+                b.clone()
+            }
 
-            // impl CloneProof for #name {
-            //     proof fn lemma_clone() 
-            //         // where 
-            //         //     #( #types: Clone, )*
-            //             // #name: Clone,
-            //         // requires    
-            //         //     #( forall |a: #types, b: #types| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b), )*
-            //         // ensures 
-            //         //     forall |a: #name, b: #name| ::builtin::imply(call_ensures(core::clone::Clone::clone, (&a,), b), a == b),
-            //     {
-            //         // #( lemma_clone::<#types>(); )*
-            //         #( #types::lemma_clone(); )*
-
-            //         assert(forall |a: #name, b: #name| ::builtin::imply(
-            //             call_ensures(Clone::clone, (&a,), b), ::builtin::spec_eq(a, b)
-            //         ));
-
-            //         // assume(false); 
-            //     }
-            // }
+            impl CloneProof for #name 
+            {
+                fn clone_provable(&self) -> (res: #name)
+                    ensures
+                        *self == res
+                {
+                    self.clone()
+                }
+            }
         }
     };
 
     Ok(gen)
 }
 
-// For most types, alignment is the same as size on x86, EXCEPT for 
-// u128/i128, which have an alignment of 8 bytes.
+// Alignment is the same as size on x86. 
+// NOTE: prior to Rust 1.77, i128/u128 alignment
+// was 8 bytes. 
 const BOOL_SIZE: usize = 1;
 const CHAR_SIZE: usize = 4;
 const I8_SIZE: usize = 1;
@@ -400,7 +419,12 @@ pub fn generate_pmcopy_primitive(ty: &syn::Type) -> TokenStream {
             }
 
             impl CloneProof for #ty {
-                proof fn lemma_clone() {}
+                fn clone_provable(&self) -> (res: #ty)
+                    ensures
+                        *self == res
+                {
+                    self.clone()
+                }
             }
         );
 
