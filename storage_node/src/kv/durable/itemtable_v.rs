@@ -857,6 +857,7 @@ verus! {
                         &&& self.durable_valid_indices() == old(self).durable_valid_indices()
                         &&& self.tentative_valid_indices() == old(self).tentative_valid_indices().insert(index)
                         &&& self.outstanding_items@ == old(self).outstanding_items@.insert(index, OutstandingItem::Created(*item))
+                        &&& self.tentative_view() == old(self).tentative_view().update(index as int, *item)
                         &&& wrpm_region@.committed() == old(wrpm_region)@.committed()
                     },
                     Err(KvError::OutOfSpace) => {
@@ -1054,6 +1055,7 @@ verus! {
 
             assert(self.free_list() =~= old(self).free_list().remove(free_index));
             assert(self.tentative_valid_indices() =~= old(self).tentative_valid_indices().insert(free_index));
+            assert(self.tentative_view() =~= old(self).tentative_view().update(free_index as int, *item));
 
             Ok(free_index)
         }

@@ -4528,6 +4528,8 @@ verus! {
                 old_self.main_table.tentative_view().update(
                     main_table_index as int,
                     MainTableViewEntry::<K>{ key, entry: ListEntryMetadata::spec_new(0, 0, 0, 0, item_index) }),
+            pre_append_self.item_table.tentative_view() ==
+                old_self.item_table.tentative_view().update(item_index as int, item),
             !self.log@.op_list_committed,
             self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
             self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
@@ -4816,7 +4818,7 @@ verus! {
             }
             assert(PhysicalOpLogEntry::vec_view(self.pending_updates) =~= self.log@.physical_op_list);
 
-            assume(self.tentative_item_table() == self.item_table.tentative_view()); // TODO @jay
+            assert(self.tentative_item_table() == self.item_table.tentative_view());
             assume(self.main_table.tentative_view().valid_item_indices() ==
                    self.item_table.tentative_valid_indices()); // TODO @jay
         }
