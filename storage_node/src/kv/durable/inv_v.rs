@@ -181,21 +181,17 @@ verus! {
             recovery_write_invariant::<Perm, PM, K, I, L>(wrpm_region, version_metadata, overall_metadata, phys_log, addr, bytes)
         ensures 
             ({
-                let new_wrpm_region = wrpm_region@.write(addr, bytes);
-                forall |s| new_wrpm_region.can_crash_as(s) ==> {
+                forall |s| can_result_from_partial_write(s, wrpm_region@.durable_state, addr, bytes) ==> {
                     &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
                     &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap()
                 }
             })
     {
-        let new_wrpm_region = wrpm_region@.write(addr, bytes);
-        let new_wrpm_region_flushed = new_wrpm_region.flush();
-
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
         let region_size = overall_metadata.region_size as nat;
 
-        assert forall |s| new_wrpm_region.can_crash_as(s) implies {
+        assert forall |s| can_result_from_partial_write(s, wrpm_region@.durable_state, addr, bytes) implies {
             &&& DurableKvStore::<Perm, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata) matches Some(crash_recover_state)
             &&& crash_recover_state == DurableKvStore::<Perm, PM, K, I, L>::physical_recover(wrpm_region@.durable_state, version_metadata, overall_metadata).unwrap()
         } by {
@@ -302,8 +298,8 @@ verus! {
         pm_region: PersistentMemoryRegionView,
     ) -> bool 
     {
-        &&& pm_region.no_outstanding_writes_in_range(0, VersionMetadata::spec_size_of() as int)
-        &&& pm_region.no_outstanding_writes_in_range(VersionMetadata::spec_size_of() as int, (VersionMetadata::spec_size_of() + u64::spec_size_of()) as int)
+        &&& no_outstanding_writes_in_range(pm_region, 0, VersionMetadata::spec_size_of() as int)
+        &&& no_outstanding_writes_in_range(pm_region, VersionMetadata::spec_size_of() as int, (VersionMetadata::spec_size_of() + u64::spec_size_of()) as int)
     }
 
     pub open spec fn no_outstanding_writes_to_overall_metadata(
@@ -311,8 +307,8 @@ verus! {
         overall_metadata_addr: int,
     ) -> bool 
     {
-        &&& pm_region.no_outstanding_writes_in_range(overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
-        &&& pm_region.no_outstanding_writes_in_range(overall_metadata_addr + OverallMetadata::spec_size_of() as int, (overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()) as int)
+        &&& no_outstanding_writes_in_range(pm_region, overall_metadata_addr, overall_metadata_addr + OverallMetadata::spec_size_of() as int)
+        &&& no_outstanding_writes_in_range(pm_region, overall_metadata_addr + OverallMetadata::spec_size_of() as int, (overall_metadata_addr + OverallMetadata::spec_size_of() + u64::spec_size_of()) as int)
     }
 
     pub open spec fn version_and_overall_metadata_match<K, L>(
@@ -401,29 +397,22 @@ verus! {
         overall_metadata: OverallMetadata,
     )
         requires 
-            views_differ_only_in_log_region(v1, v2, 
-                overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            views_differ_only_in_log_region(v1, v2,  overall_metadata.log_area_addr as nat,
+                                            overall_metadata.log_area_size as nat),
             v1.len() == v2.len(),
             v1.len() == overall_metadata.region_size,
             v1.len() >= version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of(),
             version_metadata.overall_metadata_addr >= VersionMetadata::spec_size_of(),
-            forall|s| #[trigger] v1.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
-            forall|s| #[trigger] v1.can_crash_as(s) ==>
-                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
-            forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==> v1.state[addr] == v2.state[addr],
-            forall|addr: int| version_metadata.overall_metadata_addr <= addr
-                        < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
-                v1.state[addr] == v2.state[addr],
+            version_metadata == deserialize_version_metadata(v1.durable_state),
+            overall_metadata == deserialize_overall_metadata(v1.durable_state, version_metadata.overall_metadata_addr),
+            views_match_in_address_range(v1, v2, 0, VersionMetadata::spec_size_of() as int),
+            views_match_in_address_range(v1, v2, version_metadata.overall_metadata_addr as int,
+                                         version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()),
             overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
             overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
         ensures
-            forall |s2: Seq<u8>| v2.can_crash_as(s2) ==> 
-                exists |s1: Seq<u8>| {
-                    &&& v1.can_crash_as(s1)
-                    &&& #[trigger] s1.len() == s2.len()
-                    &&& states_differ_only_in_log_region(s1, s2, 
-                            overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                }
+            states_differ_only_in_log_region(v1.durable_state, v2.durable_state, overall_metadata.log_area_addr as nat,
+                                             overall_metadata.log_area_size as nat)
     {
         let log_start_addr = overall_metadata.log_area_addr as nat;
         let log_size = overall_metadata.log_area_size as nat;
@@ -431,6 +420,7 @@ verus! {
         lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(v1, v2,
             version_metadata, overall_metadata);
 
+     /*
         assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
             exists |s1: Seq<u8>| {
                 &&& v1.can_crash_as(s1)
@@ -519,29 +509,6 @@ verus! {
                 }
             }
         }
+     */
     }
-
-    pub proof fn lemma_writing_does_not_change_committed_view(
-        pm: PersistentMemoryRegionView,
-        addr: int,
-        bytes: Seq<u8>,
-    )
-        requires 
-            0 <= addr <= addr + bytes.len() <= pm.len(),
-            // pm.no_outstanding_writes_in_range(addr, addr + bytes.len())
-        ensures 
-            ({
-                let new_pm = pm.write(addr, bytes);
-                pm.durable_state == new_pm.durable_state
-            })
-    {
-        let new_pm = pm.write(addr, bytes);
-        assert(forall |i: int| 0 <= i < pm.len() ==>
-            new_pm.state[i].state_at_last_flush == #[trigger] pm.state[i].state_at_last_flush);
-        assert(forall |i: int| 0 <= i < new_pm.len() ==>
-            #[trigger] new_pm.state[i].state_at_last_flush == new_pm.durable_state[i]);
-        assert(forall |i: int| 0 <= i < pm.len() ==>
-            #[trigger] pm.state[i].state_at_last_flush == pm.durable_state[i]);
-        assert(pm.durable_state == new_pm.durable_state);
-    }
-}
+}

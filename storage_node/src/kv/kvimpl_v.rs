@@ -675,9 +675,9 @@ where
             self.durable_store.lemma_reveal_opaque_inv();
             self.durable_store.lemma_reveal_opaque_inv_mem();
 
-            assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies perm.check_permission(s) by {
+            assert(perm.check_permission(self.wrpm_view().durable_state)) by {
                 self.durable_store.lemma_overall_metadata_addr();
-                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().durable_state);
+//                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().durable_state);
 //                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
             }
 

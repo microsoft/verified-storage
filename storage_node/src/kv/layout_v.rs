@@ -144,18 +144,16 @@ verus! {
             v1.len() == v2.len(),
             version_metadata.overall_metadata_addr >= VersionMetadata::spec_size_of(),
             v1.len() >= version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of(),
-            forall|addr: int| 0 <= addr < VersionMetadata::spec_size_of() ==> v1.state[addr] == v2.state[addr],
-            forall|addr: int| version_metadata.overall_metadata_addr <= addr
-                        < version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of() ==>
-                v1.state[addr] == v2.state[addr],
-            forall|s| #[trigger] v1.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
-            forall|s| #[trigger] v1.can_crash_as(s) ==>
-                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
+            views_match_in_address_range(v1, v2, 0, VersionMetadata::spec_size_of() as int),
+            views_match_in_address_range(v1, v2, version_metadata.overall_metadata_addr as int,
+                                         version_metadata.overall_metadata_addr + OverallMetadata::spec_size_of()),
+            version_metadata == deserialize_version_metadata(v1.durable_state),
+            overall_metadata == deserialize_overall_metadata(v1.durable_state, version_metadata.overall_metadata_addr),
         ensures
-            forall|s| #[trigger] v2.can_crash_as(s) ==> version_metadata == deserialize_version_metadata(s),
-            forall|s| #[trigger] v2.can_crash_as(s) ==>
-                overall_metadata == deserialize_overall_metadata(s, version_metadata.overall_metadata_addr),
+            version_metadata == deserialize_version_metadata(v2.durable_state),
+            overall_metadata == deserialize_overall_metadata(v2.durable_state, version_metadata.overall_metadata_addr),
     {
+        /*
         assert forall|s2| #[trigger] v2.can_crash_as(s2) implies version_metadata == deserialize_version_metadata(s2) by
         {
             let f = |addr: int| !(0 <= addr < VersionMetadata::spec_size_of());
@@ -181,5 +179,6 @@ verus! {
             lemma_establish_extract_bytes_equivalence(s1, s2);
             assert(deserialize_version_metadata(s1) =~= deserialize_version_metadata(s2));
         }
+        */
     }
 }

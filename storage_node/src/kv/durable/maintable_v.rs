@@ -698,7 +698,7 @@ verus! {
         ) -> bool 
         {
             let start = index_to_offset(i as nat, main_table_entry_size as nat) as int;
-            pm.no_outstanding_writes_in_range(start, start + main_table_entry_size)
+            no_outstanding_writes_in_range(pm, start, start + main_table_entry_size)
         }
 
         pub open spec fn outstanding_entry_write_matches_pm_view(self, pm: PersistentMemoryRegionView, i: u64,
@@ -709,7 +709,7 @@ verus! {
             let entry_bytes = ListEntryMetadata::spec_to_bytes(e.entry);
             let key_bytes = K::spec_to_bytes(e.key);
             let crc_bytes = spec_crc_bytes(entry_bytes + key_bytes);
-            &&& pm.no_outstanding_writes_in_range(start as int, start + u64::spec_size_of())
+            &&& no_outstanding_writes_in_range(pm, start as int, start + u64::spec_size_of())
             &&& outstanding_bytes_match(pm, start + u64::spec_size_of(), crc_bytes)
             &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2, entry_bytes)
             &&& outstanding_bytes_match(pm, start + u64::spec_size_of() * 2 + ListEntryMetadata::spec_size_of(),
@@ -775,14 +775,13 @@ verus! {
         {
             &&& self.opaquable_inv(overall_metadata)
             &&& overall_metadata.main_table_size >= overall_metadata.num_keys * overall_metadata.main_table_entry_size
-            &&& pm.no_outstanding_writes_in_range(overall_metadata.num_keys * overall_metadata.main_table_entry_size,
+            &&& no_outstanding_writes_in_range(pm, overall_metadata.num_keys * overall_metadata.main_table_entry_size,
                                                 overall_metadata.main_table_size as int)
             &&& pm.len() >= overall_metadata.main_table_size
             &&& self.main_table_entry_size == overall_metadata.main_table_entry_size
             &&& overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
-            &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
-                    parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(self@)
+            &&& parse_main_table::<K>(pm.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(self@)
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
             &&& self@.inv(overall_metadata)
             &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
@@ -860,7 +859,6 @@ verus! {
                     &&& key == meta.key
                 }),
         {
-            assert(pm.can_crash_as(pm.durable_state));
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             lemma_valid_entry_index(index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
             let entry_bytes = extract_bytes(pm.durable_state, (index * main_table_entry_size) as nat, main_table_entry_size as nat);
@@ -1001,8 +999,8 @@ verus! {
             for index in 0..num_keys 
                 invariant
                     subregion.inv(pm_region),
-                    subregion.view(pm_region).no_outstanding_writes_in_range(entry_offset as int,
-                                                                             subregion.view(pm_region).len() as int),
+                    no_outstanding_writes_in_range(subregion.view(pm_region), entry_offset as int,
+                                                   subregion.view(pm_region).len() as int),
                     num_keys * main_table_entry_size <= subregion.view(pm_region).len() <= u64::MAX,
                     // entry_offset == index * main_table_entry_size,
                     entry_offset == index_to_offset(index as nat, main_table_entry_size as nat),
@@ -1173,7 +1171,7 @@ verus! {
                         let item_index_view = Seq::new(entry_list@.len(), |i: int| entry_list[i].2);
 
                         &&& main_table.inv(subregion.view(pm_region), overall_metadata)
-                        &&& main_table.flush_predicted()
+                        &&& subregion.view(pm_region).flush_predicted()
                         &&& table == main_table@
                         // the entry list corresponds to the table
                         &&& entry_list_view.to_set() == key_entry_list_view
@@ -1232,7 +1230,7 @@ verus! {
 
                 // Proves that there is currently only one crash state, and it recovers to the current ghost table state.
 //                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(subregion.view(pm_region));
-                assert(forall |s| subregion.view(pm_region).can_crash_as(s) ==> s == mem);
+                assert(mem == subregion.view(pm_region).durable_state);
                 assert(parse_main_table::<K>(
                     mem,
                     overall_metadata.num_keys, 
@@ -1255,13 +1253,11 @@ verus! {
                     subregion.view(pm_region).flush_predicted(),
                     mem == subregion.view(pm_region).durable_state,
                     old_pm_constants == pm_region.constants(),
-                    subregion.view(pm_region).can_crash_as(subregion.view(pm_region).durable_state),
-                    forall |s| #[trigger] subregion.view(pm_region).can_crash_as(s) ==>  
-                        parse_main_table::<K>(
-                            s,
-                            overall_metadata.num_keys, 
-                            overall_metadata.main_table_entry_size 
-                        ) == Some(table),
+                    parse_main_table::<K>(
+                        subregion.view(pm_region).durable_state,
+                        overall_metadata.num_keys, 
+                        overall_metadata.main_table_entry_size 
+                    ) == Some(table),
                     main_table_entry_size == overall_metadata.main_table_entry_size,
                     forall |i: u64| 0 <= i < index ==> {
                         let entry = #[trigger] table.durable_main_table[i as int];
@@ -1610,8 +1606,7 @@ verus! {
 
                 let pm_view = subregion.view(pm_region);
                 
-                assert(forall |s| #[trigger] pm_view.can_crash_as(s) ==>
-                    parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(main_table@));
+                assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(main_table@));
                 assert forall |i: u64| 0 <= i < main_table@.durable_main_table.len() && !(#[trigger] main_table.outstanding_entries@.contains_key(i)) implies
                     main_table.no_outstanding_writes_to_entry(subregion.view(pm_region), i, overall_metadata.main_table_entry_size)
                 by {
@@ -1786,7 +1781,6 @@ verus! {
             self: Self,
             v1: PersistentMemoryRegionView,
             v2: PersistentMemoryRegionView,
-            crash_state2: Seq<u8>,
             overall_metadata: OverallMetadata,
             which_entry: u64,
         )
@@ -1794,16 +1788,15 @@ verus! {
                 self.inv(v1, overall_metadata),
                 self.free_list().contains(which_entry),
                 v1.len() == v2.len(),
-                v2.can_crash_as(crash_state2),
                 forall|addr: int| {
                     let start_addr = which_entry * overall_metadata.main_table_entry_size;
                     let end_addr = start_addr + overall_metadata.main_table_entry_size;
                     &&& 0 <= addr < v1.len()
                     &&& !(start_addr + u64::spec_size_of() <= addr < end_addr)
-                } ==> v2.state[addr] == v1.state[addr],
+                } ==> views_match_at_addr(v1, v2, addr),
             ensures
-                parse_main_table::<K>(crash_state2, overall_metadata.num_keys, overall_metadata.main_table_entry_size)
-                    == Some(self@),
+                parse_main_table::<K>(v2.durable_state, overall_metadata.num_keys,
+                                      overall_metadata.main_table_entry_size) == Some(self@),
         {
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -1817,7 +1810,8 @@ verus! {
                 v2, v1, crash_state2, can_views_differ_at_addr
             );
          */
-            let crash_state1 = crash_state2;
+            let crash_state1 = v1.durable_state;
+            let crash_state2 = v2.durable_state;
             assert(parse_main_table::<K>(crash_state1, num_keys, main_table_entry_size) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
             let entry_bytes = extract_bytes(crash_state1,
@@ -1898,7 +1892,7 @@ verus! {
                             let start = index_to_offset(index as nat, entry_size);
                             let old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
                             0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
-                                #[trigger] subregion.view(wrpm_region).state[addr] == old_pm_view.state[addr]
+                                #[trigger] views_match_at_addr(subregion.view(wrpm_region), old_pm_view, addr)
                         }
                     },
                     Err(KvError::OutOfSpace) => {
@@ -2051,11 +2045,10 @@ verus! {
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.durable_state == old_pm_view.durable_state);
 
-            assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
-                parse_main_table::<K>(s, overall_metadata.num_keys,
-                                      overall_metadata.main_table_entry_size) == Some(self@) by {
+            assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys,
+                                      overall_metadata.main_table_entry_size) == Some(self@)) by {
                 old(self).lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
-                    old_pm_view, pm_view, s, overall_metadata, free_index
+                    old_pm_view, pm_view, overall_metadata, free_index
                 );
                 assert(self@ == old(self)@);
             }
@@ -2068,7 +2061,7 @@ verus! {
                        let entry_size = overall_metadata.main_table_entry_size as nat;
                        let start = index_to_offset(free_index as nat, entry_size);
                        0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size)
-                   } implies #[trigger] subregion.view(wrpm_region).state[addr] == old_pm_view.state[addr] by {
+                   } implies #[trigger] views_match_at_addr(subregion.view(wrpm_region), old_pm_view, addr) by {
                 lemma_auto_addr_in_entry_divided_by_entry_size(free_index as nat,
                                                                overall_metadata.num_keys as nat,
                                                                main_table_entry_size as nat);
@@ -3424,8 +3417,7 @@ verus! {
                 old(self).main_table_entry_size == overall_metadata.main_table_entry_size,
                 overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of(),
-                forall |s| #[trigger] pm.can_crash_as(s) ==> 
-                    parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
+                parse_main_table::<K>(pm.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
                 old(self)@.inv(overall_metadata),
                 forall |i| 0 <= i < old(self)@.durable_main_table.len() ==> 
@@ -3449,7 +3441,7 @@ verus! {
                 by {
                     let start = index_to_offset(idx as nat, overall_metadata.main_table_entry_size as nat) as int;
                     lemma_valid_entry_index(idx as nat, overall_metadata.num_keys as nat, overall_metadata.main_table_entry_size as nat);
-                    assert(pm.no_outstanding_writes_in_range(start, start + overall_metadata.main_table_entry_size));
+                    assert(no_outstanding_writes_in_range(pm, start, start + overall_metadata.main_table_entry_size));
                 }
 
                 assert forall |idx: u64| self.free_list().contains(idx) implies

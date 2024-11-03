@@ -961,7 +961,7 @@ verus! {
             assert(Self::physical_recover(self.wrpm@.durable_state, self.version_metadata, self.overall_metadata) == Some(self@) ==>
                     UntrustedOpLog::<K, L>::recover(self.wrpm@.durable_state, self.version_metadata, self.overall_metadata) == Some(AbstractOpLogState::initialize()))
             by {
-                self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, self.wrpm@.durable_state, self.version_metadata, self.overall_metadata);
+                self.log.lemma_if_not_committed_recovery_equals_drop_pending_appends(self.wrpm, self.version_metadata, self.overall_metadata);
             }
     
             assert forall |s1: Seq<u8>, s2: Seq<u8>| {

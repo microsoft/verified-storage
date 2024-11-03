@@ -213,8 +213,7 @@ verus! {
         // TODO
         pub open spec fn inv(self, pm: PersistentMemoryRegionView, main_table_view: MainTableView<K>, overall_metadata: OverallMetadata) -> bool
         {
-            &&& forall |s| #[trigger] pm.can_crash_as(s) ==>
-                    Self::parse_all_lists(main_table_view, s, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) == Some(self@)
+            Self::parse_all_lists(main_table_view, pm.durable_state, overall_metadata.list_node_size, overall_metadata.num_list_entries_per_node) == Some(self@)
         }
 
         pub open spec fn recover(
