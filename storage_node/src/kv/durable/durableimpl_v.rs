@@ -4372,7 +4372,8 @@ verus! {
                     assert(self_before_main_table_create.wrpm@.state[addr] == self.wrpm@.state[addr]);
                 }
             }
-         
+
+         
             lemma_if_memories_differ_in_free_main_table_entry_their_differences_commute_with_log_replay(
                 self_before_main_table_create.wrpm@.flush().committed(),
                 self.wrpm@.flush().committed(),
@@ -4843,8 +4844,11 @@ verus! {
                 !old(self).transaction_committed(),
                 old(self).tentative_view() is Some,
                 forall|e| #[trigger] old(self).tentative_view().unwrap().contents.contains_value(e) ==> e.key != key,
-                forall|s| Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    ==> #[trigger] perm.check_permission(s),
+                // TODO @hayley changed this precondition -- does it break anything?
+                forall |s| {
+                    &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
+                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),

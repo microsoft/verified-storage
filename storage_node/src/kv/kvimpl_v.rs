@@ -495,8 +495,46 @@ where
         ret
     }
 
-    // This function implements a transaction that updates the item associated with 
-    // an existing key. The transaction is committed if the function returns Ok
+    proof fn lemma_if_key_in_tentative_volatile_index_then_key_in_tentative_view(
+        self, 
+        key: K,
+        index: u64,
+        kvstore_id: u128,
+    )
+        requires
+            self.valid(),
+            self.volatile_index.tentative_view().contains_key(key),
+            self.volatile_index.tentative_view()[key].unwrap().header_addr == index,
+            Self::recover(self.wrpm_view().committed(), kvstore_id) == Some(self@),
+        ensures 
+            self.tentative_view().contains_key(key),
+    {
+        broadcast use vstd::std_specs::hash::group_hash_axioms;
+        self.durable_store.lemma_valid_implies_inv();
+        self.durable_store.lemma_main_table_index_key_durable(); 
+        self.durable_store.lemma_main_table_index_key_tentative(); 
+
+        assert(self.volatile_index.tentative_view().contains_key(key));
+        assert(self.volatile_index.tentative_view()[key].unwrap().header_addr == index);
+        assert(self.durable_store.tentative_view().unwrap().contains_key(index as int));
+        self.durable_store.lemma_reveal_opaque_inv();
+
+        // Prove that the presence of this key in the volatile index implies 
+        // that it is in the current tentative view
+        let durable_store_state = self.durable_store.tentative_view().unwrap();
+        let index_to_key = Map::new(
+            |i| durable_store_state.contents.dom().contains(i),
+            |i| durable_store_state.contents[i].key
+        );
+        let indexed_offset = self.volatile_index.tentative_view()[key].unwrap().header_addr;
+        assert(index_to_key.contains_value(key)) by {
+            assert(index_to_key.dom().contains(indexed_offset as int));
+        }
+        assert(self.tentative_view().contains_key(key));
+    }
+
+    // This function performs a tentative update to the item of the specified key 
+    // as part of an ongoing transaction.
     pub exec fn untrusted_update_item(
         &mut self,
         key: &K,
@@ -514,7 +552,7 @@ where
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
                 }
             },
-            old(self)@.update_item(*key, *new_item) is Ok,
+            // old(self)@.update_item(*key, *new_item) is Ok,
         ensures 
             self.valid(),
             match result {
@@ -554,9 +592,7 @@ where
         };
 
         proof {
-            assert(self.volatile_index.tentative_view().contains_key(*key));
-            assert(self.volatile_index.tentative_view()[*key].unwrap().header_addr == index);
-            assert(self.durable_store.tentative_view().unwrap().contains_key(index as int));
+            self.lemma_if_key_in_tentative_volatile_index_then_key_in_tentative_view(*key, index, kvstore_id);
             self.durable_store.lemma_reveal_opaque_inv();
 
             let version_metadata = self.durable_store.spec_version_metadata();
@@ -572,19 +608,6 @@ where
                     broadcast use pmcopy_axioms;
                 }
             }
-
-            // Prove that the presence of this key in the volatile index implies 
-            // that it is in the current tentative view
-            let durable_store_state = self.durable_store.tentative_view().unwrap();
-            let index_to_key = Map::new(
-                |i| durable_store_state.contents.dom().contains(i),
-                |i| durable_store_state.contents[i].key
-            );
-            let indexed_offset = self.volatile_index.tentative_view()[*key].unwrap().header_addr;
-            assert(index_to_key.contains_value(*key)) by {
-                assert(index_to_key.dom().contains(indexed_offset as int));
-            }
-            assert(self.tentative_view().contains_key(*key));
         }
 
         // 2. Tentatively update the item in the durable store
@@ -732,6 +755,116 @@ where
         Ok(())
     }
 
+    pub exec fn untrusted_create(
+        &mut self,
+        key: &K,
+        item: &I,
+        kvstore_id: u128,
+        Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+            !old(self).transaction_committed(),
+            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                &&& {
+                    ||| Self::recover(s, kvstore_id) == Some(old(self)@)
+                    ||| Self::recover(s, kvstore_id) == Some(old(self)@.create(*key, *item).unwrap())
+                }
+            },
+            // old(self)@.create(*key, *item) is Ok,
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => 
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().create(*key, *item),
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyAlreadyExists) => {
+                    &&& self@ == old(self)@
+                    &&& old(self).tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+
+        proof { 
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key_durable(); 
+            self.durable_store.lemma_main_table_index_key_tentative(); 
+            self.durable_store.lemma_reveal_opaque_inv();
+        }
+
+        // 1. Look up the key in the volatile index. If it already exists,
+        // return error.
+        // TODO: should this abort the transaction?
+        if let Some(index) = self.volatile_index.get(key) {
+            proof {
+                self.lemma_if_key_in_tentative_volatile_index_then_key_in_tentative_view(*key, index, kvstore_id);
+            }
+            return Err(KvError::KeyAlreadyExists);
+        }
+
+        proof {
+            let version_metadata = self.durable_store.spec_version_metadata();
+            let overall_metadata = self.durable_store.spec_overall_metadata();
+            let durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
+                    self.wrpm_view().committed(), version_metadata, overall_metadata);
+
+            assert forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& durable_kvstore_state == DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            } implies #[trigger] Self::recover(s, kvstore_id) == Some(self@) by {                
+                assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
+                    broadcast use pmcopy_axioms;
+                }
+            }
+
+            assert(!self.volatile_index.tentative_view().contains_key(*key));
+            assert(self.tentative_durable_store_matches_tentative_volatile_index());
+
+            let durable_tentative_view = self.durable_store.tentative_view().unwrap();
+            assert forall|e| #[trigger] durable_tentative_view.contents.contains_value(e) implies 
+                e.key != key
+            by {
+                let witness = choose |i| #[trigger] durable_tentative_view.contents.dom().contains(i) && durable_tentative_view[i] == Some(e);
+                assert(durable_tentative_view.contains_key(witness));
+                assert(self.volatile_index.tentative_view().contains_key(durable_tentative_view[witness].unwrap().key));
+                assert(self.volatile_index.tentative_view().contains_key(e.key));
+            }
+        }
+
+        // 2. Tentatively create the durable record
+        let result = self.durable_store.tentative_create(key, item, kvstore_id, Tracked(perm));
+        let (offset, _head_node) = match result {
+            Ok((offset, _head_node)) => (offset, _head_node),
+            Err(e) => {
+                assume(false); // TODO @hayley
+                self.volatile_index.abort_transaction();
+                proof {
+                    self.durable_store.lemma_valid_implies_inv();
+                    self.durable_store.lemma_reveal_opaque_inv();
+                    self.durable_store.lemma_overall_metadata_addr();
+                }
+                return Err(e);
+            } 
+        };
+
+        // 3. Update the volatile index
+        // TODO
+        assume(false);
+
+        Ok(())
+    }
+
 /*
     pub fn untrusted_create(
         &mut self,
@@ -781,32 +914,6 @@ where
         // }
 
         Ok(())
-    }
-
-    pub fn untrusted_read_item(&self, key: &K) -> (result: Result<Box<I>, KvError<K>>)
-        requires
-            self.valid()
-        ensures
-        // ({
-        //     let spec_result = self@.read_item_and_list(*key);
-        //     match (result, spec_result) {
-        //         (Some(output_item), Some((spec_item, pages))) => {
-        //             &&& spec_item == output_item
-        //         }
-        //         (Some(output_item), None) => false,
-        //         (None, Some((spec_item, pages))) => false,
-        //         (None, None) => true,
-        //     }
-        // })
-    {
-        assume(false); // TODO
-
-        // First, get the offset of the header in the durable store using the volatile index
-        let offset = self.volatile_index.get(key);
-        match offset {
-            Some(offset) => self.durable_store.read_item(self.id, offset),
-            None => Err(KvError::KeyNotFound) // TODO: get actual error from volatile?
-        }
     }
 
     // // // TODO: return a Vec<&L> to save space/reduce copies
@@ -884,39 +991,6 @@ where
     // //         None => None
     // //     }
     // // }
-
-    pub fn untrusted_update_item(
-        &mut self,
-        key: &K,
-        new_item: &I,
-        kvstore_id: u128,
-        perm: Tracked<&TrustedKvPermission<PM>>
-    ) -> (result: Result<(), KvError<K>>)
-        requires
-            old(self).valid(),
-        ensures
-            self.valid(),
-            match result {
-                Ok(()) => {
-                    &&& self@ == old(self)@.update_item(*key, *new_item).unwrap()
-                }
-                Err(KvError::KeyNotFound) => {
-                    &&& !old(self)@.contents.contains_key(*key)
-                    &&& old(self)@ == self@
-                }
-                Err(_) => false
-            }
-    {
-        assume(false);
-        let offset = self.volatile_index.get(key);
-        match offset {
-            Some(offset) => {
-                self.durable_store.tentative_update_item(offset, kvstore_id, new_item)?;
-                self.durable_store.commit(kvstore_id, perm)
-            }
-            None => Err(KvError::KeyNotFound)
-        }
-    }
 
     // pub fn untrusted_delete(
     //     &mut self,
@@ -1184,18 +1258,18 @@ where
 
     */
 
-    pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
-        requires
-            self.valid(),
-        ensures
-            match result {
-                true => self@[*key] is Some,
-                false => self@[*key] is None
-            }
-    {
-        assume(false);
-        self.volatile_index.get(key).is_some()
-    }
+    // pub fn untrusted_contains_key(&self, key: &K) -> (result: bool)
+    //     requires
+    //         self.valid(),
+    //     ensures
+    //         match result {
+    //             true => self@[*key] is Some,
+    //             false => self@[*key] is None
+    //         }
+    // {
+    //     assume(false);
+    //     self.volatile_index.get(key).is_some()
+    // }
 
 }
 
