@@ -70,14 +70,15 @@ verus! {
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
                 let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
-                let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append);
-                &&& pm_region_view.no_outstanding_writes_in_range(absolute_write_addr, absolute_write_addr + num_bytes)
+                &&& no_outstanding_writes_in_range(pm_region_view, absolute_write_addr, absolute_write_addr + num_bytes)
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + num_bytes ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
-                &&& info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
+                &&& forall|pm_region_view2: PersistentMemoryRegionView|
+                       pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr, bytes_to_append)
+                       ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
             }),
     {
         let new_state = prev_state.tentatively_append(bytes_to_append);
@@ -161,18 +162,12 @@ verus! {
                                                         log_area_len as int);
                 let absolute_write_addr1 = log_start_addr + spec_log_area_pos() + write_addr;
                 let absolute_write_addr2 = log_start_addr + spec_log_area_pos();
-                let pm_region_view2 = pm_region_view.write(absolute_write_addr1, bytes_to_append_part1);
-                let pm_region_view3 = pm_region_view2.write(absolute_write_addr2 as int, bytes_to_append_part2);
-                // The first write doesn't conflict with any outstanding writes
-                &&& pm_region_view.no_outstanding_writes_in_range(absolute_write_addr1, absolute_write_addr1 + bytes_to_append_part1.len())
                 // The first write is only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + bytes_to_append_part1.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
-                // The second write also doesn't conflict with any outstanding writes
-                &&& pm_region_view2.no_outstanding_writes_in_range(absolute_write_addr2 as int, log_start_addr + spec_log_area_pos() + bytes_to_append_part2.len() as int)
                 // The second write is also only to log area offsets unreachable during recovery
                 &&& forall |log_area_offset: int| 0 <= log_area_offset < bytes_to_append_part2.len() ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
@@ -180,7 +175,12 @@ verus! {
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
                 // After the writes, the log area will be consistent with an updated info and state.
-                &&& info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state)
+                &&& forall|pm_region_view2: PersistentMemoryRegionView, pm_region_view3: PersistentMemoryRegionView|
+                       pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr1,
+                                                             bytes_to_append_part1) &&
+                       pm_region_view3.can_result_from_write(pm_region_view2, absolute_write_addr2 as int,
+                                                             bytes_to_append_part2)
+                       ==> info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state)
             }),
     {
         let log_area_len = prev_info.log_area_len;
@@ -201,12 +201,12 @@ verus! {
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
         let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
-        let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append_part1);
+//        let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append_part1);
 
         // Invoke `lemma_tentatively_append` on each write.
 
         lemma_tentatively_append(pm_region_view, bytes_to_append_part1, log_start_addr, log_size, prev_info, prev_state);
-        lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size, intermediate_info, intermediate_state);
+//        lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size, intermediate_info, intermediate_state);
     }
 
     // This lemma proves that tentative appends do not modify reachable state and thus do not change
@@ -227,7 +227,7 @@ verus! {
             memory_matches_deserialized_cdb(old_pm, log_start_addr, cdb),
             metadata_consistent_with_info(old_pm, log_start_addr, log_size, cdb, info),
             info_consistent_with_log_area(old_pm, log_start_addr, log_size, info, state),
-            metadata_types_set(old_pm.committed(), log_start_addr),
+            metadata_types_set(old_pm.durable_state, log_start_addr),
             old_pm.len() == new_pm.len(),
             log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= old_pm.len(),
             forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
@@ -239,27 +239,25 @@ verus! {
             },
             views_differ_only_where_subregion_allows(old_pm, new_pm, log_start_addr + spec_log_area_pos(),
                                                         info.log_area_len as nat, is_writable_absolute_addr),
-            forall |s| #[trigger] old_pm.can_crash_as(s) ==> 
-                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+            UntrustedLogImpl::recover(old_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
         ensures 
-            forall |s| #[trigger] new_pm.can_crash_as(s) ==> 
-                UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+            UntrustedLogImpl::recover(new_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
     {
-        assert forall |s| #[trigger] new_pm.can_crash_as(s) implies 
-            UntrustedLogImpl::recover(s, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+        assert(UntrustedLogImpl::recover(new_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends()))
         by {
-            lemma_establish_extract_bytes_equivalence(old_pm.committed(), new_pm.committed());
+            let s = new_pm.durable_state;
+            lemma_establish_extract_bytes_equivalence(old_pm.durable_state, new_pm.durable_state);
 //            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm);
             
             assert(extract_bytes(s, log_start_addr as nat, spec_log_area_pos()) == 
-                extract_bytes(new_pm.committed(), log_start_addr as nat, spec_log_area_pos()));
+                extract_bytes(new_pm.durable_state, log_start_addr as nat, spec_log_area_pos()));
             assert(extract_bytes(s, log_start_addr as nat, u64::spec_size_of()) == 
-                extract_bytes(new_pm.committed(), log_start_addr as nat, u64::spec_size_of()));
-            lemma_header_bytes_equal_implies_active_metadata_bytes_equal(new_pm.committed(), s, log_start_addr as nat, log_size as nat);
-            lemma_active_metadata_bytes_equal_implies_metadata_types_set(new_pm.committed(), s, log_start_addr as nat, cdb);
+                extract_bytes(new_pm.durable_state, log_start_addr as nat, u64::spec_size_of()));
+            lemma_header_bytes_equal_implies_active_metadata_bytes_equal(new_pm.durable_state, s, log_start_addr as nat, log_size as nat);
+            lemma_active_metadata_bytes_equal_implies_metadata_types_set(new_pm.durable_state, s, log_start_addr as nat, cdb);
 
             lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-                old_pm, new_pm, s, log_start_addr as nat, log_size as nat, cdb, info, state, is_writable_absolute_addr);
+                old_pm, new_pm, log_start_addr as nat, log_size as nat, cdb, info, state, is_writable_absolute_addr);
         }   
     }
 }
