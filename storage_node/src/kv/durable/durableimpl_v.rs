@@ -4855,7 +4855,9 @@ verus! {
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
+                self@ == old(self)@,
                 !self.transaction_committed(),
+                self.tentative_view_inv(), // TODO @hayley this might break things
                 ({
                     match result {
                         Ok((offset, head_node)) => {
@@ -4865,6 +4867,7 @@ verus! {
                         },
                         Err(KvError::OutOfSpace) => {
                             &&& self@ == old(self)@
+                            &&& Some(self@) == self.tentative_view() // TODO @hayley did this break anything?
                             &&& self.tentative_view() ==
                                    Self::physical_recover_given_log(self.wrpm_view().flush().committed(),
                                                                     self.spec_overall_metadata(),

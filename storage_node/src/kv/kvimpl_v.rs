@@ -847,7 +847,6 @@ where
         let (offset, _head_node) = match result {
             Ok((offset, _head_node)) => (offset, _head_node),
             Err(e) => {
-                assume(false); // TODO @hayley
                 self.volatile_index.abort_transaction();
                 proof {
                     self.durable_store.lemma_valid_implies_inv();
@@ -860,7 +859,65 @@ where
 
         // 3. Update the volatile index
         // TODO
+
+        self.volatile_index.insert_key(key, offset)?;
+
+        assert(old(self).tentative_view().create(*key, *item) is Ok);
+
+        assert forall |k| self.tentative_view().contents.contains_key(k) implies {
+            &&& #[trigger] old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k)
+            &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
+        } by {
+            let new_durable_store_state = self.durable_store.tentative_view().unwrap();
+            let new_index_to_key = Map::new(
+                |i| new_durable_store_state.contents.dom().contains(i),
+                |i| new_durable_store_state.contents[i].key
+            );
+            let new_key_to_index = new_index_to_key.invert();
+
+            let old_durable_store_state = old(self).durable_store.tentative_view().unwrap();
+            let old_index_to_key = Map::new(
+                |i| old_durable_store_state.contents.dom().contains(i),
+                |i| old_durable_store_state.contents[i].key
+            );
+
+            assert(self.durable_store.valid());
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key_tentative();
+            lemma_injective_map_inverse(new_index_to_key);
+            lemma_injective_map_inverse(old_index_to_key);
+
+            if k == key {
+                assert(self.tentative_view().contents == Map::new(
+                    |k| new_key_to_index.dom().contains(k),
+                    |k| {
+                        let index = new_key_to_index[k];
+                        let entry = new_durable_store_state.contents[index];
+                        (entry.item, entry.list.list)
+                    }
+                ));
+                assert(new_durable_store_state.contents[offset as int].item == item);
+                assert(new_index_to_key[offset as int] == key);
+            } else {
+                assert(k != key);
+                assert(forall |j| new_index_to_key.contains_key(j) && j != offset ==> {
+                    &&& old_index_to_key.contains_key(j)
+                    &&& #[trigger] new_index_to_key[j] == old_index_to_key[j]
+                });
+            }
+        }
+        assert forall |k| #[trigger] old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k) implies {
+            &&& self.tentative_view().contents.contains_key(k)
+            &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
+        } by {
+            assume(false); // TODO @hayley
+        }
+
         assume(false);
+
+        // some instability here...?
+        assert(self.tentative_view().contents == old(self).tentative_view().create(*key, *item).unwrap().contents);
+        assume(self.valid());
 
         Ok(())
     }
