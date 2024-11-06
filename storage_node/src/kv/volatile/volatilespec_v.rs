@@ -296,6 +296,7 @@ where
             match result {
                 Ok(()) => {
                     &&& self.tentative_view() == old(self).tentative_view().insert_key(*key, header_addr)
+                    &&& self@ == old(self)@
                     &&& self.num_tentative_entries() > 0
                 }
                 Err(_) => false, // TODO

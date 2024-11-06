@@ -2468,8 +2468,10 @@ verus! {
             requires
                 self.inv(),
                 !self.log@.op_list_committed,
-                forall|s| Self::physical_recover(s, self.version_metadata, self.overall_metadata) == Some(self@) ==>
-                    #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 self.tentative_main_table() == self.main_table.tentative_view(),
                 forall |i: int| self.tentative_view().unwrap().contains_key(i) ==> i < self.overall_metadata.num_keys,
                 self.main_table@.valid_item_indices() == self.item_table.durable_valid_indices(),
@@ -3541,9 +3543,10 @@ verus! {
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
-                forall |s| Self::physical_recover(s, old_self.spec_version_metadata(),
-                                             old_self.spec_overall_metadata()) == Some(old_self@)
-                    ==> #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, old_self.spec_version_metadata(), old_self.spec_overall_metadata()) == Some(old_self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, old_self.wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old_self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old_self.wrpm_view(),
                                                           old_self.spec_overall_metadata_addr() as int),
@@ -4078,9 +4081,13 @@ verus! {
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
-                forall |s| Self::physical_recover(s, old_self.spec_version_metadata(),
-                                             old_self.spec_overall_metadata()) == Some(old_self@)
-                    ==> #[trigger] perm.check_permission(s),
+                // forall |s| Self::physical_recover(s, old_self.spec_version_metadata(),
+                //                              old_self.spec_overall_metadata()) == Some(old_self@)
+                //     ==> #[trigger] perm.check_permission(s),
+                forall |s| {
+                    &&& Self::physical_recover(s, old_self.spec_version_metadata(), old_self.spec_overall_metadata()) == Some(old_self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, old_self.wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
                 no_outstanding_writes_to_version_metadata(old_self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old_self.wrpm_view(),
                                                           old_self.spec_overall_metadata_addr() as int),
@@ -4830,7 +4837,7 @@ verus! {
         // key. Returns the metadata index and the location of the list head node.
         // TODO: Should require caller to prove that the key doesn't already exist in order to create it.
         // The caller should do this because this can be done quickly with the volatile info.
-        #[verifier::rlimit(10)]
+        // #[verifier::rlimit(50)] // TODO @jay @hayley
         pub fn tentative_create(
             &mut self,
             key: &K,
@@ -5073,50 +5080,51 @@ verus! {
 
             let ghost pre_append_self = *self;
             assert(pre_append_self == self_before_create_validify_log_entry);
-            let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata,
-                                                               self.overall_metadata, Ghost(crash_pred), Tracked(perm));
-            match result {
-                Ok(()) => {}
-                Err(e) => {
-                    let ghost main_table_subregion_view =
-                        get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
-                                           self.overall_metadata.main_table_size as nat);
-                    assert(parse_main_table::<K>(main_table_subregion_view.committed(),
-                                                 self.overall_metadata.num_keys, 
-                                                 self.overall_metadata.main_table_entry_size) is Some) by {
-                        lemma_persistent_memory_view_can_crash_as_flushed(pre_append_self.wrpm@.flush());
-                        assert(pre_append_self.wrpm@.can_crash_as(pre_append_self.wrpm@.flush().committed()));
-                        assert(self_before_main_table_create.condition_preserved_by_subregion_masks()(
-                            pre_append_self.wrpm@.flush().committed())
-                        );
-                        assert(views_differ_only_in_log_region(pre_append_self.wrpm@.flush(), self.wrpm@,
-                                                               self.overall_metadata.log_area_addr as nat,
-                                                               self.overall_metadata.log_area_size as nat));
-                        assert(extract_bytes(pre_append_self.wrpm@.flush().committed(),
-                                             self.overall_metadata.main_table_addr as nat,
-                                             self.overall_metadata.main_table_size as nat) =~=
-                               extract_bytes(self.wrpm@.flush().committed(),
-                                             self.overall_metadata.main_table_addr as nat,
-                                             self.overall_metadata.main_table_size as nat));
-                        assert(main_table_subregion_view.committed() ==
-                               extract_bytes(self.wrpm@.committed(),
-                                             self.overall_metadata.main_table_addr as nat,
-                                             self.overall_metadata.main_table_size as nat));
-                        assert(main_table_subregion_view.committed() ==
-                               extract_bytes(pre_append_self.wrpm@.flush().committed(),
-                                             self.overall_metadata.main_table_addr as nat,
-                                             self.overall_metadata.main_table_size as nat));
-                    }
-                    self.abort_after_failed_op_log_operation(Ghost(*old(self)), Ghost(pre_append_self), Tracked(perm));
-                    return Err(e);
-                }
-            }
+            self.append_log_entry_helper(Ghost(pre_append_self), log_entry, Ghost(crash_pred), Tracked(perm))?;
+            // let result = self.log.tentatively_append_log_entry(&mut self.wrpm, &log_entry, self.version_metadata,
+            //                                                    self.overall_metadata, Ghost(crash_pred), Tracked(perm));
+            // match result {
+            //     Ok(()) => {}
+            //     Err(e) => {
+            //         let ghost main_table_subregion_view =
+            //             get_subregion_view(self.wrpm@, self.overall_metadata.main_table_addr as nat,
+            //                                self.overall_metadata.main_table_size as nat);
+            //         assert(parse_main_table::<K>(main_table_subregion_view.committed(),
+            //                                      self.overall_metadata.num_keys, 
+            //                                      self.overall_metadata.main_table_entry_size) is Some) by {
+            //             lemma_persistent_memory_view_can_crash_as_flushed(pre_append_self.wrpm@.flush());
+            //             assert(pre_append_self.wrpm@.can_crash_as(pre_append_self.wrpm@.flush().committed()));
+            //             assert(self_before_main_table_create.condition_preserved_by_subregion_masks()(
+            //                 pre_append_self.wrpm@.flush().committed())
+            //             );
+            //             assert(views_differ_only_in_log_region(pre_append_self.wrpm@.flush(), self.wrpm@,
+            //                                                    self.overall_metadata.log_area_addr as nat,
+            //                                                    self.overall_metadata.log_area_size as nat));
+            //             assert(extract_bytes(pre_append_self.wrpm@.flush().committed(),
+            //                                  self.overall_metadata.main_table_addr as nat,
+            //                                  self.overall_metadata.main_table_size as nat) =~=
+            //                    extract_bytes(self.wrpm@.flush().committed(),
+            //                                  self.overall_metadata.main_table_addr as nat,
+            //                                  self.overall_metadata.main_table_size as nat));
+            //             assert(main_table_subregion_view.committed() ==
+            //                    extract_bytes(self.wrpm@.committed(),
+            //                                  self.overall_metadata.main_table_addr as nat,
+            //                                  self.overall_metadata.main_table_size as nat));
+            //             assert(main_table_subregion_view.committed() ==
+            //                    extract_bytes(pre_append_self.wrpm@.flush().committed(),
+            //                                  self.overall_metadata.main_table_addr as nat,
+            //                                  self.overall_metadata.main_table_size as nat));
+            //         }
+            //         self.abort_after_failed_op_log_operation(Ghost(*old(self)), Ghost(pre_append_self), Tracked(perm));
+            //         return Err(e);
+            //     }
+            // }
 
             // 5. Add log entries to pending list
 
             // assert(self.pending_allocations() == old(self).pending_allocations().insert(main_table_index));
-            self.pending_updates.push(log_entry);
-            assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
+            // self.pending_updates.push(log_entry);
+            // assert(PhysicalOpLogEntry::vec_view(self.pending_updates) == self.log@.physical_op_list);
 
             proof {
                 lemma_if_views_dont_differ_in_metadata_area_then_metadata_unchanged_on_crash(

@@ -772,7 +772,6 @@ where
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@.create(*key, *item).unwrap())
                 }
             },
-            // old(self)@.create(*key, *item) is Ok,
         ensures 
             self.valid(),
             match result {
@@ -858,67 +857,103 @@ where
         };
 
         // 3. Update the volatile index
-        // TODO
+        self.volatile_index.insert_key(key, offset)?; 
 
-        self.volatile_index.insert_key(key, offset)?;
+        proof {
+            assert(old(self).tentative_view().create(*key, *item) is Ok);
 
-        assert(old(self).tentative_view().create(*key, *item) is Ok);
-
-        assert forall |k| self.tentative_view().contents.contains_key(k) implies {
-            &&& #[trigger] old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k)
-            &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
-        } by {
             let new_durable_store_state = self.durable_store.tentative_view().unwrap();
             let new_index_to_key = Map::new(
                 |i| new_durable_store_state.contents.dom().contains(i),
                 |i| new_durable_store_state.contents[i].key
             );
             let new_key_to_index = new_index_to_key.invert();
-
+    
             let old_durable_store_state = old(self).durable_store.tentative_view().unwrap();
             let old_index_to_key = Map::new(
                 |i| old_durable_store_state.contents.dom().contains(i),
                 |i| old_durable_store_state.contents[i].key
             );
+            let old_key_to_index = old_index_to_key.invert();
 
             assert(self.durable_store.valid());
             self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_main_table_index_key_tentative();
             lemma_injective_map_inverse(new_index_to_key);
             lemma_injective_map_inverse(old_index_to_key);
-
-            if k == key {
-                assert(self.tentative_view().contents == Map::new(
-                    |k| new_key_to_index.dom().contains(k),
-                    |k| {
-                        let index = new_key_to_index[k];
-                        let entry = new_durable_store_state.contents[index];
-                        (entry.item, entry.list.list)
-                    }
-                ));
-                assert(new_durable_store_state.contents[offset as int].item == item);
-                assert(new_index_to_key[offset as int] == key);
-            } else {
-                assert(k != key);
-                assert(forall |j| new_index_to_key.contains_key(j) && j != offset ==> {
-                    &&& old_index_to_key.contains_key(j)
+    
+            assert forall |k| self.tentative_view().contents.contains_key(k) implies {
+                &&& #[trigger] old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k)
+                &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
+            } by {    
+                if k == key {
+                    assert(self.tentative_view().contents == Map::new(
+                        |k| new_key_to_index.dom().contains(k),
+                        |k| {
+                            let index = new_key_to_index[k];
+                            let entry = new_durable_store_state.contents[index];
+                            (entry.item, entry.list.list)
+                        }
+                    ));
+                    assert(new_durable_store_state.contents[offset as int].item == item);
+                    assert(new_index_to_key[offset as int] == key);
+                } else {
+                    assert(k != key);
+                    assert(forall |j| new_index_to_key.contains_key(j) && j != offset ==> {
+                        &&& old_index_to_key.contains_key(j)
+                        &&& #[trigger] new_index_to_key[j] == old_index_to_key[j]
+                    });
+                }
+            }
+            assert forall |k| old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k) implies {
+                &&& #[trigger] self.tentative_view().contents.contains_key(k)
+                &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
+            } by {
+                assert(forall |j| #[trigger] new_index_to_key.contains_key(j) ==>
+                    new_key_to_index[new_index_to_key[j]] == j);
+                assert(forall |j| #[trigger] old_index_to_key.contains_key(j) ==>
+                    old_key_to_index[new_index_to_key[j]] == j);
+    
+                assert(self.durable_store.tentative_view() ==
+                    Some(old(self).durable_store.tentative_view().unwrap().create(offset as int, *key, *item).unwrap()));
+    
+                assert(forall |j| old_index_to_key.contains_key(j) && j != offset ==> {
+                    &&& new_index_to_key.contains_key(j)
                     &&& #[trigger] new_index_to_key[j] == old_index_to_key[j]
                 });
+    
+                assert(self.tentative_view().contents.dom() == new_key_to_index.dom());
+                if k == key {
+                    assert(new_index_to_key.contains_key(offset as int));
+                    assert(new_key_to_index.contains_key(k));
+                } 
             }
+            assert(self.tentative_view().contents == old(self).tentative_view().create(*key, *item).unwrap().contents);
+            assert(self.tentative_durable_store_matches_tentative_volatile_index()) by {
+                assert(old(self).tentative_durable_store_matches_tentative_volatile_index());
+                let durable_tentative_view = self.durable_store.tentative_view().unwrap();
+
+                assert forall |k: K| #[trigger] self.volatile_index.tentative_view().contains_key(k) implies {
+                    let indexed_offset = self.volatile_index.tentative_view()[k].unwrap().header_addr;
+                    &&& durable_tentative_view.contains_key(indexed_offset as int)
+                    &&& durable_tentative_view[indexed_offset as int].unwrap().key == k
+                } by {
+                    if k != key {
+                        assert(old(self).volatile_index.tentative_view().contains_key(k));
+                    } // else, trivial
+                }
+                assert forall |i: int| #[trigger] durable_tentative_view.contains_key(i) implies {
+                    &&& self.volatile_index.tentative_view().contains_key(durable_tentative_view[i].unwrap().key)
+                    &&& self.volatile_index.tentative_view()[durable_tentative_view[i].unwrap().key].unwrap().header_addr == i
+                } by {
+                    if i != offset {
+                        assert(old(self).durable_store.tentative_view().unwrap().contains_key(i));
+                    } // else, trivial
+                }
+            }
+            
+            assert(self.valid());
         }
-        assert forall |k| #[trigger] old(self).tentative_view().create(*key, *item).unwrap().contents.contains_key(k) implies {
-            &&& self.tentative_view().contents.contains_key(k)
-            &&& old(self).tentative_view().create(*key, *item).unwrap().contents[k] == self.tentative_view().contents[k]
-        } by {
-            assume(false); // TODO @hayley
-        }
-
-        assume(false);
-
-        // some instability here...?
-        assert(self.tentative_view().contents == old(self).tentative_view().create(*key, *item).unwrap().contents);
-        assume(self.valid());
-
         Ok(())
     }
 
