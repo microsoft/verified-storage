@@ -159,7 +159,7 @@ pub open spec fn metadata_consistent_with_info(
     &&& log_size == spec_log_area_pos() + info.log_area_len
     &&& mem.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len
     &&& log_start_addr + spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() <
-            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_start_addr + log_size
+            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm_region_view.len()
 }
 
 // This invariant says that the log area of the given
@@ -555,7 +555,9 @@ pub proof fn lemma_metadata_matches_implies_metadata_types_set(
     log_start_addr: nat,
     cdb: bool
 )
-    requires 
+    requires
+        pm1.valid(),
+        pm2.valid(),
         no_outstanding_writes_to_active_metadata(pm1, log_start_addr, cdb),
         no_outstanding_writes_to_active_metadata(pm2, log_start_addr, cdb),
         metadata_types_set(pm1.durable_state, log_start_addr),
@@ -795,7 +797,7 @@ proof fn lemma_invariants_imply_crash_recover(
     // regions.
 
     assert(recover_given_cdb(mem, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())) by {
-//        lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, mem, log_start_addr, log_size, cdb, info, state);
+        lemma_invariants_imply_crash_recover_for_one_log(pm_region_view, log_start_addr, log_size, cdb, info, state);
     }
 
     // Get Z3 to see the equivalence of the recovery
@@ -1024,7 +1026,7 @@ pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstand
     log_start_addr: nat,
     log_size: nat
 )
-    requires 
+    requires
         states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
         v1.len() == v2.len(),
         v1.flush_predicted(),
@@ -1036,15 +1038,6 @@ pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstand
     let s2 = v2.durable_state;
     assert(v1.len() == s1.len());
     assert(v2.len() == s2.len());
-
-    assert(views_match_in_address_range(v1, v2, 0, s1.len() as int));
-
-    /*
-    assert(forall |addr: int| {
-        &&& 0 <= addr < s1.len() 
-        &&& v1.state[addr] != #[trigger] v2.state[addr]
-    } ==> s1[addr] != s2[addr]);
-    */
 
     assert(forall|addr: int| #![trigger v2.durable_state[addr]] #![trigger v2.read_state[addr]]
            0 <= addr < v1.len() && !(log_start_addr <= addr < log_start_addr + log_size) ==>
@@ -1098,12 +1091,13 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists(
     ensures
         states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
 {
-    // The body of this lemma would be exactly the same as the wrapping case lemma, it just has a different
-    // precondition, so we fake the second write here to use the wrapping proof in the single-write case.
-//    assert(v1.write(write_addr, write_bytes).write(log_start_addr as int, Seq::empty()) == v1.write(write_addr, write_bytes));
-//    lemma_crash_state_differing_only_in_log_region_exists_wrapping(
-//        v1, v2, write_addr, write_bytes, log_start_addr as int, Seq::empty(), log_start_addr, log_size
-//    );
+    assert forall |addr: int| 0 <= addr < v1.durable_state.len() && v1.durable_state[addr] != v2.durable_state[addr] implies
+        log_start_addr <= addr < log_start_addr + log_size by {
+        let chunk = addr / const_persistence_chunk_size();
+        assert(chunk_trigger(chunk));
+        lemma_fundamental_div_mod(log_start_addr as int, const_persistence_chunk_size());
+        lemma_fundamental_div_mod(log_size as int, const_persistence_chunk_size());
+    }
 }
 
 // TODO: rename to reflect the fact that this is general for two-write situations
@@ -1130,14 +1124,12 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
     ensures 
         states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
 {
+    lemma_crash_state_differing_only_in_log_region_exists(v1, vmid, write_addr1, write_bytes1, log_start_addr,
+                                                          log_size);
+    lemma_crash_state_differing_only_in_log_region_exists(vmid, v2, write_addr2, write_bytes2, log_start_addr,
+                                                          log_size);
     /*
-    assert forall |s2: Seq<u8>| v2.can_crash_as(s2) implies 
-        exists |s1: Seq<u8>| {
-            &&& v1.can_crash_as(s1)
-            &&& #[trigger] s1.len() == s2.len()
-            &&& states_differ_only_in_log_region(s1, s2, log_start_addr, log_size)
-        }
-    by {
+    assert(states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size)) by {
         // We need to construct a state that is a valid crash state of v1, and matches
         // s2 in all addresses except for the log addrs.
         // It doesn't really matter what we put in the log, so we'll just use 
