@@ -44,6 +44,7 @@ verus! {
         prev_state: AbstractLogState,
     )
         requires
+            pm_region_view.valid(),
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
             log_size == prev_info.log_area_len + spec_log_area_pos(),
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
@@ -70,18 +71,26 @@ verus! {
                                                         prev_info.head_log_area_offset as int,
                                                         log_area_len as int);
                 let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
-                &&& no_outstanding_writes_in_range(pm_region_view, absolute_write_addr, absolute_write_addr + num_bytes)
                 &&& forall |log_area_offset: int| write_addr <= log_area_offset < write_addr + num_bytes ==>
                        log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
                                                                    prev_info.log_area_len as int,
                                                                    prev_info.log_length as int,
                                                                    log_area_offset)
                 &&& forall|pm_region_view2: PersistentMemoryRegionView|
-                       pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr, bytes_to_append)
+                       #[trigger] pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr,
+                                                                        bytes_to_append)
                        ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
             }),
     {
+        let log_area_len = prev_info.log_area_len;
+        let num_bytes = bytes_to_append.len();
+        let new_info = prev_info.tentatively_append(num_bytes as u64);
         let new_state = prev_state.tentatively_append(bytes_to_append);
+        let write_addr =
+            relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
+                                                prev_info.head_log_area_offset as int,
+                                                log_area_len as int);
+        let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
 
         // We need extensional equality to reason that the old and new
         // abstract states are the same after dropping pending appends.
@@ -96,7 +105,35 @@ verus! {
         // about addresses in the log area (that there are no
         // outstanding writes to certain of them).
 
-        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
+        lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr,
+                                                                         log_size, prev_info);
+
+        assert forall|pm_region_view2: PersistentMemoryRegionView|
+                   #[trigger] pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr,
+                                                                    bytes_to_append)
+               implies info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size,
+                                                     new_info, new_state) by {
+            lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view2, log_start_addr,
+                                                                             log_size, new_info);
+            assert forall |pos_relative_to_head: int|
+                0 <= pos_relative_to_head < new_info.log_length implies {
+                    let log_area_offset =
+                        #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                       new_info.head_log_area_offset as int,
+                                                                       new_info.log_area_len as int);
+                    let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+                    &&& pm_region_view2.read_state[absolute_addr] == new_state.log[pos_relative_to_head]
+                    &&& pm_region_view2.read_state[absolute_addr] == pm_region_view2.durable_state[absolute_addr]
+                } by {
+                let log_area_offset =
+                    relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                        new_info.head_log_area_offset as int,
+                                                        new_info.log_area_len as int);
+                let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+                let chunk = absolute_addr / const_persistence_chunk_size();
+                assert(chunk_trigger(chunk));
+            }
+        }
     }
 
     // This lemma establishes useful facts about performing two
@@ -132,6 +169,7 @@ verus! {
         prev_state: AbstractLogState,
     )
         requires
+            pm_region_view.valid(),
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
             log_size == prev_info.log_area_len + spec_log_area_pos(),
             info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
@@ -200,13 +238,32 @@ verus! {
             relative_log_pos_to_log_area_offset(prev_info.log_plus_pending_length as int,
                                                 prev_info.head_log_area_offset as int,
                                                 log_area_len as int);
-        let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
-//        let pm_region_view2 = pm_region_view.write(absolute_write_addr, bytes_to_append_part1);
+        let absolute_write_addr1 = log_start_addr + spec_log_area_pos() + write_addr;
+        let absolute_write_addr2 = log_start_addr + spec_log_area_pos();
+        let new_info = prev_info.tentatively_append(bytes_to_append.len() as u64);
+        let new_state = prev_state.tentatively_append(bytes_to_append);
 
         // Invoke `lemma_tentatively_append` on each write.
 
-        lemma_tentatively_append(pm_region_view, bytes_to_append_part1, log_start_addr, log_size, prev_info, prev_state);
-//        lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size, intermediate_info, intermediate_state);
+        lemma_tentatively_append(pm_region_view, bytes_to_append_part1, log_start_addr, log_size,
+                                 prev_info, prev_state);
+        assert forall|pm_region_view2: PersistentMemoryRegionView, pm_region_view3: PersistentMemoryRegionView|
+                   pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr1,
+                                                         bytes_to_append_part1) &&
+                   pm_region_view3.can_result_from_write(pm_region_view2, absolute_write_addr2 as int,
+                                                         bytes_to_append_part2)
+                   implies
+               info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state) by {
+            lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size,
+                                     intermediate_info, intermediate_state);
+            let write_addr =
+                relative_log_pos_to_log_area_offset(intermediate_info.log_plus_pending_length as int,
+                                                    intermediate_info.head_log_area_offset as int,
+                                                    log_area_len as int);
+            let absolute_write_addr = log_start_addr + spec_log_area_pos() + write_addr;
+            assert(pm_region_view3.can_result_from_write(pm_region_view2, absolute_write_addr,
+                                                         bytes_to_append_part2));
+        }
     }
 
     // This lemma proves that tentative appends do not modify reachable state and thus do not change
