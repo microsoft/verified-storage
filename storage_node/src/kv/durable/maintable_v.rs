@@ -79,11 +79,13 @@ verus! {
 
         pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
         {
-            &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-                    &&& self.durable_main_table[i as int] is Some
-                    &&& self.durable_main_table[j as int] is Some
-                } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
-                    #[trigger] self.durable_main_table[j as int].unwrap().item_index()
+            // &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
+            //         &&& self.durable_main_table[i as int] is Some
+            //         &&& self.durable_main_table[j as int] is Some
+            //     } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
+            //         #[trigger] self.durable_main_table[j as int].unwrap().item_index()
+            // no_duplicate_item_indexes(self.durable_main_table)
+            true
         }
 
         pub open spec fn len(self) -> nat
@@ -275,6 +277,12 @@ verus! {
         // (this is part of the main table invariant). We maintain it as a separate 
         // vector to make it easier to iterate over the modified entries 
         pub modified_indices: Vec<u64>,
+
+        // // these functions map item indices and keys back to their indices
+        // // in the main table view. the existence of these functions proves
+        // // that there are no duplicate item indices or keys
+        // pub reverse_item_mapping: Ghost<spec_fn(u64) -> int>,
+        // pub reverse_key_mapping: Ghost<spec_fn(K) -> int>,
     }
 
     pub open spec fn subregion_grants_access_to_main_table_entry<K>(
@@ -531,13 +539,17 @@ verus! {
                     } 
                 }
                 
-                assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
-                    assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
-                    assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
-                        &&& i != index ==> #[trigger] self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
-                        &&& i == index ==> self.tentative_view().durable_main_table[i].unwrap().item_index() == entry.item_index
-                    });
+                assert(reverse_item_mapping_exists(self.tentative_view().durable_main_table)) by {
+                    assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                        assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
+                        assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
+                            &&& i != index ==> #[trigger] self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
+                            &&& i == index ==> self.tentative_view().durable_main_table[i].unwrap().item_index() == entry.item_index
+                        });
+                    }
+                    lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self.tentative_view().durable_main_table);
                 }
+                
             }
 
         }
@@ -672,12 +684,15 @@ verus! {
                     } 
                 }
 
-                assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
-                    assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
-                    assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
-                        &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
-                        &&& i == index ==> self.tentative_view().durable_main_table[i] is None
-                    });
+                assert(reverse_item_mapping_exists(self.tentative_view().durable_main_table)) by {
+                    assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                        assert(no_duplicate_item_indexes(old(self).tentative_view().durable_main_table));
+                        assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() ==> {
+                            &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
+                            &&& i == index ==> self.tentative_view().durable_main_table[i] is None
+                        });
+                    }
+                    lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self.tentative_view().durable_main_table);
                 }
             }
 
@@ -720,8 +735,10 @@ verus! {
         {
             &&& self.main_table_free_list@.no_duplicates()
             &&& self.modified_indices@.no_duplicates()
-            &&& no_duplicate_item_indexes(self.tentative_view().durable_main_table)
-            &&& no_duplicate_item_indexes(self@.durable_main_table)
+            // &&& no_duplicate_item_indexes(self.tentative_view().durable_main_table)
+            // &&& no_duplicate_item_indexes(self@.durable_main_table)
+            &&& reverse_item_mapping_exists(self.tentative_view().durable_main_table)
+            &&& reverse_item_mapping_exists(self@.durable_main_table)
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
 
             &&& forall |idx: u64| self.main_table_free_list@.contains(idx) ==> 0 <= idx < overall_metadata.num_keys
@@ -1008,7 +1025,7 @@ verus! {
                     entry_offset == index_to_offset(index as nat, main_table_entry_size as nat),
                     main_table_entry_size >= u64::spec_size_of(),
                     forall |addr: int| subregion.start() <= addr < subregion.end() ==>
-                     #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
+                        #[trigger] subregion.is_writable_absolute_addr_fn()(addr),
                     forall |k: nat| k < index ==> #[trigger] Self::extract_cdb_for_entry(
                         subregion.view(pm_region).flush().committed(), k, main_table_entry_size
                     ) == CDB_FALSE,
@@ -1104,7 +1121,9 @@ verus! {
                     assert(Self::extract_cdb_for_entry(mem, i, main_table_entry_size) == CDB_FALSE ==> 
                            entries[i as int] is None);
                 }
-                assert(no_duplicate_item_indexes(entries));
+                assert(recovered_view is Some) by {
+                    lemma_no_dup_iff_reverse_mappings_exist(entries);
+                }
             }
 
             // Prove that entries with CDB of false are None in the recovery view of the table. We already know that all of the entries
@@ -1619,6 +1638,8 @@ verus! {
                 }
 
                 assert(main_table@ == main_table.tentative_view());
+
+                lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(main_table@.durable_main_table);
             }
 
             Ok((main_table, key_index_pairs))
@@ -1942,7 +1963,8 @@ verus! {
             assert(self.modified_indices@.no_duplicates()) by {
                 lemma_pushing_new_element_retains_no_duplicates(old(self).modified_indices@, free_index);
             }
-            assert forall|idx| self.modified_indices@.contains(idx) implies 0 <= idx < overall_metadata.num_keys by {
+            assert forall|idx| self.modified_indices@.contains(idx) implies 0 <= idx < overall_metadata.num_keys
+ by {
                 if idx != free_index {
                     let j = choose|j: int| 0 <= j < self.modified_indices@.len() && self.modified_indices@[j] == idx;
                     assert(old(self).modified_indices@[j] == idx);
@@ -1963,7 +1985,8 @@ verus! {
                 old(self).main_table_free_list@.unique_seq_to_set();
             }
 
-            proof {
+
+            proof {
                 assert forall |idx| self.main_table_free_list@.contains(idx) implies idx < overall_metadata.num_keys by {
                     assert(old(self).main_table_free_list@.contains(idx));
                 }
@@ -2002,32 +2025,43 @@ verus! {
 
             assert(subregion_grants_access_to_main_table_entry::<K>(*subregion, free_index));
             subregion.serialize_and_write_relative::<u64, Perm, PM>(wrpm_region, crc_addr, &crc, Tracked(perm));
-            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
+
+            subregion.serialize_and_write_relative::<ListEntryMetadata, Perm, PM>(wrpm_region, entry_addr,
                                                                                   &entry, Tracked(perm));
-            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
-
+
+            subregion.serialize_and_write_relative::<K, Perm, PM>(wrpm_region, key_addr, &key, Tracked(perm));
+
+
             let ghost main_table_entry = MainTableViewEntry{entry, key: *key };
             self.outstanding_entry_create(free_index, entry, *key);
 
-            assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
-                let old_entries = old(self).tentative_view().durable_main_table;
-                let entries = self.tentative_view().durable_main_table;
-                let new_entry = OutstandingEntry { status: EntryStatus::Created, entry, key };
-                assert forall |i: int, j: int| {
-                           &&& 0 <= i < entries.len()
-                           &&& 0 <= j < entries.len()
-                           &&& i != j
-                           &&& entries[i] is Some
-                           &&& entries[j] is Some
-                       } implies
-                       #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index() by {
-                    assert(i != free_index ==> entries[i] == old_entries[i]);
-                    assert(j != free_index ==> entries[j] == old_entries[j]);
-                    assert(i != free_index ==> old_entries[i].unwrap().item_index() != entry.item_index);
-                    assert(j != free_index ==> old_entries[j].unwrap().item_index() != entry.item_index);
+            assert(reverse_item_mapping_exists(self.tentative_view().durable_main_table)) by {
+                assert(no_duplicate_item_indexes(self.tentative_view().durable_main_table)) by {
+                    let old_entries = old(self).tentative_view().durable_main_table;
+                    let entries = self.tentative_view().durable_main_table;
+                    let new_entry = OutstandingEntry {
+                        status: EntryStatus::Created,
+                        entry, 
+                        key
+                    };
+                    assert forall |i: int, j: int| {
+                               &&& 0 <= i < entries.len()
+                               &&& 0 <= j < entries.len()
+                               &&& i != j
+                               &&& entries[i] is Some
+                               &&& entries[j] is Some
+                           } implies
+                           #[trigger] entries[i].unwrap().item_index() != #[trigger] entries[j].unwrap().item_index() by {
+                        assert(i != free_index ==> entries[i] == old_entries[i]);
+                        assert(j != free_index ==> entries[j] == old_entries[j]);
+                        assert(i != free_index ==> old_entries[i].unwrap().item_index() != entry.item_index);
+                        assert(j != free_index ==> old_entries[j].unwrap().item_index() != entry.item_index);
+                    }
                 }
+                lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self.tentative_view().durable_main_table);
             }
-
+            
+
             assert(self.modified_indices@.len() <= self@.durable_main_table.len()) by {
                 if self.modified_indices@.len() != old(self).modified_indices@.len() {
                     // if we increased the length of the modified indices list, we have to prove
@@ -2047,7 +2081,9 @@ verus! {
 
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() == old_pm_view.committed());
-
+
+
+
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
                 parse_main_table::<K>(s, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@) by {
@@ -2362,6 +2398,10 @@ verus! {
                     }
                 } // else, trivial
             }
+            proof {
+                lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self@.durable_main_table);
+                lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self.tentative_view().durable_main_table);
+            }
         }
 
         #[verifier::rlimit(20)]
@@ -2574,6 +2614,8 @@ verus! {
                         assert(j == index ==> old_entries[i].unwrap().key() != entry.key);
                     }
                 }
+
+                lemma_no_dup_iff_reverse_mappings_exist(entries);
 
                 let updated_table = old_main_table_view.durable_main_table.update(
                     index as int,
@@ -2799,6 +2841,7 @@ verus! {
                         assert(entries[j].unwrap().key() == old_entries[j].unwrap().key());
                     }
                 }
+                lemma_no_dup_iff_reverse_mappings_exist(entries);
 
                 let updated_table = old_main_table_view.durable_main_table.update(index as int, None);
                 assert(updated_table.len() == old_main_table_view.durable_main_table.len());
@@ -3067,7 +3110,7 @@ verus! {
             // Prove that there are no duplicate entries or keys. This is required
             // to prove that the table parses successfully.
             Self::lemma_no_duplicate_item_indices_or_keys(old_entries, new_entries, index as int, item_index);
-
+            lemma_no_dup_iff_reverse_mappings_exist(new_entries);
             let new_main_table_view = new_main_table_view.unwrap();
             let updated_table_view = old_main_table_view.update_item_index(index as int, item_index).unwrap();
 
@@ -3407,6 +3450,9 @@ verus! {
                     }
                 } // else, trivial
             }
+            proof {
+                lemma_no_duplicate_item_indexes_implies_reverse_item_mapping_exists(self.tentative_view().durable_main_table);
+            }
         }
 
         pub exec fn abort_transaction(
@@ -3531,5 +3577,6 @@ verus! {
                 }
             }
         }
-    }
+
+    }
 }

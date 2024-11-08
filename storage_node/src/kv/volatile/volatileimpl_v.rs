@@ -14,8 +14,6 @@ use crate::pmem::pmcopy_t::*;
 use std::collections::HashMap;
 use std::hash::Hash;
 
-// TODO @hayley: deal with Clone
-
 verus! {
 
 broadcast use vstd::std_specs::hash::group_hash_axioms;

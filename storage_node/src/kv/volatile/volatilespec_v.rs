@@ -383,8 +383,6 @@ where
                     &&& old(self).tentative_view().contains_key(*key)
                     &&& self.tentative_view() == old(self).tentative_view().remove(*key)
                     &&& header_addr == old(self).tentative_view()[*key].unwrap().header_addr
-                    // TODO @hayley is this postcondition necessary?
-                    // &&& self.num_tentative_entries() > 0 // this isn't true -- we might remove one
                 },
                 Err(KvError::KeyNotFound) => {
                     &&& self == old(self)
