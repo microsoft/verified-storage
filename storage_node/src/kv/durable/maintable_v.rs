@@ -77,17 +77,6 @@ verus! {
             }
         }
 
-        pub open spec fn inv(self, overall_metadata: OverallMetadata) -> bool
-        {
-            // &&& forall |i: nat, j: nat| i < overall_metadata.num_keys && j < overall_metadata.num_keys && i != j ==> {
-            //         &&& self.durable_main_table[i as int] is Some
-            //         &&& self.durable_main_table[j as int] is Some
-            //     } ==> #[trigger] self.durable_main_table[i as int].unwrap().item_index() != 
-            //         #[trigger] self.durable_main_table[j as int].unwrap().item_index()
-            // no_duplicate_item_indexes(self.durable_main_table)
-            true
-        }
-
         pub open spec fn len(self) -> nat
         {
             self.durable_main_table.len()
@@ -277,12 +266,6 @@ verus! {
         // (this is part of the main table invariant). We maintain it as a separate 
         // vector to make it easier to iterate over the modified entries 
         pub modified_indices: Vec<u64>,
-
-        // // these functions map item indices and keys back to their indices
-        // // in the main table view. the existence of these functions proves
-        // // that there are no duplicate item indices or keys
-        // pub reverse_item_mapping: Ghost<spec_fn(u64) -> int>,
-        // pub reverse_key_mapping: Ghost<spec_fn(K) -> int>,
     }
 
     pub open spec fn subregion_grants_access_to_main_table_entry<K>(
@@ -801,7 +784,6 @@ verus! {
             &&& forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(self@)
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
-            &&& self@.inv(overall_metadata)
             &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
             &&& forall |idx: u64| self.free_list().contains(idx) ==> self.free_indices().contains(idx)
             &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
@@ -1964,7 +1946,7 @@ verus! {
                 lemma_pushing_new_element_retains_no_duplicates(old(self).modified_indices@, free_index);
             }
             assert forall|idx| self.modified_indices@.contains(idx) implies 0 <= idx < overall_metadata.num_keys
- by {
+            by {
                 if idx != free_index {
                     let j = choose|j: int| 0 <= j < self.modified_indices@.len() && self.modified_indices@[j] == idx;
                     assert(old(self).modified_indices@[j] == idx);
@@ -2081,8 +2063,6 @@ verus! {
 
             let ghost pm_view = subregion.view(wrpm_region);
             assert(pm_view.committed() == old_pm_view.committed());
-
-
 
             assert forall |s| #[trigger] pm_view.can_crash_as(s) implies
                 parse_main_table::<K>(s, overall_metadata.num_keys,
@@ -2428,7 +2408,6 @@ verus! {
                 mem.len() == overall_metadata.region_size,
                 overall_metadata.main_table_addr + overall_metadata.main_table_size <= overall_metadata.log_area_addr
                     <= overall_metadata.region_size <= u64::MAX,
-                // log_entries_do_not_modify_free_main_table_entries(op_log, self.free_indices(), *overall_metadata),
                 apply_physical_log_entries(mem, op_log) is Some,
                 ({
                     let current_tentative_state = apply_physical_log_entries(mem, op_log).unwrap();
@@ -2453,7 +2432,6 @@ verus! {
                     let entry = self.outstanding_entries[index].unwrap();
                     let item_index = entry.entry.item_index;
                     &&& main_table_view is Some
-                    &&& main_table_view.unwrap().inv(*overall_metadata)
                     &&& forall|i| 0 <= i < overall_metadata.num_keys &&
                            #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
                            ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
@@ -2668,8 +2646,7 @@ verus! {
                     lemma_valid_entry_index(free_index as nat, overall_metadata.num_keys as nat, entry_slot_size as nat);
                     lemma_entries_dont_overlap_unless_same_index(free_index as nat, index as nat, entry_slot_size as nat);
                 }
-            }                                                                            
-
+            }
 
             log_entry
         }
@@ -2701,7 +2678,6 @@ verus! {
                     let main_table_view = parse_main_table::<K>(main_table_region,
                         overall_metadata.num_keys, overall_metadata.main_table_entry_size);
                     &&& main_table_view matches Some(main_table_view)
-                    &&& main_table_view.inv(*overall_metadata)
                     &&& self.tentative_view() == main_table_view
                 }),
                 ({
@@ -3470,7 +3446,6 @@ verus! {
                 forall |s| #[trigger] pm.can_crash_as(s) ==> 
                     parse_main_table::<K>(s, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(old(self)@),
                 old(self)@.durable_main_table.len() == overall_metadata.num_keys,
-                old(self)@.inv(overall_metadata),
                 forall |i| 0 <= i < old(self)@.durable_main_table.len() ==> 
                     match #[trigger] old(self)@.durable_main_table[i] {
                         Some(entry) => entry.entry.item_index < overall_metadata.num_keys,

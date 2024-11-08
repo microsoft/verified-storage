@@ -351,7 +351,6 @@ where
                 0 <= i <= entry_list_view.len(),
                 entry_list_view.len() == entry_list@.len() == entry_list.len(),
                 volatile_index@ == volatile_index.tentative_view(),
-                // volatile_index.tentative@.is_empty(),
                 volatile_index.tentative_keys@.len() == 0,
                 volatile_index@.contents.dom().finite(),
         {
@@ -384,7 +383,6 @@ where
                         assert(old_volatile_index@.contains_key(k));
                     }
                 }
-                // volatile_index.lemma_if_tentative_view_matches_view_then_no_tentative_entries();
             }
 
             i += 1;
@@ -554,15 +552,7 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            // !old(self).transaction_committed(),
-            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                &&& {
-                    ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-                    // ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
-                }
-            },
-            // old(self)@.update_item(*key, *new_item) is Ok,
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
         ensures 
             self.valid(),
             match result {
@@ -676,8 +666,6 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            // !old(self).transaction_committed(),
-            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
@@ -788,12 +776,9 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            // !old(self).transaction_committed(),
-            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-                    // ||| Self::recover(s, kvstore_id) == Some(old(self)@.create(*key, *item).unwrap())
                 }
             },
         ensures 
@@ -986,56 +971,6 @@ where
     }
 
 /*
-    pub fn untrusted_create(
-        &mut self,
-        key: &K,
-        item: &I,
-        kvstore_id: u128,
-        perm: Tracked<&TrustedKvPermission<PM>>
-    ) -> (result: Result<(), KvError<K>>)
-        requires
-            old(self).valid(),
-        ensures
-            self.valid(),
-            match result {
-                Ok(()) => {
-                    &&& self@ == old(self)@.create(*key, *item).unwrap()
-                }
-                Err(KvError::KeyAlreadyExists) => {
-                    &&& old(self)@.contents.contains_key(*key)
-                    &&& old(self)@ == self@
-                }
-                Err(_) => false
-            }
-    {
-        assume(false);
-        // check whether the key already exists
-        if self.volatile_index.get(key).is_some() {
-            return Err(KvError::KeyAlreadyExists);
-        }
-
-        let ghost old_durable_state = self.durable_store@;
-        let ghost old_volatile_state = self.volatile_index@;
-        let ghost old_kv_state = self@;
-
-        // `item` stores its own key, so we don't have to pass its key to the durable
-        // store separately.
-        let (key_offset, list_head) = self.durable_store.tentative_create(&key, &item, kvstore_id, perm)?;
-        self.durable_store.commit(kvstore_id, perm)?;
-        self.volatile_index.insert_key(key, key_offset)?;
-
-        // proof {
-        //     // the volatile index and durable store match after creating the new entry in both
-        //     lemma_volatile_matches_durable_after_create(old_durable_state, old_volatile_state, offset as int, *key, *item);
-        //     let new_kv_state = old_kv_state.create(*key, *item).unwrap();
-        //     // the kv state reflects the new volatile and durable store states
-        //     assert(new_kv_state.contents =~= AbstractKvStoreState::construct_view_contents(
-        //             self.volatile_index@, self.durable_store@));
-        // }
-
-        Ok(())
-    }
-
     // // // TODO: return a Vec<&L> to save space/reduce copies
     // // pub fn untrusted_read_item_and_list(&self, key: &K) -> (result: Option<(&I, Vec<&L>)>)
     // //     requires

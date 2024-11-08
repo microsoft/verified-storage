@@ -211,12 +211,6 @@ verus! {
                 )
             }
         }
-
-        // TODO: remove this?
-        pub open spec fn valid(self) -> bool
-        {
-            true
-        }
     }
 
     #[verifier::reject_recursive_types(K)]
@@ -385,12 +379,6 @@ verus! {
             &&& Self::physical_recover(mem, self.version_metadata, self.overall_metadata) == Some(self@)
         }
 
-        // TODO: remove this?
-        pub closed spec fn abort_inv(self) -> bool 
-        {
-            true 
-        }
-
         pub closed spec fn inv(self) -> bool 
         {
             let pm_view = self.wrpm@;
@@ -418,7 +406,6 @@ verus! {
             &&& log_entries_do_not_modify_free_main_table_entries(self.log@.physical_op_list,
                                                                 self.main_table.free_indices(),
                                                                 self.overall_metadata)
-            &&& self.abort_inv()
             &&& self.tentative_view() is Some
             &&& self.tentative_main_table_valid()
             &&& self.tentative_item_table_valid()
@@ -496,31 +483,6 @@ verus! {
                 self.inv(),
                 self.tentative_view_inv(),
         {}
-
-        // pub closed spec fn pending_alloc_inv(self) -> bool
-        // {
-        //     let durable_state_bytes = self.wrpm@.committed();
-        //     let tentative_state_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
-        //         self.log@.physical_op_list);
-        //     if let Some(tentative_state_bytes) = tentative_state_bytes {
-        //         let durable_main_table_region = extract_bytes(durable_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-        //         let tentative_main_table_region = extract_bytes(tentative_state_bytes, self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat);
-        //         let durable_main_table_view = parse_main_table::<K>(durable_main_table_region, self.overall_metadata.num_keys,
-        //             self.overall_metadata.main_table_entry_size);
-        //         let tentative_main_table_view = parse_main_table::<K>(tentative_main_table_region, self.overall_metadata.num_keys,
-        //             self.overall_metadata.main_table_entry_size);
-        //         &&& durable_main_table_view matches Some(durable_main_table_view)
-        //         &&& tentative_main_table_view matches Some(tentative_main_table_view)
-        //         &&& self.main_table.pending_alloc_inv(
-        //                 durable_main_table_region,
-        //                 tentative_main_table_region,
-        //                 self.overall_metadata
-        //             )
-        //         &&& self.main_table@.valid_item_indices() == durable_main_table_view.valid_item_indices()
-        //     } else {
-        //         false
-        //     } 
-        // }
 
         pub closed spec fn transaction_committed(self) -> bool
         {
@@ -3300,8 +3262,6 @@ verus! {
                 no_outstanding_writes_to_version_metadata(pre_self.wrpm@),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm@, old(self).version_metadata.overall_metadata_addr as int),
                 no_outstanding_writes_to_overall_metadata(pre_self.wrpm@, pre_self.version_metadata.overall_metadata_addr as int),
-                old(self).abort_inv(),
-                pre_self.abort_inv(),
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
                 forall |s| old(self).wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
@@ -3569,7 +3529,6 @@ verus! {
         )
             requires
                 old_self.inv(),
-                // old_self.pending_alloc_inv(),
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
@@ -3811,7 +3770,7 @@ verus! {
                     )
                     &&& apply_physical_log_entries(mem, op_log) is Some
                     &&& main_table_view is Some
-                    &&& main_table_view.unwrap().inv(overall_metadata)
+                    // &&& main_table_view.unwrap().inv(overall_metadata)
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
@@ -4003,10 +3962,6 @@ verus! {
                 self.overall_metadata
             );
 
-            // assert(self.main_table.outstanding_entry_write_matches_pm_view(current_durable_main_table_view,
-            //                                                                main_table_index,
-            //                                                                main_table_entry_size));
-
             let start = index_to_offset(main_table_index as nat, main_table_entry_size as nat);
             assert forall|addr: int| {
                 &&& #[trigger] trigger_addr(addr)
@@ -4030,13 +3985,9 @@ verus! {
                        &&& main_table_addr + start <= addr < main_table_addr + start + main_table_entry_size
                    } ==> current_tentative_state_bytes[addr] == self.wrpm@.flush().committed()[addr]);
             lemma_valid_entry_index(main_table_index as nat, num_keys as nat, main_table_entry_size as nat);
+            
             broadcast use pmcopy_axioms;
 
-            // assert(self.main_table.outstanding_entry_write_matches_pm_view(
-            //     current_durable_main_table_view,
-            //     main_table_index,
-            //     main_table_entry_size
-            // ));
             let e = self.main_table.outstanding_entries[main_table_index].unwrap();
             let metadata_bytes2 = ListEntryMetadata::spec_to_bytes(e.entry);
             let key_bytes2 = K::spec_to_bytes(e.key);
@@ -4107,13 +4058,9 @@ verus! {
         )
             requires
                 old_self.inv(),
-                // old_self.pending_alloc_inv(),
                 !old_self.transaction_committed(),
                 old_self.tentative_view() is Some,
                 old_self.tentative_main_table().durable_main_table[main_table_index as int] is None,
-                // forall |s| Self::physical_recover(s, old_self.spec_version_metadata(),
-                //                              old_self.spec_overall_metadata()) == Some(old_self@)
-                //     ==> #[trigger] perm.check_permission(s),
                 forall |s| {
                     &&& Self::physical_recover(s, old_self.spec_version_metadata(), old_self.spec_overall_metadata()) == Some(old_self@)
                     &&& version_and_overall_metadata_match_deserialized(s, old_self.wrpm_view().committed())
@@ -4282,7 +4229,7 @@ verus! {
                                                                         overall_metadata)
                     &&& apply_physical_log_entries(mem, op_log) is Some
                     &&& main_table_view is Some
-                    &&& main_table_view.unwrap().inv(overall_metadata)
+                    // &&& main_table_view.unwrap().inv(overall_metadata)
                     &&& metadata_bytes == entry.entry.spec_to_bytes()
                     &&& key_bytes == entry.key.spec_to_bytes()
                     &&& crc == spec_crc_u64(metadata_bytes + key_bytes)
@@ -4574,11 +4521,8 @@ verus! {
             pre_append_self.item_table.tentative_valid_indices() ==
                 old_self.item_table.tentative_valid_indices().insert(item_index),
             !self.log@.op_list_committed,
-
-            // // THESE TWO LINES are causing trigger problems?
             self.pending_updates@ == pre_append_self.pending_updates@.push(log_entry),
             self == (Self{ wrpm: self.wrpm, log: self.log, pending_updates: self.pending_updates, ..pre_append_self }),
-
             ({
                 let mem = pre_append_self.wrpm@.flush().committed();
                 let op_log = pre_append_self.log@.physical_op_list;
@@ -4612,7 +4556,6 @@ verus! {
                 &&& apply_physical_log_entries(mem, op_log) is Some
                 &&& pre_append_self.main_table.outstanding_entries[main_table_index] is Some
                 &&& main_table_view is Some
-                &&& main_table_view.unwrap().inv(overall_metadata)
                 &&& forall|i| 0 <= i < overall_metadata.num_keys &&
                        #[trigger] main_table_view.unwrap().durable_main_table[i] is Some
                        ==> main_table_view.unwrap().durable_main_table[i].unwrap().key != entry.key
@@ -5769,7 +5712,6 @@ verus! {
                 item_table_subregion.initial_region_view() == old(self).wrpm@,
                 item_table_subregion.is_writable_absolute_addr_fn() == old(self).get_writable_mask_for_item_table(),
                 !old(self).transaction_committed(),
-                // old(self).pending_alloc_inv(),
                 item_table_subregion.len() >= old(self).overall_metadata.item_table_size,
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
@@ -5889,7 +5831,6 @@ verus! {
                 let current_tentative_bytes = apply_physical_log_entries(self.wrpm@.flush().committed(),
                     self.log@.physical_op_list).unwrap();
 
-                // self.lemma_state_after_tentative_item_write(*old(self), *item_table_subregion, item_index, *item, perm);
                 self.lemma_condition_preserved_by_subregion_masks_preserved_after_item_table_subregion_updates(
                     *old(self), *item_table_subregion, perm);
                 item_table_subregion.lemma_reveal_opaque_inv(&self.wrpm);
@@ -6342,7 +6283,6 @@ verus! {
                     &&& tentative_view matches Some(tentative_view)
                     &&& tentative_view.contains_key(offset as int)
                 }),
-                // forall |s| old(self).wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -6577,7 +6517,6 @@ verus! {
                 old_self@.contains_key(index as int),
                 !old_self.transaction_committed(),
                 !self.transaction_committed(),
-                // old_self.pending_alloc_inv(),
                 forall |s| #[trigger] old_self.wrpm@.can_crash_as(s) ==> 
                     Self::physical_recover(s, old_self.version_metadata, self.overall_metadata) == Some(old_self@),
                 self.version_metadata == old_self.version_metadata,

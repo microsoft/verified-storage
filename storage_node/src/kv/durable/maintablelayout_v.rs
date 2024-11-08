@@ -200,6 +200,8 @@ verus! {
     }
 
     // TODO: make these functions more general?
+    // The reverse mapping-related spec fns and proofs help prove that the main table has no
+    // duplicate keys or item indexes without instantiating a lot of expensive triggers
     pub open spec fn reverse_item_mapping<K>(entries: Seq<Option<MainTableViewEntry<K>>>, reverse_mapping: spec_fn(u64) -> int) -> bool 
     {
         forall |i: int| 0 <= i < entries.len() && entries[i] is Some ==> 

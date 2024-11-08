@@ -48,7 +48,6 @@ verus! {
     // been cleared.
     pub struct AbstractOpLogState
     {
-        // pub logical_op_list: Seq<LogicalOpLogEntry<L>>,
         pub physical_op_list: Seq<AbstractPhysicalOpLogEntry>,
         pub op_list_committed: bool,
     }
@@ -57,7 +56,6 @@ verus! {
     {
         pub open spec fn initialize() -> Self {
             Self {
-                // logical_op_list: Seq::empty(),
                 physical_op_list: Seq::empty(),
                 op_list_committed: false,
             }
@@ -73,11 +71,9 @@ verus! {
 
         pub open spec fn tentatively_append_log_entry(
             self,
-            // logical_log_entry: LogicalOpLogEntry<L>,
             physical_log_entry: AbstractPhysicalOpLogEntry,
         ) -> Self {
             Self {
-                // logical_op_list: self.logical_op_list.push(logical_log_entry),
                 physical_op_list: self.physical_op_list.push(physical_log_entry),
                 op_list_committed: false
             }
@@ -89,7 +85,6 @@ verus! {
                 self
             } else {
                 Self {
-                    // logical_op_list: self.logical_op_list,
                     physical_op_list: self.physical_op_list,
                     op_list_committed: true,
                 }
@@ -103,7 +98,6 @@ verus! {
                 Err(())
             } else {
                 Ok(Self {
-                    // logical_op_list: Seq::empty(),
                     physical_op_list: Seq::empty(),
                     op_list_committed: false,
                 })
