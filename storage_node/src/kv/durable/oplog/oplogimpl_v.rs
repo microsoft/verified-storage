@@ -1274,6 +1274,7 @@ verus! {
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             !self@.op_list_committed,
+            log_wrpm@ == old(log_wrpm)@.flush(),
     {
         assert(log_wrpm@.can_crash_as(log_wrpm@.flush().committed()));
         self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
@@ -1332,12 +1333,14 @@ verus! {
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == old(self)@.physical_op_list
             }),
+            forall |s| old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
             log_wrpm@.len() == old(log_wrpm)@.len(), 
             log_wrpm.inv(),
             Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            self.inv(log_wrpm@, version_metadata, overall_metadata), // can we maintain this here?
+            self.inv(log_wrpm@, version_metadata, overall_metadata),
+            forall |s| log_wrpm@.can_crash_as(s) ==> crash_pred(s),
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
@@ -1377,6 +1380,13 @@ verus! {
             ||| pending_len > u64::MAX - traits_t::size_of::<u64>() as u64 * 2 - log_entry.len
         } {
             self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
+            assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                assert(log_wrpm@ == old(log_wrpm)@.flush());
+                assert(old(log_wrpm)@.can_crash_as(old(log_wrpm)@.flush().committed()));
+                assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+                assert(s == log_wrpm@.committed());
+            }
             return Err(KvError::OutOfSpace);
         } 
 
@@ -1408,6 +1418,12 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
+                assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                    assert(old(log_wrpm)@.can_crash_as(old(log_wrpm)@.flush().committed()));
+                    assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+                    assert(s == log_wrpm@.committed());
+                }
                 match e {
                     LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
                     _ => {
@@ -1449,6 +1465,12 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
+                assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                    assert(old(log_wrpm)@.can_crash_as(old(log_wrpm)@.flush().committed()));
+                    assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+                    assert(s == log_wrpm@.committed());
+                }
                 match e {
                     LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
                     _ => {
@@ -1491,6 +1513,12 @@ verus! {
             Ok(_) => {}
             Err(e) => {
                 self.abort_transaction(log_wrpm, version_metadata,overall_metadata);
+                assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                    assert(old(log_wrpm)@.can_crash_as(old(log_wrpm)@.flush().committed()));
+                    assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+                    assert(s == log_wrpm@.committed());
+                }
                 match e {
                     LogErr::InsufficientSpaceForAppend{available_space} => return Err(KvError::OutOfSpace),
                     _ => {
@@ -1563,7 +1591,7 @@ verus! {
             overall_metadata.log_area_addr + spec_log_area_pos() <= old(log_wrpm)@.len(),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
-            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
+            forall |s| old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let flushed_state = old(log_wrpm)@.flush().committed();
                 &&& flushed_state.len() == s2.len() 
@@ -1572,7 +1600,7 @@ verus! {
                         ||| Self::recover(s2, version_metadata, overall_metadata) == Some(old(self)@.commit_op_log())
                         ||| Self::recover(s2, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 }
-            } ==> perm.check_permission(s2),
+            } ==> #[trigger] perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
@@ -1593,6 +1621,7 @@ verus! {
             views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             self.base_log_view().pending.len() == 0,
+            forall |s| log_wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             match result {
                 Ok(()) => {
                     &&& self@ == old(self)@.commit_op_log()
@@ -1607,8 +1636,6 @@ verus! {
                     &&& self@.physical_op_list.len() == 0
                     &&& Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == 
                             Some(AbstractOpLogState::initialize())
-                    // &&& views_differ_only_in_log_region(old(log_wrpm)@.flush(), log_wrpm@, 
-                    //         overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
                 }
                 Err(_) => false 
             }
@@ -1655,6 +1682,12 @@ verus! {
                 assert(log_wrpm@.no_outstanding_writes());
                 assert(forall |s| #[trigger] log_wrpm@.can_crash_as(s) ==> 
                     Self::recover(s, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()));
+                assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+                    assert(old(log_wrpm)@.can_crash_as(old(log_wrpm)@.flush().committed()));
+                    assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+                    assert(s == log_wrpm@.committed());
+                }
                 return Err(KvError::LogErr { log_err: e });
             }
         }
@@ -1690,6 +1723,12 @@ verus! {
         // and clear its CRC digest
         self.current_transaction_crc = CrcDigest::new();
 
+        assert forall |s| log_wrpm@.can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
+            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+            assert(s == log_wrpm@.committed());
+        }
+
         Ok(())
     }
 
@@ -1719,7 +1758,7 @@ verus! {
             Self::recover(old(log_wrpm)@.committed(), version_metadata, overall_metadata) == Some(old(self)@),
             forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> 
                 Self::recover(s, version_metadata, overall_metadata) == Some(old(self)@),
-            forall |s| #[trigger] old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
+            forall |s| old(log_wrpm)@.can_crash_as(s) ==> crash_pred(s),
             forall |s2: Seq<u8>| {
                 let current_state = old(log_wrpm)@.flush().committed();
                 &&& current_state.len() == s2.len() 
@@ -1746,6 +1785,7 @@ verus! {
             Self::recover(log_wrpm@.committed(), version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
+            forall |s| log_wrpm@.can_crash_as(s) ==> crash_pred(s),
             match result {
                 Ok(()) => {
                     Ok::<_, ()>(self@) == old(self)@.clear_log()
@@ -1790,6 +1830,13 @@ verus! {
 
         assert(self.log@.pending.len() == 0);
         assert(self.current_transaction_crc.bytes_in_digest().flatten() =~= self.log@.pending);
+
+        assert forall |s| log_wrpm@.can_crash_as(s) implies crash_pred(s) by {
+            assert(log_wrpm@.can_crash_as(log_wrpm@.committed()));
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(log_wrpm@);
+            assert(s == log_wrpm@.committed());
+        }
+
         Ok(())
     }
 }

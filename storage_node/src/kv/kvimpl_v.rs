@@ -112,6 +112,9 @@ where
         // &&& self.durable_store@.matches_volatile_index(self.volatile_index@)
         &&& self.durable_store.valid()
         &&& self.volatile_index.valid()
+
+        &&& Self::recover(self.wrpm_view().committed(), self.id) == Some(self@)
+        &&& !self.durable_store.transaction_committed()
     }
 
     pub closed spec fn durable_store_matches_volatile_index(self) -> bool 
@@ -249,6 +252,12 @@ where
                 Err(_) => false 
             }
     {        
+        // Prove that all initial crash states are legal
+        assert forall |s| wrpm_region@.can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
+            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
+            assert(s == wrpm_region@.committed());
+        }
+
         // 1. Read the version and overall metadata from PM.
         let pm = wrpm_region.get_pm_region_ref();
         let version_metadata = read_version_metadata::<PM, K, I, L>(pm, kvstore_id)?;
@@ -544,12 +553,13 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            old(self)@.id == kvstore_id,
+            // !old(self).transaction_committed(),
+            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-                    ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
+                    // ||| Self::recover(s, kvstore_id) == Some(old(self)@.update_item(*key, *new_item).unwrap())
                 }
             },
             // old(self)@.update_item(*key, *new_item) is Ok,
@@ -579,6 +589,7 @@ where
             self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_main_table_index_key_durable(); 
             self.durable_store.lemma_main_table_index_key_tentative(); 
+            self.durable_store.lemma_reveal_opaque_inv();
         }
 
         // 1. Look up the key in the volatile index. If it does not exist,
@@ -618,6 +629,7 @@ where
                 self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
+                assert(perm.check_permission(self.wrpm_view().committed()));
             }
             return Err(e);
         }
@@ -663,8 +675,9 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            old(self)@.id == kvstore_id,
+            // !old(self).transaction_committed(),
+            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
@@ -694,8 +707,11 @@ where
             }
     { 
         proof {
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
             self.durable_store.lemma_valid_implies_inv();
             self.durable_store.lemma_reveal_opaque_inv();
+            self.durable_store.lemma_main_table_index_key_durable(); 
+            self.durable_store.lemma_main_table_index_key_tentative(); 
             self.durable_store.lemma_reveal_opaque_inv_mem();
 
             assert forall |s| #[trigger] self.wrpm_view().can_crash_as(s) implies perm.check_permission(s) by {
@@ -741,9 +757,11 @@ where
                 self.durable_store.lemma_valid_implies_inv();
                 self.durable_store.lemma_reveal_opaque_inv();
                 self.durable_store.lemma_overall_metadata_addr();
+                assert(perm.check_permission(self.wrpm_view().committed()));
             }
             return Err(e);
         }
+        assert(perm.check_permission(self.wrpm_view().committed()));
 
         self.volatile_index.commit_transaction();
 
@@ -751,6 +769,11 @@ where
         assert(Some(self.durable_store@) == old(self).durable_store.tentative_view());
         assert(self.volatile_index@ == self.volatile_index.tentative_view());
         assert(Some(self.durable_store@) == self.durable_store.tentative_view());
+        assert(Self::recover(self.wrpm_view().committed(), kvstore_id) == Some(self@)) by {
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_reveal_opaque_inv();
+            self.durable_store.lemma_reveal_opaque_inv_mem();
+        }
 
         Ok(())
     }
@@ -764,12 +787,13 @@ where
     ) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
-            !old(self).transaction_committed(),
-            Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
+            old(self)@.id == kvstore_id,
+            // !old(self).transaction_committed(),
+            // Self::recover(old(self).wrpm_view().committed(), kvstore_id) == Some(old(self)@),
             forall |s| #[trigger] perm.check_permission(s) <==> {
                 &&& {
                     ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-                    ||| Self::recover(s, kvstore_id) == Some(old(self)@.create(*key, *item).unwrap())
+                    // ||| Self::recover(s, kvstore_id) == Some(old(self)@.create(*key, *item).unwrap())
                 }
             },
         ensures 
@@ -851,10 +875,13 @@ where
                     self.durable_store.lemma_valid_implies_inv();
                     self.durable_store.lemma_reveal_opaque_inv();
                     self.durable_store.lemma_overall_metadata_addr();
+                    assert(perm.check_permission(self.wrpm_view().committed()));
                 }
                 return Err(e);
             } 
         };
+
+        assert(perm.check_permission(self.wrpm_view().committed()));
 
         // 3. Update the volatile index
         self.volatile_index.insert_key(key, offset)?; 

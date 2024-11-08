@@ -1700,7 +1700,9 @@ verus! {
                 0 <= overall_metadata.log_area_addr < overall_metadata.log_area_addr + overall_metadata.log_area_size <= overall_metadata.region_size,
                 overall_metadata.item_size + u64::spec_size_of() <= u64::MAX,
                 vstd::std_specs::hash::obeys_key_model::<K>(),
+                forall |s| wrpm_region@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures
+                forall |s| wrpm_region@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     // the primary postcondition is just that we've recovered to the target state, which 
                     // is required by the precondition to be the physical recovery view of the wrpm_region we passed in.
@@ -1719,6 +1721,8 @@ verus! {
                         &&& Self::physical_recover(kvstore.wrpm_view().committed(), version_metadata, overall_metadata) == Some(state)
 
                         &&& entry_list_view.to_set() == kvstore.key_index_list_view()
+
+                        &&& !kvstore.transaction_committed()
 
                         // no duplicate keys
                         &&& forall |k: int, l: int| {
@@ -1958,7 +1962,9 @@ verus! {
                     &&& abstract_op_log.op_list_committed
                     &&& abstract_op_log.physical_op_list.len() > 0
                 }),
+                forall |s| old(wrpm_region)@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures
+                forall |s| wrpm_region@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok(()) => {
                         &&& wrpm_region.inv()
@@ -2078,11 +2084,13 @@ verus! {
                 0 < spec_log_header_area_size() <= spec_log_area_pos() < overall_metadata.log_area_size,
                 Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata) is Some,
                 deserialize_version_metadata(old(wrpm_region)@.committed()) == version_metadata,
+                forall |s| old(wrpm_region)@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 wrpm_region.inv(),
                 wrpm_region@.no_outstanding_writes(),
                 wrpm_region@.len() == overall_metadata.region_size,
                 wrpm_region.constants() == old(wrpm_region).constants(),
+                forall |s| wrpm_region@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 ({
                     let true_recovery_state = Self::physical_recover(old(wrpm_region)@.committed(), version_metadata, overall_metadata).unwrap();
                     let recovery_state = Self::physical_recover(wrpm_region@.committed(), version_metadata, overall_metadata);
@@ -2156,6 +2164,7 @@ verus! {
                     VersionMetadata::spec_size_of() <= version_metadata.overall_metadata_addr,
                     version_and_overall_metadata_match_deserialized(old_wrpm, wrpm_region@.committed()),
                     deserialize_version_metadata(wrpm_region@.committed()) == version_metadata,
+                    forall |s| wrpm_region@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             {
                 let op = &phys_log[index];
 
@@ -2187,6 +2196,15 @@ verus! {
                 // write the current op's updates to the specified location on storage
                 wrpm_region.write(op.absolute_addr, op.bytes.as_slice(), Tracked(perm));
                 wrpm_region.flush();
+
+                proof {
+                    assert forall |s| wrpm_region@.can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
+                        assert(wrpm_region@.can_crash_as(wrpm_region@.committed()));
+                        lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);
+                        assert(s == wrpm_region@.committed());
+                        assert(perm.check_permission(wrpm_region@.committed()));
+                    }
+                }
 
                 assert(extract_bytes(wrpm_region@.committed(), overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat) == 
                     extract_bytes(old_wrpm, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
@@ -2524,14 +2542,13 @@ verus! {
                                                   u64::spec_size_of());
                     assert(cdb_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
                 }
+                lemma_establish_extract_bytes_equivalence(s1, s2);
                 lemma_parse_main_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
                     ss1, ss2, num_keys, main_table_entry_size
                 );
                 assert(UntrustedOpLog::<K, L>::recover(s1, self.version_metadata, overall_metadata) ==
                        UntrustedOpLog::<K, L>::recover(s2, self.version_metadata, overall_metadata))
                     by {
-                    assert(extract_bytes(s1, log_area_addr as nat, log_area_size as nat) =~=
-                           extract_bytes(s2, log_area_addr as nat, log_area_size as nat));
                     lemma_same_log_bytes_recover_to_same_state(s1, s2, log_area_addr as nat, log_area_size as nat,
                                                                s1.len());
                 }
@@ -2541,15 +2558,10 @@ verus! {
                                                  num_keys, main_table_entry_size) ==
                        Some(self.main_table@));
                 assert(apply_physical_log_entries(s2, recovered_log.unwrap().physical_op_list) == Some(s2));
-                assert(extract_bytes(s1, item_table_addr as nat, item_table_size as nat) =~=
-                       extract_bytes(s2, item_table_addr as nat, item_table_size as nat));
                 assert(parse_item_table::<I, K>(extract_bytes(s2, item_table_addr as nat, item_table_size as nat),
                                             num_keys as nat, self.main_table@.valid_item_indices()) ==
                       Some(self.item_table@));
-                assert(extract_bytes(s1, list_area_addr as nat, list_area_size as nat) =~=
-                       extract_bytes(s2, list_area_addr as nat, list_area_size as nat));
                 assert(Self::physical_recover(s2, self.version_metadata, overall_metadata) == Some(self@));
-                lemma_establish_extract_bytes_equivalence(s1, s2);
             }
         }
 
@@ -3291,6 +3303,7 @@ verus! {
                 old(self).abort_inv(),
                 pre_self.abort_inv(),
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
+                forall |s| old(self).wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3306,6 +3319,7 @@ verus! {
                 self.main_table@ == old(self).main_table@,
                 self.wrpm@.no_outstanding_writes(),
                 self.tentative_view() == Some(self@),
+                forall |s| self.wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata,
@@ -3315,7 +3329,11 @@ verus! {
 
             let ghost mid_self = *self;
             self.log.abort_transaction(&mut self.wrpm, self.version_metadata, self.overall_metadata);
-
+            
+            assert forall |s| self.wrpm@.can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm@);
+            }
+            
             let ghost main_table_subregion_view = get_subregion_view(self.wrpm@,
                                                                      self.overall_metadata.main_table_addr as nat,
                                                                      self.overall_metadata.main_table_size as nat);      
@@ -3436,6 +3454,7 @@ verus! {
                 old(self).log.inv(old(self).wrpm@, old(self).version_metadata, old(self).overall_metadata),
                 old(self)@ == old_self@,
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
+                forall |s| old(self).wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
@@ -3453,6 +3472,7 @@ verus! {
                 self.item_table@ == old_self.item_table@,
                 self.durable_list@ == old_self.durable_list@,
                 self.wrpm@.no_outstanding_writes(),
+                forall |s| self.wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
         {
             proof {
                 self.log.lemma_reveal_opaque_op_log_inv(self.wrpm, self.version_metadata, self.overall_metadata);
@@ -4072,7 +4092,7 @@ verus! {
             }
         }
 
-        #[verifier::rlimit(20)]
+        #[verifier::rlimit(25)] // TODO @jay
         proof fn lemma_justify_validify_log_entry(
             self,
             old_self: Self,
@@ -4379,7 +4399,6 @@ verus! {
                     assert(which_entry != main_table_index);
                     assert(self.main_table.outstanding_entries[which_entry] ==
                            self_before_main_table_create.main_table.outstanding_entries[which_entry]);
-                    broadcast use pmcopy_axioms;
                     assert(self_before_main_table_create.wrpm@.state[addr].state_at_last_flush ==
                            get_subregion_view(self_before_main_table_create.wrpm@, main_table_addr as nat,
                                               main_table_size as nat).committed()[addr - main_table_addr]);
@@ -4877,6 +4896,7 @@ verus! {
                 self@ == old(self)@,
                 !self.transaction_committed(),
                 self.tentative_view_inv(),
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 ({
                     match result {
                         Ok((offset, head_node)) => {
@@ -4964,6 +4984,7 @@ verus! {
                     *old(self), item_table_subregion, perm
                 );
                 self.lemma_reestablish_inv_after_tentatively_write_item(*old(self), item_index, *item);
+                assert(forall |s| self.wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s));
             }
             
             assert(self.tentative_item_table() == old(self).tentative_item_table());
@@ -5591,7 +5612,6 @@ verus! {
                     &&& #[trigger] Self::physical_recover(s, old(self).version_metadata, old(self).overall_metadata) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm@.committed())
                 } <==> crash_pred(s),
-                forall |s| #[trigger] old(self).wrpm@.can_crash_as(s) ==> crash_pred(s),
                 old(self).version_metadata == pre_self.version_metadata,
                 old(self).overall_metadata == pre_self.overall_metadata,
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
@@ -5604,6 +5624,7 @@ verus! {
                     &&& Self::physical_recover_after_applying_log(new_tentative_bytes, old(self).overall_metadata) is Some
                 }),
                 old(self).item_table.durable_valid_indices() == old(self).main_table@.valid_item_indices(),
+                forall |s| old(self).wrpm@.can_crash_as(s) ==> crash_pred(s)
             ensures 
                 self.wrpm.inv(),
                 self.wrpm_view().len() == old(self).wrpm_view().len(),
@@ -5622,6 +5643,7 @@ verus! {
                 self.item_table.inv(get_subregion_view(self.wrpm@, self.overall_metadata.item_table_addr as nat,
                     self.overall_metadata.item_table_size as nat),self.overall_metadata),
                 self.log.inv(self.wrpm@, self.version_metadata, self.overall_metadata),
+                forall |s| self.wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok(()) => {
                         &&& self.log@ == old(self).log@.tentatively_append_log_entry(log_entry@)
@@ -5781,6 +5803,7 @@ verus! {
                 self.durable_list@ == old(self).durable_list@,
                 self.main_table@ == old(self).main_table@,
                 self.tentative_view() is Some,
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok(index) => {
                         &&& self.main_table == old(self).main_table
@@ -5992,6 +6015,7 @@ verus! {
                 old(self).overall_metadata == pre_self.overall_metadata,
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
+                forall |s| old(self).wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 self.inv(),
                 self.wrpm_view().len() == old(self).wrpm_view().len(),
@@ -6006,6 +6030,7 @@ verus! {
                 no_outstanding_writes_to_version_metadata(self.wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(self.wrpm_view(), self.spec_overall_metadata_addr() as int),
                 self.tentative_view() is Some,
+                forall |s| self.wrpm@.can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok((log_entry, old_entry, key)) => {
                         let new_log = self.log@.tentatively_append_log_entry(log_entry@);
@@ -6317,12 +6342,14 @@ verus! {
                     &&& tentative_view matches Some(tentative_view)
                     &&& tentative_view.contains_key(offset as int)
                 }),
+                // forall |s| old(self).wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
                 !self.transaction_committed(),
                 self@ == old(self)@,
                 self.tentative_view_inv(),
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok(()) => {
                         let spec_result = old(self).tentative_view().unwrap().update_item(offset as int, *item);
@@ -7183,10 +7210,13 @@ verus! {
                     tentative_view is Some
                 }),
                 old(self).spec_num_log_entries_in_current_transaction() > 0,
+                forall |s| old(self).wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
             ensures
                 self.valid(),
                 self.constants() == old(self).constants(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
+                !self.transaction_committed(), // only used internally
                 match result {
                     Ok(()) => {
                         // The old tentative view is now our current state
