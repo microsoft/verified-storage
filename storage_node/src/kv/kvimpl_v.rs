@@ -798,6 +798,7 @@ where
             },
         ensures 
             self.valid(),
+            self@.id == old(self)@.id,
             match result {
                 Ok(()) => 
                     Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 

@@ -129,7 +129,8 @@ where
 
     pub closed spec fn valid(self) -> bool
     {
-        self.untrusted_kv_impl.valid()
+        &&& self.untrusted_kv_impl.valid()
+        &&& self.id == self.untrusted_kv_impl@.id
     }
 
     pub closed spec fn constants(self) -> PersistentMemoryConstants
@@ -217,6 +218,40 @@ where
             }
     {
         self.untrusted_kv_impl.read_item(key)
+    }
+
+    pub exec fn create(
+        &mut self,
+        key: &K,
+        item: &I,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().create(*key, *item)
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyAlreadyExists) => {
+                    &&& self@ == old(self)@
+                    &&& old(self).tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        let result = self.untrusted_kv_impl.untrusted_create(key, item, self.id, Tracked(&perm));
+        result
     }
 
     /* 
