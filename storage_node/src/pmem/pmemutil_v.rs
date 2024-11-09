@@ -770,6 +770,124 @@ verus! {
         }
     }
 
+    pub proof fn lemma_can_result_from_write_effect(
+        v2: PersistentMemoryRegionView,
+        v1: PersistentMemoryRegionView,
+        write_addr: int,
+        bytes: Seq<u8>
+    )
+        requires
+            v1.valid(),
+            v2.can_result_from_write(v1, write_addr, bytes),
+        ensures
+            forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                #[trigger] v2.durable_state[addr] == v1.durable_state[addr],
+            forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                ||| #[trigger] v2.durable_state[addr] == v1.durable_state[addr]
+                ||| v2.durable_state[addr] == bytes[addr - write_addr]
+            },
+            forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+               #[trigger] v2.read_state[addr] == v1.read_state[addr],
+            forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==>
+                #[trigger] v2.read_state[addr] == bytes[addr - write_addr],
+    {
+        lemma_can_result_from_write_effect_on_durable_state(v2, v1, write_addr, bytes);
+    }
+
+    pub proof fn lemma_auto_can_result_from_write_effect()
+        ensures
+            forall |v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>|
+                #![trigger v2.can_result_from_write(v1, write_addr, bytes)]
+            {
+                &&& v1.valid()
+                &&& v2.can_result_from_write(v1, write_addr, bytes)
+            } ==> {
+                &&& forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] v2.durable_state[addr] == v1.durable_state[addr]
+                &&& forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                       ||| #[trigger] v2.durable_state[addr] == v1.durable_state[addr]
+                       ||| v2.durable_state[addr] == bytes[addr - write_addr]
+                }
+                &&& forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] v2.read_state[addr] == v1.read_state[addr]
+                &&& forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==>
+                        #[trigger] v2.read_state[addr] == bytes[addr - write_addr]
+            }
+    {
+        assert forall |v2: PersistentMemoryRegionView, v1: PersistentMemoryRegionView, write_addr: int, bytes: Seq<u8>|
+                #![trigger v2.can_result_from_write(v1, write_addr, bytes)]
+            {
+                &&& v1.valid()
+                &&& v2.can_result_from_write(v1, write_addr, bytes)
+            } implies {
+                &&& forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] v2.durable_state[addr] == v1.durable_state[addr]
+                &&& forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                       ||| #[trigger] v2.durable_state[addr] == v1.durable_state[addr]
+                       ||| v2.durable_state[addr] == bytes[addr - write_addr]
+                }
+                &&& forall|addr: int| 0 <= addr < v1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] v2.read_state[addr] == v1.read_state[addr]
+                &&& forall|addr: int| 0 <= addr < v1.len() && write_addr <= addr < write_addr + bytes.len() ==>
+                        #[trigger] v2.read_state[addr] == bytes[addr - write_addr]
+            } by {
+            lemma_can_result_from_write_effect(v2, v1, write_addr, bytes);
+        }
+    }
+
+    pub proof fn lemma_can_result_from_partial_write_effect(
+        s2: Seq<u8>,
+        s1: Seq<u8>,
+        write_addr: int,
+        bytes: Seq<u8>
+    )
+        requires
+            can_result_from_partial_write(s2, s1, write_addr, bytes),
+        ensures
+            forall|addr: int| 0 <= addr < s1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                #[trigger] s2[addr] == s1[addr],
+            forall|addr: int| 0 <= addr < s1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                ||| #[trigger] s2[addr] == s1[addr]
+                ||| s2[addr] == bytes[addr - write_addr]
+            },
+    {
+        assert forall|addr: int| 0 <= addr < s1.len() && !(write_addr <= addr < write_addr + bytes.len()) implies
+                #[trigger] s2[addr] == s1[addr] by {
+            assert(chunk_trigger(addr / const_persistence_chunk_size()));
+        }
+        assert forall|addr: int| 0 <= addr < s1.len() && write_addr <= addr < write_addr + bytes.len() implies {
+                   ||| #[trigger] s2[addr] == s1[addr]
+                   ||| s2[addr] == bytes[addr - write_addr]
+        } by {
+            assert(chunk_trigger(addr / const_persistence_chunk_size()));
+        }
+    }
+
+    pub proof fn lemma_auto_can_result_from_partial_write_effect()
+        ensures
+            forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>|
+                #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes) ==> {
+                &&& forall|addr: int| 0 <= addr < s1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] s2[addr] == s1[addr]
+                &&& forall|addr: int| 0 <= addr < s1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                       ||| #[trigger] s2[addr] == s1[addr]
+                       ||| s2[addr] == bytes[addr - write_addr]
+                   }
+                }
+    {
+        assert forall|s2: Seq<u8>, s1: Seq<u8>, write_addr: int, bytes: Seq<u8>|
+                   #[trigger] can_result_from_partial_write(s2, s1, write_addr, bytes) implies {
+                &&& forall|addr: int| 0 <= addr < s1.len() && !(write_addr <= addr < write_addr + bytes.len()) ==>
+                       #[trigger] s2[addr] == s1[addr]
+                &&& forall|addr: int| 0 <= addr < s1.len() && write_addr <= addr < write_addr + bytes.len() ==> {
+                       ||| #[trigger] s2[addr] == s1[addr]
+                       ||| s2[addr] == bytes[addr - write_addr]
+                   }
+                } by {
+            lemma_can_result_from_partial_write_effect(s2, s1, write_addr, bytes);
+        }
+    }
+
     pub open spec fn flush_pm_view(v: PersistentMemoryRegionView) -> PersistentMemoryRegionView
     {
         PersistentMemoryRegionView{

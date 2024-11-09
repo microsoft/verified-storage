@@ -40,6 +40,15 @@ impl<Perm, PMRegion> WriteRestrictedPersistentMemoryRegion<Perm, PMRegion>
         self.pm_region.constants()
     }
 
+    pub proof fn lemma_inv_implies_view_valid(&self)
+        requires
+            self.inv()
+        ensures
+            self@.valid()
+    {
+        self.pm_region.lemma_inv_implies_view_valid();
+    }
+
     pub exec fn new(pm_region: PMRegion) -> (wrpm_region: Self)
         requires
             pm_region.inv(),

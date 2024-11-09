@@ -61,6 +61,10 @@ verus! {
 
         closed spec fn constants(&self) -> PersistentMemoryConstants;
 
+        proof fn lemma_inv_implies_view_valid(&self)
+        {
+        }
+
         fn get_region_size(&self) -> (result: u64)
         {
             self.contents.len() as u64

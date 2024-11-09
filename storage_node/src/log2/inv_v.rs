@@ -1070,6 +1070,7 @@ pub proof fn lemma_metadata_fits_in_log_header_area()
     assert(spec_log_header_pos_cdb_true() + LogMetadata::spec_size_of() + u64::spec_size_of() <= spec_log_area_pos()) by (compute_only);
 }
 
+    /*
 // This lemma proves that if we write bytes to the log area, then regardless of whether 
 // there are any outstanding bytes (either in the log or elsewhere), then for 
 // every crash state of the post-write PM state, there exists a crash state of the 
@@ -1213,4 +1214,5 @@ pub proof fn lemma_crash_state_differing_only_in_log_region_exists_wrapping(
     }
     */
 }
+    */
 }

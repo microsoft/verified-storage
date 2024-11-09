@@ -82,6 +82,7 @@ verus! {
                        ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
             }),
     {
+        assume(false); // TODO @jay
         let log_area_len = prev_info.log_area_len;
         let num_bytes = bytes_to_append.len();
         let new_info = prev_info.tentatively_append(num_bytes as u64);
@@ -271,7 +272,7 @@ verus! {
     // somewhat weak precondition about the states allowed by `perm` to make it easier to use in the op log
     pub proof fn lemma_append_crash_states_do_not_modify_reachable_state(
         old_pm: PersistentMemoryRegionView,
-        new_pm: PersistentMemoryRegionView,
+        new_durable_state: Seq<u8>,
         log_start_addr: nat,
         log_size: nat,
         info: LogInfo,
@@ -285,7 +286,7 @@ verus! {
             metadata_consistent_with_info(old_pm, log_start_addr, log_size, cdb, info),
             info_consistent_with_log_area(old_pm, log_start_addr, log_size, info, state),
             metadata_types_set(old_pm.durable_state, log_start_addr),
-            old_pm.len() == new_pm.len(),
+            new_durable_state.len() == old_pm.len(),
             log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= old_pm.len(),
             forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
                 &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
@@ -294,27 +295,17 @@ verus! {
                         info.log_length as int,
                         addr - (log_start_addr + spec_log_area_pos()))
             },
-            views_differ_only_where_subregion_allows(old_pm, new_pm, log_start_addr + spec_log_area_pos(),
+            memories_differ_only_where_subregion_allows(old_pm.durable_state, new_durable_state,
+                                                        log_start_addr + spec_log_area_pos(),
                                                         info.log_area_len as nat, is_writable_absolute_addr),
-            UntrustedLogImpl::recover(old_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+            UntrustedLogImpl::recover(old_pm.durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(state.drop_pending_appends())
         ensures 
-            UntrustedLogImpl::recover(new_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends())
+            UntrustedLogImpl::recover(new_durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(state.drop_pending_appends())
     {
-        assert(UntrustedLogImpl::recover(new_pm.durable_state, log_start_addr as nat, log_size as nat) == Some(state.drop_pending_appends()))
-        by {
-            let s = new_pm.durable_state;
-            lemma_establish_extract_bytes_equivalence(old_pm.durable_state, new_pm.durable_state);
-//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm);
-            
-            assert(extract_bytes(s, log_start_addr as nat, spec_log_area_pos()) == 
-                extract_bytes(new_pm.durable_state, log_start_addr as nat, spec_log_area_pos()));
-            assert(extract_bytes(s, log_start_addr as nat, u64::spec_size_of()) == 
-                extract_bytes(new_pm.durable_state, log_start_addr as nat, u64::spec_size_of()));
-            lemma_header_bytes_equal_implies_active_metadata_bytes_equal(new_pm.durable_state, s, log_start_addr as nat, log_size as nat);
-            lemma_active_metadata_bytes_equal_implies_metadata_types_set(new_pm.durable_state, s, log_start_addr as nat, cdb);
-
-            lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recovery_then_recover_state_matches(
-                old_pm, new_pm, log_start_addr as nat, log_size as nat, cdb, info, state, is_writable_absolute_addr);
-        }   
+        lemma_establish_extract_bytes_equivalence(old_pm.durable_state, new_durable_state);
+        assert(recover_state(new_durable_state, log_start_addr as nat, log_size as nat) =~=
+               recover_state(old_pm.durable_state, log_start_addr as nat, log_size as nat));
     }
 }

@@ -316,6 +316,13 @@ verus! {
 
         spec fn constants(&self) -> PersistentMemoryConstants;
 
+        proof fn lemma_inv_implies_view_valid(&self)
+            requires
+                self.inv()
+            ensures
+                self@.valid()
+        ;
+
         fn get_region_size(&self) -> (result: u64)
             requires
                 self.inv()

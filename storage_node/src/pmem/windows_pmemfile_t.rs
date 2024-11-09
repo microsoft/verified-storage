@@ -369,6 +369,11 @@ impl PersistentMemoryRegion for FileBackedPersistentMemoryRegion
     closed spec fn constants(&self) -> PersistentMemoryConstants;
 
     #[verifier::external_body]
+    proof fn lemma_inv_implies_view_valid(&self)
+    {
+    }
+
+    #[verifier::external_body]
     fn get_region_size(&self) -> u64
     {
         self.section.size as u64
