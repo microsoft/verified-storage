@@ -652,12 +652,9 @@ impl UntrustedLogImpl {
         lemma_establish_extract_bytes_equivalence(new_pm1.durable_state, old_pm.durable_state);
         lemma_auto_can_result_from_write_effect_on_durable_state();
         assert(UntrustedLogImpl::recover(new_pm1.durable_state, log_start_addr as nat, log_size as nat) ==
-               Some(prev_state.drop_pending_appends())); // TODO @jay
-//        lemma_crash_state_differing_only_in_log_region_exists(
-//            old_pm, new_pm1, inactive_metadata_pos as int, new_metadata.spec_to_bytes(), log_start_addr as nat, log_size as nat);
+               Some(prev_state.drop_pending_appends()));
 
         lemma_establish_extract_bytes_equivalence(new_pm2.durable_state, old_pm.durable_state);
-//            lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(new_pm2);
         assert(UntrustedLogImpl::recover(new_pm2.durable_state, log_start_addr as nat, log_size as nat) ==
                Some(prev_state.drop_pending_appends()));
     }
@@ -1671,11 +1668,11 @@ impl UntrustedLogImpl {
                 match result {
                     Ok((bytes, addrs)) => {
                         let true_bytes = self@.read(pos as int, len as int);
-                        &&& true_bytes == Seq::new(addrs@.len(), |i: int| pm_region@.durable_state[addrs@[i] as int])
                         &&& true_bytes == extract_bytes(self@.log, (pos - self@.head) as nat, len as nat)
                         &&& pos >= log.head
                         &&& pos + len <= log.head + log.log.len()
-                        &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@, pm_region.constants().impervious_to_corruption)
+                        &&& read_correct_modulo_corruption(bytes@, true_bytes, addrs@,
+                                                         pm_region.constants().impervious_to_corruption)
                         &&& addrs@.len() == len
                     },
                     Err(LogErr::CantReadBeforeHead{ head: head_pos }) => {
@@ -1690,7 +1687,6 @@ impl UntrustedLogImpl {
                 }
             })
     {        
-        assume(false); // TODO @jay
         // Handle error cases due to improper parameters passed to the
         // function.
 
@@ -1713,7 +1709,6 @@ impl UntrustedLogImpl {
             // Case 0: The trivial case where we're being asked to read zero bytes.
             let ghost addrs = Seq::empty();
             assert(true_bytes =~= Seq::<u8>::empty());
-            assert(true_bytes == Seq::new(addrs.len(), |i: int| pm_region@.durable_state[addrs[i] as int]));
             assert(maybe_corrupted(Seq::<u8>::empty(), true_bytes, addrs));
             return Ok((Vec::<u8>::new(), Ghost(addrs)));
         }
@@ -1746,9 +1741,10 @@ impl UntrustedLogImpl {
             };
             let ghost addrs = Seq::new(len as nat, |i: int| i + addr);
             proof {
-                let true_bytes = Seq::new(addrs.len(), |i: int| pm_region@.durable_state[addrs[i] as int]);
+                let true_bytes = pm_region@.read_state.subrange(addr as int, addr + len);
                 let read_bytes = self@.read(pos as int, len as int);
                 assert(true_bytes =~= read_bytes);
+                assert(read_correct_modulo_corruption(bytes@, true_bytes, addrs, pm_region.constants().impervious_to_corruption)); // TODO @jay
             }
             return Ok((bytes, Ghost(addrs)));
         }
@@ -1796,7 +1792,7 @@ impl UntrustedLogImpl {
             };
             let ghost addrs = Seq::new(len as nat, |i: int| i + addr);
             proof {
-                let true_bytes = Seq::new(addrs.len(), |i: int| pm_region@.durable_state[addrs[i] as int]);
+                let true_bytes = pm_region@.read_state.subrange(addr as int, addr + len);
                 let read_bytes = self@.read(pos as int, len as int);
                 assert(true_bytes =~= read_bytes);
             }
@@ -1822,7 +1818,7 @@ impl UntrustedLogImpl {
         };
         let ghost addrs_part1 = Seq::<int>::new(max_len_without_wrapping as nat, |i: int| i + addr);
         proof {
-            let true_bytes = Seq::new(addrs_part1.len(), |i: int| pm_region@.durable_state[addrs_part1[i] as int]);
+            let true_bytes = pm_region@.read_state.subrange(addr as int, addr + max_len_without_wrapping);
             let read_bytes = self@.read(pos as int, max_len_without_wrapping as int);
             assert(true_bytes =~= read_bytes);
         }
@@ -1835,14 +1831,16 @@ impl UntrustedLogImpl {
                                                 (log_start_addr + spec_log_area_pos()) as nat);
         }
 
-        let mut part2 = match pm_region.get_pm_region_ref().read_unaligned(log_start_addr + log_area_pos(), len - max_len_without_wrapping) {
+        let mut part2 = match pm_region.get_pm_region_ref().read_unaligned(log_start_addr + log_area_pos(),
+                                                                           len - max_len_without_wrapping) {
             Ok(part2) => part2,
             Err(e) => {
                 assert(e == PmemError::AccessOutOfRange);
                 return Err(LogErr::PmemErr{ err: e });
             }
         };
-        let ghost addrs_part2 = Seq::<int>::new((len - max_len_without_wrapping) as nat, |i: int| i + log_start_addr + spec_log_area_pos());
+        let ghost addrs_part2 = Seq::<int>::new((len - max_len_without_wrapping) as nat,
+                                              |i: int| i + log_start_addr + spec_log_area_pos());
 
         // Now, prove that concatenating them produces the correct
         // bytes to return. The subtle thing in this argument is that
@@ -1853,12 +1851,17 @@ impl UntrustedLogImpl {
 
         proof {
             let true_part1 = extract_bytes(s.log, (pos - s.head) as nat, max_len_without_wrapping as nat);
-            let true_part2 = extract_bytes(s.log, (pos + max_len_without_wrapping - s.head) as nat, (len - max_len_without_wrapping) as nat);
+            let true_part2 = extract_bytes(s.log, (pos + max_len_without_wrapping - s.head) as nat,
+                                           (len - max_len_without_wrapping) as nat);
             
             assert(true_part1 + true_part2 =~= s.log.subrange(pos - s.head, pos + len - s.head));
 
             let addrs = addrs_part1 + addrs_part2;
-            assert(true_part1 + true_part2 == Seq::new(len as nat, |i: int| pm_region@.durable_state[addrs[i]]));
+            assert(true_part1 == pm_region@.read_state.subrange(addr as int, addr + max_len_without_wrapping));
+            assert(true_part2 == pm_region@.read_state.subrange(
+                log_start_addr + spec_log_area_pos(),
+                log_start_addr + spec_log_area_pos() + len - max_len_without_wrapping
+            ));
 
             if !pm_region.constants().impervious_to_corruption {
                 assert(maybe_corrupted(part1@ + part2@, true_part1 + true_part2, addrs));
