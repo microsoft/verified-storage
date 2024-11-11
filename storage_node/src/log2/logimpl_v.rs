@@ -1487,8 +1487,10 @@ impl UntrustedLogImpl {
                 &&& current_state.len() == s2.len() 
                 &&& states_differ_only_in_log_region(s2, current_state, log_start_addr as nat, log_size as nat)
                 &&& {
-                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends())
-                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                           Some(old(self)@.drop_pending_appends())
+                        ||| Self::recover(s2, log_start_addr as nat, log_size as nat) ==
+                           Some(old(self)@.advance_head(new_head as int).drop_pending_appends())
                     }
             } ==> perm.check_permission(s2),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
@@ -1529,7 +1531,6 @@ impl UntrustedLogImpl {
                 _ => false
             }
     {
-        assume(false); // TODO @jay
         // Even if we return an error code, we still have to prove that
         // upon return the states we can crash into recover into valid
         // abstract states.
@@ -1601,8 +1602,33 @@ impl UntrustedLogImpl {
         // same addresses in the log area.
 
         proof {
-            lemma_log_area_consistent_with_new_info_and_state_advance_head(wrpm_region@, log_start_addr as nat, log_size as nat, new_head as int,
-                prev_info, self.info, prev_state, self.state@);
+            assert forall |pos_relative_to_head: int| {
+                let log_area_offset =
+                    #[trigger] relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                                    self.info.head_log_area_offset as int,
+                                                                    self.info.log_area_len as int);
+                let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+                self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length ==>
+                    wrpm_region@.read_state[absolute_addr] ==
+                        self.state@.pending[pos_relative_to_head - self.info.log_length]
+            } by {
+                let log_area_offset =
+                    relative_log_pos_to_log_area_offset(pos_relative_to_head,
+                                                        self.info.head_log_area_offset as int,
+                                                        self.info.log_area_len as int);
+                let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
+                if self.info.log_length <= pos_relative_to_head < self.info.log_plus_pending_length {
+                    let old_pos_relative_to_head = pos_relative_to_head + amount_of_advancement;
+                    assert(absolute_addr == log_start_addr + spec_log_area_pos() +
+                           relative_log_pos_to_log_area_offset(old_pos_relative_to_head,
+                                                               prev_info.head_log_area_offset as int,
+                                                               prev_info.log_area_len as int));
+                }
+            }
+            lemma_log_area_consistent_with_new_info_and_state_advance_head(
+                wrpm_region@, log_start_addr as nat, log_size as nat, new_head as int,
+                prev_info, self.info, prev_state, self.state@
+            );
         }
 
         // Update the inactive metadata on all regions and flush, then
@@ -1614,7 +1640,7 @@ impl UntrustedLogImpl {
         // to update the inactive metadata on all regions.
 
         self.update_log_metadata(wrpm_region, log_start_addr, log_size, Ghost(prev_info), Ghost(prev_state),
-                                    Ghost(crash_pred), Tracked(perm));
+                                 Ghost(crash_pred), Tracked(perm));
 
         Ok(())
     }

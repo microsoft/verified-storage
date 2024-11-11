@@ -311,7 +311,8 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
                    pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
         }
     ensures 
-        pm_region_view.flush_predicted() ==> info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state)
+        pm_region_view.flush_predicted() ==>
+            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
 {
     lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
 }
