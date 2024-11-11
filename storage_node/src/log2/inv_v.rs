@@ -8,6 +8,7 @@ use crate::pmem::{crc_t::*, pmemspec_t::*, pmemutil_v::*, subregion_v::*, wrpm_t
 use crate::log2::layout_v::*;
 use crate::log2::logimpl_v::*;
 use crate::pmem::pmcopy_t::*;
+use crate::pmem::pmemutil_v::*;
 use crate::util_v::*;
 
 verus! {
@@ -506,25 +507,6 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
 //    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(v2);
     lemma_establish_extract_bytes_equivalence(v2.durable_state, v1.durable_state);
     assert(recover_state(v2.durable_state, log_start_addr, log_size) =~= recover_state(v1.durable_state, log_start_addr, log_size));
-}
-
-pub proof fn lemma_auto_smaller_range_of_seq_is_subrange(mem1: Seq<u8>)
-    ensures 
-        forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() ==> mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-{
-    assert forall |i: int, j, k: int, l: int| 0 <= i <= k <= l <= j <= mem1.len() implies mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) by {
-        lemma_smaller_range_of_seq_is_subrange(mem1, i, j, k, l);
-    }
-}
-
-pub proof fn lemma_smaller_range_of_seq_is_subrange(mem1: Seq<u8>, i: int, j: int, k: int, l: int)
-    requires 
-        0 <= i <= k <= l <= j <= mem1.len()
-    ensures 
-        mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(k, l) 
-{
-    assert(mem1.subrange(k, l) == mem1.subrange(i + k - i, i + l - i));
-    assert(mem1.subrange(i, j).subrange(k - i, l - i) == mem1.subrange(i + k - i, i + l - i));
 }
 
 pub proof fn lemma_header_bytes_equal_implies_active_metadata_bytes_equal(mem1: Seq<u8>, mem2: Seq<u8>, log_start_addr: nat, log_size: nat)

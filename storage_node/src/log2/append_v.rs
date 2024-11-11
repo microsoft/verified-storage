@@ -82,7 +82,6 @@ verus! {
                        ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
             }),
     {
-        assume(false); // TODO @jay
         let log_area_len = prev_info.log_area_len;
         let num_bytes = bytes_to_append.len();
         let new_info = prev_info.tentatively_append(num_bytes as u64);
