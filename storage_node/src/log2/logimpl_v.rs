@@ -1273,7 +1273,8 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
             crash_pred(old(wrpm_region)@.durable_state),
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) == Some(old(self)@.drop_pending_appends()),
+            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(old(self)@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
@@ -1293,29 +1294,29 @@ impl UntrustedLogImpl {
                 == Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat),
             views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, 
                 log_start_addr as nat, log_size as nat),
-            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat, self@.drop_pending_appends()),
+            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                          self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
-            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state, log_start_addr as nat, log_size as nat),
+            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state,
+                                             log_start_addr as nat, log_size as nat),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
                     &&& offset == state.head + state.log.len() + state.pending.len()
                     &&& self@ == old(self)@.tentatively_append(bytes_to_append@)
-                    &&& wrpm_region@.durable_state == old(wrpm_region)@.durable_state
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
                     &&& self@ == old(self)@
                     &&& wrpm_region@ == old(wrpm_region)@
                     &&& available_space < bytes_to_append@.len()
                     &&& {
-                            ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
-                            ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
-                        }
+                           ||| available_space == self@.capacity - self@.log.len() - self@.pending.len()
+                           ||| available_space == u128::MAX - self@.head - self@.log.len() - self@.pending.len()
+                    }
                 },
                 _ => false
             },
     {
-        assume(false); // TODO @jay
         // One useful invariant implies that
         // `info.log_plus_pending_length <= info.log_area_len`, so
         // we know we can safely do the following subtraction
