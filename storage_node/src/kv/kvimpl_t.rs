@@ -84,9 +84,6 @@ pub closed spec fn spec_phantom_data<V: ?Sized>() -> core::marker::PhantomData<V
 // Keys need to provide an impl with an external
 // body implemntation of key_eq if the key type
 // is a non-SMT equality type.
-// TODO: We may also need to provide a specification 
-// of `clone` based on the assumption that 
-// the cloned key is equal to the original key
 pub trait KeyEq : Eq {
     fn key_eq(&self, other: &Self) -> (b: bool) 
         ensures 
@@ -101,7 +98,7 @@ pub trait KeyEq : Eq {
 pub struct KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
@@ -113,7 +110,7 @@ where
 impl<PM, K, I, L> KvStore<PM, K, I, L>
 where
     PM: PersistentMemoryRegion,
-    K: Hash + Eq + Clone + PmCopy + Sized + std::fmt::Debug,
+    K: Hash + Eq + KeyEq + Clone + PmCopy + Sized + std::fmt::Debug,
     I: PmCopy + Sized + std::fmt::Debug,
     L: PmCopy + std::fmt::Debug + Copy,
 {
@@ -259,29 +256,29 @@ where
         key: &K,
         item: &I,
     ) -> (result: Result<(), KvError<K>>)
-    requires 
-        old(self).valid(),
-    ensures 
-        self.valid(),
-        match result {
-            Ok(()) => {
-                Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
-                    old(self).tentative_view().update_item(*key, *item)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().update_item(*key, *item)
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyNotFound) => {
+                    &&& self@ == old(self)@
+                    &&& !self.tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
             }
-            Err(KvError::CRCMismatch) => {
-                &&& self@ == old(self)@
-                &&& !self.constants().impervious_to_corruption
-            }, 
-            Err(KvError::KeyNotFound) => {
-                &&& self@ == old(self)@
-                &&& !old(self).tentative_view().contains_key(*key)
-            },
-            Err(KvError::OutOfSpace) => {
-                &&& self@ == old(self)@
-                // TODO
-            }
-            Err(_) => false,
-        }
     {
         let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
         self.untrusted_kv_impl.untrusted_update_item(key, item, self.id, Tracked(&perm))
