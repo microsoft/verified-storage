@@ -574,7 +574,6 @@ verus! {
         let mut digest = CrcDigest::new();
         digest.write(val);
         proof {
-            lemma_auto_spec_u64_to_from_le_bytes();
             digest.bytes_in_digest().lemma_flatten_one_element();
         }
         digest.sum64()

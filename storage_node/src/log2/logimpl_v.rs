@@ -1960,7 +1960,6 @@ impl UntrustedLogImpl {
             states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.durable_state,
                                              log_start_addr as nat, log_size as nat),
     {
-        assume(false); // TODO @jay
         broadcast use pmcopy_axioms;
 
         // Set the `unused_metadata_pos` to be the position corresponding to !self.cdb
@@ -1984,7 +1983,8 @@ impl UntrustedLogImpl {
             ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
         };
 
-        assert(Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()));
+        assert(Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) ==
+               Some(prev_state.drop_pending_appends()));
         assert(spec_log_header_area_size() < spec_log_area_pos()) by (compute);
 
         self.update_inactive_log_metadata(wrpm_region, log_start_addr, log_size, 
@@ -1996,7 +1996,8 @@ impl UntrustedLogImpl {
         // Also prove that after the flush, there is only one possible
         // crash state.
         proof {
-            lemma_flushing_metadata_maintains_invariants(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info, prev_state);
+            lemma_flushing_metadata_maintains_invariants(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                                         self.cdb, prev_info, prev_state);
         
 //            assert(wrpm_region@.can_crash_as(wrpm_region@.read_state));
 //            assert(forall |s| #[trigger] wrpm_region@.flush().can_crash_as(s) ==> s == wrpm_region@.read_state) by {
@@ -2013,27 +2014,27 @@ impl UntrustedLogImpl {
         let new_cdb = if self.cdb { CDB_FALSE } else { CDB_TRUE };
         let ghost new_cdb_bytes = new_cdb.spec_to_bytes();
 
-        /*
         // Show that after writing and flushing, the CDB will be !self.cdb
-        let ghost pm_region_after_write = wrpm_region@.write(log_start_addr as int, new_cdb_bytes);
-        let ghost flushed_mem_after_write = pm_region_after_write.flush();
-        assert(memory_matches_deserialized_cdb(flushed_mem_after_write, log_start_addr as nat, !self.cdb)) by {
-            let flushed_region = pm_region_after_write.flush();
-//            lemma_write_reflected_after_flush_committed(wrpm_region@, log_start_addr as int,
-//                                                        new_cdb_bytes);
-        }
+        let ghost flushed_mem_after_write = update_bytes(wrpm_region@.read_state, log_start_addr as int, new_cdb_bytes);
+        assert(extract_bytes(flushed_mem_after_write, log_start_addr as nat, u64::spec_size_of()) =~= new_cdb_bytes);
+        let ghost pm_region_after_flush = PersistentMemoryRegionView{
+            durable_state: flushed_mem_after_write,
+            read_state: flushed_mem_after_write,
+        };
+        assert(memory_matches_deserialized_cdb(pm_region_after_flush, log_start_addr as nat, !self.cdb));
 
         // Show that after writing and flushing, our invariants will
         // hold for each log if we flip `self.cdb`.
 
-        let ghost pm_region_after_flush = pm_region_after_write.flush();
         assert ({
-            &&& metadata_consistent_with_info(pm_region_after_flush, log_start_addr as nat, log_size as nat, !self.cdb, self.info)
-            &&& info_consistent_with_log_area(pm_region_after_flush, log_start_addr as nat, log_size as nat, self.info, self.state@)
+            &&& metadata_consistent_with_info(pm_region_after_flush, log_start_addr as nat, log_size as nat,
+                                            !self.cdb, self.info)
+            &&& info_consistent_with_log_area(pm_region_after_flush, log_start_addr as nat, log_size as nat,
+                                            self.info, self.state@)
             &&& metadata_types_set(pm_region_after_flush.durable_state, log_start_addr as nat)
         }) by {
             lemma_establish_extract_bytes_equivalence(wrpm_region@.durable_state,
-                                                    pm_region_after_flush.durable_state);
+                                                      pm_region_after_flush.durable_state);
 
             lemma_metadata_consistent_with_info_after_cdb_update(
                 wrpm_region@,
@@ -2053,8 +2054,6 @@ impl UntrustedLogImpl {
                 self.cdb
             );
         }
-
-        assert(memory_matches_deserialized_cdb(pm_region_after_flush, log_start_addr as nat, !self.cdb));
 
         // Show that if we crash after the write and flush, we recover
         // to an abstract state corresponding to `self.state@` after
@@ -2087,19 +2086,18 @@ impl UntrustedLogImpl {
         // and in the latter case, as shown above, we'll be in state
         // `self.state@.drop_pending_appends()`.
 
-        assert forall |s| pm_region_after_write.can_crash_as(s) implies
-                    #[trigger] perm.check_permission(s) by {
+        assert forall |s| can_result_from_partial_write(s, wrpm_region@.durable_state, log_start_addr as int, new_cdb_bytes)
+                    implies #[trigger] perm.check_permission(s) by {
             lemma_invariants_imply_crash_recover_forall(wrpm_region@, log_start_addr as nat, log_size as nat,
                                                         self.cdb, prev_info, prev_state);
-            lemma_single_write_crash_effect_on_pm_region_view(wrpm_region@, log_start_addr as int,
-                                                                new_cdb_bytes);
+            lemma_single_write_crash_effect_on_pm_region_view(s, wrpm_region@, log_start_addr as int,
+                                                              new_cdb_bytes);
             if s == wrpm_region@.durable_state {
                 // This case is trivial -- we already know that this is a legal crash state
             } else {
-                assert(pm_region_after_flush.can_crash_as(s));
+                assert(s == pm_region_after_flush.read_state);
             }
         }
-        */
 
         // Finally, update the CDB, then flush, then flip `self.cdb`.
         // There's no need to flip `self.cdb` atomically with the write
@@ -2109,7 +2107,8 @@ impl UntrustedLogImpl {
         wrpm_region.flush();
         self.cdb = !self.cdb;
 
-        assert(Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends()));
+        assert(Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) ==
+               Some(self@.drop_pending_appends()));
     }
 
     // This local helper method updates the inactive log metadata
