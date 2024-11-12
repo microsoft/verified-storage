@@ -1,8 +1,8 @@
 use builtin::*;
 use builtin_macros::*;
-use vstd::arithmetic::mul::lemma_mul_strict_inequality;
+use vstd::arithmetic::mul::*;
 use core::fmt::Debug;
-use vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse;
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::prelude::*;
 use crate::kv::durable::commonlayout_v::*;

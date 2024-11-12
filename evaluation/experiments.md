@@ -1,13 +1,26 @@
 # Experiments
 
 ## YCSB
-
 ### Setup
 1. Install dependencies: `sudo apt install default-jdk default-jre maven`
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build`.
+3. Build YCSB:
+    - CapybaraKV: `mvn -pl site.ycsb:capybarakv-binding -am clean package`
+    - redis (PM and standard): `mvn -pl site.ycsb:redis-binding -am clean package`
+    - RocksDB: `mvn -pl site.ycsb:rocksdb-binding -am clean package`
+
 3. Run `export LD_LIBRARY_PATH=~/verified-storage/ycsb_ffi/target/debug`
 
 ### redis setup
+<!-- 1. Clone `git@github.com:redis/redis.git`
+2. Install dependencies: `sudo apt install tcl`
+3. `cd redis` and run `make` -->
+
+#### pmem-rocksdb
+1. Run `sudo apt install libpmemobj-dev libsnappy-dev`
+2. Build with `make ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true`
+
+<!-- ### redis setup
 1. Clone `git@github.com:redis/redis.git`
 2. Install dependencies: `sudo apt install tcl`
 3. `cd redis` and run `make`
@@ -28,4 +41,4 @@ In `YCSB/`:
     2. In a different terminal, `cd YCSB` and run `./bin/ycsb load redis -s -P workloads/workloada -p "redis.host=localhost" -p "redis.port=<port>"` 
 
 ### YCSB script
-The `run_ycsb.sh` script runs all YCSB workloads that are supported by our KV store (i.e., all that don't include `scan` operations) with the options described above on a given KV store. Note that you still need to manually start a redis server before running this script on redis. The script expects the exact setup described in the Running Experiments section.
+The `run_ycsb.sh` script runs all YCSB workloads that are supported by our KV store (i.e., all that don't include `scan` operations) with the options described above on a given KV store. Note that you still need to manually start a redis server before running this script on redis. The script expects the exact setup described in the Running Experiments section. -->

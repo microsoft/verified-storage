@@ -1,6 +1,6 @@
 use builtin::*;
 use builtin_macros::*;
-use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_fundamental_div_mod_converse};
+use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
 use vstd::set_lib::*;
 use vstd::slice::*;

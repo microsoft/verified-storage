@@ -4,7 +4,7 @@ use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use builtin::*;
 use builtin_macros::*;
-use vstd::arithmetic::div_mod::{lemma_fundamental_div_mod, lemma_hoist_over_denominator};
+use vstd::arithmetic::div_mod::*;
 use vstd::bytes::*;
 use vstd::invariant::*;
 use vstd::prelude::*;

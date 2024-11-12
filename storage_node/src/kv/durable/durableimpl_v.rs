@@ -32,7 +32,7 @@ use crate::log2::logimpl_v::*;
 use crate::log2::inv_v::*;
 use crate::pmem::crc_t::*;
 use crate::pmem::pmemspec_t::*;
-use crate::pmem::pmemutil_v::lemma_establish_extract_bytes_equivalence;
+use crate::pmem::pmemutil_v::*;
 use crate::pmem::wrpm_t::*;
 use crate::pmem::subregion_v::*;
 use crate::pmem::pmcopy_t::*;
@@ -43,7 +43,7 @@ use crate::util_v::*;
 use std::borrow::Borrow;
 use std::hash::Hash;
 
-use super::inv_v::lemma_safe_recovery_writes;
+use super::inv_v::*;
 
 verus! {
     pub struct DurableKvStoreList<L>
