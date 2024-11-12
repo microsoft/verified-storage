@@ -319,7 +319,8 @@ verus! {
             mem1.len() == mem2.len() >= log_start_addr + spec_log_area_pos(),
             recover_cdb(mem1, log_start_addr) == Some(cdb),
             metadata_types_set(mem1, log_start_addr),
-            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < mem1.len(),
+            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <
+                mem1.len(),
             ({
                 let unused_metadata_start = spec_get_inactive_log_metadata_pos(cdb) + log_start_addr;
                 let unused_metadata_end = unused_metadata_start + LogMetadata::spec_size_of() + u64::spec_size_of();
