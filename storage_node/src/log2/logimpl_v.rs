@@ -231,8 +231,8 @@ impl UntrustedLogImpl {
         &&& memory_matches_deserialized_cdb(pm, log_start_addr, self.cdb)
         &&& self.info.log_area_len + spec_log_area_pos() == log_size
         &&& log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm.len() <= u64::MAX
-        &&& metadata_consistent_with_info(pm, log_start_addr, log_size, self.cdb, self.info)
-        &&& info_consistent_with_log_area(pm, log_start_addr, log_size, self.info, self.state@)
+        &&& metadata_consistent_with_info(pm, log_start_addr, log_size, self.cdb, self.info, false)
+        &&& info_consistent_with_log_area(pm, log_start_addr, log_size, self.info, self.state@, false)
         &&& Self::can_only_crash_as_state(pm, log_start_addr, log_size, self.state@.drop_pending_appends())
         &&& metadata_types_set(pm.durable_state, log_start_addr)
         &&& self.info.log_plus_pending_length >= self.info.log_length
@@ -289,10 +289,10 @@ impl UntrustedLogImpl {
             get_subregion_view(v1, log_start_addr, log_size) == 
                 get_subregion_view(v2, log_start_addr, log_size),
             memory_matches_deserialized_cdb(v1, log_start_addr, self.cdb),
-            metadata_consistent_with_info(v1, log_start_addr, log_size, self.cdb, self.info)
+            metadata_consistent_with_info(v1, log_start_addr, log_size, self.cdb, self.info, false)
         ensures 
             memory_matches_deserialized_cdb(v2, log_start_addr, self.cdb),
-            metadata_consistent_with_info(v2, log_start_addr, log_size, self.cdb, self.info)
+            metadata_consistent_with_info(v2, log_start_addr, log_size, self.cdb, self.info, false)
     {
         lemma_establish_extract_bytes_equivalence(v1.durable_state, v2.durable_state);
         lemma_bytes_match_in_equal_subregions(v1, v2, log_start_addr, log_size);
@@ -515,7 +515,7 @@ impl UntrustedLogImpl {
                     wrpm1@.read_state[absolute_addr] == self.state@.pending[pos_relative_to_head - self.info.log_length]
         });
 
-        assert(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@));
+        assert(info_consistent_with_log_area(wrpm2@, log_start_addr, log_size, self.info, self.state@, false));
     }
 
     // This lemma makes some facts about non-private fields of self visible
@@ -602,13 +602,65 @@ impl UntrustedLogImpl {
         }
     }
 
-    // This lemma proves that updating the inactive metadata and crc is crash safe.
-    #[verifier::rlimit(15)] // TODO @hayley
-    proof fn lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_crash_pred(
+    // This lemma proves that updating the inactive metadata is crash safe.
+    proof fn lemma_update_inactive_metadata_allowed_by_crash_pred(
         self,
         old_pm: PersistentMemoryRegionView,
-        new_pm1: PersistentMemoryRegionView,
-        new_pm2: PersistentMemoryRegionView,
+        new_pm1: Seq<u8>,
+        new_metadata: LogMetadata,
+        inactive_metadata_pos: int,
+        log_start_addr: nat,
+        log_size: nat,
+        prev_info: LogInfo,
+        prev_state: AbstractLogState,
+        crash_pred: spec_fn(Seq<u8>) -> bool,
+    )
+        requires
+            old_pm.valid(),
+            can_result_from_partial_write(new_pm1, old_pm.durable_state, inactive_metadata_pos,
+                                          new_metadata.spec_to_bytes()),
+            crash_pred(old_pm.durable_state),
+            log_start_addr as int % const_persistence_chunk_size() == 0,
+            log_size as int % const_persistence_chunk_size() == 0,
+            info_consistent_with_log_area(old_pm, log_start_addr as nat, log_size as nat, prev_info, prev_state, false),
+            no_outstanding_writes_to_metadata(old_pm, log_start_addr as nat),
+            metadata_consistent_with_info(old_pm, log_start_addr as nat, log_size as nat, self.cdb, prev_info, false),
+            memory_matches_deserialized_cdb(old_pm, log_start_addr as nat, self.cdb),
+            metadata_types_set(old_pm.durable_state, log_start_addr as nat),
+            inactive_metadata_pos == spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr,
+            forall |s1: Seq<u8>, s2: Seq<u8>| {
+                &&& s1.len() == s2.len() 
+                &&& #[trigger] crash_pred(s1)
+                &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
+                &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()) 
+            } ==> #[trigger] crash_pred(s2),
+            UntrustedLogImpl::recover(old_pm.durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(prev_state.drop_pending_appends()),
+        ensures
+            crash_pred(new_pm1),
+            metadata_types_set(new_pm1, log_start_addr as nat),
+            spec_check_log_cdb(new_pm1, log_start_addr as nat) == Some(self.cdb),
+            spec_get_active_log_metadata(new_pm1, log_start_addr, self.cdb) ==
+                spec_get_active_log_metadata(old_pm.durable_state, log_start_addr, self.cdb),
+            spec_get_active_log_crc(new_pm1, log_start_addr, self.cdb) ==
+                spec_get_active_log_crc(old_pm.durable_state, log_start_addr, self.cdb),
+    {
+        broadcast use pmcopy_axioms;
+        lemma_metadata_fits_in_log_header_area();
+
+        lemma_establish_extract_bytes_equivalence(new_pm1, old_pm.durable_state);
+        lemma_auto_can_result_from_partial_write_effect();
+        assert(UntrustedLogImpl::recover(new_pm1, log_start_addr as nat, log_size as nat) ==
+               Some(prev_state.drop_pending_appends()));
+    }
+
+    // This lemma proves that updating the inactive crc is crash safe.
+    proof fn lemma_update_inactive_crc_allowed_by_crash_pred(
+        self,
+        old_pm: PersistentMemoryRegionView,
+        new_pm1: Seq<u8>,
+        new_pm2: Seq<u8>,
         new_metadata: LogMetadata,
         inactive_metadata_pos: int,
         new_crc: u64,
@@ -621,14 +673,15 @@ impl UntrustedLogImpl {
     )
         requires
             old_pm.valid(),
-            new_pm1.can_result_from_write(old_pm, inactive_metadata_pos, new_metadata.spec_to_bytes()),
-            new_pm2.can_result_from_write(new_pm1, inactive_crc_pos, new_crc.spec_to_bytes()),
+            can_result_from_partial_write(new_pm1, old_pm.durable_state, inactive_metadata_pos,
+                                          new_metadata.spec_to_bytes()),
+            can_result_from_partial_write(new_pm2, new_pm1, inactive_crc_pos, new_crc.spec_to_bytes()),
             crash_pred(old_pm.durable_state),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
-            info_consistent_with_log_area(old_pm, log_start_addr as nat, log_size as nat, prev_info, prev_state),
+            info_consistent_with_log_area(old_pm, log_start_addr as nat, log_size as nat, prev_info, prev_state, false),
             no_outstanding_writes_to_metadata(old_pm, log_start_addr as nat),
-            metadata_consistent_with_info(old_pm, log_start_addr as nat, log_size as nat, self.cdb, prev_info),
+            metadata_consistent_with_info(old_pm, log_start_addr as nat, log_size as nat, self.cdb, prev_info, false),
             memory_matches_deserialized_cdb(old_pm, log_start_addr as nat, self.cdb),
             metadata_types_set(old_pm.durable_state, log_start_addr as nat),
             inactive_crc_pos == spec_get_inactive_log_crc_pos(self.cdb) + log_start_addr,
@@ -642,20 +695,28 @@ impl UntrustedLogImpl {
             } ==> #[trigger] crash_pred(s2),
             UntrustedLogImpl::recover(old_pm.durable_state, log_start_addr as nat, log_size as nat) ==
                 Some(prev_state.drop_pending_appends()),
+            crash_pred(new_pm1),
+            metadata_types_set(new_pm1, log_start_addr as nat),
+            spec_check_log_cdb(new_pm1, log_start_addr as nat) == Some(self.cdb),
+            spec_get_active_log_metadata(new_pm1, log_start_addr, self.cdb) ==
+                spec_get_active_log_metadata(old_pm.durable_state, log_start_addr, self.cdb),
+            spec_get_active_log_crc(new_pm1, log_start_addr, self.cdb) ==
+                spec_get_active_log_crc(old_pm.durable_state, log_start_addr, self.cdb),
         ensures
-            crash_pred(new_pm1.durable_state),
-            crash_pred(new_pm2.durable_state),
+            crash_pred(new_pm2),
+            metadata_types_set(new_pm2, log_start_addr as nat),
+            spec_check_log_cdb(new_pm2, log_start_addr as nat) == Some(self.cdb),
+            spec_get_active_log_metadata(new_pm2, log_start_addr, self.cdb) ==
+                spec_get_active_log_metadata(old_pm.durable_state, log_start_addr, self.cdb),
+            spec_get_active_log_crc(new_pm2, log_start_addr, self.cdb) ==
+                spec_get_active_log_crc(old_pm.durable_state, log_start_addr, self.cdb),
     {
         broadcast use pmcopy_axioms;
         lemma_metadata_fits_in_log_header_area();
 
-        lemma_establish_extract_bytes_equivalence(new_pm1.durable_state, old_pm.durable_state);
-        lemma_auto_can_result_from_write_effect_on_durable_state();
-        assert(UntrustedLogImpl::recover(new_pm1.durable_state, log_start_addr as nat, log_size as nat) ==
-               Some(prev_state.drop_pending_appends()));
-
-        lemma_establish_extract_bytes_equivalence(new_pm2.durable_state, old_pm.durable_state);
-        assert(UntrustedLogImpl::recover(new_pm2.durable_state, log_start_addr as nat, log_size as nat) ==
+        lemma_auto_can_result_from_partial_write_effect();
+        lemma_establish_extract_bytes_equivalence(new_pm2, old_pm.durable_state);
+        assert(UntrustedLogImpl::recover(new_pm2, log_start_addr as nat, log_size as nat) ==
                Some(prev_state.drop_pending_appends()));
     }
 
@@ -680,8 +741,8 @@ impl UntrustedLogImpl {
             wrpm_region.inv(),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr),
             memory_matches_deserialized_cdb(wrpm_region@, log_start_addr, self.cdb),
-            metadata_consistent_with_info(wrpm_region@, log_start_addr, log_size, self.cdb, self.info),
-            info_consistent_with_log_area(wrpm_region@, log_start_addr, log_size, self.info, self.state@),
+            metadata_consistent_with_info(wrpm_region@, log_start_addr, log_size, self.cdb, self.info, false),
+            info_consistent_with_log_area(wrpm_region@, log_start_addr, log_size, self.info, self.state@, false),
             metadata_types_set(wrpm_region@.durable_state, log_start_addr),
             log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= wrpm_region@.len(),
             forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
@@ -943,8 +1004,10 @@ impl UntrustedLogImpl {
             self.info.head + self.info.log_plus_pending_length + bytes_to_append.len() <= u128::MAX,
             old(wrpm_region).inv(),
             log_size == self.info.log_area_len + spec_log_area_pos(),
-            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, self.info),
-            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info, self.state@),
+            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb,
+                                          self.info, false),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info,
+                                          self.state@, false),
             forall |addr: int|
                 #[trigger] is_writable_absolute_addr(addr) <==> {
                     &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
@@ -989,9 +1052,11 @@ impl UntrustedLogImpl {
                         log_start_addr as nat,
                         log_size as nat,
                         self.info.tentatively_append(bytes_to_append.len() as u64),
-                        self.state@.tentatively_append(bytes_to_append@)
+                        self.state@.tentatively_append(bytes_to_append@),
+                        false,
                     )
-                    &&& metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, self.info)
+                    &&& metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb,
+                                                    self.info ,false)
                     &&& metadata_types_set(wrpm_region@.durable_state, log_start_addr as nat)
                 },
                 Err(LogErr::InsufficientSpaceForAppend { available_space }) => {
@@ -1250,6 +1315,7 @@ impl UntrustedLogImpl {
                 _ => false
             },
     {
+        assume(false); // TODO @jay
         // One useful invariant implies that
         // `info.log_plus_pending_length <= info.log_area_len`, so
         // we know we can safely do the following subtraction
@@ -1324,8 +1390,8 @@ impl UntrustedLogImpl {
     )
         requires
             len > 0,
-            metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, self.cdb, self.info),
-            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, self.info, self.state@),
+            metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, self.cdb, self.info, false),
+            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, self.info, self.state@, false),
             log_start_addr + spec_log_area_pos() + self.info.log_area_len <= pm_region_view.len(),
             log_start_addr + spec_log_area_pos() <= addr < addr + len <= pm_region_view.len(),
             addr + len <= log_start_addr + log_size,
@@ -1744,7 +1810,8 @@ impl UntrustedLogImpl {
                 let true_bytes = pm_region@.read_state.subrange(addr as int, addr + len);
                 let read_bytes = self@.read(pos as int, len as int);
                 assert(true_bytes =~= read_bytes);
-                assert(read_correct_modulo_corruption(bytes@, true_bytes, addrs, pm_region.constants().impervious_to_corruption)); // TODO @jay
+                assert(read_correct_modulo_corruption(bytes@, true_bytes, addrs,
+                                                      pm_region.constants().impervious_to_corruption));
             }
             return Ok((bytes, Ghost(addrs)));
         }
@@ -1922,9 +1989,12 @@ impl UntrustedLogImpl {
             log_size as int % const_persistence_chunk_size() == 0,
             memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, old(self).cdb),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, old(self).cdb, prev_info),
-            old(wrpm_region)@.flush_predicted() ==> info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, old(self).info, old(self).state@),
-            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
+            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, old(self).cdb,
+                                          prev_info, false),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, old(self).info,
+                                          old(self).state@, true),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state,
+                                          false),
             old(self).info.log_area_len == prev_info.log_area_len,
             Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
             crash_pred(old(wrpm_region)@.durable_state),
@@ -1988,7 +2058,7 @@ impl UntrustedLogImpl {
         assert(spec_log_header_area_size() < spec_log_area_pos()) by (compute);
 
         self.update_inactive_log_metadata(wrpm_region, log_start_addr, log_size, 
-            Ghost(prev_info), Ghost(prev_state), Ghost(is_writable_absolute_addr), Ghost(crash_pred), Tracked(perm));
+            Ghost(prev_info), Ghost(prev_state), Ghost(crash_pred), Tracked(perm));
 
         // Prove that after the flush we're about to do, all our
         // invariants will continue to hold (using the still-unchanged
@@ -1998,11 +2068,6 @@ impl UntrustedLogImpl {
         proof {
             lemma_flushing_metadata_maintains_invariants(wrpm_region@, log_start_addr as nat, log_size as nat,
                                                          self.cdb, prev_info, prev_state);
-        
-//            assert(wrpm_region@.can_crash_as(wrpm_region@.read_state));
-//            assert(forall |s| #[trigger] wrpm_region@.flush().can_crash_as(s) ==> s == wrpm_region@.read_state) by {
-//                lemma_if_no_outstanding_writes_then_persistent_memory_view_can_only_crash_as_committed(wrpm_region@.flush());
-//            }
         }
 
         // Next, flush all outstanding writes to memory. This is
@@ -2028,9 +2093,9 @@ impl UntrustedLogImpl {
 
         assert ({
             &&& metadata_consistent_with_info(pm_region_after_flush, log_start_addr as nat, log_size as nat,
-                                            !self.cdb, self.info)
+                                            !self.cdb, self.info, false)
             &&& info_consistent_with_log_area(pm_region_after_flush, log_start_addr as nat, log_size as nat,
-                                            self.info, self.state@)
+                                            self.info, self.state@, false)
             &&& metadata_types_set(pm_region_after_flush.durable_state, log_start_addr as nat)
         }) by {
             lemma_establish_extract_bytes_equivalence(wrpm_region@.durable_state,
@@ -2113,9 +2178,7 @@ impl UntrustedLogImpl {
 
     // This local helper method updates the inactive log metadata
     // on persistent memory to be consistent with `self.info` and
-    // `self.state`. It's passed a subregion that gives it permission
-    // to do arbitrary writes to the inactive log metadata portion
-    // of the persistent memory.
+    // `self.state`.
     exec fn update_inactive_log_metadata<Perm, PM>(
         &self,
         wrpm_region: &mut WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -2123,7 +2186,6 @@ impl UntrustedLogImpl {
         log_size: u64,
         Ghost(prev_info): Ghost<LogInfo>,
         Ghost(prev_state): Ghost<AbstractLogState>,
-        Ghost(is_writable_absolute_addr): Ghost<spec_fn(int) -> bool>,
         Ghost(crash_pred): Ghost<spec_fn(Seq<u8>) -> bool>,
         Tracked(perm): Tracked<&Perm>,
     )
@@ -2134,47 +2196,36 @@ impl UntrustedLogImpl {
             old(wrpm_region).inv(),
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
-            old(wrpm_region)@.flush_predicted() ==> info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info, self.state@),
-            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.info,
+                                          self.state@, true),
+            info_consistent_with_log_area(old(wrpm_region)@, log_start_addr as nat, log_size as nat, prev_info,
+                                          prev_state, false),
             no_outstanding_writes_to_metadata(old(wrpm_region)@, log_start_addr as nat),
-            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, prev_info),
+            metadata_consistent_with_info(old(wrpm_region)@, log_start_addr as nat, log_size as nat, self.cdb, prev_info,
+                                          false),
             memory_matches_deserialized_cdb(old(wrpm_region)@, log_start_addr as nat, self.cdb),
             metadata_types_set(old(wrpm_region)@.durable_state, log_start_addr as nat),
             log_size == prev_info.log_area_len + spec_log_area_pos(),
             prev_info.log_area_len == self.info.log_area_len,
             log_start_addr + spec_log_area_pos() + prev_info.log_area_len <= old(wrpm_region)@.len(),
-            log_start_addr + spec_get_inactive_log_metadata_pos(self.cdb) < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len() <= u64::MAX,
-            ({
-                let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
-                // the writable closure should allow both inactive metadata and unreachable log bytes to be updated.
-                // we won't update unreachable log bytes in this function, but there may be outstanding writes to them,
-                // so we need to allow for them to differ from the original state in crash states
-                &&& forall |addr: int| #[trigger] is_writable_absolute_addr(addr) <==> {
-                        // either the address is in the unreachable log area
-                        ||| {
-                            &&& log_start_addr + spec_log_area_pos() <= addr < log_start_addr + spec_log_area_pos() + log_size
-                            &&& log_area_offset_unreachable_during_recovery(prev_info.head_log_area_offset as int,
-                                    prev_info.log_area_len as int,
-                                    prev_info.log_length as int,
-                                    addr - (log_start_addr + spec_log_area_pos()))
-                        }
-                        // or it's in the inactive metadata
-                        ||| inactive_metadata_pos <= addr < inactive_metadata_pos + LogMetadata::spec_size_of() + u64::spec_size_of()
-                    }
-            }),
-            log_start_addr < log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len(),
+            log_start_addr + spec_get_inactive_log_metadata_pos(self.cdb)
+                < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len() <= u64::MAX,
+            log_start_addr < log_start_addr + spec_log_header_area_size()
+                < log_start_addr + spec_log_area_pos() < old(wrpm_region)@.len(),
 
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()),
+            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(prev_state.drop_pending_appends()),
             crash_pred(old(wrpm_region)@.durable_state),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
                 &&& states_differ_only_in_log_region(s1, s2, log_start_addr as nat, log_size as nat)
                 &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
-                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends()) // or committed?
+                &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
             } ==> #[trigger] crash_pred(s2),
             forall |s| crash_pred(s) ==> perm.check_permission(s),
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) == Some(prev_state.drop_pending_appends())
+            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) ==
+                Some(prev_state.drop_pending_appends())
         ensures
             wrpm_region.inv(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
@@ -2182,8 +2233,11 @@ impl UntrustedLogImpl {
             ({
                 let state_after_flush = wrpm_region@.read_state;
                 let inactive_metadata_pos = spec_get_inactive_log_metadata_pos(self.cdb) + log_start_addr;
-                let log_metadata_bytes = extract_bytes(state_after_flush, inactive_metadata_pos as nat, LogMetadata::spec_size_of());
-                let log_crc_bytes = extract_bytes(state_after_flush, inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of());
+                let log_metadata_bytes = extract_bytes(state_after_flush, inactive_metadata_pos as nat,
+                                                       LogMetadata::spec_size_of());
+                let log_crc_bytes =
+                    extract_bytes(state_after_flush,
+                                  inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of());
                 let log_metadata = LogMetadata::spec_from_bytes(log_metadata_bytes);
                 let log_crc = u64::spec_from_bytes(log_crc_bytes);
                 let new_metadata = LogMetadata {
@@ -2202,14 +2256,18 @@ impl UntrustedLogImpl {
             }),
             metadata_types_set(wrpm_region@.durable_state, log_start_addr as nat),
             memory_matches_deserialized_cdb(wrpm_region@, log_start_addr as nat, self.cdb),
-            metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info),
-            info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state),
-            wrpm_region@.flush_predicted() ==> info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info, self.state@),
-            wrpm_region@.flush_predicted() ==> metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, !self.cdb, self.info),
+            metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info,
+                                          false),
+            info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state,
+                                          false),
+            info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info, self.state@,
+                                          true),
+            metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, !self.cdb, self.info,
+                                          true),
             perm.check_permission(wrpm_region@.durable_state),
-            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state, log_start_addr as nat, log_size as nat),
+            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state,
+                                             log_start_addr as nat, log_size as nat),
     {
-        assume(false); // TODO @jay
         // Encode the log metadata as bytes, and compute the CRC of those bytes
         let info = &self.info;
         let log_metadata = LogMetadata {
@@ -2223,19 +2281,55 @@ impl UntrustedLogImpl {
         proof {
             broadcast use pmcopy_axioms;
             lemma_metadata_fits_in_log_header_area();
+            wrpm_region.lemma_inv_implies_view_valid();
+            lemma_auto_can_result_from_partial_write_effect();
+        }
 
-            /*
-            let new_pm1 = wrpm_region@.write(inactive_metadata_pos as int, log_metadata.spec_to_bytes());
-            let new_pm2 = new_pm1.write(inactive_metadata_pos + LogMetadata::spec_size_of(), log_crc.spec_to_bytes());
+        // Prove that it's OK to write the inactive metadata, and write it.
 
-            self.lemma_update_inactive_metadata_and_crc_crash_states_allowed_by_crash_pred(wrpm_region@, new_pm1, new_pm2, log_metadata, inactive_metadata_pos as int,
-                log_crc, inactive_metadata_pos + LogMetadata::spec_size_of(), log_start_addr as nat, log_size as nat, prev_info, prev_state, crash_pred);
-            */
-        } 
+        assert forall|s| #[trigger] can_result_from_partial_write(s, wrpm_region@.durable_state,
+                                                             inactive_metadata_pos as int, log_metadata.spec_to_bytes())
+            implies {
+                &&& crash_pred(s)
+                &&& metadata_types_set(s, log_start_addr as nat)
+                &&& spec_check_log_cdb(s, log_start_addr as nat) == Some(self.cdb)
+                &&& spec_get_active_log_metadata(s, log_start_addr as nat, self.cdb) ==
+                      spec_get_active_log_metadata(wrpm_region@.durable_state, log_start_addr as nat, self.cdb)
+                &&& spec_get_active_log_crc(s, log_start_addr as nat, self.cdb) ==
+                      spec_get_active_log_crc(wrpm_region@.durable_state, log_start_addr as nat, self.cdb)
+            } by {
+            self.lemma_update_inactive_metadata_allowed_by_crash_pred(
+                wrpm_region@, s, log_metadata, inactive_metadata_pos as int,
+                log_start_addr as nat, log_size as nat, prev_info, prev_state, crash_pred
+            );
+        }
 
-        // Write the new metadata and CRC
         wrpm_region.serialize_and_write(inactive_metadata_pos, &log_metadata, Tracked(perm));
-        wrpm_region.serialize_and_write(inactive_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc, Tracked(perm));
+
+        // Prove that it's OK to write the inactive CRC, and write it.
+
+        assert forall|s|
+            #[trigger] can_result_from_partial_write(s, wrpm_region@.durable_state,
+                                                     inactive_metadata_pos + LogMetadata::spec_size_of(),
+                                                     log_crc.spec_to_bytes())
+            implies {
+                &&& crash_pred(s)
+                &&& metadata_types_set(s, log_start_addr as nat)
+                &&& spec_check_log_cdb(s, log_start_addr as nat) == Some(self.cdb)
+                &&& spec_get_active_log_metadata(s, log_start_addr as nat, self.cdb) ==
+                      spec_get_active_log_metadata(wrpm_region@.durable_state, log_start_addr as nat, self.cdb)
+                &&& spec_get_active_log_crc(s, log_start_addr as nat, self.cdb) ==
+                      spec_get_active_log_crc(wrpm_region@.durable_state, log_start_addr as nat, self.cdb)
+            } by {
+            self.lemma_update_inactive_crc_allowed_by_crash_pred(
+                old(wrpm_region)@, wrpm_region@.durable_state, s, log_metadata, inactive_metadata_pos as int,
+                log_crc, inactive_metadata_pos + LogMetadata::spec_size_of(),
+                log_start_addr as nat, log_size as nat, prev_info, prev_state, crash_pred
+            );
+        }
+
+        wrpm_region.serialize_and_write(inactive_metadata_pos + size_of::<LogMetadata>() as u64, &log_crc,
+                                        Tracked(perm));
 
         // Prove that after the flush, the log metadata will be reflected in the subregion's
         // state.
@@ -2243,12 +2337,14 @@ impl UntrustedLogImpl {
             // metadata types are set in both the old and new wrpm committed state; we haven't done any flushes,
             // so the two wrpms have the same committed state
             assert(metadata_types_set(old(wrpm_region)@.durable_state, log_start_addr as nat));
-            assert(old(wrpm_region)@.durable_state == wrpm_region@.durable_state);
 
             let state_after_flush = wrpm_region@.read_state;
-            assert(extract_bytes(state_after_flush, log_start_addr as nat, u64::spec_size_of()) == extract_bytes(old(wrpm_region)@.durable_state, log_start_addr as nat, u64::spec_size_of()));
-            assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat, LogMetadata::spec_size_of()) =~= log_metadata.spec_to_bytes());
-            assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat + LogMetadata::spec_size_of(), u64::spec_size_of()) =~= log_crc.spec_to_bytes());
+            assert(extract_bytes(state_after_flush, log_start_addr as nat, u64::spec_size_of()) ==
+                   extract_bytes(old(wrpm_region)@.durable_state, log_start_addr as nat, u64::spec_size_of()));
+            assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat, LogMetadata::spec_size_of()) =~=
+                   log_metadata.spec_to_bytes());
+            assert(extract_bytes(state_after_flush, inactive_metadata_pos as nat + LogMetadata::spec_size_of(),
+                                 u64::spec_size_of()) =~= log_crc.spec_to_bytes());
         }
     }
 
@@ -2322,10 +2418,13 @@ impl UntrustedLogImpl {
         self.info.log_length = self.info.log_plus_pending_length;
 
         assert(memory_matches_deserialized_cdb(wrpm_region@, log_start_addr as nat, self.cdb));
-        assert(metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info));
-        assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state));
+        assert(metadata_consistent_with_info(wrpm_region@, log_start_addr as nat, log_size as nat, self.cdb, prev_info,
+                                             false));
+        assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, prev_info, prev_state,
+                                             false));
         assert(self.state@ == prev_state.commit());
-        assert(wrpm_region@.flush_predicted() ==> info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info, self.state@));
+        assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info,
+                                             self.state@, true));
 
         // Update the inactive metadata on all regions and flush, then
         // swap the CDB to its opposite.

@@ -887,6 +887,19 @@ verus! {
         }
     }
 
+    pub proof fn lemma_noop_can_result_from_partial_write(
+        s: Seq<u8>,
+        write_addr: int,
+        bytes: Seq<u8>
+    )
+        requires
+            0 <= write_addr,
+            write_addr + bytes.len() <= s.len(),
+        ensures
+            can_result_from_partial_write(s, s, write_addr, bytes)
+    {
+    }
+
     pub open spec fn flush_pm_view(v: PersistentMemoryRegionView) -> PersistentMemoryRegionView
     {
         PersistentMemoryRegionView{

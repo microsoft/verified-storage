@@ -47,7 +47,7 @@ verus! {
             pm_region_view.valid(),
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
             log_size == prev_info.log_area_len + spec_log_area_pos(),
-            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
+            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state, false),
             ({
                 let log_area_len = prev_info.log_area_len;
                 let num_bytes = bytes_to_append.len();
@@ -79,7 +79,8 @@ verus! {
                 &&& forall|pm_region_view2: PersistentMemoryRegionView|
                        #[trigger] pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr,
                                                                         bytes_to_append)
-                       ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info, new_state)
+                       ==> info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size, new_info,
+                                                         new_state, false)
             }),
     {
         let log_area_len = prev_info.log_area_len;
@@ -112,7 +113,7 @@ verus! {
                    #[trigger] pm_region_view2.can_result_from_write(pm_region_view, absolute_write_addr,
                                                                     bytes_to_append)
                implies info_consistent_with_log_area(pm_region_view2, log_start_addr, log_size,
-                                                     new_info, new_state) by {
+                                                     new_info, new_state, false) by {
             lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view2, log_start_addr,
                                                                              log_size, new_info);
             assert forall |pos_relative_to_head: int|
@@ -172,7 +173,7 @@ verus! {
             pm_region_view.valid(),
             pm_region_view.len() >= log_start_addr + spec_log_area_pos() + prev_info.log_area_len,
             log_size == prev_info.log_area_len + spec_log_area_pos(),
-            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
+            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state, false),
             ({
                 let log_area_len = prev_info.log_area_len;
                 let num_bytes = bytes_to_append.len();
@@ -218,7 +219,8 @@ verus! {
                                                              bytes_to_append_part1) &&
                        pm_region_view3.can_result_from_write(pm_region_view2, absolute_write_addr2 as int,
                                                              bytes_to_append_part2)
-                       ==> info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state)
+                       ==> info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info,
+                                                        new_state, false)
             }),
     {
         let log_area_len = prev_info.log_area_len;
@@ -253,7 +255,8 @@ verus! {
                    pm_region_view3.can_result_from_write(pm_region_view2, absolute_write_addr2 as int,
                                                          bytes_to_append_part2)
                    implies
-               info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state) by {
+               info_consistent_with_log_area(pm_region_view3, log_start_addr, log_size, new_info, new_state,
+                                             false) by {
             lemma_tentatively_append(pm_region_view2, bytes_to_append_part2, log_start_addr, log_size,
                                      intermediate_info, intermediate_state);
             let write_addr =
@@ -282,8 +285,8 @@ verus! {
         requires 
             no_outstanding_writes_to_metadata(old_pm, log_start_addr),
             memory_matches_deserialized_cdb(old_pm, log_start_addr, cdb),
-            metadata_consistent_with_info(old_pm, log_start_addr, log_size, cdb, info),
-            info_consistent_with_log_area(old_pm, log_start_addr, log_size, info, state),
+            metadata_consistent_with_info(old_pm, log_start_addr, log_size, cdb, info, false),
+            info_consistent_with_log_area(old_pm, log_start_addr, log_size, info, state, false),
             metadata_types_set(old_pm.durable_state, log_start_addr),
             new_durable_state.len() == old_pm.len(),
             log_start_addr + spec_log_header_area_size() < log_start_addr + spec_log_area_pos() <= old_pm.len(),

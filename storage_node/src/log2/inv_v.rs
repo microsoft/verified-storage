@@ -130,24 +130,36 @@ pub open spec fn memory_matches_deserialized_cdb(pm_region_view: PersistentMemor
 //
 // `info` -- various variables describing information about this
 // log
+//
+// `after_flush` -- only consider whether this will hold after
+// the next flush
 pub open spec fn metadata_consistent_with_info(
     pm_region_view: PersistentMemoryRegionView,
     log_start_addr: nat,
     log_size: nat,
     cdb: bool,
     info: LogInfo,
+    after_flush: bool,
 ) -> bool
 {
-    let mem = pm_region_view.durable_state;
+    let mem = if after_flush { pm_region_view.read_state } else { pm_region_view.durable_state };
     let read_cdb = spec_check_log_cdb(mem, log_start_addr);
     let log_metadata = spec_get_active_log_metadata(mem, log_start_addr, cdb);
     let log_crc = spec_get_active_log_crc(mem, log_start_addr, cdb);
 
     // No outstanding writes to the CDB, log metadata, or log metadata CRC
-    &&& no_outstanding_writes_in_range(pm_region_view, log_start_addr as int, (log_start_addr + u64::spec_size_of()) as int)
+    &&& {
+           ||| after_flush
+           ||| no_outstanding_writes_in_range(pm_region_view, log_start_addr as int,
+                                            (log_start_addr + u64::spec_size_of()) as int)
+    }
     // Also, no outstanding writes to the log metadata corresponding to the active log metadata CDB
-    &&& no_outstanding_writes_in_range(pm_region_view, (log_start_addr + spec_get_active_log_metadata_pos(cdb)) as int,
-            (log_start_addr + spec_get_active_log_crc_end(cdb)) as int)
+    &&& {
+           ||| after_flush
+           ||| no_outstanding_writes_in_range(pm_region_view,
+                                            (log_start_addr + spec_get_active_log_metadata_pos(cdb)) as int,
+                                            (log_start_addr + spec_get_active_log_crc_end(cdb)) as int)
+    }
 
     // All the CRCs match
     &&& log_crc == log_metadata.spec_crc()
@@ -160,14 +172,17 @@ pub open spec fn metadata_consistent_with_info(
     &&& log_size == spec_log_area_pos() + info.log_area_len
     &&& mem.len() >= log_start_addr + spec_log_area_pos() + info.log_area_len
     &&& log_start_addr + spec_get_active_log_metadata_pos(cdb) + LogMetadata::spec_size_of() <
-            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() < log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm_region_view.len()
+            log_start_addr + spec_get_active_log_crc_pos(cdb) + u64::spec_size_of() <
+            log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= pm_region_view.len()
 }
 
 // This invariant says that the log area of the given
 // persistent-memory region view is consistent with both the log
-// information `info` and the abstract log state `state`. Also,
-// `info` satisfies certain invariant properties and is consistent
-// with `state`.
+// information `info` and the abstract log state `state`. (Or, if
+// `after_flush` is true, it means it *will* be consistent after a
+// flush that ensures the durable and read states match.) Also, `info`
+// satisfies certain invariant properties and is consistent with
+// `state`.
 //
 // This means three things for every relative log position
 // `pos` and its corresponding persistent-memory byte `pmb`:
@@ -194,6 +209,7 @@ pub open spec fn info_consistent_with_log_area(
     log_size: nat,
     info: LogInfo,
     state: AbstractLogState,
+    after_flush: bool,
 ) -> bool
 {
     // `info` satisfies certain invariant properties
@@ -217,7 +233,10 @@ pub open spec fn info_consistent_with_log_area(
             let absolute_addr = log_start_addr + spec_log_area_pos() + log_area_offset;
             &&& 0 <= pos_relative_to_head < info.log_length ==> {
                     &&& pm_region_view.read_state[absolute_addr] == state.log[pos_relative_to_head]
-                    &&& pm_region_view.read_state[absolute_addr] == pm_region_view.durable_state[absolute_addr]
+                    &&& {
+                           ||| after_flush
+                           ||| pm_region_view.read_state[absolute_addr] == pm_region_view.durable_state[absolute_addr]
+                       }
                 }
             &&& info.log_length <= pos_relative_to_head < info.log_plus_pending_length ==>
                     pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
@@ -273,7 +292,7 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
     state: AbstractLogState, 
 )
     requires 
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, prev_info, prev_state, false),
         state == prev_state.advance_head(new_head),
         // the rest of the precondition is parts of info_consistent_with_log_area that we already know
         // are satisfied
@@ -311,8 +330,7 @@ pub proof fn lemma_log_area_consistent_with_new_info_and_state_advance_head(
                    pm_region_view.read_state[absolute_addr] == state.pending[pos_relative_to_head - info.log_length]
         }
     ensures 
-        pm_region_view.flush_predicted() ==>
-            info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, true),
 {
     lemma_addresses_in_log_area_correspond_to_relative_log_positions(pm_region_view, log_start_addr, log_size, prev_info);
 }
@@ -436,8 +454,8 @@ pub proof fn lemma_if_view_differs_only_in_log_area_parts_not_accessed_by_recove
     requires
         no_outstanding_writes_to_metadata(v1, log_start_addr),
         memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
-        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state, false),
         log_size == info.log_area_len + spec_log_area_pos(),
         log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
         v1.len() == v2.len(),
@@ -475,8 +493,8 @@ pub proof fn lemma_if_view_differs_only_in_inactive_metadata_and_unreachable_log
     requires 
         no_outstanding_writes_to_metadata(v1, log_start_addr),
         memory_matches_deserialized_cdb(v1, log_start_addr, cdb),
-        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(v1, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(v1, log_start_addr, log_size, info, state, false),
         log_size == info.log_area_len + spec_log_area_pos(),
         log_start_addr + spec_log_area_pos() + info.log_area_len <= v1.len(),
         v1.len() == v2.len(),
@@ -698,8 +716,8 @@ pub proof fn lemma_invariants_imply_crash_recover_forall(
 )
     requires
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
         metadata_types_set(pm_region_view.durable_state, log_start_addr),
     ensures
         ({
@@ -742,8 +760,8 @@ proof fn lemma_invariants_imply_crash_recover(
 )
     requires
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
         metadata_types_set(pm_region_view.durable_state, log_start_addr),
     ensures
         ({
@@ -816,8 +834,8 @@ proof fn lemma_invariants_imply_crash_recover_for_one_log(
 )
     requires
         log_start_addr < log_start_addr + log_size <= pm_region_view.len(),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
     ensures
         recover_given_cdb(pm_region_view.durable_state, log_start_addr, log_size, cdb) == Some(state.drop_pending_appends())
 {
@@ -865,16 +883,16 @@ pub proof fn lemma_metadata_consistent_with_info_after_cdb_update(
         new_pm_region_view.flush_predicted(),
         new_pm_region_view.read_state == update_bytes(old_pm_region_view.read_state, log_start_addr as int,
                                                       new_cdb_bytes),
-        metadata_consistent_with_info(old_pm_region_view, log_start_addr, log_size, new_cdb, info),
+        metadata_consistent_with_info(old_pm_region_view, log_start_addr, log_size, new_cdb, info, false),
     ensures
-        metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info),
+        metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info, false),
 {
     broadcast use pmcopy_axioms;
     let old_mem = old_pm_region_view.durable_state;
     let new_mem = new_pm_region_view.durable_state;
     lemma_establish_extract_bytes_equivalence(old_mem, new_mem);
     assert(extract_bytes(new_mem, log_start_addr, u64::spec_size_of()) == new_cdb_bytes);
-    assert(metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info));
+    assert(metadata_consistent_with_info(new_pm_region_view, log_start_addr, log_size, new_cdb, info, false));
 }
 
 pub proof fn lemma_metadata_types_set_after_cdb_update(
@@ -931,17 +949,17 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
 )
     requires
         memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb),
-        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info),
-        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state),
+        metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false),
+        info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false),
         metadata_types_set(pm_region_view.durable_state, log_start_addr),
         log_start_addr + spec_log_area_pos() <= pm_region_view.len(),
     ensures
-        (pm_region_view.flush_predicted() ==> {
+        pm_region_view.flush_predicted() ==> {
             &&& memory_matches_deserialized_cdb(pm_region_view, log_start_addr, cdb)
-            &&& metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info)
-            &&& info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state)
-            &&& metadata_types_set(pm_region_view.durable_state, log_start_addr)
-        }),
+            &&& metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false)
+            &&& info_consistent_with_log_area(pm_region_view, log_start_addr, log_size, info, state, false)
+            &&& metadata_types_set(pm_region_view.read_state, log_start_addr)
+        },
 {
     assert(spec_log_header_area_size() <= spec_log_area_pos()) by {
         reveal(spec_padding_needed);
@@ -956,7 +974,7 @@ pub proof fn lemma_flushing_metadata_maintains_invariants(
     // flush, observe that everywhere the bytes match, any call to
     // `extract_bytes` will also match.
 
-    assert(metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info)) by {
+    assert(metadata_consistent_with_info(pm_region_view, log_start_addr, log_size, cdb, info, false)) by {
         lemma_establish_extract_bytes_equivalence(pm_region_view.durable_state, pm_region_view.durable_state);
     }
 
