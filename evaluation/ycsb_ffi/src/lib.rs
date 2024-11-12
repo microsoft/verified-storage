@@ -3,11 +3,10 @@ use jni::objects::{JClass, JByteArray};
 use jni::sys::jlong;
 
 use storage_node::kv::kvimpl_t::*;
-use storage_node::kv::volatile::volatileimpl_v::*;
 use storage_node::pmem::linux_pmemfile_t::*;
 use storage_node::pmem::pmcopy_t::*;
 use storage_node::pmem::traits_t::{ConstPmSized, PmSized, UnsafeSpecPmSized, PmSafe};
-use pmsafe::{PmSized, PmSafe};
+use pmsafe::{PmCopy};
 #[allow(unused_imports)]
 use builtin::*;
 #[allow(unused_imports)]
@@ -15,42 +14,35 @@ use builtin_macros::*;
 
 const MAX_KEY_LEN: usize = 1024;
 const MAX_ITEM_LEN: usize = 1140; 
-const REGION_SIZE: u64 = 1024*1024*1024*10; // 20GB
+// TODO: make region size a command line arg?
+const REGION_SIZE: u64 = 1024*1024*1024*10; // 10GB 
 const NUM_KEYS: u64 = 500001; 
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
 
 struct YcsbKV {
-    kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>,
-    kvstore_id: u128,
+    kv: KvStore::<FileBackedPersistentMemoryRegion, YcsbKey, YcsbItem, TestListElement>,
+    _kvstore_id: u128,
 }
 
 pub fn main() {
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
+    // TODO: don't hardcode this path
+    let kv_file = "/home/ubuntu/kv_file";
 
     let node_size = 16;
 
     // delete the test files if they already exist. Ignore the result,
     // since it's ok if the files don't exist.
-    remove_file(log_file_name);
-    remove_file(metadata_file_name);
-    remove_file(item_table_file_name);
-    remove_file(list_file_name);
+    remove_file(kv_file);
+
+    // TODO: update kv store to not use reserve any space for list?
 
     // Create a file, and a PM region, for each component
-    let mut log_region = create_pm_region(log_file_name, REGION_SIZE);
-    let mut metadata_region = create_pm_region(metadata_file_name, REGION_SIZE);
-    let mut item_table_region = create_pm_region(item_table_file_name, REGION_SIZE);
-    let mut list_region = create_pm_region(list_file_name, REGION_SIZE);
-
+    let mut kv_region = create_pm_region(kv_file, REGION_SIZE);
     println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", NUM_KEYS, node_size, REGION_SIZE);
-    KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::setup(
-        &mut metadata_region, &mut item_table_region, &mut list_region, &mut log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
+    KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
+        &mut kv_region, KVSTORE_ID, NUM_KEYS, node_size, 1).unwrap();
     println!("Done setting up! You can now run YCSB workloads");
 }
 
@@ -58,26 +50,17 @@ pub fn main() {
 pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<'local>,
         _class: JClass<'local>) -> jlong {
 
-    // TODO: these should be parameters in a config file or something
-    let log_file_name = "/home/hayley/kv_files/test_log";
-    let metadata_file_name = "/home/hayley/kv_files/test_metadata";
-    let item_table_file_name = "/home/hayley/kv_files/test_item";
-    let list_file_name = "/home/hayley/kv_files/test_list";
-
-    let node_size = 16;
+    // TODO: don't hardcode this path
+    let kv_file = "/home/ubuntu/kv_file";
 
     // Create a file, and a PM region, for each component
-    let log_region = open_pm_region(log_file_name, REGION_SIZE);
-    let metadata_region = open_pm_region(metadata_file_name, REGION_SIZE);
-    let item_table_region = open_pm_region(item_table_file_name, REGION_SIZE);
-    let list_region = open_pm_region(list_file_name, REGION_SIZE);
+    let kv_region = open_pm_region(kv_file, REGION_SIZE);
 
-    let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement, VolatileKvIndexImpl<YcsbKey>>::start(
-        metadata_region, item_table_region, list_region, log_region, KVSTORE_ID, NUM_KEYS, node_size).unwrap();
+    let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 
     let ret = Box::new(YcsbKV {
         kv,
-        kvstore_id: KVSTORE_ID
+        _kvstore_id: KVSTORE_ID
     });
     Box::into_raw(ret) as i64
 }
@@ -122,7 +105,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInsert<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.create(&ycsb_key, &ycsb_item, kv.kvstore_id);
+    let ret = kv.kv.create(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -208,7 +191,7 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
     let ycsb_key = YcsbKey::new(&env, key);
     let ycsb_item = YcsbItem::new(&env, values);
 
-    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item, kv.kvstore_id);
+    let ret = kv.kv.update_item(&ycsb_key, &ycsb_item);
     match ret {
         Ok(_) => {}
         Err(e) => {
@@ -255,11 +238,10 @@ fn open_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemo
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug, Hash, PartialEq, Eq)]
 struct YcsbKey {
     key: [i8; MAX_KEY_LEN],
 }
-impl PmCopy for YcsbKey {}
 
 impl YcsbKey {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
@@ -273,11 +255,10 @@ impl YcsbKey {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug, PartialEq, Eq)]
+#[derive(PmCopy, Copy, Debug, PartialEq, Eq)]
 struct YcsbItem {
     item: [i8; MAX_ITEM_LEN]
 }
-impl PmCopy for YcsbItem {}
 
 impl YcsbItem {
     fn new<'local>(env: &JNIEnv<'local>, bytes: JByteArray<'local>) -> Self 
@@ -291,11 +272,10 @@ impl YcsbItem {
 }
 
 #[repr(C)]
-#[derive(PmSafe, PmSized, Copy, Debug)]
+#[derive(PmCopy, Copy, Debug)]
 struct TestListElement {
     val: u64,
 }
-impl PmCopy for TestListElement {}
 
 fn remove_file(name: &str) {
     let _ = std::fs::remove_file(name);
