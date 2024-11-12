@@ -254,6 +254,39 @@ where
         result
     }
 
+    pub exec fn delete(
+        &mut self,
+        key: &K,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().delete(*key)
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyNotFound) => {
+                    &&& self@ == old(self)@
+                    &&& !old(self).tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        let tracked perm = TrustedKvPermission::<PM>::new_one_possibility(self.id, self@);
+        let result = self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm));
+        result
+    }
+
     /* 
     pub fn start(
         metadata_pmem: PM,

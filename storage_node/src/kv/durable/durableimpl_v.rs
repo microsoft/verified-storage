@@ -6504,6 +6504,28 @@ verus! {
             assert(get_subregion_view(pm, start, len).committed() =~= extract_bytes(pm.committed(), start, len));
         }
 
+        proof fn lemma_valid_implies_all_crash_states_satisfy_perm(
+            self,
+            perm: &Perm
+        )
+            requires 
+                self.valid(),
+                !self.transaction_committed(),
+                forall |s| {
+                    &&& Self::physical_recover(s, self.spec_version_metadata(), self.spec_overall_metadata()) == Some(self@)
+                    &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                } ==> #[trigger] perm.check_permission(s),
+            ensures 
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s)
+        {
+            assert forall |s| self.wrpm_view().can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
+                broadcast use pmcopy_axioms;
+                lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
+                lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
+                assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed()));
+            }
+        }
+
         proof fn lemma_tentative_view_after_appending_delete_log_entry_includes_new_log_entry(
             self,
             old_self: Self,
@@ -6700,18 +6722,13 @@ verus! {
         ) -> (result: Result<(), KvError<K>>)
             requires
                 old(self).valid(),
-                old(self)@.contains_key(index as int),
+                old(self).tentative_view() is Some,
+                old(self).tentative_view().unwrap().contains_key(index as int),
                 !old(self).transaction_committed(),
-                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> perm.check_permission(s),
-                forall |s| #[trigger] old(self).wrpm_view().can_crash_as(s) ==> {
-                    &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
-                    &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
-                },
                 forall |s| {
                     &&& Self::physical_recover(s, old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@)
                     &&& version_and_overall_metadata_match_deserialized(s, old(self).wrpm_view().committed())
                 } ==> #[trigger] perm.check_permission(s),
-                Self::physical_recover(old(self).wrpm_view().committed(), old(self).spec_version_metadata(), old(self).spec_overall_metadata()) == Some(old(self)@),
                 no_outstanding_writes_to_version_metadata(old(self).wrpm_view()),
                 no_outstanding_writes_to_overall_metadata(old(self).wrpm_view(), old(self).spec_overall_metadata_addr() as int),
                 old(self).wrpm_view().len() >= VersionMetadata::spec_size_of(),
@@ -6723,25 +6740,31 @@ verus! {
             ensures 
                 self.valid(),
                 self.constants() == old(self).constants(),
+                !self.transaction_committed(),
                 self.spec_overall_metadata() == old(self).spec_overall_metadata(),
+                self@ == old(self)@,
+                self.tentative_view_inv(),
+                forall |s| self.wrpm_view().can_crash_as(s) ==> #[trigger] perm.check_permission(s),
                 match result {
                     Ok(()) => {
-                        // in the tentative view of the log, the key has been removed
-                        let tentative_view = self.tentative_view();
-                        &&& tentative_view matches Some(tentative_view)
-                        &&& !tentative_view.contains_key(index as int)
+                        self.tentative_view() == Some(old(self).tentative_view().unwrap().delete(index as int).unwrap())
                     }
                     Err(e) => {
                         // transaction has been aborted due to an error in the log
                         // this drops all outstanding modifications to the kv store
                         let tentative_view = self.tentative_view();
+                        &&& e is CRCMismatch || e is OutOfSpace
                         &&& tentative_view == Self::physical_recover_given_log(self.wrpm_view().flush().committed(), 
                               self.spec_overall_metadata(), AbstractOpLogState::initialize())
                         &&& self@ == old(self)@
+                        &&& Some(self@) == self.tentative_view()
+                        &&& e is CRCMismatch ==> !self.constants().impervious_to_corruption
                     }
                 }
         {
-            assert(forall |idx: u64| old(self).main_table.free_list().contains(idx) ==> idx < self.overall_metadata.num_keys);
+            assert(forall |idx: u64| old(self).main_table.free_list().contains(idx) ==> 
+                idx < self.overall_metadata.num_keys);
+            
             let pm = self.wrpm.get_pm_region_ref();
             let main_table_subregion = PersistentMemorySubregion::new(
                 pm,
@@ -6764,6 +6787,8 @@ verus! {
                 assert(main_table_subregion_view.can_crash_as(main_table_subregion_view.flush().committed()));
                 assert(main_table_subregion_view.flush() == get_subregion_view(self.wrpm@.flush(),
                     self.overall_metadata.main_table_addr as nat, self.overall_metadata.main_table_size as nat));
+
+                self.lemma_valid_implies_all_crash_states_satisfy_perm(perm);
             }
 
             // We have to read the current item index from the entry so that we can 
@@ -6826,6 +6851,16 @@ verus! {
                 &&& version_and_overall_metadata_match_deserialized(s, self.wrpm@.committed())
             };
 
+            proof {
+                assert(self.wrpm_view().can_crash_as(self.wrpm_view().committed()));
+                assert forall |s| self.wrpm_view().can_crash_as(s) implies #[trigger] crash_pred(s) by {
+                    broadcast use pmcopy_axioms;
+                    lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(self.wrpm_view());
+                    lemma_establish_extract_bytes_equivalence(s, self.wrpm_view().committed());
+                    assert(version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed()));
+                }
+            }
+
             self.append_log_entry_helper(Ghost(*old(self)), log_entry, Ghost(crash_pred), Tracked(perm))?;
 
             proof {
@@ -6872,6 +6907,8 @@ verus! {
                 assert(new_tentative_item_table_bytes == old_tentative_item_table_bytes);
                 assert(self.tentative_item_table() == old(self).tentative_item_table().delete(item_index as int));
             }
+
+            assert(self.tentative_view() == Some(old(self).tentative_view().unwrap().delete(index as int).unwrap()));
 
             Ok(())
         }

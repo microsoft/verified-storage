@@ -776,11 +776,7 @@ where
         requires 
             old(self).valid(),
             old(self)@.id == kvstore_id,
-            forall |s| #[trigger] perm.check_permission(s) <==> {
-                &&& {
-                    ||| Self::recover(s, kvstore_id) == Some(old(self)@)
-                }
-            },
+            forall |s| #[trigger] perm.check_permission(s) <==> Self::recover(s, kvstore_id) == Some(old(self)@),
         ensures 
             self.valid(),
             self@.id == old(self)@.id,
@@ -803,7 +799,6 @@ where
                 Err(_) => false,
             }
     {
-
         proof { 
             broadcast use vstd::std_specs::hash::group_hash_axioms;
             self.durable_store.lemma_valid_implies_inv();
@@ -967,6 +962,152 @@ where
             
             assert(self.valid());
         }
+        Ok(())
+    }
+
+    pub exec fn untrusted_delete(
+        &mut self,
+        key: &K,
+        kvstore_id: u128,
+        Tracked(perm): Tracked<&TrustedKvPermission<PM>>,
+    ) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+            old(self)@.id == kvstore_id,
+            forall |s| #[trigger] perm.check_permission(s) <==> {
+                Self::recover(s, kvstore_id) == Some(old(self)@)
+            },
+        ensures 
+            self.valid(),
+            self@.id == old(self)@.id,
+            match result {
+                Ok(()) => 
+                    Ok::<AbstractKvStoreState<K, I, L>, KvError<K>>(self.tentative_view()) == 
+                        old(self).tentative_view().delete(*key),
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::KeyNotFound) => {
+                    &&& self@ == old(self)@
+                    &&& !old(self).tentative_view().contains_key(*key)
+                },
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        proof { 
+            broadcast use vstd::std_specs::hash::group_hash_axioms;
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key_durable(); 
+            self.durable_store.lemma_main_table_index_key_tentative(); 
+            self.durable_store.lemma_reveal_opaque_inv();
+        }
+
+        // 1. Look up the key in the volatile index. If it does not exist,
+        // return error.
+        let index = match self.volatile_index.get(key) {
+            Some(index) => index,
+            None => {
+                assert(!self.tentative_view().contains_key(*key));
+                return Err(KvError::KeyNotFound);
+            }
+        };
+
+        proof {
+            self.lemma_if_key_in_tentative_volatile_index_then_key_in_tentative_view(*key, index, kvstore_id);
+            self.durable_store.lemma_reveal_opaque_inv();
+
+            let version_metadata = self.durable_store.spec_version_metadata();
+            let overall_metadata = self.durable_store.spec_overall_metadata();
+            let durable_kvstore_state = DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(
+                    self.wrpm_view().committed(), version_metadata, overall_metadata);
+
+            assert forall |s| {
+                &&& version_and_overall_metadata_match_deserialized(s, self.wrpm_view().committed())
+                &&& durable_kvstore_state == DurableKvStore::<TrustedKvPermission<PM>, PM, K, I, L>::physical_recover(s, version_metadata, overall_metadata)
+            } implies #[trigger] Self::recover(s, kvstore_id) == Some(self@) by {                
+                assert(memory_correctly_set_up_on_region::<K, I, L>(s, kvstore_id)) by {
+                    broadcast use pmcopy_axioms;
+                }
+            }
+        }
+
+        // 2. Tentatively delete the item in the durable store
+        let result = self.durable_store.tentative_delete(index, Tracked(perm));
+        if let Err(e) = result {
+            self.volatile_index.abort_transaction();
+            proof {
+                self.durable_store.lemma_valid_implies_inv();
+                self.durable_store.lemma_reveal_opaque_inv();
+                self.durable_store.lemma_overall_metadata_addr();
+                assert(perm.check_permission(self.wrpm_view().committed()));
+            }
+            return Err(e);
+        }
+
+        // 3. Update the volatile index to reflect the pending deletion
+        self.volatile_index.remove(key)?;
+
+        proof {
+            assert(old(self).tentative_view().delete(*key) is Ok);
+            assert(self.durable_store.tentative_view() is Some);
+            assert(old(self).durable_store.tentative_view().unwrap().delete(index as int).unwrap() == 
+                self.durable_store.tentative_view().unwrap());
+
+            let new_durable_store_state = self.durable_store.tentative_view().unwrap();
+            let new_index_to_key = Map::new(
+                |i| new_durable_store_state.contents.dom().contains(i),
+                |i| new_durable_store_state.contents[i].key
+            );
+            let new_key_to_index = new_index_to_key.invert();
+    
+            let old_durable_store_state = old(self).durable_store.tentative_view().unwrap();
+            let old_index_to_key = Map::new(
+                |i| old_durable_store_state.contents.dom().contains(i),
+                |i| old_durable_store_state.contents[i].key
+            );
+            let old_key_to_index = old_index_to_key.invert();
+
+            assert(self.durable_store.valid());
+            self.durable_store.lemma_valid_implies_inv();
+            self.durable_store.lemma_main_table_index_key_tentative();
+            lemma_injective_map_inverse(new_index_to_key);
+            lemma_injective_map_inverse(old_index_to_key);
+
+            assert(old_key_to_index.contains_key(*key));
+            assert(old_index_to_key.remove(index as int) == new_index_to_key);
+
+            assert(self.tentative_view().contents =~= 
+                old(self).tentative_view().delete(*key).unwrap().contents);
+        
+            assert(self.tentative_durable_store_matches_tentative_volatile_index()) by {
+                assert(old(self).tentative_durable_store_matches_tentative_volatile_index());
+                let durable_tentative_view = self.durable_store.tentative_view().unwrap();
+                assert forall |k: K| #[trigger] self.volatile_index.tentative_view().contains_key(k) implies {
+                    let indexed_offset = self.volatile_index.tentative_view()[k].unwrap().header_addr;
+                    &&& durable_tentative_view.contains_key(indexed_offset as int)
+                    &&& durable_tentative_view[indexed_offset as int].unwrap().key == k
+                } by {
+                    if k != key {
+                        assert(old(self).volatile_index.tentative_view().contains_key(k));
+                    } // else, trivial
+                }
+                assert forall |i: int| #[trigger] durable_tentative_view.contains_key(i) implies {
+                    &&& self.volatile_index.tentative_view().contains_key(durable_tentative_view[i].unwrap().key)
+                    &&& self.volatile_index.tentative_view()[durable_tentative_view[i].unwrap().key].unwrap().header_addr == i
+                } by {
+                    if i != index {
+                        assert(old(self).durable_store.tentative_view().unwrap().contains_key(i));
+                    } // else, trivial
+                }
+            }
+            assert(perm.check_permission(self.wrpm_view().committed()));
+        }
+
         Ok(())
     }
 

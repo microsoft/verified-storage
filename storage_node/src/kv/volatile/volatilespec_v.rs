@@ -380,6 +380,7 @@ where
             self.valid(),
             match result {
                 Ok(header_addr) => {
+                    &&& self@ == old(self)@
                     &&& old(self).tentative_view().contains_key(*key)
                     &&& self.tentative_view() == old(self).tentative_view().remove(*key)
                     &&& header_addr == old(self).tentative_view()[*key].unwrap().header_addr

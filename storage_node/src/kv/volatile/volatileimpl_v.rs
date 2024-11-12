@@ -414,8 +414,7 @@ where
         &mut self,
         key: &K
     ) -> (result: Result<u64, KvError<K>>)
-    {
-        
+    {   
         assert(self@.valid()) by {
             self.lemma_valid_implies_view_valid();
         }
