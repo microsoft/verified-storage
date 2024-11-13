@@ -316,9 +316,11 @@ verus! {
             &&& self.opaquable_inv(overall_metadata, self.tentative_valid_indices())
             &&& self@.len() == self.num_keys == overall_metadata.num_keys
             &&& pm_view.len() >= overall_metadata.item_table_size >= overall_metadata.num_keys * entry_size
-            &&& parse_item_table::<I, K>(pm_view.durable_state, overall_metadata.num_keys as nat, self.durable_valid_indices()) == Some(self@)
+            &&& parse_item_table::<I, K>(pm_view.durable_state, overall_metadata.num_keys as nat,
+                                       self.durable_valid_indices()) == Some(self@)
             &&& forall|idx: u64| self.durable_valid_indices().contains(idx) ==> {
-                let entry_bytes = extract_bytes(pm_view.durable_state, index_to_offset(idx as nat, entry_size as nat), entry_size as nat);
+                let entry_bytes = extract_bytes(pm_view.durable_state, index_to_offset(idx as nat, entry_size as nat),
+                                                entry_size as nat);
                 &&& idx < overall_metadata.num_keys
                 &&& validate_item_table_entry::<I, K>(entry_bytes)
                 &&& self@.durable_item_table[idx as int] is Some
@@ -704,25 +706,27 @@ verus! {
             // returning tentative items. 
             // However, right now, this is the only thing we CAN do because the model currently 
             // prevents us from reading outstanding bytes.
-
+            
             if self.outstanding_items.contents.contains_key(&item_table_index) {
                 match self.outstanding_items.contents.get(&item_table_index).unwrap() {
                     OutstandingItem::Created(item) => Ok(Box::new(*item)),
                     OutstandingItem::Deleted | OutstandingItem::CreatedThenDeleted => {
                         assert(false);
-                        return Err(KvError::InternalError);
-                    }
+                        Err(KvError::InternalError)
+                    },
                 }
             } else {
                 let crc_addr = item_table_index * (entry_size as u64);
                 let item_addr = crc_addr + traits_t::size_of::<u64>() as u64;
 
                 // Read the item and CRC at this slot
-                let ghost mem = pm_view.durable_state;
+                let ghost mem = pm_view.read_state;
                 let ghost entry_bytes = extract_bytes(mem, (item_table_index * entry_size) as nat, entry_size as nat);
+                assert(self.outstanding_item_table_entry_matches_pm_view(pm_view, item_table_index));
+                assert(entry_bytes =~= extract_bytes(pm_view.durable_state,
+                                                     (item_table_index * entry_size) as nat, entry_size as nat));
                 let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
                 let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
-
                 let ghost true_item = I::spec_from_bytes(true_item_bytes);
 
                 proof {
@@ -744,8 +748,9 @@ verus! {
                 };
                 
                 if !check_crc(item.as_slice(), crc.as_slice(), Ghost(true_item_bytes),
-                              Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addr as int),
-                              Ghost(crc_addr as int)) {
+                              Ghost(pm_region.constants().impervious_to_corruption),
+                              Ghost(item_addr + subregion.start()),
+                              Ghost(crc_addr + subregion.start())) {
                     return Err(KvError::CRCMismatch);
                 }
 
