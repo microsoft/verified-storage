@@ -239,6 +239,19 @@ impl UntrustedLogImpl {
         &&& self.info.log_plus_pending_length - self.info.log_length == self.state@.pending.len()
     }
 
+    pub proof fn lemma_inv_implies_can_only_crash_as_state(
+        self,
+        pm: PersistentMemoryRegionView,
+        log_start_addr: nat,
+        log_size: nat
+    )
+        requires
+            self.inv(pm, log_start_addr, log_size),
+        ensures
+            UntrustedLogImpl::recover(pm.durable_state, log_start_addr, log_size) == Some(self@.drop_pending_appends()),
+    {
+    }
+
     pub proof fn lemma_same_log_view_preserves_invariant<Perm, PM>(
         self,
         wrpm1: WriteRestrictedPersistentMemoryRegion<Perm, PM>,
@@ -2510,8 +2523,7 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(pm_region)@, log_start_addr as nat),
         ensures
             self.inv(pm_region@, log_start_addr as nat, log_size as nat),
-            Self::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat) 
-                == Some(self@.drop_pending_appends()),
+            Self::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(self@),
             pm_region.inv(),
             pm_region@.flush_predicted(),
             pm_region@.len() == old(pm_region)@.len(),
@@ -2520,7 +2532,6 @@ impl UntrustedLogImpl {
             self@.log == old(self)@.log,
             self@.head == old(self)@.head,
             self@.capacity == old(self)@.capacity,
-            Self::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(self@),
             pm_region@.read_state == old(pm_region)@.read_state,
     {
         // remove pending bytes from the log length in the concrete state

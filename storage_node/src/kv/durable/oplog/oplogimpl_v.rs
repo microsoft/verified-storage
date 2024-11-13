@@ -1287,9 +1287,9 @@ verus! {
             overall_metadata.log_area_addr as int % const_persistence_chunk_size() == 0,
             overall_metadata.log_area_size as int % const_persistence_chunk_size() == 0,
             no_outstanding_writes_to_metadata(old(log_wrpm)@, overall_metadata.log_area_addr as nat),
-            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) ==
+                Some(AbstractOpLogState::initialize()),
             overall_metadata.region_size == old(log_wrpm)@.len(),
-            Self::recover(old(log_wrpm)@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
             !old(self)@.op_list_committed,
         ensures 
             log_wrpm.constants() == old(log_wrpm).constants(),
@@ -1300,20 +1300,26 @@ verus! {
             self.base_log_view().capacity == old(self).base_log_view().capacity,
             log_wrpm@.flush_predicted(),
             log_wrpm.inv(),
-            Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize()),
+            Self::recover(log_wrpm@.durable_state, version_metadata, overall_metadata) ==
+                Some(AbstractOpLogState::initialize()),
             self.inv(log_wrpm@, version_metadata, overall_metadata), 
             self@.physical_op_list.len() == 0,
             states_differ_only_in_log_region(old(log_wrpm)@.read_state, log_wrpm@.durable_state, 
                 overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat),
             !self@.op_list_committed,
     {
-        assume(false); // TODO @jay
+        assert(self.log@.log.len() == 0) by {
+            self.log.lemma_inv_implies_can_only_crash_as_state(old(log_wrpm)@, overall_metadata.log_area_addr as nat,
+                                                               overall_metadata.log_area_size as nat);
+        }
         self.log.abort_pending_appends(log_wrpm, overall_metadata.log_area_addr, overall_metadata.log_area_size);
         self.current_transaction_crc = CrcDigest::new();
         self.state = Ghost(AbstractOpLogState {
             physical_op_list: Seq::empty(),
             op_list_committed: false
         });
+        assert(UntrustedLogImpl::recover(log_wrpm@.durable_state, overall_metadata.log_area_addr as nat,
+                                         overall_metadata.log_area_size as nat) == Some(self.log@));
     }
 
     // This function tentatively appends a log entry to the operation log. It does so 
