@@ -1816,7 +1816,6 @@ verus! {
                 parse_main_table::<K>(v2.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@),
         {
-            assume(false); // TODO @jay
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             let start_addr = which_entry * main_table_entry_size;
@@ -1824,12 +1823,8 @@ verus! {
             let crc_addr = start_addr + u64::spec_size_of();
             let can_views_differ_at_addr = |addr: int| crc_addr <= addr < end_addr;
             assert(which_entry < num_keys);
-         /*
-            let crash_state1 = lemma_get_crash_state_given_one_for_other_view_differing_only_at_certain_addresses(
-                v2, v1, crash_state2, can_views_differ_at_addr
-            );
-         */
-            let crash_state1 = v1.durable_state;
+
+         let crash_state1 = v1.durable_state;
             let crash_state2 = v2.durable_state;
             assert(parse_main_table::<K>(crash_state1, num_keys, main_table_entry_size) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
@@ -1850,6 +1845,7 @@ verus! {
             assert forall|addr: int| 0 <= addr < crash_state1.len() && crash_state1[addr] != crash_state2[addr] implies
                    #[trigger] address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys,
                                                                           main_table_entry_size) by {
+                assert(!views_match_at_addr(v1, v2, addr));
                 assert(can_views_differ_at_addr(addr));
             }
             lemma_parse_main_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
@@ -1857,8 +1853,8 @@ verus! {
             );
         }
 
-        // Since main table entries have a valid CDB, we can tentatively write the whole entry and log a commit op for it,
-        // then flip the CDB once the log has been committed
+        // Since main table entries have a valid CDB, we can tentatively write the whole entry and
+        // log a commit op for it, then flip the CDB once the log has been committed
         pub exec fn tentative_create<Perm, PM>(
             &mut self,
             subregion: &WriteRestrictedPersistentMemorySubregion,
@@ -1883,7 +1879,6 @@ verus! {
                 subregion.inv(wrpm_region, perm),
                 self.inv(subregion.view(wrpm_region), overall_metadata),
                 // self.allocator_inv(),
-                subregion.view(wrpm_region).durable_state == subregion.view(old::<&mut _>(wrpm_region)).durable_state,
                 match result {
                     Ok(index) => {
                         &&& old(self).free_list().contains(index)
@@ -1927,7 +1922,6 @@ verus! {
                     _ => false,
                 }
         {
-            assume(false); // TODO @jay
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(self.inv(old_pm_view, overall_metadata));
 
@@ -2064,7 +2058,10 @@ verus! {
             }
 
             let ghost pm_view = subregion.view(wrpm_region);
-//            assert(pm_view.durable_state == old_pm_view.durable_state);
+
+            proof {
+                lemma_auto_can_result_from_partial_write_effect();
+            }
 
             assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@)) by {
@@ -2074,10 +2071,8 @@ verus! {
                 assert(self@ == old(self)@);
             }
 
-            assert(subregion.view(wrpm_region).durable_state =~= subregion.view(old::<&mut _>(wrpm_region)).durable_state);
             assert(self.free_list() == old(self).free_list().remove(free_index));
 
-            assert(subregion.view(old::<&mut _>(wrpm_region)) == old_pm_view);
             assert forall|addr: int| {
                        let entry_size = overall_metadata.main_table_entry_size as nat;
                        let start = index_to_offset(free_index as nat, entry_size);
@@ -2148,6 +2143,7 @@ verus! {
                     }
                 }
             }
+
             Ok(free_index)
         }
 
