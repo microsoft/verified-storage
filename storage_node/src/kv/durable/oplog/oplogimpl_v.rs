@@ -161,6 +161,7 @@ verus! {
                 &&& log_ops is Some 
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& Self::recover(pm_region.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
+                &&& Self::recover(pm_region.read_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
             }
             &&& self@.op_list_committed ==> {
                 let log_contents = Self::get_log_contents(self.log@);
@@ -171,6 +172,7 @@ verus! {
                 &&& log_ops.unwrap() == self@.physical_op_list
                 &&& self.log@.log.len() > 0
                 &&& Self::recover(pm_region.durable_state, version_metadata, overall_metadata) == Some(self@)
+                &&& Self::recover(pm_region.read_state, version_metadata, overall_metadata) == Some(self@)
             }
             &&& forall |i: int| 0 <= i < self@.physical_op_list.len() ==> {
                     let op = #[trigger] self@.physical_op_list[i];
@@ -203,6 +205,7 @@ verus! {
                     &&& log_ops is Some 
                     &&& log_ops.unwrap() == self@.physical_op_list
                     &&& Self::recover(pm_region@.durable_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
+                    &&& Self::recover(pm_region@.read_state, version_metadata, overall_metadata) == Some(AbstractOpLogState::initialize())
                 },
                 self@.op_list_committed ==> {
                     let log_contents = Self::get_log_contents(self.base_log_view());
@@ -215,6 +218,7 @@ verus! {
                     &&& log_ops.unwrap() == self@.physical_op_list
                     &&& self.base_log_view().log.len() > 0
                     &&& Self::recover(pm_region@.durable_state, version_metadata, overall_metadata) == Some(self@)
+                    &&& Self::recover(pm_region@.read_state, version_metadata, overall_metadata) == Some(self@)
                 },
                 self.spec_base_log().inv(pm_region@, overall_metadata.log_area_addr as nat,
                     overall_metadata.log_area_size as nat),
@@ -756,17 +760,42 @@ verus! {
                 by {
                     let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr <
                         overall_metadata.log_area_addr + overall_metadata.log_area_size;
-                    let s1 = wrpm1@.durable_state;
-                    let s2 = wrpm2@.durable_state;
                     assert forall |addr: int| overall_metadata.log_area_addr <= addr <
                         overall_metadata.log_area_addr + overall_metadata.log_area_size 
-                        implies s1[addr] == s2[addr] 
+                        implies wrpm1@.durable_state[addr] == wrpm2@.durable_state[addr] 
                     by { assert(views_must_match_at_addr(addr)); }
-                    assert(extract_bytes(s1, overall_metadata.log_area_addr as nat,
+                    assert(extract_bytes(wrpm1@.durable_state, overall_metadata.log_area_addr as nat,
                                          overall_metadata.log_area_size as nat) == 
-                        extract_bytes(s2, overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat));
-                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(s2, s1,
-                        overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                        extract_bytes(wrpm2@.durable_state, overall_metadata.log_area_addr as nat,
+                                      overall_metadata.log_area_size as nat));
+                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(
+                        wrpm2@.durable_state,
+                        wrpm1@.durable_state,
+                        overall_metadata.log_area_addr as nat,
+                        overall_metadata.log_area_size as nat
+                    );
+                }
+
+                assert(Self::recover(wrpm2@.read_state, version_metadata, overall_metadata) ==
+                       Some(AbstractOpLogState::initialize()))
+                by {
+                    // TODO: refactor this proof -- it's exactly the same as above
+                    let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr <
+                        overall_metadata.log_area_addr + overall_metadata.log_area_size;
+                    assert forall |addr: int| overall_metadata.log_area_addr <= addr <
+                        overall_metadata.log_area_addr + overall_metadata.log_area_size 
+                        implies wrpm1@.read_state[addr] == wrpm2@.read_state[addr] 
+                    by { assert(views_must_match_at_addr(addr)); }
+                    assert(extract_bytes(wrpm1@.read_state, overall_metadata.log_area_addr as nat,
+                                         overall_metadata.log_area_size as nat) == 
+                        extract_bytes(wrpm2@.read_state, overall_metadata.log_area_addr as nat,
+                                      overall_metadata.log_area_size as nat));
+                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(
+                        wrpm2@.read_state,
+                        wrpm1@.read_state,
+                        overall_metadata.log_area_addr as nat,
+                        overall_metadata.log_area_size as nat
+                    );
                 }
             } else {
                 // If the op list is the same, we the proof is the same, but we are instead proving that 
@@ -776,18 +805,41 @@ verus! {
                     // TODO: refactor this proof -- it's exactly the same as above
                     let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr <
                         overall_metadata.log_area_addr + overall_metadata.log_area_size;
-                    let s1 = wrpm1@.durable_state;
-                    let s2 = wrpm2@.durable_state;
                     assert forall |addr: int| overall_metadata.log_area_addr <= addr <
                         overall_metadata.log_area_addr + overall_metadata.log_area_size 
-                        implies s1[addr] == s2[addr] 
+                        implies wrpm1@.durable_state[addr] == wrpm2@.durable_state[addr] 
                     by { assert(views_must_match_at_addr(addr)); }
-                    assert(extract_bytes(s1, overall_metadata.log_area_addr as nat,
+                    assert(extract_bytes(wrpm1@.durable_state, overall_metadata.log_area_addr as nat,
                                          overall_metadata.log_area_size as nat) == 
-                           extract_bytes(s2, overall_metadata.log_area_addr as nat,
+                           extract_bytes(wrpm2@.durable_state, overall_metadata.log_area_addr as nat,
                                          overall_metadata.log_area_size as nat));
-                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(s2, s1,
-                        overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat);
+                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(
+                        wrpm2@.durable_state,
+                        wrpm1@.durable_state,
+                        overall_metadata.log_area_addr as nat,
+                        overall_metadata.log_area_size as nat
+                    );
+                }
+
+                assert(Self::recover(wrpm2@.read_state, version_metadata, overall_metadata) == Some(self@))
+                by {
+                    // TODO: refactor this proof -- it's exactly the same as above
+                    let views_must_match_at_addr = |addr: int| overall_metadata.log_area_addr <= addr <
+                        overall_metadata.log_area_addr + overall_metadata.log_area_size;
+                    assert forall |addr: int| overall_metadata.log_area_addr <= addr <
+                        overall_metadata.log_area_addr + overall_metadata.log_area_size 
+                        implies wrpm1@.read_state[addr] == wrpm2@.read_state[addr] 
+                    by { assert(views_must_match_at_addr(addr)); }
+                    assert(extract_bytes(wrpm1@.read_state, overall_metadata.log_area_addr as nat,
+                                         overall_metadata.log_area_size as nat) == 
+                           extract_bytes(wrpm2@.read_state, overall_metadata.log_area_addr as nat,
+                                         overall_metadata.log_area_size as nat));
+                    UntrustedLogImpl::lemma_same_log_bytes_recover_to_same_state(
+                        wrpm2@.read_state,
+                        wrpm1@.read_state,
+                        overall_metadata.log_area_addr as nat,
+                        overall_metadata.log_area_size as nat
+                    );
                 }
             }
         }
