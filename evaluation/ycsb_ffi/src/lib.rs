@@ -12,11 +12,11 @@ use builtin::*;
 #[allow(unused_imports)]
 use builtin_macros::*;
 
+use serde::Deserialize;
+use std::fs;
+
 const MAX_KEY_LEN: usize = 1024;
 const MAX_ITEM_LEN: usize = 1140; 
-// TODO: make region size a command line arg?
-const REGION_SIZE: u64 = 1024*1024*1024*10; // 10GB 
-const NUM_KEYS: u64 = 500001; 
 
 // use a constant log id so we don't run into issues trying to restore a KV
 const KVSTORE_ID: u128 = 500;
@@ -26,23 +26,45 @@ struct YcsbKV {
     _kvstore_id: u128,
 }
 
-pub fn main() {
-    // TODO: don't hardcode this path
-    let kv_file = "/home/ubuntu/kv_file";
+#[derive(Deserialize, Debug)]
+struct Config {
+    kv_file: String,
+    node_size: u32, 
+    num_keys: u64, 
+    region_size: u64, 
+}
 
-    let node_size = 16;
+fn parse_configs() -> Config {
+    // TODO: take as a command line argument
+    let config_file = "capybarakv_config.toml";
+    let config_contents = match fs::read_to_string(config_file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Could not read file `{}`: {}", config_file, e);
+            panic!();
+        }
+    };
+
+    // TODO: Proper error handling of invalid config files
+    let config: Config = toml::from_str(&config_contents).unwrap();
+    println!("config: {:?}", config);
+    config
+}
+
+pub fn main() {
+    
+    let config = parse_configs();
 
     // delete the test files if they already exist. Ignore the result,
     // since it's ok if the files don't exist.
-    remove_file(kv_file);
+    remove_file(&config.kv_file);
 
     // TODO: update kv store to not use reserve any space for list?
-
     // Create a file, and a PM region, for each component
-    let mut kv_region = create_pm_region(kv_file, REGION_SIZE);
-    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", NUM_KEYS, node_size, REGION_SIZE);
+    let mut kv_region = create_pm_region(&config.kv_file, config.region_size);
+    println!("Setting up KV with {:?} keys, {:?}B nodes, {:?}B regions", config.num_keys, config.node_size, config.region_size);
     KvStore::<_, YcsbKey, YcsbItem, TestListElement>::setup(
-        &mut kv_region, KVSTORE_ID, NUM_KEYS, node_size, 1).unwrap();
+        &mut kv_region, KVSTORE_ID, config.num_keys, config.node_size, 1).unwrap();
     println!("Done setting up! You can now run YCSB workloads");
 }
 
@@ -50,11 +72,10 @@ pub fn main() {
 pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvInit<'local>(_env: JNIEnv<'local>,
         _class: JClass<'local>) -> jlong {
 
-    // TODO: don't hardcode this path
-    let kv_file = "/home/ubuntu/kv_file";
+    let config = parse_configs();
 
     // Create a file, and a PM region, for each component
-    let kv_region = open_pm_region(kv_file, REGION_SIZE);
+    let kv_region = open_pm_region(&config.kv_file, config.region_size);
 
     let kv = KvStore::<_, YcsbKey, YcsbItem, TestListElement>::start(kv_region, KVSTORE_ID).unwrap();
 
