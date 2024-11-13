@@ -213,7 +213,8 @@ impl UntrustedLogImpl {
         state: AbstractLogState,
     ) -> bool
     {
-        UntrustedLogImpl::recover(pm_region_view.durable_state, log_start_addr, log_size) == Some(state)
+        &&& UntrustedLogImpl::recover(pm_region_view.durable_state, log_start_addr, log_size) == Some(state)
+        &&& UntrustedLogImpl::recover(pm_region_view.read_state, log_start_addr, log_size) == Some(state)
     }
 
     // This function specifies how to view the in-memory state of
@@ -335,12 +336,19 @@ impl UntrustedLogImpl {
         
         assert(Self::recover(v2.durable_state, log_start_addr, log_size) == Some(self.state@.drop_pending_appends()))
         by {
-            /*
-            let s1 = lemma_get_crash_state_given_one_for_other_view_same_at_certain_addresses(
-                v2, v1, s2, views_must_match_at_addr);
-            */
             let s1 = v1.durable_state;
             let s2 = v2.durable_state;
+            assert forall |addr: int| log_start_addr <= addr < log_start_addr + log_size implies s1[addr] == s2[addr] by {
+                assert(views_must_match_at_addr(addr));
+            }
+            assert(extract_bytes(s1, log_start_addr, log_size) == extract_bytes(s2, log_start_addr, log_size));
+            Self::lemma_same_log_bytes_recover_to_same_state(s1, s2, log_start_addr, log_size);
+        }
+        
+        assert(Self::recover(v2.read_state, log_start_addr, log_size) == Some(self.state@.drop_pending_appends()))
+        by {
+            let s1 = v1.read_state;
+            let s2 = v2.read_state;
             assert forall |addr: int| log_start_addr <= addr < log_start_addr + log_size implies s1[addr] == s2[addr] by {
                 assert(views_must_match_at_addr(addr));
             }
@@ -795,8 +803,8 @@ impl UntrustedLogImpl {
                 &&& Self::recover(s1, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
                 &&& Self::recover(s2, log_start_addr as nat, log_size as nat) == Some(self@.drop_pending_appends())
             } ==> #[trigger] crash_pred(s2),
-            UntrustedLogImpl::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat) ==
-                Some(self.state@.drop_pending_appends()),
+            Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat,
+                                          self.state@.drop_pending_appends()),
             ({
                 ||| {
                     &&& self.info.log_plus_pending_length >= self.info.log_area_len - self.info.head_log_area_offset
@@ -812,6 +820,12 @@ impl UntrustedLogImpl {
         ensures 
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr, log_size,
                                           self.state@.drop_pending_appends()),
+            ({
+                let s = update_bytes(wrpm_region@.read_state, 
+                                     log_start_addr + spec_log_area_pos() + write_addr,
+                                     bytes_to_append);
+                UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self.state@.drop_pending_appends())
+            }),
             forall|s: Seq<u8>| #[trigger] can_result_from_partial_write(s, wrpm_region@.durable_state,
                                                                    log_start_addr + spec_log_area_pos() + write_addr,
                                                                    bytes_to_append)
@@ -836,6 +850,20 @@ impl UntrustedLogImpl {
                 wrpm_region@, s, log_start_addr, log_size, self.info, 
                 self.state@, self.cdb, is_writable_absolute_addr
             );
+        }
+        let s = update_bytes(wrpm_region@.read_state, 
+                             log_start_addr + spec_log_area_pos() + write_addr,
+                             bytes_to_append);
+        assert(UntrustedLogImpl::recover(s, log_start_addr, log_size) == Some(self.state@.drop_pending_appends())) by {
+            assert(memories_differ_only_where_subregion_allows(wrpm_region@.read_state, s,
+                                                               log_start_addr + spec_log_area_pos(),
+                                                               self.info.log_area_len as nat,
+                                                               is_writable_absolute_addr));
+            assert(states_differ_only_in_log_region(wrpm_region@.read_state, s,
+                                                    log_start_addr as nat, log_size as nat));
+            lemma_establish_extract_bytes_equivalence(wrpm_region@.read_state, s);
+            assert(recover_state(wrpm_region@.read_state, log_start_addr as nat, log_size as nat) =~=
+                   recover_state(s, log_start_addr as nat, log_size as nat));
         }
     }
 
@@ -980,6 +1008,7 @@ impl UntrustedLogImpl {
                     Ok(log_impl) => {
                         &&& log_impl@ == state
                         &&& log_impl.inv(pm_region@, log_start_addr as nat, log_size as nat)
+                        &&& Self::can_only_crash_as_state(pm_region@, log_start_addr as nat, log_size as nat, state)
                     }
                     Err(LogErr::CRCMismatch) => !pm_region.constants().impervious_to_corruption,
                     Err(e) => e == LogErr::PmemErr{ err: PmemError::AccessOutOfRange },
@@ -1035,8 +1064,6 @@ impl UntrustedLogImpl {
             log_start_addr as int % const_persistence_chunk_size() == 0,
             log_size as int % const_persistence_chunk_size() == 0,
             crash_pred(old(wrpm_region)@.durable_state),
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) ==
-                Some(self@.drop_pending_appends()),
             forall |s1: Seq<u8>, s2: Seq<u8>| {
                 &&& s1.len() == s2.len() 
                 &&& #[trigger] crash_pred(s1)
@@ -1053,15 +1080,11 @@ impl UntrustedLogImpl {
             log_start_addr + spec_log_area_pos() <= log_start_addr + log_size <= wrpm_region@.len() <= u64::MAX,
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region@.len() == old(wrpm_region)@.len(),
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) 
-                == Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat),
-            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, 
-                log_start_addr as nat, log_size as nat),
+            views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@,
+                                            log_start_addr as nat, log_size as nat),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat,
                                           self@.drop_pending_appends()),
             crash_pred(wrpm_region@.durable_state),
-            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state,
-                                             log_start_addr as nat, log_size as nat),
             match result {
                 Ok(offset) => {
                     &&& offset == self.info.head + self.info.log_plus_pending_length
@@ -1151,8 +1174,10 @@ impl UntrustedLogImpl {
                     write_addr as int, bytes_to_append@, is_writable_absolute_addr, crash_pred);
             }
             wrpm_region.write(log_area_start_addr + write_addr, &bytes_to_append, Tracked(perm));
+            assert(info_consistent_with_log_area(wrpm_region@, log_start_addr as nat, log_size as nat, self.info, self.state@, false));
         }
         else {
+            assume(false); // TODO @jay
             // We could compute the address to write to with:
             //
             // `write_addr = old_pending_tail % info.log_area_len`
@@ -1255,6 +1280,9 @@ impl UntrustedLogImpl {
             lemma_establish_extract_bytes_equivalence(wrpm_region@.durable_state, old_wrpm_region.durable_state);
             assert(extract_bytes(wrpm_region@.durable_state, log_start_addr as nat, u64::spec_size_of()) ==
                    extract_bytes(old(wrpm_region)@.durable_state, log_start_addr as nat, u64::spec_size_of()));
+            lemma_establish_extract_bytes_equivalence(wrpm_region@.read_state, old_wrpm_region.read_state);
+            assert(extract_bytes(wrpm_region@.read_state, log_start_addr as nat, u64::spec_size_of()) ==
+                   extract_bytes(old(wrpm_region)@.read_state, log_start_addr as nat, u64::spec_size_of()));
         }
 
         Ok(old_pending_tail)
@@ -1308,15 +1336,11 @@ impl UntrustedLogImpl {
             wrpm_region.constants() == old(wrpm_region).constants(),
             wrpm_region.inv(),
             crash_pred(wrpm_region@.durable_state),
-            Self::recover(old(wrpm_region)@.durable_state, log_start_addr as nat, log_size as nat) 
-                == Self::recover(wrpm_region@.durable_state, log_start_addr as nat, log_size as nat),
             views_differ_only_in_log_region(old(wrpm_region)@, wrpm_region@, 
-                log_start_addr as nat, log_size as nat),
+                                            log_start_addr as nat, log_size as nat),
             Self::can_only_crash_as_state(wrpm_region@, log_start_addr as nat, log_size as nat,
                                           self@.drop_pending_appends()),
             no_outstanding_writes_to_metadata(wrpm_region@, log_start_addr as nat),
-            states_differ_only_in_log_region(old(wrpm_region)@.read_state, wrpm_region@.read_state,
-                                             log_start_addr as nat, log_size as nat),
             match result {
                 Ok(offset) => {
                     let state = old(self)@;
@@ -1713,6 +1737,9 @@ impl UntrustedLogImpl {
                                                                prev_info.log_area_len as int));
                 }
             }
+            lemma_if_views_differ_only_in_region_then_states_do(
+                old(wrpm_region)@, wrpm_region@, log_start_addr as nat, log_size as nat
+            );
             lemma_log_area_consistent_with_new_info_and_state_advance_head(
                 wrpm_region@, log_start_addr as nat, log_size as nat, new_head as int,
                 prev_info, self.info, prev_state, self.state@
@@ -2523,8 +2550,9 @@ impl UntrustedLogImpl {
             no_outstanding_writes_to_metadata(old(pm_region)@, log_start_addr as nat),
         ensures
             self.inv(pm_region@, log_start_addr as nat, log_size as nat),
-            Self::recover(pm_region@.durable_state, log_start_addr as nat, log_size as nat) == Some(self@),
+            Self::can_only_crash_as_state(pm_region@, log_start_addr as nat, log_size as nat, self@),
             pm_region.inv(),
+            old(pm_region)@.flush_predicted(),
             pm_region@.flush_predicted(),
             pm_region@.len() == old(pm_region)@.len(),
             pm_region.constants() == old(pm_region).constants(),

@@ -984,6 +984,35 @@ pub open spec fn views_differ_only_in_log_region(
         ==> views_match_at_addr(v1, v2, addr)
 }
 
+pub proof fn lemma_if_views_differ_only_in_region_then_states_do(
+    v1: PersistentMemoryRegionView,
+    v2: PersistentMemoryRegionView,
+    log_start_addr: nat,
+    log_size: nat
+)
+    requires
+        v1.valid(),
+        v2.valid(),
+        views_differ_only_in_log_region(v1, v2, log_start_addr, log_size),
+    ensures
+        states_differ_only_in_log_region(v1.durable_state, v2.durable_state, log_start_addr, log_size),
+        states_differ_only_in_log_region(v1.read_state, v2.read_state, log_start_addr, log_size),
+{
+    assert forall |addr: int|{
+        &&& 0 <= addr < v1.durable_state.len() 
+        &&& v1.durable_state[addr] != #[trigger] v2.durable_state[addr] 
+    } implies log_start_addr <= addr < log_start_addr + log_size by {
+        assert(!views_match_at_addr(v1, v2, addr));
+    }
+
+    assert forall |addr: int|{
+        &&& 0 <= addr < v1.read_state.len() 
+        &&& v1.read_state[addr] != #[trigger] v2.read_state[addr] 
+    } implies log_start_addr <= addr < log_start_addr + log_size by {
+        assert(!views_match_at_addr(v1, v2, addr));
+    }
+}
+
 pub proof fn lemma_if_committed_states_differ_only_in_log_region_and_no_outstanding_writes_then_views_differ_only_in_log_region(
     v1: PersistentMemoryRegionView,
     v2: PersistentMemoryRegionView,
