@@ -400,3 +400,4 @@ FodyWeavers.xsd
 */target/
 
 Cargo.lock
+!evaluation/YCSB/bin
