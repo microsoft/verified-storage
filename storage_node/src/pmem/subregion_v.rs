@@ -1125,9 +1125,7 @@ impl PersistentMemorySubregion
         requires
             self.inv(pm),
             relative_addr + S::spec_size_of() <= self.len(),
-            S::bytes_parseable(
-                extract_bytes(self.view(pm).read_state, relative_addr as nat, S::spec_size_of())
-            ),
+            S::bytes_parseable(extract_bytes(self.view(pm).read_state, relative_addr as nat, S::spec_size_of())),
         ensures
             match result {
                 Ok(bytes) => {

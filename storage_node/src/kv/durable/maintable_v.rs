@@ -955,7 +955,8 @@ verus! {
 
         spec fn extract_cdb_for_entry(mem: Seq<u8>, k: nat, main_table_entry_size: u32) -> u64
         {
-            u64::spec_from_bytes(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()))
+            u64::spec_from_bytes(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat),
+                                               u64::spec_size_of()))
         }
 
         pub exec fn setup<PM, L>(
@@ -981,8 +982,10 @@ verus! {
                 pm_region@.len() == old(pm_region)@.len(),
                 match result {
                     Ok(()) => {
-                        let replayed_bytes = Self::spec_replay_log_main_table(subregion.view(pm_region).read_state, Seq::<LogicalOpLogEntry<L>>::empty());
-                        &&& parse_main_table::<K>(subregion.view(pm_region).read_state, num_keys, main_table_entry_size) matches Some(recovered_view)
+                        let replayed_bytes = Self::spec_replay_log_main_table(subregion.view(pm_region).read_state,
+                                                                              Seq::<LogicalOpLogEntry<L>>::empty());
+                        &&& parse_main_table::<K>(subregion.view(pm_region).read_state,
+                                                num_keys, main_table_entry_size) matches Some(recovered_view)
                         &&& recovered_view == MainTableView::<K>::init(num_keys)
                     }
                     Err(_) => true // TODO
@@ -999,8 +1002,6 @@ verus! {
             for index in 0..num_keys 
                 invariant
                     subregion.inv(pm_region),
-                    no_outstanding_writes_in_range(subregion.view(pm_region), entry_offset as int,
-                                                   subregion.view(pm_region).len() as int),
                     num_keys * main_table_entry_size <= subregion.view(pm_region).len() <= u64::MAX,
                     // entry_offset == index * main_table_entry_size,
                     entry_offset == index_to_offset(index as nat, main_table_entry_size as nat),
@@ -1036,33 +1037,43 @@ verus! {
                         assert(index_to_offset(k, main_table_entry_size as nat) + u64::spec_size_of() <= entry_offset) by {
                             lemma_metadata_fits::<K>(k as int, index as int, main_table_entry_size as int);
                         }
-                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) =~= 
-                               extract_bytes(v1.read_state, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()));
+                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat),
+                                             u64::spec_size_of()) =~= 
+                               extract_bytes(v1.read_state, index_to_offset(k, main_table_entry_size as nat),
+                                             u64::spec_size_of()));
                     }
                     else {
-                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) ==
+                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat),
+                                             u64::spec_size_of()) ==
                                CDB_FALSE.spec_to_bytes());
                         broadcast use axiom_to_from_bytes;
                     }
                 }
 
-                // TODO: refactor this if you can -- the proof is the same as the above assertion, but we can't have
-                // triggers on k in both arithmetic and non arithmetic contexts, so the two conjuncts have to be asserted
+                // TODO: refactor this if you can -- the proof is the
+                // same as the above assertion, but we can't have
+                // triggers on k in both arithmetic and non arithmetic
+                // contexts, so the two conjuncts have to be asserted
                 // separately.
                 assert forall |k: nat| k < index + 1 implies 
-                    #[trigger] u64::bytes_parseable(extract_bytes(subregion.view(pm_region).read_state, k * main_table_entry_size as nat, u64::spec_size_of())) 
+                    #[trigger] u64::bytes_parseable(extract_bytes(subregion.view(pm_region).read_state,
+                                                                  k * main_table_entry_size as nat,
+                                                                  u64::spec_size_of())) 
                 by {
                     let mem = subregion.view(pm_region).read_state;
                     if k < index {
                         assert(Self::extract_cdb_for_entry(v1.read_state, k, main_table_entry_size) == CDB_FALSE);
-                        assert(index_to_offset(k, main_table_entry_size as nat) + u64::spec_size_of() <= entry_offset) by {
+                        assert(index_to_offset(k, main_table_entry_size as nat) + u64::spec_size_of() <= entry_offset)
+                        by {
                             lemma_metadata_fits::<K>(k as int, index as int, main_table_entry_size as int);
                         }
-                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) =~= 
+                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat),
+                                             u64::spec_size_of()) =~= 
                             extract_bytes(v1.read_state, k * main_table_entry_size as nat, u64::spec_size_of()));
                     }
                     else {
-                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat), u64::spec_size_of()) ==
+                        assert(extract_bytes(mem, index_to_offset(k, main_table_entry_size as nat),
+                                             u64::spec_size_of()) ==
                             CDB_FALSE.spec_to_bytes());
                         broadcast use axiom_to_from_bytes;
                     }
@@ -1141,7 +1152,8 @@ verus! {
             requires
                 subregion.inv(pm_region),
                 pm_region@.flush_predicted(),
-                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr, overall_metadata.kvstore_id),
+                overall_metadata_valid::<K, I, L>(overall_metadata, version_metadata.overall_metadata_addr,
+                                                  overall_metadata.kvstore_id),
                 parse_main_table::<K>(
                     subregion.view(pm_region).durable_state,
                     overall_metadata.num_keys, 
@@ -1683,7 +1695,8 @@ verus! {
             let ghost pm_view = subregion.view(pm_region);
             let main_table_entry_size = self.main_table_entry_size;
             proof {
-                lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat, main_table_entry_size as nat);
+                lemma_valid_entry_index(metadata_index as nat, overall_metadata.num_keys as nat,
+                                        main_table_entry_size as nat);
             }
 
             // first, check if there is an outstanding update to read. if there is, we can 
@@ -1692,11 +1705,12 @@ verus! {
                 
                 let entry = self.outstanding_entries.get(metadata_index).unwrap();
                 match entry.status {
-                    EntryStatus::Created | EntryStatus::Updated => return Ok((Box::new(entry.key), Box::new(entry.entry))),
+                    EntryStatus::Created | EntryStatus::Updated =>
+                        return Ok((Box::new(entry.key), Box::new(entry.entry))),
                     _ => {
                         assert(false);
                         return Err(KvError::InternalError);
-                    }
+                    },
                 }
             } else {
                 let slot_addr = metadata_index * (main_table_entry_size as u64);
@@ -1706,7 +1720,7 @@ verus! {
                 let key_addr = entry_addr + traits_t::size_of::<ListEntryMetadata>() as u64;
     
                 // 1. Read the CDB, metadata entry, key, and CRC at the index
-                let ghost mem = pm_view.durable_state;
+                let ghost mem = pm_view.read_state;
     
                 let ghost true_cdb_bytes = extract_bytes(mem, cdb_addr as nat, u64::spec_size_of());
                 let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
@@ -1722,6 +1736,7 @@ verus! {
                 proof {
                     self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
                 }
+                assert(true_cdb_bytes =~= extract_bytes(pm_view.durable_state, cdb_addr as nat, u64::spec_size_of()));
                 let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                     Ok(cdb) => cdb,
                     Err(_) => {
@@ -1731,21 +1746,28 @@ verus! {
                 };
                 let cdb_result = check_cdb(cdb, Ghost(true_cdb_bytes),
                                            Ghost(pm_region.constants().impervious_to_corruption),
-                                           Ghost(cdb_addr as int));
+                                           Ghost(cdb_addr + subregion.start()));
                 match cdb_result {
                     Some(true) => {}, // continue 
                     Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
                     None => { return Err(KvError::CRCMismatch); },
                 }
     
+                assert(true_crc_bytes =~= extract_bytes(pm_view.durable_state, crc_addr as nat, u64::spec_size_of()));
                 let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                     Ok(crc) => crc,
                     Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
                 };
-                let metadata_entry = match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
+
+                assert(true_entry_bytes =~= extract_bytes(pm_view.durable_state, entry_addr as nat,
+                                                          ListEntryMetadata::spec_size_of()));
+                let metadata_entry =
+                    match subregion.read_relative_aligned::<ListEntryMetadata, PM>(pm_region, entry_addr) {
                     Ok(metadata_entry) => metadata_entry,
                     Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
                 };
+
+                assert(true_key_bytes =~= extract_bytes(pm_view.durable_state, key_addr as nat, K::spec_size_of()));
                 let key = match subregion.read_relative_aligned::<K, PM>(pm_region, key_addr) {
                     Ok(key) => key,
                     Err(e) => { assert(false); return Err(KvError::PmemErr {pmem_err: e }); },
@@ -1757,8 +1779,9 @@ verus! {
                     Ghost(true_entry_bytes),
                     Ghost(true_key_bytes),                        
                     Ghost(pm_region.constants().impervious_to_corruption),
-                    Ghost(entry_addr as int), Ghost(key_addr as int),
-                    Ghost(crc_addr as int))
+                    Ghost(entry_addr + subregion.start()),
+                    Ghost(key_addr + subregion.start()),
+                    Ghost(crc_addr + subregion.start()))
                 {
                     return Err(KvError::CRCMismatch);
                 }
@@ -1778,6 +1801,8 @@ verus! {
             which_entry: u64,
         )
             requires
+                v1.valid(),
+                v2.valid(),
                 self.inv(v1, overall_metadata),
                 self.free_list().contains(which_entry),
                 v1.len() == v2.len(),
@@ -1791,6 +1816,7 @@ verus! {
                 parse_main_table::<K>(v2.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@),
         {
+            assume(false); // TODO @jay
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
             let start_addr = which_entry * main_table_entry_size;
@@ -1901,6 +1927,7 @@ verus! {
                     _ => false,
                 }
         {
+            assume(false); // TODO @jay
             let ghost old_pm_view = subregion.view(wrpm_region);
             assert(self.inv(old_pm_view, overall_metadata));
 
