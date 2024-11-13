@@ -408,11 +408,7 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         }
 {
     let ghost mem = pm@.durable_state;
-    let ghost metadata_addrs = Seq::new(VersionMetadata::spec_size_of(), |i: int| ABSOLUTE_POS_OF_VERSION_METADATA + i);
     let ghost true_version_metadata_bytes = extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_METADATA as nat, VersionMetadata::spec_size_of());
-    let ghost crc_addrs = Seq::new(u64::spec_size_of(), |i: int| ABSOLUTE_POS_OF_VERSION_CRC + i);
-    let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-    let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, ABSOLUTE_POS_OF_VERSION_CRC as nat, u64::spec_size_of()));
 
     let maybe_corrupted_version_metadata = match pm.read_aligned::<VersionMetadata>(ABSOLUTE_POS_OF_VERSION_METADATA) {
         Ok(bytes) => bytes,
@@ -429,12 +425,11 @@ pub exec fn read_version_metadata<PM, K, I, L>(pm: &PM, kvstore_id: u128) -> (re
         }
     };
 
-    assert(true_version_metadata_bytes == Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i]]));
-    assert(true_crc_bytes == Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]));
-    assert(true_crc_bytes == spec_crc_bytes(true_version_metadata_bytes));
-
-    if !check_crc(maybe_corrupted_version_metadata.as_slice(), maybe_corrupted_crc.as_slice(), Ghost(mem),
-                    Ghost(pm.constants().impervious_to_corruption), Ghost(metadata_addrs), Ghost(crc_addrs))
+    if !check_crc(maybe_corrupted_version_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
+                  Ghost(true_version_metadata_bytes),
+                  Ghost(pm.constants().impervious_to_corruption),
+                  Ghost(ABSOLUTE_POS_OF_VERSION_METADATA as int),
+                  Ghost(ABSOLUTE_POS_OF_VERSION_CRC as int))
     {
         return Err(KvError::CRCMismatch);
     }
@@ -468,9 +463,6 @@ pub exec fn read_overall_metadata<PM, K, I, L>(pm: &PM, version_metadata: &Versi
 
     let ghost metadata_addrs = Seq::new(OverallMetadata::spec_size_of(), |i: int| metadata_addr + i);
     let ghost true_overall_metadata_bytes = extract_bytes(mem, metadata_addr as nat, OverallMetadata::spec_size_of());
-    let ghost crc_addrs = Seq::new(u64::spec_size_of(), |i: int| crc_addr + i);
-    let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-    let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, crc_addr as nat, u64::spec_size_of()));
 
     let maybe_corrupted_overall_metadata = match pm.read_aligned::<OverallMetadata>(metadata_addr) {
         Ok(bytes) => bytes,
@@ -487,12 +479,11 @@ pub exec fn read_overall_metadata<PM, K, I, L>(pm: &PM, version_metadata: &Versi
         }
     };
 
-    assert(true_overall_metadata_bytes == Seq::new(metadata_addrs.len(), |i: int| mem[metadata_addrs[i]]));
-    assert(true_crc_bytes == Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]));
-    assert(true_crc_bytes == spec_crc_bytes(true_overall_metadata_bytes));
-
-    if !check_crc(maybe_corrupted_overall_metadata.as_slice(), maybe_corrupted_crc.as_slice(), Ghost(mem),
-                    Ghost(pm.constants().impervious_to_corruption), Ghost(metadata_addrs), Ghost(crc_addrs))
+    if !check_crc(maybe_corrupted_overall_metadata.as_slice(), maybe_corrupted_crc.as_slice(),
+                  Ghost(true_overall_metadata_bytes),
+                  Ghost(pm.constants().impervious_to_corruption),
+                  Ghost(metadata_addr as int),
+                  Ghost(crc_addr as int))
     {
         return Err(KvError::CRCMismatch);
     }

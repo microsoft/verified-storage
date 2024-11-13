@@ -40,66 +40,45 @@ verus! {
     //
     // `crc_c` -- the possibly corrupted CRC read from memory
     //
-    // `mem` (ghost) -- the true contents of the memory that was read from
+    // `true_bytes` (ghost) -- the true contents of the part of memory
+    // that was read from
     //
     // `impervious_to_corruption` (ghost) -- whether that memory is
     // impervious to corruption
     //
     // `data_addr` (ghost) -- where the data were read from in memory
     //
-    // `data_length` (ghost) -- the length of the data read from memory
-    //
     // `crc_addr` (ghost) -- where the CRC was read from in memory
     pub fn check_crc(
         data_c: &[u8],
         crc_c: &[u8],
-        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(true_bytes): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
-        Ghost(data_addrs): Ghost<Seq<int>>,
-        Ghost(crc_addrs): Ghost<Seq<int>>,
+        Ghost(data_addr): Ghost<int>,
+        Ghost(crc_addr): Ghost<int>,
     ) -> (b: bool)
         requires
-            data_addrs.len() <= mem.len(),
-            crc_addrs.len() <= mem.len(),
             crc_c@.len() == u64::spec_size_of(),
-            all_elements_unique(data_addrs),
-            all_elements_unique(crc_addrs),
-            ({
-                let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data_bytes)
-                &&& if impervious_to_corruption {
-                        &&& data_c@ == true_data_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        &&& maybe_corrupted(data_c@, true_data_bytes, data_addrs)
-                        &&& maybe_corrupted(crc_c@, true_crc_bytes, crc_addrs)
-                    }
-            })
+            bytes_read_from_storage(data_c@, true_bytes, data_addr, impervious_to_corruption),
+            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes), crc_addr, impervious_to_corruption),
         ensures
-            ({
-                let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                if b {
-                    &&& data_c@ == true_data_bytes
-                    &&& crc_c@ == true_crc_bytes
-                }
-                else {
-                    !impervious_to_corruption
-                }
-            })
+            if b {
+                &&& data_c@ == true_bytes
+                &&& crc_c@ == spec_crc_bytes(true_bytes)
+            }
+            else {
+               !impervious_to_corruption
+            },
     {
         // Compute a CRC for the bytes we read.
         let computed_crc = calculate_crc_bytes(data_c);
 
-        // Check whether the CRCs match. This is done in an external body function so that we can convert the maybe-corrupted
-        // CRC to a u64 for comparison to the computed CRC.
+        // Check whether the CRCs match. This is done in an external body function so that
+        // we can convert the maybe-corrupted CRC to a u64 for comparison to the computed CRC.
         let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
-            let true_data_bytes = Seq::new(data_addrs.len(), |i: int| mem[data_addrs[i] as int]);
-            let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
+            let true_crc_bytes = spec_crc_bytes(true_bytes);
 
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
@@ -113,7 +92,10 @@ verus! {
                 &&& !impervious_to_corruption
                 &&& crcs_match
             } {
-                axiom_bytes_uncorrupted2(data_c@, true_data_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs);
+                let data_addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + data_addr);
+                let true_crc_bytes = spec_crc_bytes(true_bytes);
+                let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
+                axiom_bytes_uncorrupted2(data_c@, true_bytes, data_addrs, crc_c@, true_crc_bytes, crc_addrs);
             }
         }
         crcs_match
@@ -123,43 +105,29 @@ verus! {
         data1_c: &[u8],
         data2_c: &[u8],
         crc_c: &[u8],
-        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(true_bytes1): Ghost<Seq<u8>>,
+        Ghost(true_bytes2): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
-        Ghost(data1_addrs): Ghost<Seq<int>>,
-        Ghost(data2_addrs): Ghost<Seq<int>>,
-        Ghost(crc_addrs): Ghost<Seq<int>>,
+        Ghost(data_addr1): Ghost<int>,
+        Ghost(data_addr2): Ghost<int>,
+        Ghost(crc_addr): Ghost<int>,
     ) -> (b: bool)
         requires
-            data1_addrs.len() + data2_addrs.len() <= mem.len(),
-            crc_addrs.len() <= mem.len(),
             crc_c@.len() == u64::spec_size_of(),
-            all_elements_unique(data1_addrs + data2_addrs),
-            all_elements_unique(crc_addrs),
             ({
-                let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
-                &&& if impervious_to_corruption {
-                        &&& data1_c@ == true_data1_bytes
-                        &&& data2_c@ == true_data2_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        &&& maybe_corrupted(data1_c@, true_data1_bytes, data1_addrs)
-                        &&& maybe_corrupted(data2_c@, true_data2_bytes, data2_addrs)
-                        &&& maybe_corrupted(crc_c@, true_crc_bytes, crc_addrs)
-                    }
-            })
+                ||| data_addr1 + data1_c@.len() <= data_addr2
+                ||| data_addr2 + data2_c@.len() <= data_addr1
+            }),
+            bytes_read_from_storage(data1_c@, true_bytes1, data_addr1, impervious_to_corruption),
+            bytes_read_from_storage(data2_c@, true_bytes2, data_addr2, impervious_to_corruption),
+            bytes_read_from_storage(crc_c@, spec_crc_bytes(true_bytes1 + true_bytes2), crc_addr,
+                                    impervious_to_corruption),
         ensures
             ({
-                let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
                 if b {
-                    &&& data1_c@ == true_data1_bytes
-                    &&& data2_c@ == true_data2_bytes
-                    &&& crc_c@ == true_crc_bytes
+                    &&& data1_c@ == true_bytes1
+                    &&& data2_c@ == true_bytes2
+                    &&& crc_c@ == spec_crc_bytes(true_bytes1 + true_bytes2)
                 }
                 else {
                     !impervious_to_corruption
@@ -183,10 +151,6 @@ verus! {
         let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
-            let true_data1_bytes = Seq::new(data1_addrs.len(), |i: int| mem[data1_addrs[i] as int]);
-            let true_data2_bytes = Seq::new(data2_addrs.len(), |i: int| mem[data2_addrs[i] as int]);
-            let true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i]]);
-
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
             // when all three of the following conditions hold: (1) the last-written CRC really is
@@ -196,18 +160,21 @@ verus! {
             // because we don't need it. #1 is a precondition for calling this lemma. If #2 is false,
             // then no corruption has happened. If #3 is false, then we've detected corruption.
             if {
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
                 &&& !impervious_to_corruption
                 &&& crcs_match
             } {
                 let data_c = data1_c@ + data2_c@;
-                let true_data = true_data1_bytes + true_data2_bytes;
-                axiom_bytes_uncorrupted2(data_c, true_data, data1_addrs + data2_addrs, 
-                    crc_c@, true_crc_bytes, crc_addrs);
+                let true_data = true_bytes1 + true_bytes2;
+                let true_crc_bytes = spec_crc_bytes(true_data);
+                let data_addrs1 = Seq::<int>::new(data1_c@.len(), |i: int| i + data_addr1);
+                let data_addrs2 = Seq::<int>::new(data2_c@.len(), |i: int| i + data_addr2);
+                let crc_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + crc_addr);
+                axiom_bytes_uncorrupted2(data_c, true_data, data_addrs1 + data_addrs2,
+                                         crc_c@, true_crc_bytes, crc_addrs);
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
                 assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
-                assert(data1_c@ == true_data1_bytes);
-                assert(data2_c@ == true_data2_bytes);
+                assert(data1_c@ == true_bytes1);
+                assert(data2_c@ == true_bytes2);
             }
         }
         crcs_match
@@ -217,62 +184,60 @@ verus! {
         data1_c: &[u8],
         data2_c: &[u8],
         crc_c: &[u8],
-        // Ghost(mem): Ghost<Seq<u8>>,
         subregion: &PersistentMemorySubregion,
         pm_region: &PM,
-        Ghost(impervious_to_corruption): Ghost<bool>,
-        Ghost(relative_data1_addrs): Ghost<Seq<int>>,
-        Ghost(relative_data2_addrs): Ghost<Seq<int>>,
-        Ghost(relative_crc_addrs): Ghost<Seq<int>>,
+        Ghost(relative_data_addr1): Ghost<int>,
+        Ghost(relative_data_addr2): Ghost<int>,
+        Ghost(relative_crc_addr): Ghost<int>,
     ) -> (b: bool)
         where 
             PM: PersistentMemoryRegion
         requires
-            relative_data1_addrs.len() + relative_data2_addrs.len() <= subregion.view(pm_region).len(),
-            relative_crc_addrs.len() <= subregion.view(pm_region).len(),
-            forall |i: int| 0 <= i < relative_data1_addrs.len() ==> relative_data1_addrs[i] <= subregion.view(pm_region).len(),
-            forall |i: int| 0 <= i < relative_data2_addrs.len() ==> relative_data2_addrs[i] <= subregion.view(pm_region).len(),
-            forall |i: int| 0 <= i < relative_crc_addrs.len() ==> relative_crc_addrs[i] <= subregion.view(pm_region).len(),
-            crc_c@.len() == u64::spec_size_of(),
-            all_elements_unique(relative_data1_addrs + relative_data2_addrs),
-            all_elements_unique(relative_crc_addrs),
+            0 <= relative_data_addr1,
+            0 <= relative_data_addr2,
+            0 <= relative_crc_addr,
+            relative_data_addr1 + data1_c@.len() <= subregion.len(),
+            relative_data_addr2 + data2_c@.len() <= subregion.len(),
+            relative_crc_addr + crc_c@.len() <= subregion.len(),
+            subregion.start() + subregion.len() <= pm_region@.len(),
             ({
-                let absolute_data1_addrs = Seq::new(relative_data1_addrs.len(), |i: int| subregion.start() + relative_data1_addrs[i]);
-                let absolute_data2_addrs = Seq::new(relative_data2_addrs.len(), |i: int| subregion.start() + relative_data2_addrs[i]);
-                let absolute_crc_addrs = Seq::new(relative_crc_addrs.len(), |i: int| subregion.start() + relative_crc_addrs[i]);
-                &&& all_elements_unique(absolute_data1_addrs + absolute_data2_addrs)
-                &&& all_elements_unique(absolute_crc_addrs)
+                ||| relative_data_addr1 + data1_c@.len() <= relative_data_addr2 <= subregion.len()
+                ||| relative_data_addr2 + data2_c@.len() <= relative_data_addr1 <= subregion.len()
             }),
+            crc_c@.len() == u64::spec_size_of(),
             ({
-                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
-                &&& if impervious_to_corruption {
-                        &&& data1_c@ == true_data1_bytes
-                        &&& data2_c@ == true_data2_bytes
-                        &&& crc_c@ == true_crc_bytes
-                    }
-                    else {
-                        &&& subregion.maybe_corrupted_relative(data1_c@, true_data1_bytes, relative_data1_addrs)
-                        &&& subregion.maybe_corrupted_relative(data2_c@, true_data2_bytes, relative_data2_addrs)
-                        &&& subregion.maybe_corrupted_relative(crc_c@, true_crc_bytes, relative_crc_addrs)
-                    }
-            })
+                let true_data_bytes1 =
+                    subregion.view(pm_region).read_state.subrange(relative_data_addr1 as int,
+                                                                  relative_data_addr1 + data1_c@.len());
+                let true_data_bytes2 =
+                    subregion.view(pm_region).read_state.subrange(relative_data_addr2 as int,
+                                                                  relative_data_addr2 + data2_c@.len());
+                let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
+                &&& bytes_read_from_storage(data1_c@, true_data_bytes1, relative_data_addr1 + subregion.start(),
+                                          pm_region.constants().impervious_to_corruption)
+                &&& bytes_read_from_storage(data2_c@, true_data_bytes2, relative_data_addr2 + subregion.start(),
+                                          pm_region.constants().impervious_to_corruption)
+                &&& bytes_read_from_storage(crc_c@, true_crc_bytes, relative_crc_addr + subregion.start(),
+                                          pm_region.constants().impervious_to_corruption)
+            }),
         ensures
             ({
-                let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
-                let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
-                let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
+                let true_data_bytes1 =
+                    subregion.view(pm_region).read_state.subrange(relative_data_addr1 as int,
+                                                                  relative_data_addr1 + data1_c@.len());
+                let true_data_bytes2 =
+                    subregion.view(pm_region).read_state.subrange(relative_data_addr2 as int,
+                                                                  relative_data_addr2 + data2_c@.len());
+                let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
                 if b {
-                    &&& data1_c@ == true_data1_bytes
-                    &&& data2_c@ == true_data2_bytes
+                    &&& data1_c@ == true_data_bytes1
+                    &&& data2_c@ == true_data_bytes2
                     &&& crc_c@ == true_crc_bytes
                 }
                 else {
-                    !impervious_to_corruption
+                    !pm_region.constants().impervious_to_corruption
                 }
-            })
+            }),
     {
         // calculate the CRC using a digest including both data1_c and data2_c
         let mut digest = CrcDigest::new();
@@ -291,9 +256,13 @@ verus! {
         let crcs_match = compare_crcs(crc_c, computed_crc);
 
         proof {
-            let true_data1_bytes = Seq::new(relative_data1_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data1_addrs[i] as int]);
-            let true_data2_bytes = Seq::new(relative_data2_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_data2_addrs[i] as int]);
-            let true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).read_state[relative_crc_addrs[i]]);
+            let true_data_bytes1 =
+                subregion.view(pm_region).read_state.subrange(relative_data_addr1 as int,
+                                                              relative_data_addr1 + data1_c@.len());
+            let true_data_bytes2 =
+                subregion.view(pm_region).read_state.subrange(relative_data_addr2 as int,
+                                                              relative_data_addr2 + data2_c@.len());
+            let true_crc_bytes = spec_crc_bytes(true_data_bytes1 + true_data_bytes2);
 
             // We may need to invoke `axiom_bytes_uncorrupted` to justify that since the CRCs match,
             // we can conclude that the data matches as well. That axiom only applies in the case
@@ -305,21 +274,23 @@ verus! {
             // anything. If #2 is false, then no corruption has happened. If #3 is false, then we've
             // detected corruption.
             if {
-                &&& true_crc_bytes == spec_crc_bytes(true_data1_bytes + true_data2_bytes)
-                &&& !impervious_to_corruption
+                &&& !pm_region.constants().impervious_to_corruption
                 &&& crcs_match
             } {
                 let data_c = data1_c@ + data2_c@;
-                let true_data = true_data1_bytes + true_data2_bytes;
-                let absolute_data1_addrs = Seq::new(relative_data1_addrs.len(), |i: int| subregion.start() + relative_data1_addrs[i]);
-                let absolute_data2_addrs = Seq::new(relative_data2_addrs.len(), |i: int| subregion.start() + relative_data2_addrs[i]);
-                let absolute_crc_addrs = Seq::new(relative_crc_addrs.len(), |i: int| subregion.start() + relative_crc_addrs[i]);
-                axiom_bytes_uncorrupted2(data_c, true_data, absolute_data1_addrs + absolute_data2_addrs, 
-                    crc_c@, true_crc_bytes, absolute_crc_addrs);
+                let true_data = true_data_bytes1 + true_data_bytes2;
+                let absolute_data_addrs1 = Seq::new(data1_c@.len(),
+                                                    |i: int| i + relative_data_addr1 + subregion.start());
+                let absolute_data_addrs2 = Seq::new(data2_c@.len(),
+                                                    |i: int| i + relative_data_addr2 + subregion.start());
+                let absolute_crc_addrs = Seq::new(u64::spec_size_of(),
+                                                  |i: int| i + relative_crc_addr + subregion.start());
+                axiom_bytes_uncorrupted2(data_c, true_data, absolute_data_addrs1 + absolute_data_addrs2,
+                                         crc_c@, true_crc_bytes, absolute_crc_addrs);
                 assert(extract_bytes(data_c, 0, data1_c@.len()) == data1_c@);
                 assert(extract_bytes(data_c, data1_c@.len(), data2_c@.len()) == data2_c@);
-                assert(data1_c@ == true_data1_bytes);
-                assert(data2_c@ == true_data2_bytes);
+                assert(data1_c@ == true_data_bytes1);
+                assert(data2_c@ == true_data_bytes2);
             }
         }
         crcs_match
@@ -337,7 +308,7 @@ verus! {
     //
     // `cdb_c` -- the possibly corrupted encoded CDB read from memory
     //
-    // `mem` (ghost) -- the true contents of the memory that was read from
+    // `true_cdb_bytes` (ghost) -- the true contents of the part of memory that was read
     //
     // `impervious_to_corruption` (ghost) -- whether that memory is
     // impervious to corruption
@@ -358,33 +329,29 @@ verus! {
     // addresses don't work out.
     pub fn check_cdb(
         cdb_c: MaybeCorruptedBytes<u64>,
-        Ghost(mem): Ghost<Seq<u8>>,
+        Ghost(true_cdb_bytes): Ghost<Seq<u8>>,
         Ghost(impervious_to_corruption): Ghost<bool>,
-        Ghost(cdb_addrs): Ghost<Seq<int>>,
+        Ghost(cdb_addr): Ghost<int>,
     ) -> (result: Option<bool>)
         requires
-            forall |i: int| 0 <= i < cdb_addrs.len() ==> cdb_addrs[i] <= mem.len(),
-            all_elements_unique(cdb_addrs),
+            bytes_read_from_storage(cdb_c@, true_cdb_bytes, cdb_addr, impervious_to_corruption),
             ({
-                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 &&& u64::bytes_parseable(true_cdb_bytes)
                 &&& true_cdb == CDB_FALSE || true_cdb == CDB_TRUE
-                &&& if impervious_to_corruption { cdb_c@ == true_cdb_bytes }
-                        else { maybe_corrupted(cdb_c@, true_cdb_bytes, cdb_addrs) }
-            })
+            }),
         ensures
             ({
-                let true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
                 let true_cdb = u64::spec_from_bytes(true_cdb_bytes);
                 match result {
                     Some(b) => if b { true_cdb == CDB_TRUE }
                                else { true_cdb == CDB_FALSE },
                     None => !impervious_to_corruption,
                 }
-            })
+            }),
     {
-        let ghost true_cdb_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[cdb_addrs[i]]);
+        let ghost cdb_addrs = Seq::<int>::new(u64::spec_size_of(), |i: int| i + cdb_addr);
+                                            
         proof {
             // We may need to invoke the axiom
             // `axiom_corruption_detecting_boolean` to justify concluding

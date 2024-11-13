@@ -723,19 +723,11 @@ verus! {
                 let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
                 let ghost true_item_bytes = extract_bytes(mem, item_addr as nat, I::spec_size_of());
 
-                let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
                 let ghost true_item = I::spec_from_bytes(true_item_bytes);
-
-                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
-                let ghost item_addrs = Seq::new(I::spec_size_of() as nat, |i: int| item_addr + subregion.start() + i);
 
                 proof {
                     assert(self.durable_valid_indices().contains(item_table_index));
                     self.lemma_establish_bytes_parseable_for_valid_item(pm_view, overall_metadata, item_table_index);
-                    assert(extract_bytes(pm_view.durable_state, crc_addr as nat, u64::spec_size_of()) =~=
-                        Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[crc_addrs[i]]));
-                    assert(extract_bytes(pm_view.durable_state, item_addr as nat, I::spec_size_of()) =~=
-                        Seq::new(I::spec_size_of() as nat, |i: int| pm_region@.durable_state[item_addrs[i]]));
                     assert(true_crc_bytes =~= extract_bytes(entry_bytes, 0, u64::spec_size_of()));
                     assert(true_item_bytes =~= extract_bytes(entry_bytes, u64::spec_size_of(), I::spec_size_of()));
                     assert(self@.durable_item_table[item_table_index as int] == parse_item_entry::<I, K>(entry_bytes));
@@ -751,8 +743,9 @@ verus! {
                     Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
                 };
                 
-                if !check_crc(item.as_slice(), crc.as_slice(), Ghost(pm_region@.durable_state),
-                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addrs), Ghost(crc_addrs)) {
+                if !check_crc(item.as_slice(), crc.as_slice(), Ghost(true_item_bytes),
+                              Ghost(pm_region.constants().impervious_to_corruption), Ghost(item_addr as int),
+                              Ghost(crc_addr as int)) {
                     return Err(KvError::CRCMismatch);
                 }
 

@@ -134,6 +134,26 @@ verus! {
         &&& forall |i: int| #![auto] 0 <= i < bytes.len() ==> maybe_corrupted_byte(bytes[i], true_bytes[i], addrs[i])
     }
 
+    // This function indicates that the given bytes were read from
+    // storage. If the storage was impervious to corruption, the bytes
+    // are the last bytes written. Otherwise, they're a
+    // possibly-corrupted version of those bytes.
+    pub open spec fn bytes_read_from_storage(
+        read_bytes: Seq<u8>,
+        true_bytes: Seq<u8>,
+        addr: int,
+        impervious_to_corruption: bool
+    ) -> bool
+    {
+        if impervious_to_corruption {
+            read_bytes == true_bytes
+        }
+        else {
+            let addrs = Seq::<int>::new(true_bytes.len(), |i: int| i + addr);
+            maybe_corrupted(read_bytes, true_bytes, addrs)
+        }
+    }
+
     pub open spec fn spec_crc_bytes(bytes: Seq<u8>) -> Seq<u8> {
         spec_crc_u64(bytes).spec_to_bytes()
     }
@@ -340,21 +360,11 @@ verus! {
                 S::bytes_parseable(self@.read_state.subrange(addr as int, addr + S::spec_size_of()))
             ensures
                 match bytes {
-                    Ok(bytes) => {
-                        let true_bytes = self@.read_state.subrange(addr as int, addr + S::spec_size_of());
-                        let addrs = Seq::<int>::new(S::spec_size_of() as nat, |i: int| i + addr);
-                        // If the persistent memory regions are impervious
-                        // to corruption, read returns the last bytes
-                        // written. Otherwise, it returns a
-                        // possibly-corrupted version of those bytes.
-                        if self.constants().impervious_to_corruption {
-                            bytes@ == true_bytes
-                        }
-                        else {
-                            maybe_corrupted(bytes@, true_bytes, addrs)
-                        }
-                    }
-                    _ => false
+                    Ok(bytes) => bytes_read_from_storage(bytes@,
+                                                        self@.read_state.subrange(addr as int, addr + S::spec_size_of()),
+                                                        addr as int,
+                                                        self.constants().impervious_to_corruption),
+                    _ => false,
                 }
             ;
 
@@ -364,21 +374,11 @@ verus! {
                 addr + num_bytes <= self@.len(),
             ensures 
                 match bytes {
-                    Ok(bytes) => {
-                        let true_bytes = self@.read_state.subrange(addr as int, addr + num_bytes);
-                        let addrs = Seq::<int>::new(num_bytes as nat, |i: int| i + addr);
-                        &&& // If the persistent memory regions are impervious
-                            // to corruption, read returns the last bytes
-                            // written. Otherwise, it returns a
-                            // possibly-corrupted version of those bytes.
-                            if self.constants().impervious_to_corruption {
-                                bytes@ == true_bytes
-                            }
-                            else {
-                                maybe_corrupted(bytes@, true_bytes, addrs)
-                            }
-                        }
-                    _ => false
+                    Ok(bytes) => bytes_read_from_storage(bytes@,
+                                                        self@.read_state.subrange(addr as int, addr + num_bytes as nat),
+                                                        addr as int,
+                                                        self.constants().impervious_to_corruption),
+                    _ => false,
                 }
                 
         ;

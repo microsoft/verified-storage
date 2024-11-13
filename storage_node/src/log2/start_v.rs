@@ -56,9 +56,9 @@ pub fn read_cdb<PMRegion: PersistentMemoryRegion>(pm_region: &PMRegion, log_star
         Err(e) => return Err(LogErr::PmemErr{ err: e }),
     };
     
-    let result = check_cdb(log_cdb, Ghost(mem),
-                            Ghost(pm_region.constants().impervious_to_corruption),
-                            Ghost(log_cdb_addrs));
+    let result = check_cdb(log_cdb, Ghost(true_cdb_bytes),
+                           Ghost(pm_region.constants().impervious_to_corruption),
+                           Ghost(log_start_addr as int));
     match result {
         Some(b) => Ok(b),
         None => Err(LogErr::CRCMismatch)
@@ -101,14 +101,12 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
 
         let log_metadata_pos = get_active_log_metadata_pos(cdb) + log_start_addr;
         let log_crc_pos = get_active_log_crc_pos(cdb) + log_start_addr;
-        let ghost true_log_metadata = LogMetadata::spec_from_bytes(extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of()));
-        let ghost true_crc = u64::spec_from_bytes(extract_bytes(mem, log_crc_pos as nat, u64::spec_size_of()));
-        let ghost log_metadata_addrs = Seq::new(LogMetadata::spec_size_of() as nat, |i: int| log_metadata_pos + i);
-        let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| log_crc_pos + i);
-        let ghost true_bytes = Seq::new(log_metadata_addrs.len(), |i: int| mem[log_metadata_addrs[i] as int]);
-        let ghost true_crc_bytes = Seq::new(crc_addrs.len(), |i: int| mem[crc_addrs[i] as int]);
+        let ghost true_log_metadata_bytes = extract_bytes(mem, log_metadata_pos as nat, LogMetadata::spec_size_of());
+        let ghost true_log_metadata = LogMetadata::spec_from_bytes(true_log_metadata_bytes);
 
-        assert(pm_region@.durable_state.subrange(log_metadata_pos as int, log_metadata_pos + LogMetadata::spec_size_of()) == true_bytes);
+        assert(pm_region@.durable_state.subrange(log_metadata_pos as int,
+                                                 log_metadata_pos + LogMetadata::spec_size_of()) ==
+               true_log_metadata_bytes);
         let log_metadata = match pm_region.read_aligned::<LogMetadata>(log_metadata_pos) {
             Ok(log_metadata) => log_metadata,
             Err(e) => {
@@ -124,11 +122,12 @@ pub fn read_log_variables<PMRegion: PersistentMemoryRegion>(
             }
         };
 
-        assert(true_log_metadata.spec_to_bytes() == true_bytes && true_crc.spec_to_bytes() == true_crc_bytes);
+        assert(true_log_metadata.spec_to_bytes() == true_log_metadata_bytes);
 
-        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(mem),
-                                   Ghost(pm_region.constants().impervious_to_corruption),
-                                    Ghost(log_metadata_addrs), Ghost(crc_addrs)) {
+        if !check_crc(log_metadata.as_slice(), log_crc.as_slice(), Ghost(true_log_metadata_bytes),
+                      Ghost(pm_region.constants().impervious_to_corruption),
+                      Ghost(log_metadata_pos as int),
+                      Ghost(log_crc_pos as int)) {
             return Err(LogErr::CRCMismatch);
         }
 

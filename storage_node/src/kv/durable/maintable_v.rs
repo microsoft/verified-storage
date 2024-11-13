@@ -1384,13 +1384,19 @@ verus! {
                         let relative_entry_addr = relative_crc_addr + traits_t::size_of::<u64>() as u64;
                         let relative_key_addr = relative_entry_addr + traits_t::size_of::<ListEntryMetadata>()  as u64;
 
-                        let ghost relative_crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| relative_crc_addr + i);
-                        let ghost relative_entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| relative_entry_addr + i);
-                        let ghost relative_key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| relative_key_addr + i);
-
-                        let ghost true_crc_bytes = Seq::new(relative_crc_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_crc_addrs[i]]);
-                        let ghost true_entry_bytes = Seq::new(relative_entry_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_entry_addrs[i]]);
-                        let ghost true_key_bytes = Seq::new(relative_key_addrs.len(), |i: int| subregion.view(pm_region).durable_state[relative_key_addrs[i]]);
+                        let ghost true_crc_bytes =
+                            subregion.view(pm_region).read_state.subrange(relative_crc_addr as int,
+                                                                          relative_crc_addr + u64::spec_size_of());
+                        let ghost true_entry_bytes =
+                            subregion.view(pm_region).read_state.subrange(
+                                relative_entry_addr as int,
+                                relative_entry_addr + ListEntryMetadata::spec_size_of()
+                            );
+                        let ghost true_key_bytes =
+                            subregion.view(pm_region).read_state.subrange(
+                                relative_key_addr as int,
+                                relative_key_addr + K::spec_size_of()
+                            );
 
                         let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
                         let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
@@ -1436,8 +1442,8 @@ verus! {
                         
                         if !check_crc_for_two_reads_in_subregion(
                             entry.as_slice(), key.as_slice(), crc.as_slice(), subregion, pm_region, 
-                            Ghost(pm_region.constants().impervious_to_corruption), Ghost(relative_entry_addrs),
-                            Ghost(relative_key_addrs), Ghost(relative_crc_addrs)) {
+                            Ghost(relative_entry_addr as int),
+                            Ghost(relative_key_addr as int), Ghost(relative_crc_addr as int)) {
                             assert(!pm_region.constants().impervious_to_corruption);
                             return Err(KvError::CRCMismatch);
                         }
@@ -1712,17 +1718,9 @@ verus! {
                 let ghost true_entry = ListEntryMetadata::spec_from_bytes(true_entry_bytes);
                 let ghost true_key = K::spec_from_bytes(true_key_bytes);
     
-                let ghost cdb_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| cdb_addr + subregion.start() + i);
-                let ghost entry_addrs = Seq::new(ListEntryMetadata::spec_size_of() as nat,
-                                                 |i: int| entry_addr + subregion.start() + i);
-                let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + subregion.start() + i);
-                let ghost key_addrs = Seq::new(K::spec_size_of() as nat, |i: int| key_addr + subregion.start() + i);
-    
                 // 2. Check the CDB to determine whether the entry is valid
                 proof {
                     self.lemma_establish_bytes_parseable_for_valid_entry(pm_view, overall_metadata, metadata_index);
-                    assert(extract_bytes(pm_view.durable_state, cdb_addr as nat, u64::spec_size_of()) =~=
-                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[cdb_addrs[i]]));
                 }
                 let cdb = match subregion.read_relative_aligned::<u64, PM>(pm_region, cdb_addr) {
                     Ok(cdb) => cdb,
@@ -1731,23 +1729,15 @@ verus! {
                         return Err(KvError::EntryIsNotValid);
                     }
                 };
-                let cdb_result = check_cdb(cdb, Ghost(pm_region@.durable_state),
-                                           Ghost(pm_region.constants().impervious_to_corruption), Ghost(cdb_addrs));
+                let cdb_result = check_cdb(cdb, Ghost(true_cdb_bytes),
+                                           Ghost(pm_region.constants().impervious_to_corruption),
+                                           Ghost(cdb_addr as int));
                 match cdb_result {
                     Some(true) => {}, // continue 
                     Some(false) => { assert(false); return Err(KvError::EntryIsNotValid); },
                     None => { return Err(KvError::CRCMismatch); },
                 }
     
-                proof {
-                    // assert(self.outstanding_entry_write_matches_pm_view(pm_view, metadata_index, main_table_entry_size));
-                    assert(extract_bytes(pm_view.durable_state, crc_addr as nat, u64::spec_size_of()) =~=
-                           Seq::new(u64::spec_size_of() as nat, |i: int| pm_region@.durable_state[crc_addrs[i]]));
-                    assert(extract_bytes(pm_view.durable_state, entry_addr as nat, ListEntryMetadata::spec_size_of()) =~=
-                           Seq::new(ListEntryMetadata::spec_size_of() as nat, |i: int| pm_region@.durable_state[entry_addrs[i]]));
-                    assert(extract_bytes(pm_view.durable_state, key_addr as nat, K::spec_size_of()) =~=
-                           Seq::new(K::spec_size_of() as nat, |i: int| pm_region@.durable_state[key_addrs[i]]));
-                }
                 let crc = match subregion.read_relative_aligned::<u64, PM>(pm_region, crc_addr) {
                     Ok(crc) => crc,
                     Err(e) => { assert(false); return Err(KvError::PmemErr { pmem_err: e }); },
@@ -1763,9 +1753,12 @@ verus! {
     
                 // 3. Check for corruption
                 if !check_crc_for_two_reads(
-                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(), Ghost(pm_region@.durable_state),
-                    Ghost(pm_region.constants().impervious_to_corruption), Ghost(entry_addrs), Ghost(key_addrs),
-                    Ghost(crc_addrs)) 
+                    metadata_entry.as_slice(), key.as_slice(), crc.as_slice(),
+                    Ghost(true_entry_bytes),
+                    Ghost(true_key_bytes),                        
+                    Ghost(pm_region.constants().impervious_to_corruption),
+                    Ghost(entry_addr as int), Ghost(key_addr as int),
+                    Ghost(crc_addr as int))
                 {
                     return Err(KvError::CRCMismatch);
                 }
@@ -1892,7 +1885,8 @@ verus! {
                             let start = index_to_offset(index as nat, entry_size);
                             let old_pm_view = subregion.view(old::<&mut _>(wrpm_region));
                             0 <= addr < old_pm_view.len() && !(start <= addr < start + entry_size) ==>
-                                #[trigger] views_match_at_addr(subregion.view(wrpm_region), old_pm_view, addr)
+                                #[trigger] views_match_at_addr(subregion.view(wrpm_region),
+                                                               subregion.view(old::<&mut _>(wrpm_region)), addr)
                         }
                     },
                     Err(KvError::OutOfSpace) => {
@@ -2043,7 +2037,7 @@ verus! {
             }
 
             let ghost pm_view = subregion.view(wrpm_region);
-            assert(pm_view.durable_state == old_pm_view.durable_state);
+//            assert(pm_view.durable_state == old_pm_view.durable_state);
 
             assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@)) by {

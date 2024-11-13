@@ -1139,8 +1139,6 @@ verus! {
             let ghost true_elem_bytes = extract_bytes(mem, elem_addr as nat, L::spec_size_of());
             let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
             let ghost true_elem = L::spec_from_bytes(true_elem_bytes);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
-            let ghost elem_addrs = Seq::new(L::spec_size_of() as nat, |i: int| elem_addr + i);
 
             let crc = match pm_region.read_aligned::<u64>(crc_addr) {
                 Ok(val) => val,
@@ -1152,8 +1150,8 @@ verus! {
             };
 
             // 4. Check for corruption
-            if !check_crc(list_elem.as_slice(), crc.as_slice(), Ghost(mem), 
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(elem_addrs), Ghost(crc_addrs))
+            if !check_crc(list_elem.as_slice(), crc.as_slice(), Ghost(true_elem_bytes),
+                Ghost(pm_region.constants().impervious_to_corruption), Ghost(elem_addr as int), Ghost(crc_addr as int))
             {
                 return Err(KvError::CRCMismatch);
             }
@@ -1242,23 +1240,20 @@ verus! {
 
             let ghost mem = pm_region@.durable_state;
 
-            let ghost true_region_header = ListRegionHeader::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of()));
-            let ghost true_crc = u64::spec_from_bytes(mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int, ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC + u64::spec_size_of()));
+            let ghost true_header_bytes =
+                mem.subrange(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int,
+                             ABSOLUTE_POS_OF_LIST_REGION_HEADER + ListRegionHeader::spec_size_of());
+            let ghost true_region_header = ListRegionHeader::spec_from_bytes(true_header_bytes);
 
             // Read the list region header and its CRC and check for corruption
             let region_header = pm_region.read_aligned::<ListRegionHeader>(ABSOLUTE_POS_OF_LIST_REGION_HEADER).map_err(|e| KvError::PmemErr { pmem_err: e })?;
             let region_header_crc = pm_region.read_aligned::<u64>(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC).map_err(|e| KvError::PmemErr { pmem_err: e })?;
 
-            let ghost header_addrs = Seq::new(ListRegionHeader::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER as int + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int + i);
-
-            let ghost true_header_bytes = Seq::new(ListRegionHeader::spec_size_of() as nat, |i: int| mem[header_addrs[i]]);
-            let ghost true_crc_bytes = Seq::new(u64::spec_size_of() as nat, |i: int| mem[crc_addrs[i]]);
-
-            if !check_crc(region_header.as_slice(), region_header_crc.as_slice(), Ghost(mem),
-                    Ghost(pm_region.constants().impervious_to_corruption),
-                    Ghost(header_addrs),
-                    Ghost(crc_addrs))
+            if !check_crc(region_header.as_slice(), region_header_crc.as_slice(),
+                          Ghost(true_header_bytes),
+                          Ghost(pm_region.constants().impervious_to_corruption),
+                          Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER as int),
+                          Ghost(ABSOLUTE_POS_OF_LIST_REGION_HEADER_CRC as int))
             {
                 return Err(KvError::CRCMismatch);
             }
@@ -1298,11 +1293,7 @@ verus! {
             let ghost mem = pm_region@.durable_state;
 
             let ghost true_next_ptr_bytes = extract_bytes(mem, next_ptr_addr as nat, u64::spec_size_of());
-            let ghost true_crc_bytes = extract_bytes(mem, crc_addr as nat, u64::spec_size_of());
             let ghost true_next_ptr = u64::spec_from_bytes(true_next_ptr_bytes);
-            let ghost true_crc = u64::spec_from_bytes(true_crc_bytes);
-            let ghost next_ptr_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| next_ptr_addr + i);
-            let ghost crc_addrs = Seq::new(u64::spec_size_of() as nat, |i: int| crc_addr + i);
 
             let next_ptr = match pm_region.read_aligned::<u64>(next_ptr_addr) {
                 Ok(val) => val,
@@ -1313,8 +1304,10 @@ verus! {
                 Err(e) => return Err(KvError::PmemErr { pmem_err: e })
             };
 
-            if !check_crc(next_ptr.as_slice(), crc.as_slice(), Ghost(mem), 
-                Ghost(pm_region.constants().impervious_to_corruption), Ghost(next_ptr_addrs), Ghost(crc_addrs))
+            if !check_crc(next_ptr.as_slice(), crc.as_slice(),
+                          Ghost(true_next_ptr_bytes),
+                          Ghost(pm_region.constants().impervious_to_corruption),
+                          Ghost(next_ptr_addr as int), Ghost(crc_addr as int))
             {
                 return Err(KvError::CRCMismatch);
             }
