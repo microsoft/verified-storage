@@ -521,6 +521,15 @@ verus! {
             self.log@.physical_op_list.len()
         }
 
+        pub exec fn num_log_entries_in_current_transaction(&self) -> (out: usize)
+            requires 
+                self.valid(),
+            ensures 
+                out == self.spec_num_log_entries_in_current_transaction()
+        {
+            self.pending_updates.len()
+        }
+
         // In physical recovery, we blindly replay the physical log obtained by recovering the op log onto the rest of the
         // persistent memory region.
         pub open spec fn physical_recover(mem: Seq<u8>, version_metadata: VersionMetadata, overall_metadata: OverallMetadata) -> Option<DurableKvStoreView<K, I, L>> {
@@ -1780,8 +1789,6 @@ verus! {
             let (main_table, entry_list) = MainTable::<K>::start::<PM, I, L>(&main_table_subregion, pm_region, overall_metadata, version_metadata)?;
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
             let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
-
-            println!("entry list {:?}", entry_list);
 
             let durable_kv_store = Self {
                 version_metadata,

@@ -70,6 +70,7 @@ where
     EntryIsValid,
     EntryIsNotValid,
     InvalidLogEntryType,
+    NoCurrentTransaction,
     LogErr { log_err: LogErr },
     PmemErr { pmem_err: PmemError },
 }
@@ -122,6 +123,11 @@ where
     pub closed spec fn constants(self) -> PersistentMemoryConstants
     {
         self.untrusted_kv_impl.constants()
+    }
+
+    pub closed spec fn spec_num_log_entries_in_current_transaction(self) -> nat 
+    {
+        self.untrusted_kv_impl.spec_num_log_entries_in_current_transaction()
     }
 
     pub exec fn setup(
@@ -305,7 +311,6 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm))
     }
 
-    // TODO @hayley ensure this verifies
     pub exec fn commit(&mut self) -> (result: Result<(), KvError<K>>)
         requires 
             old(self).valid(),
@@ -328,9 +333,16 @@ where
                     &&& self@ == old(self)@
                     // TODO
                 }
+                Err(KvError::NoCurrentTransaction) => {
+                    &&& self@ == old(self)@
+                    &&& self.spec_num_log_entries_in_current_transaction() == 0
+                }
                 Err(_) => false,
             }
     {
+        if self.untrusted_kv_impl.num_log_entries_in_current_transaction() == 0 {
+            return Err(KvError::NoCurrentTransaction)
+        }
         let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self.tentative_view());
         self.untrusted_kv_impl.untrusted_commit(self.id, Tracked(&perm))
     }

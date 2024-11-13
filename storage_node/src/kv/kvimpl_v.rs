@@ -105,6 +105,15 @@ where
         self.durable_store.spec_num_log_entries_in_current_transaction()
     }
 
+    pub exec fn num_log_entries_in_current_transaction(&self) -> (out: usize) 
+        requires 
+            self.valid(),
+        ensures 
+            out == self.spec_num_log_entries_in_current_transaction()
+    {
+        self.durable_store.num_log_entries_in_current_transaction()
+    }
+
     pub closed spec fn valid(self) -> bool
     {
         &&& self.durable_store_matches_volatile_index()
@@ -676,9 +685,11 @@ where
             old(self).spec_num_log_entries_in_current_transaction() > 0,
         ensures 
             self.valid(),
+            self@.id == old(self)@.id,
             match result {
                 Ok(()) => {
                     &&& self@ == old(self).tentative_view()
+                    &&& self@ == self.tentative_view()
                 }
                 Err(KvError::CRCMismatch) => {
                     &&& self@ == old(self)@
