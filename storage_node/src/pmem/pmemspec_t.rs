@@ -206,6 +206,14 @@ verus! {
 
     pub open spec fn const_persistence_chunk_size() -> int { 8 }
 
+    pub exec fn persistence_chunk_size() -> (out: u64) 
+        ensures 
+            out == const_persistence_chunk_size()
+    {
+        8
+    }
+
+
     /// We model the state of each byte of persistent memory as
     /// follows. `state_at_last_flush` contains the contents
     /// immediately after the most recent flush. `outstanding_write`

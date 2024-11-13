@@ -119,12 +119,30 @@ fn round_up_to_multiple_of_256(n: u64) -> (result: u64)
         n <= u64::MAX - 256,
     ensures
         result >= n,
+        result % 256 == 0,
 {
     let remainder = n % 256;
     if remainder == 0 {
         n
     } else {
         n + 256 - remainder
+    }
+}
+
+#[inline]
+fn round_up_to_multiple_of_persistence_chunk_size(n: u64) -> (result: u64)
+    requires 
+        n <= u64::MAX - const_persistence_chunk_size(),
+    ensures 
+        // result >= n,
+        n <= result < n + const_persistence_chunk_size(),
+        result as int % const_persistence_chunk_size() == 0
+{
+    let remainder = n % persistence_chunk_size();
+    if remainder == 0 {
+        n
+    } else {
+        n + persistence_chunk_size() - remainder
     }
 }
 
@@ -172,6 +190,8 @@ pub fn initialize_overall_metadata<K, I, L> (
     let log_entry_size: u32 = 8; // TODO - Calculate this
     if num_list_entries_per_node as u64 > u64::MAX / (list_element_size as u64 + size_of::<u64>() as u64) {
         return Err(KvError::TooManyListEntriesPerNode);
+    } else if num_list_entries_per_node == 0 {
+        return Err(KvError::InternalError);
     }
     assert(num_list_entries_per_node * (list_element_size + u64::spec_size_of() as u64) <= u64::MAX) by {
         assert({
@@ -183,6 +203,10 @@ pub fn initialize_overall_metadata<K, I, L> (
     }
     let list_node_size: u64 = num_list_entries_per_node as u64 * (list_element_size as u64 + size_of::<u64>() as u64);
     if overall_metadata_addr >= u64::MAX - size_of::<OverallMetadata>() as u64 {
+        return Err(KvError::InternalError);
+    }
+    assert(VersionMetadata::spec_size_of() + u64::spec_size_of() < u64::MAX) by (compute_only);
+    if overall_metadata_addr < (size_of::<VersionMetadata>() + size_of::<u64>()) as u64 {
         return Err(KvError::InternalError);
     }
     if overall_metadata_addr + size_of::<OverallMetadata>() as u64 >= u64::MAX - size_of::<u64>() as u64 {
@@ -203,7 +227,11 @@ pub fn initialize_overall_metadata<K, I, L> (
 
     assert(num_keys <= u64::MAX as int / main_table_entry_size as int ==>
            num_keys * main_table_entry_size <= u64::MAX) by (nonlinear_arith);
-    let main_table_size: u64 = num_keys as u64 * main_table_entry_size as u64;
+    if num_keys as u64 * main_table_entry_size as u64 > u64::MAX - persistence_chunk_size() {
+        return Err(KvError::TooManyKeys);
+    }
+    let main_table_size: u64 = round_up_to_multiple_of_persistence_chunk_size(
+        num_keys as u64 * main_table_entry_size as u64);
     if main_table_size as usize > usize::MAX - main_table_addr as usize {
         return Err(KvError::TooManyKeys);
     }
@@ -228,7 +256,10 @@ pub fn initialize_overall_metadata<K, I, L> (
         // Second, establish num_keys * item_slot_size <= (u64::MAX / item_slot_size) * item_slot_size
         vstd::arithmetic::mul::lemma_mul_inequality(num_keys as int, (u64::MAX / item_slot_size) as int, item_slot_size as int);
     }
-    let item_table_size: u64 = num_keys * item_slot_size;
+    if num_keys * item_slot_size > u64::MAX - persistence_chunk_size() {
+        return Err(KvError::TooManyKeys);
+    }
+    let item_table_size: u64 = round_up_to_multiple_of_persistence_chunk_size(num_keys * item_slot_size);
 
     if item_table_size > u64::MAX - item_table_addr {
         return Err(KvError::TooManyKeys);
@@ -254,7 +285,11 @@ pub fn initialize_overall_metadata<K, I, L> (
             vstd::arithmetic::mul::lemma_mul_basics(num_list_nodes as int);
         }
     }
-    let list_area_size: u64 = num_list_nodes * list_node_size;
+    if num_list_nodes * list_node_size > u64::MAX - persistence_chunk_size() {
+        return Err(KvError::TooManyListNodes);
+    }
+    let list_area_size: u64 = round_up_to_multiple_of_persistence_chunk_size(
+        num_list_nodes * list_node_size);
 
     if list_area_size > u64::MAX - list_area_addr {
         return Err(KvError::TooManyListNodes);
@@ -267,7 +302,26 @@ pub fn initialize_overall_metadata<K, I, L> (
         return Err(KvError::TooManyListNodes);
     }
     let log_area_addr: u64 = round_up_to_multiple_of_256(list_area_addr + list_area_size);
-    let log_area_size = log_entry_size as u64; // TODO - Make this bigger
+    
+    // Log needs to have at least enough space for its metadata + a minimal log entry.
+    // It may be useful to have a larger lower limit to ensure that there's enough space
+    // to support normal operations
+    let minimum_log_size = log_area_pos() + MIN_LOG_AREA_SIZE;
+    if region_size < minimum_log_size {
+        return Err(KvError::RegionTooSmall { required: minimum_log_size as usize, actual: region_size as usize });
+    }
+    if log_area_addr >= region_size - minimum_log_size {
+        let actual_size = (region_size - minimum_log_size) as usize;
+        return Err(KvError::LogAreaTooSmall { required: minimum_log_size as usize, actual: actual_size});
+    }
+
+    if region_size < log_area_addr + minimum_log_size as u64 {
+        let required_size = log_area_addr + minimum_log_size as u64;
+        return Err(KvError::RegionTooSmall { required: required_size as usize, actual: region_size as usize });
+    }
+
+    // We have to subtract persistence_chunk_size() to ensure that we don't round up to a value greater than the region size
+    let log_area_size = round_up_to_multiple_of_persistence_chunk_size(region_size - log_area_addr - persistence_chunk_size());
 
     if log_area_size > u64::MAX - log_area_addr {
         return Err(KvError::TooManyKeys);
@@ -275,15 +329,13 @@ pub fn initialize_overall_metadata<K, I, L> (
     assert(LogMetadata::spec_size_of() * 2 <= u64::MAX) by (compute_only);
     assert(u64::spec_size_of() + LogMetadata::spec_size_of() * 2 <= u64::MAX) by (compute_only);
     assert(u64::spec_size_of() + LogMetadata::spec_size_of() * 2 + u64::spec_size_of() * 2 <= u64::MAX) by (compute_only);
-    if log_area_size < log_header_area_size() + MIN_LOG_AREA_SIZE {
-        return Err(KvError::LogAreaTooSmall { required: (log_header_area_size() + MIN_LOG_AREA_SIZE) as usize, actual: log_area_size as usize });
+    if log_area_size < minimum_log_size {
+        return Err(KvError::LogAreaTooSmall{ required: minimum_log_size as usize, actual: log_area_size as usize});
     }
-    let required_size = log_area_addr as usize + log_area_size as usize;
-    if required_size > region_size as usize {
-        return Err(KvError::RegionTooSmall { required: required_size, actual: region_size as usize });
-    }
+    assert(spec_log_area_pos() >= spec_log_header_area_size()) by (compute_only);
 
     assert(region_size >= main_table_addr + main_table_size);
+    assert(region_size >= log_area_addr + log_area_size);
 
     let overall_metadata = OverallMetadata{
         region_size,
