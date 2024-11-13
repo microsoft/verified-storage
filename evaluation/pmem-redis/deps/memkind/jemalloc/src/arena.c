@@ -26,8 +26,8 @@ static size_t	small_maxrun; /* Max run size for small size classes. */
 static bool	*small_run_tab; /* Valid small run page multiples. */
 static size_t	*run_quantize_floor_tab; /* run_quantize_floor() memoization. */
 static size_t	*run_quantize_ceil_tab; /* run_quantize_ceil() memoization. */
-unsigned	nlclasses; /* Number of large size classes. */
-unsigned	nhclasses; /* Number of huge size classes. */
+unsigned	mk_nlclasses; /* Number of large size classes. */
+unsigned	mk_nhclasses; /* Number of huge size classes. */
 static szind_t	runs_avail_bias; /* Size index for first runs_avail tree. */
 static szind_t	runs_avail_nclasses; /* Number of runs_avail trees. */
 
@@ -798,7 +798,7 @@ arena_chunk_dalloc(arena_t *arena, arena_chunk_t *chunk)
 static void
 arena_huge_malloc_stats_update(arena_t *arena, size_t usize)
 {
-	szind_t index = size2index(usize) - nlclasses - NBINS;
+	szind_t index = size2index(usize) - mk_nlclasses - NBINS;
 
 	cassert(config_stats);
 
@@ -811,7 +811,7 @@ arena_huge_malloc_stats_update(arena_t *arena, size_t usize)
 static void
 arena_huge_malloc_stats_update_undo(arena_t *arena, size_t usize)
 {
-	szind_t index = size2index(usize) - nlclasses - NBINS;
+	szind_t index = size2index(usize) - mk_nlclasses - NBINS;
 
 	cassert(config_stats);
 
@@ -824,7 +824,7 @@ arena_huge_malloc_stats_update_undo(arena_t *arena, size_t usize)
 static void
 arena_huge_dalloc_stats_update(arena_t *arena, size_t usize)
 {
-	szind_t index = size2index(usize) - nlclasses - NBINS;
+	szind_t index = size2index(usize) - mk_nlclasses - NBINS;
 
 	cassert(config_stats);
 
@@ -837,7 +837,7 @@ arena_huge_dalloc_stats_update(arena_t *arena, size_t usize)
 static void
 arena_huge_dalloc_stats_update_undo(arena_t *arena, size_t usize)
 {
-	szind_t index = size2index(usize) - nlclasses - NBINS;
+	szind_t index = size2index(usize) - mk_nlclasses - NBINS;
 
 	cassert(config_stats);
 
@@ -3256,14 +3256,14 @@ arena_stats_merge(arena_t *arena, unsigned *nthreads, const char **dss,
 	astats->nmalloc_huge += arena->stats.nmalloc_huge;
 	astats->ndalloc_huge += arena->stats.ndalloc_huge;
 
-	for (i = 0; i < nlclasses; i++) {
+	for (i = 0; i < mk_nlclasses; i++) {
 		lstats[i].nmalloc += arena->stats.lstats[i].nmalloc;
 		lstats[i].ndalloc += arena->stats.lstats[i].ndalloc;
 		lstats[i].nrequests += arena->stats.lstats[i].nrequests;
 		lstats[i].curruns += arena->stats.lstats[i].curruns;
 	}
 
-	for (i = 0; i < nhclasses; i++) {
+	for (i = 0; i < mk_nhclasses; i++) {
 		hstats[i].nmalloc += arena->stats.hstats[i].nmalloc;
 		hstats[i].ndalloc += arena->stats.hstats[i].ndalloc;
 		hstats[i].curhchunks += arena->stats.hstats[i].curhchunks;
@@ -3327,8 +3327,8 @@ arena_new(unsigned ind)
 	 */
 	if (config_stats) {
 		arena = (arena_t *)base_alloc(CACHELINE_CEILING(arena_size) +
-		    QUANTUM_CEILING(nlclasses * sizeof(malloc_large_stats_t) +
-		    nhclasses) * sizeof(malloc_huge_stats_t));
+		    QUANTUM_CEILING(mk_nlclasses * sizeof(malloc_large_stats_t) +
+		    mk_nhclasses) * sizeof(malloc_huge_stats_t));
 	} else
 		arena = (arena_t *)base_alloc(arena_size);
 	if (arena == NULL)
@@ -3343,12 +3343,12 @@ arena_new(unsigned ind)
 		memset(&arena->stats, 0, sizeof(arena_stats_t));
 		arena->stats.lstats = (malloc_large_stats_t *)((uintptr_t)arena
 		    + CACHELINE_CEILING(arena_size));
-		memset(arena->stats.lstats, 0, nlclasses *
+		memset(arena->stats.lstats, 0, mk_nlclasses *
 		    sizeof(malloc_large_stats_t));
 		arena->stats.hstats = (malloc_huge_stats_t *)((uintptr_t)arena
 		    + CACHELINE_CEILING(arena_size) +
-		    QUANTUM_CEILING(nlclasses * sizeof(malloc_large_stats_t)));
-		memset(arena->stats.hstats, 0, nhclasses *
+		    QUANTUM_CEILING(mk_nlclasses * sizeof(malloc_large_stats_t)));
+		memset(arena->stats.hstats, 0, mk_nhclasses *
 		    sizeof(malloc_huge_stats_t));
 		if (config_tcache)
 			ql_new(&arena->tcache_ql);
@@ -3630,8 +3630,8 @@ arena_boot(void)
 		large_maxclass = arena_maxrun;
 	}
 	assert(large_maxclass > 0);
-	nlclasses = size2index(large_maxclass) - size2index(SMALL_MAXCLASS);
-	nhclasses = NSIZES - nlclasses - NBINS;
+	mk_nlclasses = size2index(large_maxclass) - size2index(SMALL_MAXCLASS);
+	mk_nhclasses = NSIZES - mk_nlclasses - NBINS;
 
 	bin_info_init();
 	if (small_run_size_init())

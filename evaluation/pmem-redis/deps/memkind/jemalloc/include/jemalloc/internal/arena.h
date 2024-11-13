@@ -493,8 +493,8 @@ extern size_t		map_misc_offset;
 extern size_t		arena_maxrun; /* Max run size for arenas. */
 extern size_t		large_maxclass; /* Max large size class. */
 extern size_t		run_quantize_max; /* Max run_quantize_*() input. */
-extern unsigned		nlclasses; /* Number of large size classes. */
-extern unsigned		nhclasses; /* Number of huge size classes. */
+extern unsigned		mk_nlclasses; /* Number of large size classes. */
+extern unsigned		mk_nhclasses; /* Number of huge size classes. */
 
 #ifdef JEMALLOC_JET
 typedef size_t (run_quantize_t)(size_t);

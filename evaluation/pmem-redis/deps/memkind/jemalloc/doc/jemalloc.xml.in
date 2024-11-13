@@ -1174,9 +1174,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         </term>
         <listitem><para>Memory profiling enabled/disabled.  If enabled, profile
         memory allocation activity.  See the <link
-        linkend="opt.prof_active"><mallctl>opt.prof_active</mallctl></link>
+        linkend="opt.mk_prof_active"><mallctl>opt.mk_prof_active</mallctl></link>
         option for on-the-fly activation/deactivation.  See the <link
-        linkend="opt.lg_prof_sample"><mallctl>opt.lg_prof_sample</mallctl></link>
+        linkend="opt.mk_lg_prof_sample"><mallctl>opt.mk_lg_prof_sample</mallctl></link>
         option for probabilistic sampling control.  See the <link
         linkend="opt.prof_accum"><mallctl>opt.prof_accum</mallctl></link>
         option for control of cumulative sample reporting.  See the <link
@@ -1207,9 +1207,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         <filename>jeprof</filename>.</para></listitem>
       </varlistentry>
 
-      <varlistentry id="opt.prof_active">
+      <varlistentry id="opt.mk_prof_active">
         <term>
-          <mallctl>opt.prof_active</mallctl>
+          <mallctl>opt.mk_prof_active</mallctl>
           (<type>bool</type>)
           <literal>r-</literal>
           [<option>--enable-prof</option>]
@@ -1239,9 +1239,9 @@ malloc_conf = "xmalloc:true";]]></programlisting>
         mallctl.  This option is enabled by default.</para></listitem>
       </varlistentry>
 
-      <varlistentry id="opt.lg_prof_sample">
+      <varlistentry id="opt.mk_lg_prof_sample">
         <term>
-          <mallctl>opt.lg_prof_sample</mallctl>
+          <mallctl>opt.mk_lg_prof_sample</mallctl>
           (<type>size_t</type>)
           <literal>r-</literal>
           [<option>--enable-prof</option>]
@@ -1989,7 +1989,7 @@ typedef struct {
         </term>
         <listitem><para>Control whether sampling is currently active.  See the
         <link
-        linkend="opt.prof_active"><mallctl>opt.prof_active</mallctl></link>
+        linkend="opt.mk_prof_active"><mallctl>opt.mk_prof_active</mallctl></link>
         option for additional information, as well as the interrelated <link
         linkend="thread.prof.active"><mallctl>thread.prof.active</mallctl></link>
         mallctl.</para></listitem>
@@ -2036,7 +2036,7 @@ typedef struct {
         </term>
         <listitem><para>Reset all memory profile statistics, and optionally
         update the sample rate (see <link
-        linkend="opt.lg_prof_sample"><mallctl>opt.lg_prof_sample</mallctl></link>
+        linkend="opt.mk_lg_prof_sample"><mallctl>opt.mk_lg_prof_sample</mallctl></link>
         and <link
         linkend="prof.lg_sample"><mallctl>prof.lg_sample</mallctl></link>).
         </para></listitem>
@@ -2050,7 +2050,7 @@ typedef struct {
           [<option>--enable-prof</option>]
         </term>
         <listitem><para>Get the current sample rate (see <link
-        linkend="opt.lg_prof_sample"><mallctl>opt.lg_prof_sample</mallctl></link>).
+        linkend="opt.mk_lg_prof_sample"><mallctl>opt.mk_lg_prof_sample</mallctl></link>).
         </para></listitem>
       </varlistentry>
 

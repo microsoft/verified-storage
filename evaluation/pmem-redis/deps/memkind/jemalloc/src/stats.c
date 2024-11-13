@@ -520,10 +520,10 @@ stats_print(void (*write_cb)(void *, const char *), void *cbopaque,
 		OPT_WRITE_SSIZE_T(lg_tcache_max)
 		OPT_WRITE_BOOL(prof)
 		OPT_WRITE_CHAR_P(prof_prefix)
-		OPT_WRITE_BOOL_MUTABLE(prof_active, prof.active)
+		OPT_WRITE_BOOL_MUTABLE(mk_prof_active, prof.active)
 		OPT_WRITE_BOOL_MUTABLE(prof_thread_active_init,
 		    prof.thread_active_init)
-		OPT_WRITE_SSIZE_T(lg_prof_sample)
+		OPT_WRITE_SSIZE_T(mk_lg_prof_sample)
 		OPT_WRITE_BOOL(prof_accum)
 		OPT_WRITE_SSIZE_T(lg_prof_interval)
 		OPT_WRITE_BOOL(prof_gdump)

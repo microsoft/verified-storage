@@ -248,7 +248,7 @@ EXTRA_DIST = autogen.sh \
              jemalloc/test/unit/mallctl.c \
              jemalloc/test/unit/a0.c \
              jemalloc/test/unit/rb.c \
-             jemalloc/test/unit/prof_active.c \
+             jemalloc/test/unit/mk_prof_active.c \
              jemalloc/test/unit/decay.c \
              jemalloc/test/stress/microbench.c \
              jemalloc/Makefile.in \

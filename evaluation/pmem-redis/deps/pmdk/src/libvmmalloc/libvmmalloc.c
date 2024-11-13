@@ -352,18 +352,18 @@ malloc_usable_size(void *ptr)
 #endif
 
 /*
- * Interpose malloc hooks in glibc.  Even if the application uses dlopen
- * with RTLD_DEEPBIND flag, all the references to libc's malloc(3) functions
- * will be redirected to libvmmalloc.
- */
-void *(*__MALLOC_HOOK_VOLATILE __malloc_hook) (size_t size,
-	const void *caller) = (void *)malloc;
-void *(*__MALLOC_HOOK_VOLATILE __realloc_hook) (void *ptr, size_t size,
-	const void *caller) = (void *)realloc;
-void (*__MALLOC_HOOK_VOLATILE __free_hook) (void *ptr, const void *caller) =
-	(void *)free;
-void *(*__MALLOC_HOOK_VOLATILE __memalign_hook) (size_t size, size_t alignment,
-	const void *caller) = (void *)memalign;
+//  * Interpose malloc hooks in glibc.  Even if the application uses dlopen
+//  * with RTLD_DEEPBIND flag, all the references to libc's malloc(3) functions
+//  * will be redirected to libvmmalloc.
+//  */
+// void *(*__MALLOC_HOOK_VOLATILE __malloc_hook) (size_t size,
+// 	const void *caller) = (void *)malloc;
+// void *(*__MALLOC_HOOK_VOLATILE __realloc_hook) (void *ptr, size_t size,
+// 	const void *caller) = (void *)realloc;
+// void (*__MALLOC_HOOK_VOLATILE __free_hook) (void *ptr, const void *caller) =
+// 	(void *)free;
+// void *(*__MALLOC_HOOK_VOLATILE __memalign_hook) (size_t size, size_t alignment,
+// 	const void *caller) = (void *)memalign;
 #endif
 
 /*

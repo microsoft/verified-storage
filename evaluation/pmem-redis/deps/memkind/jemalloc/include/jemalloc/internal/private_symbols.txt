@@ -353,12 +353,12 @@ opt_junk_free
 opt_lg_chunk
 opt_lg_dirty_mult
 opt_lg_prof_interval
-opt_lg_prof_sample
+opt_mk_lg_prof_sample
 opt_lg_tcache_max
 opt_narenas
 opt_prof
 opt_prof_accum
-opt_prof_active
+opt_mk_prof_active
 opt_prof_final
 opt_prof_gdump
 opt_prof_leak
@@ -384,9 +384,9 @@ pow2_ceil_u64
 pow2_ceil_zu
 prng_lg_range
 prng_range
-prof_active_get
-prof_active_get_unlocked
-prof_active_set
+mk_prof_active_get
+mk_prof_active_get_unlocked
+mk_prof_active_set
 prof_alloc_prep
 prof_alloc_rollback
 prof_backtrace

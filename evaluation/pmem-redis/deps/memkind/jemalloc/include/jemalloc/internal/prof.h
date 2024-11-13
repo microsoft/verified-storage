@@ -244,9 +244,9 @@ typedef rb_tree(prof_tdata_t) prof_tdata_tree_t;
 #ifdef JEMALLOC_H_EXTERNS
 
 extern bool	opt_prof;
-extern bool	opt_prof_active;
+extern bool	opt_mk_prof_active;
 extern bool	opt_prof_thread_active_init;
-extern size_t	opt_lg_prof_sample;   /* Mean bytes between samples. */
+extern size_t	opt_mk_lg_prof_sample;   /* Mean bytes between samples. */
 extern ssize_t	opt_lg_prof_interval; /* lg(prof_interval). */
 extern bool	opt_prof_gdump;       /* High-water memory dumping. */
 extern bool	opt_prof_final;       /* Final profile dumping. */
@@ -259,8 +259,8 @@ extern char	opt_prof_prefix[
 #endif
     1];
 
-/* Accessed via prof_active_[gs]et{_unlocked,}(). */
-extern bool	prof_active;
+/* Accessed via mk_prof_active_[gs]et{_unlocked,}(). */
+extern bool	mk_prof_active;
 
 /* Accessed via prof_gdump_[gs]et{_unlocked,}(). */
 extern bool	prof_gdump_val;
@@ -275,10 +275,10 @@ extern bool	prof_gdump_val;
 extern uint64_t	prof_interval;
 
 /*
- * Initialized as opt_lg_prof_sample, and potentially modified during profiling
+ * Initialized as opt_mk_lg_prof_sample, and potentially modified during profiling
  * resets.
  */
-extern size_t	lg_prof_sample;
+extern size_t	mk_lg_prof_sample;
 
 void	prof_alloc_rollback(tsd_t *tsd, prof_tctx_t *tctx, bool updated);
 void	prof_malloc_sample_object(const void *ptr, size_t usize,
@@ -304,8 +304,8 @@ prof_tdata_t	*prof_tdata_reinit(tsd_t *tsd, prof_tdata_t *tdata);
 void	prof_reset(tsd_t *tsd, size_t lg_sample);
 void	prof_tdata_cleanup(tsd_t *tsd);
 const char	*prof_thread_name_get(void);
-bool	prof_active_get(void);
-bool	prof_active_set(bool active);
+bool	mk_prof_active_get(void);
+bool	mk_prof_active_set(bool active);
 int	prof_thread_name_set(tsd_t *tsd, const char *thread_name);
 bool	prof_thread_active_get(void);
 bool	prof_thread_active_set(bool active);
@@ -326,12 +326,12 @@ void	prof_sample_threshold_update(prof_tdata_t *tdata);
 #ifdef JEMALLOC_H_INLINES
 
 #ifndef JEMALLOC_ENABLE_INLINE
-bool	prof_active_get_unlocked(void);
+bool	mk_prof_active_get_unlocked(void);
 bool	prof_gdump_get_unlocked(void);
 prof_tdata_t	*prof_tdata_get(tsd_t *tsd, bool create);
 bool	prof_sample_accum_update(tsd_t *tsd, size_t usize, bool commit,
     prof_tdata_t **tdata_out);
-prof_tctx_t	*prof_alloc_prep(tsd_t *tsd, size_t usize, bool prof_active,
+prof_tctx_t	*prof_alloc_prep(tsd_t *tsd, size_t usize, bool mk_prof_active,
     bool update);
 prof_tctx_t	*prof_tctx_get(const void *ptr);
 void	prof_tctx_set(const void *ptr, size_t usize, prof_tctx_t *tctx);
@@ -341,23 +341,23 @@ void	prof_malloc_sample_object(const void *ptr, size_t usize,
     prof_tctx_t *tctx);
 void	prof_malloc(const void *ptr, size_t usize, prof_tctx_t *tctx);
 void	prof_realloc(tsd_t *tsd, const void *ptr, size_t usize,
-    prof_tctx_t *tctx, bool prof_active, bool updated, const void *old_ptr,
+    prof_tctx_t *tctx, bool mk_prof_active, bool updated, const void *old_ptr,
     size_t old_usize, prof_tctx_t *old_tctx);
 void	prof_free(tsd_t *tsd, const void *ptr, size_t usize);
 #endif
 
 #if (defined(JEMALLOC_ENABLE_INLINE) || defined(JEMALLOC_PROF_C_))
 JEMALLOC_ALWAYS_INLINE bool
-prof_active_get_unlocked(void)
+mk_prof_active_get_unlocked(void)
 {
 
 	/*
 	 * Even if opt_prof is true, sampling can be temporarily disabled by
-	 * setting prof_active to false.  No locking is used when reading
-	 * prof_active in the fast path, so there are no guarantees regarding
+	 * setting mk_prof_active to false.  No locking is used when reading
+	 * mk_prof_active in the fast path, so there are no guarantees regarding
 	 * how long it will take for all threads to notice state changes.
 	 */
-	return (prof_active);
+	return (mk_prof_active);
 }
 
 JEMALLOC_ALWAYS_INLINE bool
@@ -458,7 +458,7 @@ prof_sample_accum_update(tsd_t *tsd, size_t usize, bool update,
 }
 
 JEMALLOC_ALWAYS_INLINE prof_tctx_t *
-prof_alloc_prep(tsd_t *tsd, size_t usize, bool prof_active, bool update)
+prof_alloc_prep(tsd_t *tsd, size_t usize, bool mk_prof_active, bool update)
 {
 	prof_tctx_t *ret;
 	prof_tdata_t *tdata;
@@ -466,7 +466,7 @@ prof_alloc_prep(tsd_t *tsd, size_t usize, bool prof_active, bool update)
 
 	assert(usize == s2u(usize));
 
-	if (!prof_active || likely(prof_sample_accum_update(tsd, usize, update,
+	if (!mk_prof_active || likely(prof_sample_accum_update(tsd, usize, update,
 	    &tdata)))
 		ret = (prof_tctx_t *)(uintptr_t)1U;
 	else {
@@ -494,7 +494,7 @@ prof_malloc(const void *ptr, size_t usize, prof_tctx_t *tctx)
 
 JEMALLOC_ALWAYS_INLINE void
 prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
-    bool prof_active, bool updated, const void *old_ptr, size_t old_usize,
+    bool mk_prof_active, bool updated, const void *old_ptr, size_t old_usize,
     prof_tctx_t *old_tctx)
 {
 	bool sampled, old_sampled;
@@ -502,7 +502,7 @@ prof_realloc(tsd_t *tsd, const void *ptr, size_t usize, prof_tctx_t *tctx,
 	cassert(config_prof);
 	assert(ptr != NULL || (uintptr_t)tctx <= (uintptr_t)1U);
 
-	if (prof_active && !updated && ptr != NULL) {
+	if (mk_prof_active && !updated && ptr != NULL) {
 		assert(usize == isalloc(ptr, true));
 		if (prof_sample_accum_update(tsd, usize, true, NULL)) {
 			/*

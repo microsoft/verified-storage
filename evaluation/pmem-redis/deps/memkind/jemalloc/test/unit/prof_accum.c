@@ -7,7 +7,7 @@
 
 #ifdef JEMALLOC_PROF
 const char *malloc_conf =
-    "prof:true,prof_accum:true,prof_active:false,lg_prof_sample:0";
+    "prof:true,prof_accum:true,mk_prof_active:false,mk_lg_prof_sample:0";
 #endif
 
 static int

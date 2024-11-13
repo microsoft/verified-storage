@@ -2,7 +2,7 @@
 
 ## YCSB
 ### Setup
-1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev libzstd-dev cmake`
+1. Install dependencies: `sudo apt install default-jdk default-jre maven libpmemobj-dev libsnappy-dev pkg-config autoconf automake libtool libndctl-dev libdaxctl-dev libnuma-dev daxctl libzstd-dev cmake build-essential`
 2. Build the YCSB FFI layer: `cd ycsb_ffi; cargo build --release`.
 3. Build YCSB:
     - CapybaraKV: `cd YCSB; mvn -pl site.ycsb:capybarakv-binding -am clean package`
@@ -13,7 +13,7 @@
 4. Run `export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64/`
 
 ### redis setup
-1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:
+<!-- 1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:
 ```
 sudo cat <<EOF | sudo tee /etc/apt/sources.list.d/gcc-8.list
 deb http://old-releases.ubuntu.com/ubuntu/ impish main restricted universe multiverse
@@ -26,8 +26,29 @@ sudo apt install gcc-8
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 25
 sudo update-alternatives --config gcc
 ```
-Make sure `gcc-8` is selected.
-2. `cd` to `pmem-redis` and run `make USE_NVM=yes`
+Make sure `gcc-8` is selected.-->
+1. `cd` to `pmem-redis` and run `make USE_NVM=yes` 
+
+If redis doesn't build, the following may help:
+1. Install gcc-8 by running `sudo apt install gcc-8`. This may fail on newer Ubuntu distributions; if it does, run:
+    ```
+    sudo cat <<EOF | sudo tee /etc/apt/sources.list.d/gcc-8.list
+    deb http://old-releases.ubuntu.com/ubuntu/ impish main restricted universe multiverse
+    EOF
+    ```
+    Then
+    ```
+    sudo apt update
+    sudo apt install gcc-8
+    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-8 25
+    sudo update-alternatives --config gcc
+    ```
+    Make sure `gcc-8` is selected.
+2. Check that the following files and directories are present. They should be, but an bad .gitignore or clean can sometimes cause issues. If any are missing, create them and copy them in from the repository manually.
+    - Check that `pmem-redis/deps/jemalloc/bin/` exists and that it contains the following files: `jemalloc-config.in`, `jemalloc.sh.in`, and `jeprof.in`. If the directory does not exist, or if any of these files are missing or empty, 
+    - Check that `pmem-redis/deps/pmdk/src/jemalloc/bin` exists and that it contains `jemalloc.sh.in` and `pprof`.
+    - Check that `pmem-redis/deps/memkind/jemalloc/bin` exists and that it contains `jemalloc-config.in`, `jemalloc.sh.in`, and `jeprof.in`.
+
 
 #### pmem-rocksdb
 1. `cd` to `pmem-rocksdb` and build with `make rocksdbjava ROCKSDB_ON_DCPMM=1 DISABLE_WARNING_AS_ERROR=true -j 8`

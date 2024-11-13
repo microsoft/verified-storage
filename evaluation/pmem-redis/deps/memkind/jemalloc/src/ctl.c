@@ -67,7 +67,7 @@ CTL_PROTO(epoch)
 CTL_PROTO(thread_tcache_enabled)
 CTL_PROTO(thread_tcache_flush)
 CTL_PROTO(thread_prof_name)
-CTL_PROTO(thread_prof_active)
+CTL_PROTO(thread_mk_prof_active)
 CTL_PROTO(thread_arena)
 CTL_PROTO(thread_allocated)
 CTL_PROTO(thread_allocatedp)
@@ -106,9 +106,9 @@ CTL_PROTO(opt_tcache)
 CTL_PROTO(opt_lg_tcache_max)
 CTL_PROTO(opt_prof)
 CTL_PROTO(opt_prof_prefix)
-CTL_PROTO(opt_prof_active)
+CTL_PROTO(opt_mk_prof_active)
 CTL_PROTO(opt_prof_thread_active_init)
-CTL_PROTO(opt_lg_prof_sample)
+CTL_PROTO(opt_mk_lg_prof_sample)
 CTL_PROTO(opt_lg_prof_interval)
 CTL_PROTO(opt_prof_gdump)
 CTL_PROTO(opt_prof_final)
@@ -146,12 +146,12 @@ CTL_PROTO(arenas_nlruns)
 CTL_PROTO(arenas_nhchunks)
 CTL_PROTO(arenas_extend)
 CTL_PROTO(prof_thread_active_init)
-CTL_PROTO(prof_active)
+CTL_PROTO(mk_prof_active)
 CTL_PROTO(prof_dump)
 CTL_PROTO(prof_gdump)
 CTL_PROTO(prof_reset)
 CTL_PROTO(prof_interval)
-CTL_PROTO(lg_prof_sample)
+CTL_PROTO(mk_lg_prof_sample)
 CTL_PROTO(stats_arenas_i_small_allocated)
 CTL_PROTO(stats_arenas_i_small_nmalloc)
 CTL_PROTO(stats_arenas_i_small_ndalloc)
@@ -230,7 +230,7 @@ static const ctl_named_node_t	thread_tcache_node[] = {
 
 static const ctl_named_node_t	thread_prof_node[] = {
 	{NAME("name"),		CTL(thread_prof_name)},
-	{NAME("active"),	CTL(thread_prof_active)}
+	{NAME("active"),	CTL(thread_mk_prof_active)}
 };
 
 static const ctl_named_node_t	thread_node[] = {
@@ -280,9 +280,9 @@ static const ctl_named_node_t opt_node[] = {
 	{NAME("lg_tcache_max"),	CTL(opt_lg_tcache_max)},
 	{NAME("prof"),		CTL(opt_prof)},
 	{NAME("prof_prefix"),	CTL(opt_prof_prefix)},
-	{NAME("prof_active"),	CTL(opt_prof_active)},
+	{NAME("mk_prof_active"),	CTL(opt_mk_prof_active)},
 	{NAME("prof_thread_active_init"), CTL(opt_prof_thread_active_init)},
-	{NAME("lg_prof_sample"), CTL(opt_lg_prof_sample)},
+	{NAME("mk_lg_prof_sample"), CTL(opt_mk_lg_prof_sample)},
 	{NAME("lg_prof_interval"), CTL(opt_lg_prof_interval)},
 	{NAME("prof_gdump"),	CTL(opt_prof_gdump)},
 	{NAME("prof_final"),	CTL(opt_prof_final)},
@@ -367,12 +367,12 @@ static const ctl_named_node_t arenas_node[] = {
 
 static const ctl_named_node_t	prof_node[] = {
 	{NAME("thread_active_init"), CTL(prof_thread_active_init)},
-	{NAME("active"),	CTL(prof_active)},
+	{NAME("active"),	CTL(mk_prof_active)},
 	{NAME("dump"),		CTL(prof_dump)},
 	{NAME("gdump"),		CTL(prof_gdump)},
 	{NAME("reset"),		CTL(prof_reset)},
 	{NAME("interval"),	CTL(prof_interval)},
-	{NAME("lg_sample"),	CTL(lg_prof_sample)}
+	{NAME("lg_sample"),	CTL(mk_lg_prof_sample)}
 };
 
 static const ctl_named_node_t stats_arenas_i_metadata_node[] = {
@@ -513,14 +513,14 @@ ctl_arena_init(ctl_arena_stats_t *astats)
 {
 
 	if (astats->lstats == NULL) {
-		astats->lstats = (malloc_large_stats_t *)a0malloc(nlclasses *
+		astats->lstats = (malloc_large_stats_t *)a0malloc(mk_nlclasses *
 		    sizeof(malloc_large_stats_t));
 		if (astats->lstats == NULL)
 			return (true);
 	}
 
 	if (astats->hstats == NULL) {
-		astats->hstats = (malloc_huge_stats_t *)a0malloc(nhclasses *
+		astats->hstats = (malloc_huge_stats_t *)a0malloc(mk_nhclasses *
 		    sizeof(malloc_huge_stats_t));
 		if (astats->hstats == NULL)
 			return (true);
@@ -546,9 +546,9 @@ ctl_arena_clear(ctl_arena_stats_t *astats)
 		astats->ndalloc_small = 0;
 		astats->nrequests_small = 0;
 		memset(astats->bstats, 0, NBINS * sizeof(malloc_bin_stats_t));
-		memset(astats->lstats, 0, nlclasses *
+		memset(astats->lstats, 0, mk_nlclasses *
 		    sizeof(malloc_large_stats_t));
-		memset(astats->hstats, 0, nhclasses *
+		memset(astats->hstats, 0, mk_nhclasses *
 		    sizeof(malloc_huge_stats_t));
 	}
 }
@@ -631,7 +631,7 @@ ctl_arena_stats_smerge(ctl_arena_stats_t *sstats, ctl_arena_stats_t *astats)
 			sstats->bstats[i].curruns += astats->bstats[i].curruns;
 		}
 
-		for (i = 0; i < nlclasses; i++) {
+		for (i = 0; i < mk_nlclasses; i++) {
 			sstats->lstats[i].nmalloc += astats->lstats[i].nmalloc;
 			sstats->lstats[i].ndalloc += astats->lstats[i].ndalloc;
 			sstats->lstats[i].nrequests +=
@@ -639,7 +639,7 @@ ctl_arena_stats_smerge(ctl_arena_stats_t *sstats, ctl_arena_stats_t *astats)
 			sstats->lstats[i].curruns += astats->lstats[i].curruns;
 		}
 
-		for (i = 0; i < nhclasses; i++) {
+		for (i = 0; i < mk_nhclasses; i++) {
 			sstats->hstats[i].nmalloc += astats->hstats[i].nmalloc;
 			sstats->hstats[i].ndalloc += astats->hstats[i].ndalloc;
 			sstats->hstats[i].curhchunks +=
@@ -1285,10 +1285,10 @@ CTL_RO_NL_CGEN(config_tcache, opt_tcache, opt_tcache, bool)
 CTL_RO_NL_CGEN(config_tcache, opt_lg_tcache_max, opt_lg_tcache_max, ssize_t)
 CTL_RO_NL_CGEN(config_prof, opt_prof, opt_prof, bool)
 CTL_RO_NL_CGEN(config_prof, opt_prof_prefix, opt_prof_prefix, const char *)
-CTL_RO_NL_CGEN(config_prof, opt_prof_active, opt_prof_active, bool)
+CTL_RO_NL_CGEN(config_prof, opt_mk_prof_active, opt_mk_prof_active, bool)
 CTL_RO_NL_CGEN(config_prof, opt_prof_thread_active_init,
     opt_prof_thread_active_init, bool)
-CTL_RO_NL_CGEN(config_prof, opt_lg_prof_sample, opt_lg_prof_sample, size_t)
+CTL_RO_NL_CGEN(config_prof, opt_mk_lg_prof_sample, opt_mk_lg_prof_sample, size_t)
 CTL_RO_NL_CGEN(config_prof, opt_prof_accum, opt_prof_accum, bool)
 CTL_RO_NL_CGEN(config_prof, opt_lg_prof_interval, opt_lg_prof_interval, ssize_t)
 CTL_RO_NL_CGEN(config_prof, opt_prof_gdump, opt_prof_gdump, bool)
@@ -1435,7 +1435,7 @@ label_return:
 }
 
 static int
-thread_prof_active_ctl(const size_t *mib, size_t miblen, void *oldp,
+thread_mk_prof_active_ctl(const size_t *mib, size_t miblen, void *oldp,
     size_t *oldlenp, void *newp, size_t newlen)
 {
 	int ret;
@@ -1909,25 +1909,25 @@ arenas_bin_i_index(const size_t *mib, size_t miblen, size_t i)
 	return (super_arenas_bin_i_node);
 }
 
-CTL_RO_NL_GEN(arenas_nlruns, nlclasses, unsigned)
+CTL_RO_NL_GEN(arenas_nlruns, mk_nlclasses, unsigned)
 CTL_RO_NL_GEN(arenas_lrun_i_size, index2size(NBINS+(szind_t)mib[2]), size_t)
 static const ctl_named_node_t *
 arenas_lrun_i_index(const size_t *mib, size_t miblen, size_t i)
 {
 
-	if (i > nlclasses)
+	if (i > mk_nlclasses)
 		return (NULL);
 	return (super_arenas_lrun_i_node);
 }
 
-CTL_RO_NL_GEN(arenas_nhchunks, nhclasses, unsigned)
-CTL_RO_NL_GEN(arenas_hchunk_i_size, index2size(NBINS+nlclasses+(szind_t)mib[2]),
+CTL_RO_NL_GEN(arenas_nhchunks, mk_nhclasses, unsigned)
+CTL_RO_NL_GEN(arenas_hchunk_i_size, index2size(NBINS+mk_nlclasses+(szind_t)mib[2]),
     size_t)
 static const ctl_named_node_t *
 arenas_hchunk_i_index(const size_t *mib, size_t miblen, size_t i)
 {
 
-	if (i > nhclasses)
+	if (i > mk_nhclasses)
 		return (NULL);
 	return (super_arenas_hchunk_i_node);
 }
@@ -1982,7 +1982,7 @@ label_return:
 }
 
 static int
-prof_active_ctl(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
+mk_prof_active_ctl(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen)
 {
 	int ret;
@@ -1996,9 +1996,9 @@ prof_active_ctl(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
 			ret = EINVAL;
 			goto label_return;
 		}
-		oldval = prof_active_set(*(bool *)newp);
+		oldval = mk_prof_active_set(*(bool *)newp);
 	} else
-		oldval = prof_active_get();
+		oldval = mk_prof_active_get();
 	READ(oldval, bool);
 
 	ret = 0;
@@ -2059,7 +2059,7 @@ prof_reset_ctl(const size_t *mib, size_t miblen, void *oldp, size_t *oldlenp,
     void *newp, size_t newlen)
 {
 	int ret;
-	size_t lg_sample = lg_prof_sample;
+	size_t lg_sample = mk_lg_prof_sample;
 	tsd_t *tsd;
 
 	if (!config_prof)
@@ -2080,7 +2080,7 @@ label_return:
 }
 
 CTL_RO_NL_CGEN(config_prof, prof_interval, prof_interval, uint64_t)
-CTL_RO_NL_CGEN(config_prof, lg_prof_sample, lg_prof_sample, size_t)
+CTL_RO_NL_CGEN(config_prof, mk_lg_prof_sample, mk_lg_prof_sample, size_t)
 
 /******************************************************************************/
 
@@ -2178,7 +2178,7 @@ static const ctl_named_node_t *
 stats_arenas_i_lruns_j_index(const size_t *mib, size_t miblen, size_t j)
 {
 
-	if (j > nlclasses)
+	if (j > mk_nlclasses)
 		return (NULL);
 	return (super_stats_arenas_i_lruns_j_node);
 }
@@ -2197,7 +2197,7 @@ static const ctl_named_node_t *
 stats_arenas_i_hchunks_j_index(const size_t *mib, size_t miblen, size_t j)
 {
 
-	if (j > nhclasses)
+	if (j > mk_nhclasses)
 		return (NULL);
 	return (super_stats_arenas_i_hchunks_j_node);
 }

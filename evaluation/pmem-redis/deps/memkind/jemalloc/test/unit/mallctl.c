@@ -178,8 +178,8 @@ TEST_BEGIN(test_mallctl_opt)
 	TEST_MALLCTL_OPT(size_t, lg_tcache_max, tcache);
 	TEST_MALLCTL_OPT(bool, prof, prof);
 	TEST_MALLCTL_OPT(const char *, prof_prefix, prof);
-	TEST_MALLCTL_OPT(bool, prof_active, prof);
-	TEST_MALLCTL_OPT(ssize_t, lg_prof_sample, prof);
+	TEST_MALLCTL_OPT(bool, mk_prof_active, prof);
+	TEST_MALLCTL_OPT(ssize_t, mk_lg_prof_sample, prof);
 	TEST_MALLCTL_OPT(bool, prof_accum, prof);
 	TEST_MALLCTL_OPT(ssize_t, lg_prof_interval, prof);
 	TEST_MALLCTL_OPT(bool, prof_gdump, prof);
@@ -599,8 +599,8 @@ TEST_BEGIN(test_arenas_constants)
 	TEST_ARENAS_CONSTANT(size_t, quantum, QUANTUM);
 	TEST_ARENAS_CONSTANT(size_t, page, PAGE);
 	TEST_ARENAS_CONSTANT(unsigned, nbins, NBINS);
-	TEST_ARENAS_CONSTANT(unsigned, nlruns, nlclasses);
-	TEST_ARENAS_CONSTANT(unsigned, nhchunks, nhclasses);
+	TEST_ARENAS_CONSTANT(unsigned, nlruns, mk_nlclasses);
+	TEST_ARENAS_CONSTANT(unsigned, nhchunks, mk_nhclasses);
 
 #undef TEST_ARENAS_CONSTANT
 }

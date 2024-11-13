@@ -151,10 +151,10 @@ brevity.  Much more detail can be found in the git revision history:
       could cause data structure corruption that would most likely result in a
       segfault.
     + Fix irealloc_prof() to prof_alloc_rollback() on OOM.
-    + Make one call to prof_active_get_unlocked() per allocation event, and use
+    + Make one call to mk_prof_active_get_unlocked() per allocation event, and use
       the result throughout the relevant functions that handle an allocation
       event.  Also add a missing check in prof_realloc().  These fixes protect
-      allocation events against concurrent prof_active changes.
+      allocation events against concurrent mk_prof_active changes.
     + Fix ixallocx_prof() to pass usize_max and zero to ixallocx_prof_sample()
       in the correct order.
     + Fix prof_realloc() to call prof_free_sampled_object() after calling
@@ -580,7 +580,7 @@ brevity.  Much more detail can be found in the git revision history:
   - Disable lazy locking by default.
   - Rename the "tcache.flush" mallctl to "thread.tcache.flush".
   - Rename the "arenas.pagesize" mallctl to "arenas.page".
-  - Change the "opt.lg_prof_sample" default from 0 to 19 (1 B to 512 KiB).
+  - Change the "opt.mk_lg_prof_sample" default from 0 to 19 (1 B to 512 KiB).
   - Change the "opt.prof_accum" default from true to false.
 
   Removed features:

@@ -2,7 +2,7 @@
 
 #ifdef JEMALLOC_PROF
 const char *malloc_conf =
-    "prof:true,prof_active:false,lg_prof_sample:0";
+    "prof:true,mk_prof_active:false,mk_lg_prof_sample:0";
 #endif
 
 static int
@@ -17,7 +17,7 @@ prof_dump_open_intercept(bool propagate_err, const char *filename)
 }
 
 static void
-set_prof_active(bool active)
+set_mk_prof_active(bool active)
 {
 
 	assert_d_eq(mallctl("prof.active", NULL, NULL, &active, sizeof(active)),
@@ -25,68 +25,68 @@ set_prof_active(bool active)
 }
 
 static size_t
-get_lg_prof_sample(void)
+get_mk_lg_prof_sample(void)
 {
-	size_t lg_prof_sample;
+	size_t mk_lg_prof_sample;
 	size_t sz = sizeof(size_t);
 
-	assert_d_eq(mallctl("prof.lg_sample", &lg_prof_sample, &sz, NULL, 0), 0,
+	assert_d_eq(mallctl("prof.lg_sample", &mk_lg_prof_sample, &sz, NULL, 0), 0,
 	    "Unexpected mallctl failure while reading profiling sample rate");
-	return (lg_prof_sample);
+	return (mk_lg_prof_sample);
 }
 
 static void
-do_prof_reset(size_t lg_prof_sample)
+do_prof_reset(size_t mk_lg_prof_sample)
 {
 	assert_d_eq(mallctl("prof.reset", NULL, NULL,
-	    &lg_prof_sample, sizeof(size_t)), 0,
+	    &mk_lg_prof_sample, sizeof(size_t)), 0,
 	    "Unexpected mallctl failure while resetting profile data");
-	assert_zu_eq(lg_prof_sample, get_lg_prof_sample(),
+	assert_zu_eq(mk_lg_prof_sample, get_mk_lg_prof_sample(),
 	    "Expected profile sample rate change");
 }
 
 TEST_BEGIN(test_prof_reset_basic)
 {
-	size_t lg_prof_sample_orig, lg_prof_sample, lg_prof_sample_next;
+	size_t mk_lg_prof_sample_orig, mk_lg_prof_sample, mk_lg_prof_sample_next;
 	size_t sz;
 	unsigned i;
 
 	test_skip_if(!config_prof);
 
 	sz = sizeof(size_t);
-	assert_d_eq(mallctl("opt.lg_prof_sample", &lg_prof_sample_orig, &sz,
+	assert_d_eq(mallctl("opt.mk_lg_prof_sample", &mk_lg_prof_sample_orig, &sz,
 	    NULL, 0), 0,
 	    "Unexpected mallctl failure while reading profiling sample rate");
-	assert_zu_eq(lg_prof_sample_orig, 0,
+	assert_zu_eq(mk_lg_prof_sample_orig, 0,
 	    "Unexpected profiling sample rate");
-	lg_prof_sample = get_lg_prof_sample();
-	assert_zu_eq(lg_prof_sample_orig, lg_prof_sample,
-	    "Unexpected disagreement between \"opt.lg_prof_sample\" and "
+	mk_lg_prof_sample = get_mk_lg_prof_sample();
+	assert_zu_eq(mk_lg_prof_sample_orig, mk_lg_prof_sample,
+	    "Unexpected disagreement between \"opt.mk_lg_prof_sample\" and "
 	    "\"prof.lg_sample\"");
 
 	/* Test simple resets. */
 	for (i = 0; i < 2; i++) {
 		assert_d_eq(mallctl("prof.reset", NULL, NULL, NULL, 0), 0,
 		    "Unexpected mallctl failure while resetting profile data");
-		lg_prof_sample = get_lg_prof_sample();
-		assert_zu_eq(lg_prof_sample_orig, lg_prof_sample,
+		mk_lg_prof_sample = get_mk_lg_prof_sample();
+		assert_zu_eq(mk_lg_prof_sample_orig, mk_lg_prof_sample,
 		    "Unexpected profile sample rate change");
 	}
 
 	/* Test resets with prof.lg_sample changes. */
-	lg_prof_sample_next = 1;
+	mk_lg_prof_sample_next = 1;
 	for (i = 0; i < 2; i++) {
-		do_prof_reset(lg_prof_sample_next);
-		lg_prof_sample = get_lg_prof_sample();
-		assert_zu_eq(lg_prof_sample, lg_prof_sample_next,
+		do_prof_reset(mk_lg_prof_sample_next);
+		mk_lg_prof_sample = get_mk_lg_prof_sample();
+		assert_zu_eq(mk_lg_prof_sample, mk_lg_prof_sample_next,
 		    "Expected profile sample rate change");
-		lg_prof_sample_next = lg_prof_sample_orig;
+		mk_lg_prof_sample_next = mk_lg_prof_sample_orig;
 	}
 
 	/* Make sure the test code restored prof.lg_sample. */
-	lg_prof_sample = get_lg_prof_sample();
-	assert_zu_eq(lg_prof_sample_orig, lg_prof_sample,
-	    "Unexpected disagreement between \"opt.lg_prof_sample\" and "
+	mk_lg_prof_sample = get_mk_lg_prof_sample();
+	assert_zu_eq(mk_lg_prof_sample_orig, mk_lg_prof_sample,
+	    "Unexpected disagreement between \"opt.mk_lg_prof_sample\" and "
 	    "\"prof.lg_sample\"");
 }
 TEST_END
@@ -110,7 +110,7 @@ TEST_BEGIN(test_prof_reset_cleanup)
 
 	test_skip_if(!config_prof);
 
-	set_prof_active(true);
+	set_mk_prof_active(true);
 
 	assert_zu_eq(prof_bt_count(), 0, "Expected 0 backtraces");
 	p = mallocx(1, 0);
@@ -138,7 +138,7 @@ TEST_BEGIN(test_prof_reset_cleanup)
 	dallocx(p, 0);
 	assert_zu_eq(prof_bt_count(), 0, "Expected 0 backtraces");
 
-	set_prof_active(false);
+	set_mk_prof_active(false);
 }
 TEST_END
 
@@ -194,7 +194,7 @@ thd_start(void *varg)
 
 TEST_BEGIN(test_prof_reset)
 {
-	size_t lg_prof_sample_orig;
+	size_t mk_lg_prof_sample_orig;
 	thd_t thds[NTHREADS];
 	unsigned thd_args[NTHREADS];
 	unsigned i;
@@ -207,10 +207,10 @@ TEST_BEGIN(test_prof_reset)
 	    "Unexpected pre-existing tdata structures");
 	tdata_count = prof_tdata_count();
 
-	lg_prof_sample_orig = get_lg_prof_sample();
+	mk_lg_prof_sample_orig = get_mk_lg_prof_sample();
 	do_prof_reset(5);
 
-	set_prof_active(true);
+	set_mk_prof_active(true);
 
 	for (i = 0; i < NTHREADS; i++) {
 		thd_args[i] = i;
@@ -224,9 +224,9 @@ TEST_BEGIN(test_prof_reset)
 	assert_zu_eq(prof_tdata_count(), tdata_count,
 	    "Unexpected remaining tdata structures");
 
-	set_prof_active(false);
+	set_mk_prof_active(false);
 
-	do_prof_reset(lg_prof_sample_orig);
+	do_prof_reset(mk_lg_prof_sample_orig);
 }
 TEST_END
 #undef NTHREADS
@@ -239,14 +239,14 @@ TEST_END
 #define	NITER 10
 TEST_BEGIN(test_xallocx)
 {
-	size_t lg_prof_sample_orig;
+	size_t mk_lg_prof_sample_orig;
 	unsigned i;
 	void *ptrs[NITER];
 
 	test_skip_if(!config_prof);
 
-	lg_prof_sample_orig = get_lg_prof_sample();
-	set_prof_active(true);
+	mk_lg_prof_sample_orig = get_mk_lg_prof_sample();
+	set_mk_prof_active(true);
 
 	/* Reset profiling. */
 	do_prof_reset(0);
@@ -281,8 +281,8 @@ TEST_BEGIN(test_xallocx)
 		dallocx(ptrs[i], 0);
 	}
 
-	set_prof_active(false);
-	do_prof_reset(lg_prof_sample_orig);
+	set_mk_prof_active(false);
+	do_prof_reset(mk_lg_prof_sample_orig);
 }
 TEST_END
 #undef NITER

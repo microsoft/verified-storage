@@ -15,9 +15,9 @@
 /* Data. */
 
 bool		opt_prof = false;
-bool		opt_prof_active = true;
+bool		opt_mk_prof_active = true;
 bool		opt_prof_thread_active_init = true;
-size_t		opt_lg_prof_sample = LG_PROF_SAMPLE_DEFAULT;
+size_t		opt_mk_lg_prof_sample = LG_PROF_SAMPLE_DEFAULT;
 ssize_t		opt_lg_prof_interval = LG_PROF_INTERVAL_DEFAULT;
 bool		opt_prof_gdump = false;
 bool		opt_prof_final = false;
@@ -31,11 +31,11 @@ char		opt_prof_prefix[
     1];
 
 /*
- * Initialized as opt_prof_active, and accessed via
- * prof_active_[gs]et{_unlocked,}().
+ * Initialized as opt_mk_prof_active, and accessed via
+ * mk_prof_active_[gs]et{_unlocked,}().
  */
-bool			prof_active;
-static malloc_mutex_t	prof_active_mtx;
+bool			mk_prof_active;
+static malloc_mutex_t	mk_prof_active_mtx;
 
 /*
  * Initialized as opt_prof_thread_active_init, and accessed via
@@ -53,7 +53,7 @@ static malloc_mutex_t	prof_gdump_mtx;
 
 uint64_t	prof_interval = 0;
 
-size_t		lg_prof_sample;
+size_t		mk_lg_prof_sample;
 
 /*
  * Table of mutexes that are shared among gctx's.  These are leaf locks, so
@@ -848,19 +848,19 @@ prof_sample_threshold_update(prof_tdata_t *tdata)
 	if (!config_prof)
 		return;
 
-	if (lg_prof_sample == 0) {
+	if (mk_lg_prof_sample == 0) {
 		tdata->bytes_until_sample = 0;
 		return;
 	}
 
 	/*
 	 * Compute sample interval as a geometrically distributed random
-	 * variable with mean (2^lg_prof_sample).
+	 * variable with mean (2^mk_lg_prof_sample).
 	 *
 	 *                             __        __
 	 *                             |  log(u)  |                     1
 	 * tdata->bytes_until_sample = | -------- |, where p = ---------------
-	 *                             | log(1-p) |             lg_prof_sample
+	 *                             | log(1-p) |             mk_lg_prof_sample
 	 *                                                     2
 	 *
 	 * For more information on the math, see:
@@ -874,7 +874,7 @@ prof_sample_threshold_update(prof_tdata_t *tdata)
 	r = prng_lg_range(&tdata->prng_state, 53);
 	u = (double)r * (1.0/9007199254740992.0L);
 	tdata->bytes_until_sample = (uint64_t)(log(u) /
-	    log(1.0 - (1.0 / (double)((uint64_t)1U << lg_prof_sample))))
+	    log(1.0 - (1.0 / (double)((uint64_t)1U << mk_lg_prof_sample))))
 	    + (uint64_t)1U;
 #endif
 }
@@ -1290,7 +1290,7 @@ prof_dump_header(bool propagate_err, const prof_cnt_t *cnt_all)
 	if (prof_dump_printf(propagate_err,
 	    "heap_v2/%"FMTu64"\n"
 	    "  t*: %"FMTu64": %"FMTu64" [%"FMTu64": %"FMTu64"]\n",
-	    ((uint64_t)1U << lg_prof_sample), cnt_all->curobjs,
+	    ((uint64_t)1U << mk_lg_prof_sample), cnt_all->curobjs,
 	    cnt_all->curbytes, cnt_all->accumobjs, cnt_all->accumbytes))
 		return (true);
 
@@ -1884,7 +1884,7 @@ prof_reset(tsd_t *tsd, size_t lg_sample)
 	malloc_mutex_lock(&prof_dump_mtx);
 	malloc_mutex_lock(&tdatas_mtx);
 
-	lg_prof_sample = lg_sample;
+	mk_lg_prof_sample = lg_sample;
 
 	next = NULL;
 	do {
@@ -1915,26 +1915,26 @@ prof_tdata_cleanup(tsd_t *tsd)
 }
 
 bool
-prof_active_get(void)
+mk_prof_active_get(void)
 {
-	bool prof_active_current;
+	bool mk_prof_active_current;
 
-	malloc_mutex_lock(&prof_active_mtx);
-	prof_active_current = prof_active;
-	malloc_mutex_unlock(&prof_active_mtx);
-	return (prof_active_current);
+	malloc_mutex_lock(&mk_prof_active_mtx);
+	mk_prof_active_current = mk_prof_active;
+	malloc_mutex_unlock(&mk_prof_active_mtx);
+	return (mk_prof_active_current);
 }
 
 bool
-prof_active_set(bool active)
+mk_prof_active_set(bool active)
 {
-	bool prof_active_old;
+	bool mk_prof_active_old;
 
-	malloc_mutex_lock(&prof_active_mtx);
-	prof_active_old = prof_active;
-	prof_active = active;
-	malloc_mutex_unlock(&prof_active_mtx);
-	return (prof_active_old);
+	malloc_mutex_lock(&mk_prof_active_mtx);
+	mk_prof_active_old = mk_prof_active;
+	mk_prof_active = active;
+	malloc_mutex_unlock(&mk_prof_active_mtx);
+	return (mk_prof_active_old);
 }
 
 const char *
@@ -2124,10 +2124,10 @@ prof_boot2(void)
 		tsd_t *tsd;
 		unsigned i;
 
-		lg_prof_sample = opt_lg_prof_sample;
+		mk_lg_prof_sample = opt_mk_lg_prof_sample;
 
-		prof_active = opt_prof_active;
-		if (malloc_mutex_init(&prof_active_mtx))
+		mk_prof_active = opt_mk_prof_active;
+		if (malloc_mutex_init(&mk_prof_active_mtx))
 			return (true);
 
 		prof_gdump_val = opt_prof_gdump;
