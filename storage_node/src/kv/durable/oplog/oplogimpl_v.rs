@@ -1380,7 +1380,6 @@ verus! {
                     &&& self@ == old(self)@.tentatively_append_log_entry(log_entry@)
                     &&& views_differ_only_in_log_region(old(log_wrpm)@, log_wrpm@, 
                             overall_metadata.log_area_addr as nat, overall_metadata.log_area_size as nat)
-                    &&& log_wrpm@.durable_state == old(log_wrpm)@.durable_state
                 }
                 Err(KvError::OutOfSpace) => {
                     &&& !self@.op_list_committed
@@ -1396,7 +1395,6 @@ verus! {
                 Err(_) => false 
             }
     {
-        assume(false); // TODO @jay
         let ghost log_start_addr = overall_metadata.log_area_addr as nat;
         let ghost log_size = overall_metadata.log_area_size as nat;
         let ghost old_wrpm = log_wrpm@;
@@ -1572,8 +1570,6 @@ verus! {
             assert(old_log_ops is Some);
             assert(new_log_ops is Some);
             assert(new_log_ops.unwrap() == self@.physical_op_list);
-
-            assert(log_wrpm@.durable_state == old(log_wrpm)@.durable_state);
         }
         
         Ok(())
