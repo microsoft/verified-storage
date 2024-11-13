@@ -202,6 +202,28 @@ pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvUpdate<'local>(
     }
 }
 
+#[no_mangle]
+pub extern "system" fn Java_site_ycsb_db_CapybaraKV_kvCommit<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>, 
+    kv_pointer: jlong, 
+) {
+    // Obtain a reference to the KV. We don't use Box::from_raw because we don't want ownership of the KV
+    // (otherwise it will be dropped too early)
+    let raw_kv_pointer = kv_pointer as *mut YcsbKV;
+    let kv: &mut YcsbKV = unsafe { &mut *raw_kv_pointer };
+
+    let ret = kv.kv.commit();
+    match ret {
+        Ok(_) => {}
+        Err(e) => {
+            let err_str = format!("Error committing transaction: {:?}", e);
+            println!("{}", err_str);
+            env.throw(("java/site/ycsb/CapybaraKvException", err_str)).unwrap();
+        }
+    }
+}
+
 fn create_pm_region(file_name: &str, region_size: u64) -> FileBackedPersistentMemoryRegion
 {
     #[cfg(target_os = "windows")]

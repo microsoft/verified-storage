@@ -1781,6 +1781,8 @@ verus! {
             let item_table = DurableItemTable::<K, I>::start::<PM, L>(&item_table_subregion, pm_region, &entry_list, overall_metadata, version_metadata)?;
             let durable_list = DurableList::<K, L>::start::<PM, I>(&list_area_subregion, pm_region, &main_table, overall_metadata, version_metadata)?;
 
+            println!("entry list {:?}", entry_list);
+
             let durable_kv_store = Self {
                 version_metadata,
                 overall_metadata,

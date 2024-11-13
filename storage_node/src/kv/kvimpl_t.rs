@@ -305,6 +305,36 @@ where
         self.untrusted_kv_impl.untrusted_delete(key, self.id, Tracked(&perm))
     }
 
+    // TODO @hayley ensure this verifies
+    pub exec fn commit(&mut self) -> (result: Result<(), KvError<K>>)
+        requires 
+            old(self).valid(),
+        ensures 
+            self.valid(),
+            match result {
+                Ok(()) => {
+                    &&& self@ == old(self).tentative_view()
+                    &&& self@ == self.tentative_view()
+                }
+                Err(KvError::CRCMismatch) => {
+                    &&& self@ == old(self)@
+                    &&& !self.constants().impervious_to_corruption
+                }, 
+                Err(KvError::OutOfSpace) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(KvError::LogErr { log_err }) => {
+                    &&& self@ == old(self)@
+                    // TODO
+                }
+                Err(_) => false,
+            }
+    {
+        let tracked perm = TrustedKvPermission::new_two_possibilities(self.id, self@, self.tentative_view());
+        self.untrusted_kv_impl.untrusted_commit(self.id, Tracked(&perm))
+    }
+
     /* 
     pub fn start(
         metadata_pmem: PM,

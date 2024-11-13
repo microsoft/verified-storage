@@ -19,6 +19,7 @@ public class CapybaraKV {
   private static native byte[] kvRead(long kvPtr, byte[] table, byte[] key);
   private static native void kvUpdate(long kvPtr, byte[] table, 
       byte[] key, byte[] value);
+  private static native void kvCommit(long kvPtr);
 
   private long kvPtr;
 
@@ -50,6 +51,10 @@ public class CapybaraKV {
     byte[] keyArray = key.getBytes(UTF_8);
 
     CapybaraKV.kvUpdate(kvPtr, tableArray, keyArray, values);
+  }
+
+  public void commit() throws CapybaraKVException {
+    CapybaraKV.kvCommit(kvPtr);
   }
 
   public void cleanup() {

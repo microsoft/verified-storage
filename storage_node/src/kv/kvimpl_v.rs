@@ -251,7 +251,7 @@ where
                 Err(KvError::PmemErr{ pmem_err }) => true,
                 Err(_) => false 
             }
-    {        
+    {
         // Prove that all initial crash states are legal
         assert forall |s| wrpm_region@.can_crash_as(s) implies #[trigger] perm.check_permission(s) by {
             lemma_wherever_no_outstanding_writes_persistent_memory_view_can_only_crash_as_committed(wrpm_region@);

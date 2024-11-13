@@ -51,6 +51,7 @@ public class CapybaraKVClient extends DB {
     try {
       byte[] serializedValues = serializeValues(values);
       kv.insert(table, key, serializedValues);
+      kv.commit();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
@@ -72,6 +73,7 @@ public class CapybaraKVClient extends DB {
       // serialize the updated value to bytes
       byte[] updateBytes = serializeValues(result);
       kv.update(table, key, updateBytes);
+      kv.commit();
       return Status.OK;
     } catch(IOException | CapybaraKVException e) {
       LOGGER.error(e.getMessage(), e);
