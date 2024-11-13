@@ -781,7 +781,10 @@ verus! {
             &&& self.main_table_entry_size == overall_metadata.main_table_entry_size
             &&& overall_metadata.main_table_entry_size ==
                     ListEntryMetadata::spec_size_of() + u64::spec_size_of() + u64::spec_size_of() + K::spec_size_of()
-            &&& parse_main_table::<K>(pm.durable_state, overall_metadata.num_keys, overall_metadata.main_table_entry_size) == Some(self@)
+            &&& parse_main_table::<K>(pm.durable_state, overall_metadata.num_keys,
+                                    overall_metadata.main_table_entry_size) == Some(self@)
+            &&& parse_main_table::<K>(pm.read_state, overall_metadata.num_keys,
+                                    overall_metadata.main_table_entry_size) == Some(self@)
             &&& self@.durable_main_table.len() == overall_metadata.num_keys
             &&& self@.inv(overall_metadata)
             &&& forall |idx: u64| self.free_list().contains(idx) ==> idx < overall_metadata.num_keys
@@ -789,7 +792,8 @@ verus! {
             &&& forall |i| 0 <= i < self@.durable_main_table.len() ==>
                    (#[trigger] self@.durable_main_table[i] matches Some(entry) ==>
                     entry.entry.item_index < overall_metadata.num_keys)
-            &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==> #[trigger] self.modified_indices@.contains(idx)
+            &&& forall |idx: u64| self.outstanding_entries@.contains_key(idx) <==>
+                   #[trigger] self.modified_indices@.contains(idx)
             &&& forall |idx: u64| 0 <= idx < self@.durable_main_table.len() &&
                  !(#[trigger] self.outstanding_entries@.contains_key(idx)) ==>
                     self.no_outstanding_writes_to_entry(pm, idx, overall_metadata.main_table_entry_size)
@@ -1815,6 +1819,8 @@ verus! {
             ensures
                 parse_main_table::<K>(v2.durable_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@),
+                parse_main_table::<K>(v2.read_state, overall_metadata.num_keys,
+                                      overall_metadata.main_table_entry_size) == Some(self@),
         {
             let num_keys = overall_metadata.num_keys;
             let main_table_entry_size = overall_metadata.main_table_entry_size;
@@ -1824,17 +1830,16 @@ verus! {
             let can_views_differ_at_addr = |addr: int| crc_addr <= addr < end_addr;
             assert(which_entry < num_keys);
 
-         let crash_state1 = v1.durable_state;
-            let crash_state2 = v2.durable_state;
-            assert(parse_main_table::<K>(crash_state1, num_keys, main_table_entry_size) == Some(self@));
+            assert(parse_main_table::<K>(v1.durable_state, num_keys, main_table_entry_size) == Some(self@));
             lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
-            let entry_bytes = extract_bytes(crash_state1,
+            let entry_bytes = extract_bytes(v1.durable_state,
                                             index_to_offset(which_entry as nat, main_table_entry_size as nat),
                                             main_table_entry_size as nat);
             assert(validate_main_entry::<K>(entry_bytes, num_keys as nat));
-            lemma_subrange_of_subrange_forall(crash_state1);
+            lemma_subrange_of_subrange_forall(v1.durable_state);
             assert forall|addr: int| crc_addr <= addr < end_addr implies
-                       address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys, main_table_entry_size)
+                       address_belongs_to_invalid_main_table_entry(addr, v1.durable_state, num_keys,
+                                                                   main_table_entry_size)
             by {
                 assert(addr / main_table_entry_size as int == which_entry) by {
                     lemma_fundamental_div_mod_converse(
@@ -1842,14 +1847,43 @@ verus! {
                     );
                 }
             }
-            assert forall|addr: int| 0 <= addr < crash_state1.len() && crash_state1[addr] != crash_state2[addr] implies
-                   #[trigger] address_belongs_to_invalid_main_table_entry(addr, crash_state1, num_keys,
+            assert forall|addr: int| 0 <= addr < v1.durable_state.len() &&
+                              v1.durable_state[addr] != v2.durable_state[addr] implies
+                   #[trigger] address_belongs_to_invalid_main_table_entry(addr, v1.durable_state, num_keys,
                                                                           main_table_entry_size) by {
                 assert(!views_match_at_addr(v1, v2, addr));
                 assert(can_views_differ_at_addr(addr));
             }
             lemma_parse_main_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
-                crash_state1, crash_state2, num_keys, main_table_entry_size
+                v1.durable_state, v2.durable_state, num_keys, main_table_entry_size
+            );
+
+            assert(parse_main_table::<K>(v1.read_state, num_keys, main_table_entry_size) == Some(self@));
+            lemma_valid_entry_index(which_entry as nat, num_keys as nat, main_table_entry_size as nat);
+            let entry_bytes = extract_bytes(v1.read_state,
+                                            index_to_offset(which_entry as nat, main_table_entry_size as nat),
+                                            main_table_entry_size as nat);
+            assert(validate_main_entry::<K>(entry_bytes, num_keys as nat));
+            lemma_subrange_of_subrange_forall(v1.read_state);
+            assert forall|addr: int| crc_addr <= addr < end_addr implies
+                       address_belongs_to_invalid_main_table_entry(addr, v1.read_state, num_keys,
+                                                                   main_table_entry_size)
+            by {
+                assert(addr / main_table_entry_size as int == which_entry) by {
+                    lemma_fundamental_div_mod_converse(
+                        addr, main_table_entry_size as int, which_entry as int, addr - which_entry * main_table_entry_size
+                    );
+                }
+            }
+            assert forall|addr: int| 0 <= addr < v1.read_state.len() &&
+                              v1.read_state[addr] != v2.read_state[addr] implies
+                   #[trigger] address_belongs_to_invalid_main_table_entry(addr, v1.read_state, num_keys,
+                                                                          main_table_entry_size) by {
+                assert(!views_match_at_addr(v1, v2, addr));
+                assert(can_views_differ_at_addr(addr));
+            }
+            lemma_parse_main_table_doesnt_depend_on_fields_of_invalid_entries::<K>(
+                v1.read_state, v2.read_state, num_keys, main_table_entry_size
             );
         }
 
@@ -2064,6 +2098,8 @@ verus! {
             }
 
             assert(parse_main_table::<K>(pm_view.durable_state, overall_metadata.num_keys,
+                                      overall_metadata.main_table_entry_size) == Some(self@) &&
+                   parse_main_table::<K>(pm_view.read_state, overall_metadata.num_keys,
                                       overall_metadata.main_table_entry_size) == Some(self@)) by {
                 old(self).lemma_changing_invalid_entry_doesnt_affect_parse_main_table(
                     old_pm_view, pm_view, overall_metadata, free_index
@@ -2203,8 +2239,15 @@ verus! {
                     &&& i != index ==> self.tentative_view().durable_main_table[i] == old(self).tentative_view().durable_main_table[i]
                     &&& i == index ==> self.tentative_view().durable_main_table[i] is None
                 });
-//                assert(forall |i: int| 0 <= i < self.tentative_view().durable_main_table.len() && i != index ==> 
-//                    #[trigger] old(self).tentative_view().durable_main_table[i] is Some ==> old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index != old_item_index);
+                assert forall |i: int| {
+                    &&& 0 <= i < self.tentative_view().durable_main_table.len()
+                    &&& i != index
+                    &&& #[trigger] old(self).tentative_view().durable_main_table[i] is Some
+                } implies old(self).tentative_view().durable_main_table[i].unwrap().entry.item_index !=
+                          old_item_index by {
+                    assert(old(self).tentative_view().durable_main_table[i as int].unwrap().item_index() !=
+                           old(self).tentative_view().durable_main_table[index as int].unwrap().item_index());
+                }
                 assert(!self.tentative_view().valid_item_indices().contains(old_item_index));
 
                 assert(self.tentative_view().valid_item_indices() =~= old(self).tentative_view().valid_item_indices().remove(old_item_index));
